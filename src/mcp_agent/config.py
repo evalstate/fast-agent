@@ -130,6 +130,17 @@ class OpenAISettings(BaseModel):
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
+class DeepSeekSettings(BaseModel):
+    """
+    Settings for using OpenAI models in the MCP Agent application.
+    """
+
+    api_key: str | None = None
+    #reasoning_effort: Literal["low", "medium", "high"] = "medium"
+
+    base_url: str | None = None
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 class TemporalSettings(BaseModel):
     """
@@ -254,6 +265,9 @@ class Settings(BaseSettings):
 
     openai: OpenAISettings | None = None
     """Settings for using OpenAI models in the MCP Agent application"""
+
+    deepseek: DeepSeekSettings | None = None
+    """Settings for using DeepSeek models in the MCP Agent application"""
 
     otel: OpenTelemetrySettings | None = OpenTelemetrySettings()
     """OpenTelemetry logging settings for the MCP Agent application"""

@@ -10,6 +10,7 @@ from mcp_agent.workflows.llm.augmented_llm_anthropic import AnthropicAugmentedLL
 from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.workflows.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.workflows.llm.augmented_llm_playback import PlaybackLLM
+from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
 # Type alias for LLM classes
 LLMClass = Union[
@@ -17,6 +18,7 @@ LLMClass = Union[
     Type[OpenAIAugmentedLLM],
     Type[PassthroughLLM],
     Type[PlaybackLLM],
+    Type[DeekSeekAugmentedLLM],
 ]
 
 
@@ -26,6 +28,7 @@ class Provider(Enum):
     ANTHROPIC = auto()
     OPENAI = auto()
     FAST_AGENT = auto()
+    DEEPSEEK = auto()
 
 
 class ReasoningEffort(Enum):
@@ -53,6 +56,7 @@ class ModelFactory:
         "anthropic": Provider.ANTHROPIC,
         "openai": Provider.OPENAI,
         "fast-agent": Provider.FAST_AGENT,
+        "deepseek": Provider.DEEPSEEK,
     }
 
     # Mapping of effort strings to enum values
@@ -85,6 +89,8 @@ class ModelFactory:
         "claude-3-7-sonnet-latest": Provider.ANTHROPIC,
         "claude-3-opus-20240229": Provider.ANTHROPIC,
         "claude-3-opus-latest": Provider.ANTHROPIC,
+        "deepseek-chat": Provider.DEEPSEEK,
+        "deepseek-reasoner": Provider.DEEPSEEK,
     }
 
     MODEL_ALIASES = {
@@ -97,6 +103,8 @@ class ModelFactory:
         "haiku35": "claude-3-5-haiku-latest",
         "opus": "claude-3-opus-latest",
         "opus3": "claude-3-opus-latest",
+        "deepseekv3": "deepseek-chat",
+        "deepseekR1": "deepseek-reasoner"
     }
 
     # Mapping of providers to their LLM classes
@@ -104,6 +112,7 @@ class ModelFactory:
         Provider.ANTHROPIC: AnthropicAugmentedLLM,
         Provider.OPENAI: OpenAIAugmentedLLM,
         Provider.FAST_AGENT: PassthroughLLM,
+        Provider.DEEPSEEK: DeekSeekAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes
