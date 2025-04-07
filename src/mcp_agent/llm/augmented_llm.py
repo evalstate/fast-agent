@@ -1,3 +1,5 @@
+import json
+import re
 from abc import abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -146,15 +148,75 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
         """Apply the prompt and return the result as a Pydantic model, or None if coercion fails"""
+        logger = get_logger(__name__) # Ensure logger is available
         try:
             result: PromptMessageMultipart = await self.generate(prompt, request_params)
-            json_data = from_json(result.first_text(), allow_partial=True)
-            validated_model = model.model_validate(json_data)
-            return cast("ModelT", validated_model), Prompt.assistant(json_data)
+            raw_text = result.first_text()
+
+            # Attempt to find and extract the first JSON object or array
+            json_match = re.search(r'(\{.*\}|\[.*\])', raw_text, re.DOTALL)
+            extracted_json_str = None
+            if json_match:
+                potential_json = json_match.group(0)
+                # Basic validation: check if it starts and ends with matching braces/brackets
+                if (potential_json.startswith('{') and potential_json.endswith('}')) or \
+                   (potential_json.startswith('[') and potential_json.endswith(']')):
+                   extracted_json_str = potential_json
+
+            if not extracted_json_str:
+                 # Fallback: Try finding the start of a JSON object/array
+                 start_index = -1
+                 first_char = ''
+                 brace_index = raw_text.find('{')
+                 bracket_index = raw_text.find('[')
+
+                 if brace_index != -1 and (bracket_index == -1 or brace_index < bracket_index):
+                     start_index = brace_index
+                     first_char = '{'
+                 elif bracket_index != -1:
+                     start_index = bracket_index
+                     first_char = '['
+
+                 if start_index != -1:
+                    extracted_json_str = raw_text[start_index:]
+                    # More robust extraction (optional, simple find might suffice with pydantic_core)
+                    # try:
+                    #     # Use json.JSONDecoder for potentially more robust partial parsing if needed
+                    #     decoder = json.JSONDecoder()
+                    #     parsed_obj, end_index = decoder.raw_decode(extracted_json_str)
+                    #     extracted_json_str = extracted_json_str[:end_index] # Keep only the valid part
+                    # except json.JSONDecodeError:
+                    #      extracted_json_str = None # Failed to extract robustly
+
+
+            if extracted_json_str:
+                try:
+                    # Use pydantic_core's from_json for validation AND parsing
+                    json_data = from_json(extracted_json_str, allow_partial=True)
+                    validated_model = model.model_validate(json_data)
+                    # Return the validated model and the *original* raw assistant response for history
+                    return cast("ModelT", validated_model), result
+                except Exception as validation_error:
+                    logger.warning(f"JSON found but failed Pydantic validation: {validation_error}. Raw JSON tried: '{extracted_json_str}'")
+                    # Fall through to the main error handling
+            else:
+                 logger.warning(f"No valid JSON object or array found in the response. Raw text: '{raw_text}'")
+                 # Fall through
+
+            # If extraction or validation failed up to this point
+            raise ValueError("Failed to extract or validate JSON from the response.")
+
         except Exception as e:
-            logger = get_logger(__name__)
-            logger.error(f"Failed to parse structured response: {str(e)}")
-            return None, Prompt.assistant(f"Failed to parse structured response: {str(e)}")
+            # Log the original error if it's different from our ValueError
+            if not isinstance(e, ValueError) or "Failed to extract" not in str(e) :
+                 logger.error(f"Failed to parse structured response: {str(e)}. Raw text was: '{result.first_text() if 'result' in locals() else 'N/A'}'")
+            # Return None and an assistant message indicating failure (using the original raw response)
+            failure_message = result if 'result' in locals() else Prompt.assistant(f"Failed to process structured response: {str(e)}")
+            # Ensure the failure message has helpful text content if the original was complex
+            if not failure_message.content or not isinstance(failure_message.content[0], TextContent):
+                 failure_message = Prompt.assistant(f"Failed to process structured response: {str(e)}")
+
+            return None, failure_message
 
     async def generate(
         self,
