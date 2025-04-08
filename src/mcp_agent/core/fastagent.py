@@ -254,8 +254,38 @@ class FastAgent:
                     model_factory_func,
                 )
 
+                # Filter active_agents based on args.expose_agents if specified
+                filtered_agents = active_agents
+
+                if (
+                    hasattr(self, "args")
+                    and hasattr(self.args, "expose_agents")
+                    and self.args.expose_agents
+                ):
+                    # Convert to set for efficient intersection
+                    requested_agents = set(
+                        self.args.expose_agents
+                        if isinstance(self.args.expose_agents, list)
+                        else [self.args.expose_agents]
+                    )
+                    available_agents = set(active_agents.keys())
+
+                    # Find intersection of requested and available agents
+                    matched_agents = requested_agents & available_agents
+
+                    if not matched_agents:
+                        available_list = ", ".join(available_agents)
+                        requested_list = ", ".join(requested_agents)
+                        print(
+                            f"\n\nError: No matching agents found. Requested: {requested_list}. Available: {available_list}"
+                        )
+                        raise SystemExit(1)
+
+                    # Create filtered dictionary with matched agents
+                    filtered_agents = {name: active_agents[name] for name in matched_agents}
+
                 # Create a wrapper with all agents for simplified access
-                wrapper = AgentApp(active_agents)
+                wrapper = AgentApp(filtered_agents)
 
                 # Handle command line options that should be processed after agent initialization
 
@@ -439,6 +469,11 @@ class FastAgent:
         self.args.port = port
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
+        )
+        self.args.expose_agents = (
+            original_args.expose_agents
+            if original_args and hasattr(original_args, "expose_agents")
+            else None
         )
         self.args.model = None
         if hasattr(original_args, "model"):
