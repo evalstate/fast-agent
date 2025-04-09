@@ -75,14 +75,14 @@ class MCPServerSettings(BaseModel):
     url: str | None = None
     """The URL for the server (e.g. for SSE transport)."""
 
+    headers: Dict[str, str] | None = None
+    """Headers dictionary for SSE connections"""
+
     auth: MCPServerAuthSettings | None = None
     """The authentication configuration for the server."""
 
     roots: Optional[List[MCPRootSettings]] = None
     """Root directories this server has access to."""
-
-    env: Dict[str, str] | None = None
-    """Environment variables to pass to the server process."""
 
     env: Dict[str, str] | None = None
     """Environment variables to pass to the server process."""

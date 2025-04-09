@@ -377,6 +377,22 @@
           "title": "Url",
           "description": "The URL for the server (e.g. for SSE transport)."
         },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Headers",
+          "description": "Headers dictionary for SSE connections"
+        },
         "auth": {
           "anyOf": [
             {

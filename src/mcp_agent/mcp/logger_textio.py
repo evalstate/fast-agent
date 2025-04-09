@@ -3,7 +3,7 @@ Utilities for MCP stdio client integration with our logging system.
 """
 
 import io
-import sys
+import os
 from typing import TextIO
 
 from mcp_agent.logging.logger import get_logger
@@ -78,10 +78,21 @@ class LoggerTextIO(TextIO):
 
     def fileno(self) -> int:
         """
-        Return a file descriptor for this stream.
-        We use sys.stderr's fileno since TextIO is expected to return a real file descriptor.
+        Return a file descriptor for /dev/null.
+        This prevents output from showing on the terminal
+        while still allowing our write() method to capture it for logging.
         """
-        return sys.stderr.fileno()
+        if not hasattr(self, '_devnull_fd'):
+            self._devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        return self._devnull_fd
+        
+    def __del__(self):
+        """Clean up the devnull file descriptor."""
+        if hasattr(self, '_devnull_fd'):
+            try:
+                os.close(self._devnull_fd)
+            except (OSError, AttributeError):
+                pass
 
 
 def get_stderr_handler(server_name: str) -> TextIO:

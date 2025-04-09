@@ -1,6 +1,8 @@
 import os
 from typing import TYPE_CHECKING, List
 
+from mcp.types import EmbeddedResource, ImageContent, TextContent
+
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.providers.multipart_converter_anthropic import (
     AnthropicConverter,
@@ -75,7 +77,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         self,
         message_param,
         request_params: RequestParams | None = None,
-    ):
+    ) -> list[TextContent | ImageContent | EmbeddedResource]:
         """
         Process a query using an LLM and available tools.
         Override this method to use a different LLM.
@@ -112,7 +114,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             for tool in tool_list.tools
         ]
 
-        responses: List[Message] = []
+        responses: List[TextContent | ImageContent | EmbeddedResource] = []
 
         model = self.default_request_params.model
 
@@ -174,7 +176,8 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
             response_as_message = self.convert_message_to_message_param(response)
             messages.append(response_as_message)
-            responses.append(response)
+            if response.content[0].type == "text":
+                responses.append(TextContent(type="text", text=response.content[0].text))
 
             if response.stop_reason == "end_turn":
                 message_text = ""
@@ -254,6 +257,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
                         # Add each result to our collection
                         tool_results.append((tool_use_id, result))
+                        responses.extend(result.content)
 
                     messages.append(AnthropicConverter.create_tool_results_message(tool_results))
 
@@ -305,28 +309,11 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         Override this method to use a different LLM.
 
         """
-
-        responses: List[Message] = await self.generate_internal(
+        res = await self.generate_internal(
             message_param=message_param,
             request_params=request_params,
         )
-
-        final_text: List[str] = []
-
-        # Process all responses and collect all text content
-        for response in responses:
-            # Extract text content from each message
-            message_text = ""
-            for content in response.content:
-                if content.type == "text":
-                    # Extract text from text blocks
-                    message_text += content.text
-
-            # Only append non-empty text
-            if message_text:
-                final_text.append(message_text)
-
-        return Prompt.assistant(*final_text)
+        return Prompt.assistant(*res)
 
     async def _apply_prompt_provider_specific(
         self,

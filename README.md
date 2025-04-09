@@ -18,8 +18,7 @@ The simple declarative syntax lets you concentrate on composing your Prompts and
 
 `fast-agent` is multi-modal, supporting Images and PDFs for both Anthropic and OpenAI endpoints via Prompts, Resources and MCP Tool Call results. The inclusion of passthrough and playback LLMs enable rapid development and test of Python glue-code for your applications.
 
-> [!TIP]
-> `fast-agent` is now MCP Native! Coming Soon - Full Documentation Site and Further MCP Examples.
+> [!TIP] > `fast-agent` is now MCP Native! Coming Soon - Full Documentation Site and Further MCP Examples.
 
 ### Agent Application Development
 
@@ -283,7 +282,7 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
   servers=["filesystem"],                # list of MCP Servers for the agent
   model="o3-mini.high",                  # specify a model for the agent
   use_history=True,                      # agent maintains chat history
-  request_params={"temperature": 0.7},   # additional parameters for the LLM (or RequestParams())
+  request_params=RequestParams(temperature= 0.7)), # additional parameters for the LLM (or RequestParams())
   human_input=True,                      # agent can request human input
 )
 ```

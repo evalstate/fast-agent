@@ -285,10 +285,17 @@ async def get_enhanced_input(
             elif cmd == "agents":
                 return "LIST_AGENTS"
             elif cmd == "prompts":
-                return "SELECT_PROMPT"  # Directly launch prompt selection UI
+                # Return a dictionary with select_prompt action instead of a string
+                # This way it will match what the command handler expects
+                return {"select_prompt": True, "prompt_name": None}
             elif cmd == "prompt" and len(cmd_parts) > 1:
-                # Direct prompt selection with name
-                return f"SELECT_PROMPT:{cmd_parts[1].strip()}"
+                # Direct prompt selection with name or number
+                prompt_arg = cmd_parts[1].strip()
+                # Check if it's a number (use as index) or a name (use directly)
+                if prompt_arg.isdigit():
+                    return {"select_prompt": True, "prompt_index": int(prompt_arg)}
+                else:
+                    return f"SELECT_PROMPT:{prompt_arg}"
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":
@@ -420,13 +427,27 @@ async def get_argument_input(
             prompt_session.app.exit()
 
 
-async def handle_special_commands(command: str, agent_app=None):
-    """Handle special input commands."""
+async def handle_special_commands(command, agent_app=None):
+    """
+    Handle special input commands.
+    
+    Args:
+        command: The command to handle, can be string or dictionary
+        agent_app: Optional agent app reference
+        
+    Returns:
+        True if command was handled, False if not, or a dict with action info
+    """
     # Quick guard for empty or None commands
     if not command:
         return False
+        
+    # If command is already a dictionary, it has been pre-processed
+    # Just return it directly (like when /prompts converts to select_prompt dict)
+    if isinstance(command, dict):
+        return command
 
-    # Check for special commands
+    # Check for special string commands
     if command == "HELP":
         rich_print("\n[bold]Available Commands:[/bold]")
         rich_print("  /help          - Show this help")
@@ -450,7 +471,7 @@ async def handle_special_commands(command: str, agent_app=None):
         print("\033c", end="")
         return True
 
-    elif command.upper() == "EXIT":
+    elif isinstance(command, str) and command.upper() == "EXIT":
         raise PromptExitError("User requested to exit fast-agent session")
 
     elif command == "LIST_AGENTS":
@@ -461,8 +482,6 @@ async def handle_special_commands(command: str, agent_app=None):
         else:
             rich_print("[yellow]No agents available[/yellow]")
         return True
-
-    # Removed LIST_PROMPTS handling as it's now covered by SELECT_PROMPT
 
     elif command == "SELECT_PROMPT" or (
         isinstance(command, str) and command.startswith("SELECT_PROMPT:")

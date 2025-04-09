@@ -235,6 +235,8 @@ class FastAgent:
                     progress_display.stop()
 
                 # Pre-flight validation
+                if 0 == len(self.agents):
+                    raise AgentConfigError("No agents defined. Please define at least one agent.")
                 validate_server_references(self.context, self.agents)
                 validate_workflow_references(self.agents)
 

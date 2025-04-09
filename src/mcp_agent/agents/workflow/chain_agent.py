@@ -23,7 +23,8 @@ class ChainAgent(BaseAgent):
     A chain agent that processes requests through a series of specialized agents in sequence.
     Passes the output of each agent to the next agent in the chain.
     """
-    
+
+    # TODO -- consider adding "repeat" mode
     @property
     def agent_type(self) -> str:
         """Return the type of this agent."""
@@ -70,20 +71,11 @@ class ChainAgent(BaseAgent):
         # # Get the original user message (last message in the list)
         user_message = multipart_messages[-1] if multipart_messages else None
 
-        # # If no user message, return an error
-        # if not user_message:
-        #     return PromptMessageMultipart(
-        #         role="assistant",
-        #         content=[TextContent(type="text", text="No input message provided.")],
-        #     )
-
-        # Initialize messages with the input
-
         if not self.cumulative:
             response: PromptMessageMultipart = await self.agents[0].generate(multipart_messages)
             # Process the rest of the agents in the chain
             for agent in self.agents[1:]:
-                next_message = Prompt.user(response.content[0].text)
+                next_message = Prompt.user(*response.content)
                 response = await agent.generate([next_message])
 
             return response

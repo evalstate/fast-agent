@@ -5,6 +5,9 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    TextContent,
 )
 from openai import AuthenticationError, OpenAI
 
@@ -115,7 +118,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         self,
         message,
         request_params: RequestParams | None = None,
-    ) -> List[ChatCompletionMessage]:
+    ) -> List[TextContent | ImageContent | EmbeddedResource]:
         """
         Process a query using an LLM and available tools.
         The default implementation uses OpenAI's ChatCompletion as the LLM.
@@ -164,7 +167,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         if not available_tools:
             available_tools = None  # deepseek does not allow empty array
 
-        responses: List[ChatCompletionMessage] = []
+        responses: List[TextContent | ImageContent | EmbeddedResource] = []
         model = self.default_request_params.model
 
         # we do NOT send stop sequences as this causes errors with mutlimodal processing
@@ -218,7 +221,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
             choice = response.choices[0]
             message = choice.message
-            responses.append(message)
+            # prep for image/audio gen models
+            if message.content:
+                responses.append(TextContent(type="text", text=message.content))
 
             converted_message = self.convert_message_to_message_param(message, name=self.name)
             messages.append(converted_message)
@@ -258,7 +263,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                     self.show_oai_tool_result(str(result))
 
                     tool_results.append((tool_call.id, result))
-
+                    responses.extend(result.content)
                 messages.extend(OpenAIConverter.convert_function_results_to_openai(tool_results))
 
                 self.logger.debug(
@@ -310,39 +315,6 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
         return responses
 
-    async def generate_str(
-        self,
-        message,
-        request_params: RequestParams | None = None,
-    ) -> str:
-        """
-        Process a query using an LLM and available tools.
-        The default implementation uses OpenAI's ChatCompletion as the LLM.
-        Override this method to use a different LLM.
-
-        Special commands:
-        - "***SAVE_HISTORY <filename.md>" - Saves the conversation history to the specified file
-          in MCP prompt format with user/assistant delimiters.
-        """
-
-        responses = await self.generate_internal(
-            message=message,
-            request_params=request_params,
-        )
-
-        final_text: List[str] = []
-
-        for response in responses:
-            content = response.content
-            if not content:
-                continue
-
-            if isinstance(content, str):
-                final_text.append(content)
-                continue
-
-        return "\n".join(final_text)
-
     async def _apply_prompt_provider_specific(
         self,
         multipart_messages: List["PromptMessageMultipart"],
@@ -366,7 +338,13 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             # For user messages: Generate response to the last one
             self.logger.debug("Last message in prompt is from user, generating assistant response")
             message_param = OpenAIConverter.convert_to_openai(last_message)
-            return Prompt.assistant(await self.generate_str(message_param, request_params))
+            responses: List[
+                TextContent | ImageContent | EmbeddedResource
+            ] = await self.generate_internal(
+                message_param,
+                request_params,
+            )
+            return Prompt.assistant(*responses)
         else:
             # For assistant messages: Return the last message content as text
             self.logger.debug("Last message in prompt is from assistant, returning it directly")
@@ -411,7 +389,8 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                     role="system", content=self.instruction
                 )
                 messages.insert(0, system_msg)
-
+            model_name = self.default_request_params.model
+            self.show_user_message(prompt[-1].first_text(), model_name, self.chat_turn())
             # Use the beta parse feature
             try:
                 openai_client = OpenAI(api_key=self._api_key(), base_url=self._base_url())
@@ -429,8 +408,8 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
                 if response and isinstance(response[0], BaseException):
                     raise response[0]
-
                 parsed_result = response[0].choices[0].message
+                await self.show_assistant_message(parsed_result.content)
                 logger.debug("Successfully used OpenAI beta parse feature for structured output")
                 return parsed_result.parsed, Prompt.assistant(parsed_result.content)
 

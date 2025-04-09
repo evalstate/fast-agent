@@ -3,6 +3,7 @@ Manages the lifecycle of multiple MCP server connections.
 """
 
 import asyncio
+import traceback
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
@@ -179,7 +180,7 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
             },
         )
         server_conn._error_occurred = True
-        server_conn._error_message = str(exc)
+        server_conn._error_message = traceback.format_exception(exc)
         # If there's an error, we should also set the event so that
         # 'get_server' won't hang
         server_conn._initialized_event.set()
@@ -270,7 +271,7 @@ class MCPConnectionManager(ContextDependent):
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
                 return stdio_client(server_params, errlog=error_handler)
             elif config.transport == "sse":
-                return sse_client(config.url)
+                return sse_client(config.url, config.headers)
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")
 
@@ -328,7 +329,8 @@ class MCPConnectionManager(ContextDependent):
         if not server_conn.is_healthy():
             error_msg = server_conn._error_message or "Unknown error"
             raise ServerInitializationError(
-                f"MCP Server: '{server_name}': Failed to initialize with error: '{error_msg}'. Check fastagent.config.yaml"
+                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
+                error_msg,
             )
 
         return server_conn
