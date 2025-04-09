@@ -263,6 +263,7 @@ async def test_structured_weather_forecast_prompting_style(fast_agent, model_nam
     [
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
+        "openrouter.meta-llama/llama-4-maverick:free",
     ],
 )
 async def test_generic_model_textual_prompting(fast_agent, model_name):
