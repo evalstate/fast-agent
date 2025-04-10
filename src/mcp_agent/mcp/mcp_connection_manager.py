@@ -271,7 +271,11 @@ class MCPConnectionManager(ContextDependent):
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
                 return stdio_client(server_params, errlog=error_handler)
             elif config.transport == "sse":
-                return sse_client(config.url, config.headers)
+                return sse_client(
+                    config.url,
+                    config.headers,
+                    sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                )
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")
 

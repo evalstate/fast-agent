@@ -70,6 +70,9 @@ class MCPServerSettings(BaseModel):
     """The arguments for the server command."""
 
     read_timeout_seconds: int | None = None
+    """The timeout in seconds for the session."""
+
+    read_transport_sse_timeout_seconds: int = 300
     """The timeout in seconds for the server connection."""
 
     url: str | None = None

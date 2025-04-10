@@ -362,6 +362,19 @@
           ],
           "default": null,
           "title": "Read Timeout Seconds",
+          "description": "The timeout in seconds for the session."
+        },
+        "read_transport_sse_timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": 300,
+          "title": "Read Transport SSE Timeout Seconds",
           "description": "The timeout in seconds for the server connection."
         },
         "url": {
