@@ -10,7 +10,7 @@
 ## Overview
 
 > [!TIP]
-> Documentation site is in production here : https://fast-agent.ai. Feel free to feed back what's helpful and what's not.
+> Documentation site is in production here : https://fast-agent.ai. Feel free to feed back what's helpful and what's not. llms.txt link is here: https://fast-agent.ai/llms.txt
 
 **`fast-agent`** enables you to create and interact with sophisticated Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling. Both Anthropic (Haiku, Sonnet, Opus) and OpenAI models (gpt-4o family, o1/o3 family) are supported.
 
