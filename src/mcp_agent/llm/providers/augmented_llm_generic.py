@@ -40,8 +40,8 @@ class GenericAugmentedLLM(OpenAIAugmentedLLM):
         return api_key or "ollama"
 
     def _base_url(self) -> str:
-        base_url = None
+        base_url = os.getenv("GENERIC_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
         if self.context.config and self.context.config.generic:
             base_url = self.context.config.generic.base_url
 
-        return base_url if base_url else DEFAULT_OLLAMA_BASE_URL
+        return base_url

@@ -4,7 +4,7 @@ from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 
-OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 # No single default model for OpenRouter, users must specify full path
 DEFAULT_OPENROUTER_MODEL = None 
 
@@ -63,7 +63,7 @@ class OpenRouterAugmentedLLM(OpenAIAugmentedLLM):
 
     def _base_url(self) -> str:
         """Retrieve the OpenRouter base URL from config or use the default."""
-        base_url = OPENROUTER_BASE_URL # Default
+        base_url = os.getenv("OPENROUTER_BASE_URL", DEFAULT_OPENROUTER_BASE_URL)  # Default
         config = self.context.config
         
         # Check config file for override
