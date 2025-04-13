@@ -98,11 +98,11 @@ dev = [
     "tomli>=2.2.1",
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.1",
+    "pytest-cov>=6.1.1",
 ]
 
 [project.scripts]
 fast-agent = "mcp_agent.cli.__main__:app"
-fast_agent = "mcp_agent.cli.__main__:app"
 fastagent = "mcp_agent.cli.__main__:app"
 silsila = "mcp_agent.cli.__main__:app"
 prompt-server = "mcp_agent.mcp.prompts.__main__:main"

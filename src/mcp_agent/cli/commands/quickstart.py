@@ -174,15 +174,15 @@ def show_overview() -> None:
     # Show usage instructions in a panel
     usage_text = (
         "[bold]Commands:[/bold]\n"
-        "  fastagent bootstrap workflow DIR      Create workflow examples in DIR\n"
-        "  fastagent bootstrap researcher DIR    Create researcher example in 'researcher' subdirectory\n"
-        "  fastagent bootstrap data-analysis DIR Create data analysis examples in 'data-analysis' subdirectory\n\n"
+        "  fastagent quickstart workflow DIR      Create workflow examples in DIR\n"
+        "  fastagent quickstart researcher DIR    Create researcher example in 'researcher' subdirectory\n"
+        "  fastagent quickstart data-analysis DIR Create data analysis examples in 'data-analysis' subdirectory\n\n"
         "[bold]Options:[/bold]\n"
         "  --force            Overwrite existing files\n\n"
         "[bold]Examples:[/bold]\n"
-        "  fastagent bootstrap workflow .              Create in current directory\n"
-        "  fastagent bootstrap researcher .            Create in researcher subdirectory\n"
-        "  fastagent bootstrap data-analysis . --force Force overwrite files in data-analysis subdirectory"
+        "  fastagent quickstart workflow .              Create in current directory\n"
+        "  fastagent quickstart researcher .            Create in researcher subdirectory\n"
+        "  fastagent quickstart data-analysis . --force Force overwrite files in data-analysis subdirectory"
     )
     console.print(Panel(usage_text, title="Usage", border_style="blue"))
 
