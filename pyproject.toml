@@ -30,6 +30,7 @@ dependencies = [
     "openai>=1.63.2",
     "prompt-toolkit>=3.0.50",
     "aiohttp>=3.11.13",
+    "a2a-types>=0.1.0",
 ]
 
 [project.optional-dependencies]
