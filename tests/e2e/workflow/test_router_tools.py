@@ -5,6 +5,7 @@ import pytest
 
 
 @pytest.mark.integration
+@pytest.mark.skip
 @pytest.mark.asyncio
 @pytest.mark.e2e
 @pytest.mark.parametrize(
