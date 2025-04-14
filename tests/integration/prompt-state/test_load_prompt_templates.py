@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List
 import pytest
 from mcp.types import ImageContent
 
+from mcp_agent.core.prompt import Prompt
 from mcp_agent.mcp.prompts.prompt_load import (
     load_prompt_multipart,
 )
@@ -133,14 +134,13 @@ async def test_save_state_to_mcp_json_format(fast_agent):
             json_data = json.loads(json_content)
 
             # Validate it's a list of messages
-            assert isinstance(json_data, list)
-            assert len(json_data) >= 4  # At least 4 messages (2 user, 2 assistant)
+            assert isinstance(json_data["messages"], list)
+            assert len(json_data["messages"]) >= 4  # At least 4 messages (2 user, 2 assistant)
 
             # Check that messages have expected structure
-            for msg in json_data:
+            for msg in json_data["messages"]:
                 assert "role" in msg
                 assert "content" in msg
-                assert isinstance(msg["content"], list)
 
             # Validate with Pydantic by parsing to PromptMessageMultipart objects
             prompts = json_to_multipart_messages(json_content)
@@ -159,5 +159,39 @@ async def test_save_state_to_mcp_json_format(fast_agent):
             # Construct and validate with GetPromptResult
             prompt_result = GetPromptResult(messages=messages)
             assert len(prompt_result.messages) >= len(messages)
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_round_trip_json_attachments(fast_agent):
+    """Test that we can save as json, and read back the content as PromptMessage->PromptMessageMultipart."""
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(name="test")
+    async def agent_function():
+        async with fast.run() as agent:
+            # Delete the file if it exists before running the test
+            if os.path.exists("./multipart.json"):
+                os.remove("./multipart.json")
+
+            assert not os.path.exists("./multipart.json")
+
+            await agent.test.generate([Prompt.user("good morning")])
+            await agent.test.generate([Prompt.user("what's in this image", Path("conv2_img.png"))])
+            await agent.send("***SAVE_HISTORY multipart.json")
+
+            prompts: list[PromptMessageMultipart] = load_prompt_multipart(Path("./multipart.json"))
+            assert 4 == len(prompts)
+
+            assert "assistant" == prompts[1].role
+            assert 2 == len(prompts[2].content)
+            assert isinstance(prompts[2].content[1], ImageContent)
+            assert 12780 == len(prompts[2].content[1].data)
+
+            # TODO -- consider serialization of non-text content for non json files. await requirement
 
     await agent_function()
