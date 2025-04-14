@@ -47,6 +47,18 @@ EXAMPLE_TYPES = {
         "mount_point_files": ["WA_Fn-UseC_-HR-Employee-Attrition.csv"],
         "create_subdir": True,
     },
+    "state-transfer": {
+        "description": "Example demonstrating state transfer between multiple agents.\n"
+        "Shows how state can be passed between agent runs to maintain context.\n"
+        "Creates examples in a 'state-transfer' subdirectory.",
+        "files": [
+            "agent_one.py",
+            "agent_two.py",
+            "fastagent.config.yaml",
+            "fastagent.secrets.yaml.example",
+        ],
+        "create_subdir": True,
+    },
 }
 
 
@@ -75,28 +87,54 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
 
     try:
         # First try to find examples in the package resources
-        source_dir = (
-            files("mcp_agent")
-            .joinpath("resources")
-            .joinpath("examples")
-            .joinpath("workflows" if example_type == "workflow" else f"{example_type}")
-        )
+        if example_type == "state-transfer":
+            # The state-transfer example is in the mcp subdirectory
+            source_dir = (
+                files("mcp_agent")
+                .joinpath("resources")
+                .joinpath("examples")
+                .joinpath("mcp")
+                .joinpath("state-transfer")
+            )
+        else:
+            # Other examples are at the top level of examples
+            source_dir = (
+                files("mcp_agent")
+                .joinpath("resources")
+                .joinpath("examples")
+                .joinpath("workflows" if example_type == "workflow" else f"{example_type}")
+            )
+
+        # Check if we found a valid directory
         if not source_dir.is_dir():
+            console.print(
+                f"[yellow]Resource directory not found: {source_dir}. Falling back to development mode.[/yellow]"
+            )
             # Fall back to the top-level directory for development mode
             package_dir = Path(__file__).parent.parent.parent.parent.parent
+            if example_type == "state-transfer":
+                source_dir = package_dir / "examples" / "mcp" / "state-transfer"
+            else:
+                source_dir = (
+                    package_dir
+                    / "examples"
+                    / ("workflows" if example_type == "workflow" else f"{example_type}")
+                )
+            console.print(f"[blue]Using development directory: {source_dir}[/blue]")
+    except (ImportError, ModuleNotFoundError, ValueError) as e:
+        console.print(
+            f"[yellow]Error accessing resources: {e}. Falling back to development mode.[/yellow]"
+        )
+        # Fall back to the top-level directory if the resource finding fails
+        package_dir = Path(__file__).parent.parent.parent.parent.parent
+        if example_type == "state-transfer":
+            source_dir = package_dir / "examples" / "mcp" / "state-transfer"
+        else:
             source_dir = (
                 package_dir
                 / "examples"
                 / ("workflows" if example_type == "workflow" else f"{example_type}")
             )
-    except (ImportError, ModuleNotFoundError, ValueError):
-        # Fall back to the top-level directory if the resource finding fails
-        package_dir = Path(__file__).parent.parent.parent.parent.parent
-        source_dir = (
-            package_dir
-            / "examples"
-            / ("workflows" if example_type == "workflow" else f"{example_type}")
-        )
 
     if not source_dir.exists():
         console.print(f"[red]Error: Source directory not found: {source_dir}[/red]")
@@ -116,7 +154,14 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
                 continue
 
             shutil.copy2(source, target)
-            created.append(str(target.relative_to(target_dir.parent)))
+            try:
+                # This can fail in test environments where the target is not relative to target_dir.parent
+                rel_path = str(target.relative_to(target_dir.parent))
+            except ValueError:
+                # Fallback to just the filename
+                rel_path = f"{example_type}/{filename}"
+
+            created.append(rel_path)
             console.print(f"[green]Created[/green] {created[-1]}")
 
         except Exception as e:
@@ -176,13 +221,15 @@ def show_overview() -> None:
         "[bold]Commands:[/bold]\n"
         "  fastagent quickstart workflow DIR      Create workflow examples in DIR\n"
         "  fastagent quickstart researcher DIR    Create researcher example in 'researcher' subdirectory\n"
-        "  fastagent quickstart data-analysis DIR Create data analysis examples in 'data-analysis' subdirectory\n\n"
+        "  fastagent quickstart data-analysis DIR Create data analysis examples in 'data-analysis' subdirectory\n"
+        "  fastagent quickstart state-transfer DIR Create state transfer examples in 'state-transfer' subdirectory\n\n"
         "[bold]Options:[/bold]\n"
         "  --force            Overwrite existing files\n\n"
         "[bold]Examples:[/bold]\n"
         "  fastagent quickstart workflow .              Create in current directory\n"
         "  fastagent quickstart researcher .            Create in researcher subdirectory\n"
-        "  fastagent quickstart data-analysis . --force Force overwrite files in data-analysis subdirectory"
+        "  fastagent quickstart data-analysis . --force Force overwrite files in data-analysis subdirectory\n"
+        "  fastagent quickstart state-transfer .        Create state transfer examples"
     )
     console.print(Panel(usage_text, title="Usage", border_style="blue"))
 
@@ -241,6 +288,24 @@ def data_analysis(
     _show_completion_message("data-analysis", created)
 
 
+@app.command()
+def state_transfer(
+    directory: Path = typer.Argument(
+        Path("."),
+        help="Directory where state transfer examples will be created (in 'state-transfer' subdirectory)",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
+) -> None:
+    """Create state transfer example showing state passing between agents."""
+    target_dir = directory.resolve()
+    if not target_dir.exists():
+        target_dir.mkdir(parents=True)
+        console.print(f"Created directory: {target_dir}")
+
+    created = copy_example_files("state-transfer", target_dir, force)
+    _show_completion_message("state-transfer", created)
+
+
 def _show_completion_message(example_type: str, created: list[str]) -> None:
     """Show completion message and next steps."""
     if created:
@@ -275,6 +340,8 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
             console.print(
                 "On Windows platforms, please edit the fastagent.config.yaml and adjust the volume mount point."
             )
+        elif example_type == "state-transfer":
+            console.print("Check https://fast-agent.ai for quick start walkthroughs")
     else:
         console.print("\n[yellow]No files were created.[/yellow]")
 
