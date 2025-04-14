@@ -2,7 +2,7 @@
 # Examples in comments below - check/change the paths.
 #
 #
-
+default_model: azure-gpt-4o
 execution_engine: asyncio
 logger:
   type: file

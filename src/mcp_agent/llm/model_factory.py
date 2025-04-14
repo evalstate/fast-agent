@@ -8,9 +8,11 @@ from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
+# from mcp_agent.llm.providers.augmented_llm_bedrockanthropic import BedrockAnthropicAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_azureopenai import AzureOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
@@ -20,7 +22,9 @@ from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 # Type alias for LLM classes
 LLMClass = Union[
     Type[AnthropicAugmentedLLM],
+    # Type[BedrockAnthropicAugmentedLLM],
     Type[OpenAIAugmentedLLM],
+    Type[AzureOpenAIAugmentedLLM],
     Type[PassthroughLLM],
     Type[PlaybackLLM],
     Type[DeepSeekAugmentedLLM],
@@ -32,7 +36,9 @@ class Provider(Enum):
     """Supported LLM providers"""
 
     ANTHROPIC = auto()
+    # BEDROCKANTHROPIC = auto()
     OPENAI = auto()
+    AZUREOPENAI = auto()
     FAST_AGENT = auto()
     DEEPSEEK = auto()
     GENERIC = auto()
@@ -62,7 +68,9 @@ class ModelFactory:
     # Mapping of provider strings to enum values
     PROVIDER_MAP = {
         "anthropic": Provider.ANTHROPIC,
+        # "bedrockanthropic": Provider.BEDROCKANTHROPIC,
         "openai": Provider.OPENAI,
+        "azureopenai": Provider.AZUREOPENAI,
         "fast-agent": Provider.FAST_AGENT,
         "deepseek": Provider.DEEPSEEK,
         "generic": Provider.GENERIC,
@@ -89,6 +97,12 @@ class ModelFactory:
         "o1": Provider.OPENAI,
         "o1-preview": Provider.OPENAI,
         "o3-mini": Provider.OPENAI,
+        "azure-gpt-4o": Provider.AZUREOPENAI,
+        "azure-gpt-4o-mini": Provider.AZUREOPENAI,
+        "azure-o1-mini": Provider.AZUREOPENAI,
+        "azure-o1": Provider.AZUREOPENAI,
+        "azure-o1-preview": Provider.AZUREOPENAI,
+        "azure-o3-mini": Provider.AZUREOPENAI,
         "claude-3-haiku-20240307": Provider.ANTHROPIC,
         "claude-3-5-haiku-20241022": Provider.ANTHROPIC,
         "claude-3-5-haiku-latest": Provider.ANTHROPIC,
@@ -99,6 +113,16 @@ class ModelFactory:
         "claude-3-7-sonnet-latest": Provider.ANTHROPIC,
         "claude-3-opus-20240229": Provider.ANTHROPIC,
         "claude-3-opus-latest": Provider.ANTHROPIC,
+        # "anthropic.claude-3-haiku-20240307-v1:0": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-5-haiku-20241022-v1:0": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-5-haiku-latest": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-5-sonnet-20240620-v1:0": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-5-sonnet-20241022-v2:0": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-5-sonnet-latest": Provider.BEDROCKANTHROPIC,
+        # "us.anthropic.claude-3-7-sonnet-20250219-v1:0": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-7-sonnet-latest": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-opus-20240229": Provider.BEDROCKANTHROPIC,
+        # "anthropic.claude-3-opus-latest": Provider.BEDROCKANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
     }
@@ -119,8 +143,10 @@ class ModelFactory:
 
     # Mapping of providers to their LLM classes
     PROVIDER_CLASSES: Dict[Provider, LLMClass] = {
-        Provider.ANTHROPIC: AnthropicAugmentedLLM,
+        # Provider.ANTHROPIC: AnthropicAugmentedLLM,
+        # Provider.BEDROCKANTHROPIC: BedrockAnthropicAugmentedLLM,
         Provider.OPENAI: OpenAIAugmentedLLM,
+        Provider.AZUREOPENAI: AzureOpenAIAugmentedLLM,
         Provider.FAST_AGENT: PassthroughLLM,
         Provider.DEEPSEEK: DeepSeekAugmentedLLM,
         Provider.GENERIC: GenericAugmentedLLM,

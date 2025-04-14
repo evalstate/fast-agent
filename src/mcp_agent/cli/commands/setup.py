@@ -17,10 +17,11 @@ FASTAGENT_CONFIG_TEMPLATE = """
 # Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3
 # and OpenAI Models: gpt-4o-mini, gpt-4o, o1, o1-mini, o3-mini
 #
-# If not specified, defaults to "haiku". 
+# If not specified, defaults to "azure-gpt-4o". 
 # Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
 
-default_model: haiku
+# default_model: gpt-4o
+default_model: azure-gpt-4o
 
 # Logging and Console Configuration:
 logger:
@@ -59,6 +60,10 @@ FASTAGENT_SECRETS_TEMPLATE = """
 
 openai:
     api_key: <your-api-key-here>
+azureopenai:
+    api_key: <your-api-key-here>
+    base_url: <your-azure-openai-endpoint-here>
+    api_version: <your-azure-openai-api-version-here>
 anthropic:
     api_key: <your-api-key-here>
 
@@ -215,7 +220,7 @@ def init(
         if "fastagent.secrets.yaml" in created:
             console.print("\n[yellow]Important:[/yellow] Remember to:")
             console.print(
-                "1. Add your API keys to fastagent.secrets.yaml or set OPENAI_API_KEY and ANTHROPIC_API_KEY environment variables"
+                "1. Add your API keys to fastagent.secrets.yaml or set OPENAI_API_KEY, AZURE_OPENAI_KEY and ANTHROPIC_API_KEY environment variables"
             )
             console.print(
                 "2. Keep fastagent.secrets.yaml secure and never commit it to version control"
