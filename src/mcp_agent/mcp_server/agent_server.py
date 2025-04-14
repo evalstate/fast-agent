@@ -21,7 +21,7 @@ class AgentMCPServer:
         server_description: str | None = None,
     ) -> None:
         self.agent_app = agent_app
-        self.mcp_server = FastMCP(
+        self.mcp_server: FastMCP = FastMCP(
             name=server_name,
             instructions=server_description
             or f"This server provides access to {len(agent_app._agents)} agents",
@@ -95,16 +95,15 @@ class AgentMCPServer:
             try:
                 await self.mcp_server.run_sse_async()
             except (asyncio.CancelledError, KeyboardInterrupt):
-                # Gracefully handle cancellation during shutdown
-                await self.shutdown()
-                pass
+                print("Server Stopped (CTRL+C)")
+                return
         else:  # stdio
             try:
                 await self.mcp_server.run_stdio_async()
             except (asyncio.CancelledError, KeyboardInterrupt):
                 # Gracefully handle cancellation during shutdown
-                await self.shutdown()
-                pass
+                print("Server Stopped (CTRL+C)")
+                return
 
     async def with_bridged_context(self, agent_context, mcp_context, func, *args, **kwargs):
         """
@@ -150,17 +149,4 @@ class AgentMCPServer:
     async def shutdown(self):
         """Gracefully shutdown the MCP server and its resources."""
         # Your MCP server may have additional cleanup code here
-        try:
-            # If your MCP server has a shutdown method, call it
-            if hasattr(self.mcp_server, "shutdown"):
-                await self.mcp_server.shutdown()
-
-            # Clean up any other resources
-            import asyncio
-
-            # Allow any pending tasks to clean up
-            await asyncio.sleep(0.5)
-        except Exception as e:
-            # Just log exceptions during shutdown, don't raise
-            print(f"Error during MCP server shutdown: {e}")
-            pass
+        pass
