@@ -18,4 +18,11 @@ mcp:
   servers:
     prompts:
       command: "prompt-server"
-      args: ["simple.txt", "simple_sub.txt", "multi.txt", "multi_sub.txt"]
+      args:
+        [
+          "simple.txt",
+          "simple_sub.txt",
+          "multi.txt",
+          "multi_sub.txt",
+          "multipart.json",
+        ]

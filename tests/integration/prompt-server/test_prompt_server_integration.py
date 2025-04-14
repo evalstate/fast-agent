@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Dict, List
 
 import pytest
 
-from mcp_agent.mcp.helpers.content_helpers import get_text
+from mcp_agent.mcp.helpers.content_helpers import get_text, is_image_content
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 if TYPE_CHECKING:
@@ -109,7 +109,7 @@ async def test_agent_interface_returns_prompts_list(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             prompts: Dict[str, List[Prompt]] = await agent.test.list_prompts()
-            assert 4 == len(prompts["prompts"])
+            assert 5 == len(prompts["prompts"])
 
     await agent_function()
 
@@ -151,5 +151,22 @@ async def test_apply_prompt_with_server_param(fast_agent):
             )
             assert response is not None
             assert "test-product" in response or "test-company" in response
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_handling_multipart_json_format(fast_agent):
+    """Make sure that multipart mixed content from JSON is handled"""
+    fast = fast_agent
+
+    @fast.agent(name="test", servers=["prompts"], model="passthrough")
+    async def agent_function():
+        async with fast.run() as agent:
+            x: GetPromptResult = await agent["test"].get_prompt("multipart")
+
+            assert 5 == len(x.messages)
+            assert is_image_content(x.messages[3].content)
 
     await agent_function()

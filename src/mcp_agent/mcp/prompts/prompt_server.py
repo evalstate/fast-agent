@@ -140,10 +140,59 @@ def get_delimiter_config(
 def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> None:
     """Register a prompt file"""
     try:
+        # Check if it's a JSON file for ultra-minimal path
+        file_str = str(file_path).lower()
+        if file_str.endswith(".json"):
+            # Simple JSON handling - just load and register directly
+            from mcp.server.fastmcp.prompts.base import Prompt, PromptArgument
+
+            from mcp_agent.mcp.prompts.prompt_load import load_prompt
+
+            # Create metadata with minimal information
+            metadata = PromptMetadata(
+                name=file_path.stem,
+                description=f"JSON prompt: {file_path.stem}",
+                template_variables=set(),
+                resource_paths=[],  # Skip resource handling
+                file_path=file_path,
+            )
+
+            # Ensure unique name
+            prompt_name = metadata.name
+            if prompt_name in prompt_registry:
+                base_name = prompt_name
+                suffix = 1
+                while prompt_name in prompt_registry:
+                    prompt_name = f"{base_name}_{suffix}"
+                    suffix += 1
+                metadata.name = prompt_name
+
+            prompt_registry[metadata.name] = metadata
+
+            # Create a simple handler that directly loads the JSON file each time
+            async def json_prompt_handler():
+                # Load the messages from the JSON file
+                messages = load_prompt(file_path)
+                # Convert to FastMCP format
+                return convert_to_fastmcp_messages(messages)
+
+            # Register directly with MCP
+            prompt = Prompt(
+                name=metadata.name,
+                description=metadata.description,
+                arguments=[],  # No arguments for JSON prompts
+                fn=json_prompt_handler,
+            )
+            mcp._prompt_manager.add_prompt(prompt)
+
+            logger.info(f"Registered JSON prompt: {metadata.name} ({file_path})")
+            return  # Early return - we're done with JSON files
+
+        # For non-JSON files, continue with the standard approach
         # Get delimiter configuration
         config_values = get_delimiter_config(config, file_path)
 
-        # Use our prompt template loader to analyze the file
+        # Use standard template loader for text files
         loader = PromptTemplateLoader(
             {
                 config_values["user_delimiter"]: "user",

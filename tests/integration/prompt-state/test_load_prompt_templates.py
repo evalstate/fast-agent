@@ -192,6 +192,8 @@ async def test_round_trip_json_attachments(fast_agent):
             assert isinstance(prompts[2].content[1], ImageContent)
             assert 12780 == len(prompts[2].content[1].data)
 
+            assert 2 == len(prompts[2].from_multipart())
+
             # TODO -- consider serialization of non-text content for non json files. await requirement
 
     await agent_function()
