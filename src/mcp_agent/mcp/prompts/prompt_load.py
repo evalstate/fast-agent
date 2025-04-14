@@ -103,29 +103,34 @@ def create_resource_message(
 def load_prompt(file: Path) -> List[PromptMessage]:
     """
     Load a prompt from a file and return as PromptMessage objects.
-    
+
     The loader uses file extension to determine the format:
-    - .json files are loaded as MCP SDK compatible JSON format
+    - .json files are loaded as MCP SDK compatible GetPromptResult JSON format
     - All other files are loaded using the template-based delimited format
-    
+
     Args:
         file: Path to the prompt file
-        
+
     Returns:
         List of PromptMessage objects
     """
     file_str = str(file).lower()
-    
+
     if file_str.endswith(".json"):
-        # JSON format (MCP SDK compatible)
-        from mcp_agent.mcp.prompt_serialization import load_messages_from_json_file
-        
-        # Load multipart messages and convert to flat messages
-        multipart_messages = load_messages_from_json_file(str(file))
-        messages = []
-        for mp in multipart_messages:
-            messages.extend(mp.from_multipart())
-        return messages
+        # Handle JSON format as GetPromptResult
+        import json
+
+        from mcp.types import GetPromptResult
+
+        # Load JSON directly into GetPromptResult
+        with open(file, "r", encoding="utf-8") as f:
+            json_data = json.load(f)
+
+        # Parse as GetPromptResult object
+        result = GetPromptResult.model_validate(json_data)
+
+        # Return the messages directly
+        return result.messages
     else:
         # Template-based format (delimited text)
         template: PromptTemplate = PromptTemplateLoader().load_from_file(file)
@@ -135,23 +140,18 @@ def load_prompt(file: Path) -> List[PromptMessage]:
 def load_prompt_multipart(file: Path) -> List[PromptMessageMultipart]:
     """
     Load a prompt from a file and return as PromptMessageMultipart objects.
-    
+
     The loader uses file extension to determine the format:
-    - .json files are loaded as MCP SDK compatible JSON format
+    - .json files are loaded as MCP SDK compatible GetPromptResult JSON format
     - All other files are loaded using the template-based delimited format
-    
+
     Args:
         file: Path to the prompt file
-        
+
     Returns:
         List of PromptMessageMultipart objects
     """
-    file_str = str(file).lower()
-    
-    if file_str.endswith(".json"):
-        # JSON format (MCP SDK compatible)
-        from mcp_agent.mcp.prompt_serialization import load_messages_from_json_file
-        return load_messages_from_json_file(str(file))
-    else:
-        # Template-based format (delimited text)
-        return PromptMessageMultipart.to_multipart(load_prompt(file))
+    # First load as regular PromptMessage objects
+    messages = load_prompt(file)
+    # Then convert to multipart messages
+    return PromptMessageMultipart.to_multipart(messages)

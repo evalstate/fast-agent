@@ -5,9 +5,9 @@ This module provides utilities for converting between different serialization fo
 and PromptMessageMultipart objects. It includes functionality for:
 
 1. JSON Serialization:
-   - Converting PromptMessageMultipart objects to pure JSON format
-   - Parsing JSON into PromptMessageMultipart objects
-   - This is ideal for programmatic use and ensures all data fidelity
+   - Converting PromptMessageMultipart objects to MCP-compatible GetPromptResult JSON format
+   - Parsing GetPromptResult JSON into PromptMessageMultipart objects
+   - This is ideal for programmatic use and ensures full MCP compatibility
 
 2. Delimited Text Format:
    - Converting PromptMessageMultipart objects to delimited text (---USER, ---ASSISTANT)
@@ -19,7 +19,13 @@ and PromptMessageMultipart objects. It includes functionality for:
 import json
 from typing import List
 
-from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
+from mcp.types import (
+    EmbeddedResource,
+    GetPromptResult,
+    ImageContent,
+    TextContent,
+    TextResourceContents,
+)
 
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_constants import (
@@ -33,51 +39,68 @@ from mcp_agent.mcp.prompts.prompt_constants import (
 # -------------------------------------------------------------------------
 
 
-def multipart_messages_to_json(messages: List[PromptMessageMultipart]) -> str:
+def multipart_messages_to_get_prompt_result(
+    messages: List[PromptMessageMultipart],
+) -> GetPromptResult:
     """
-    Convert PromptMessageMultipart objects to a pure JSON string.
-
-    This approach preserves all data and structure exactly as is, but is less
-    human-readable for text content.
+    Convert PromptMessageMultipart objects to a GetPromptResult container.
 
     Args:
         messages: List of PromptMessageMultipart objects
 
     Returns:
-        JSON string representation of the messages
+        GetPromptResult object containing flattened messages
     """
-    # Convert to dictionaries using model_dump with proper JSON mode
-    # The mode="json" parameter ensures proper handling of AnyUrl objects
-    message_dicts = [
-        message.model_dump(by_alias=True, mode="json", exclude_none=True) for message in messages
-    ]
+    # Convert multipart messages to regular PromptMessage objects
+    flat_messages = []
+    for message in messages:
+        flat_messages.extend(message.from_multipart())
+
+    # Create a GetPromptResult with the flattened messages
+    return GetPromptResult(messages=flat_messages)
+
+
+def multipart_messages_to_json(messages: List[PromptMessageMultipart]) -> str:
+    """
+    Convert PromptMessageMultipart objects to a pure JSON string in GetPromptResult format.
+
+    This approach preserves all data and structure exactly as is, compatible with
+    the MCP GetPromptResult type.
+
+    Args:
+        messages: List of PromptMessageMultipart objects
+
+    Returns:
+        JSON string representation with GetPromptResult container
+    """
+    # First convert to GetPromptResult
+    result = multipart_messages_to_get_prompt_result(messages)
+
+    # Convert to dictionary using model_dump with proper JSON mode
+    result_dict = result.model_dump(by_alias=True, mode="json", exclude_none=True)
 
     # Convert to JSON string
-    return json.dumps(message_dicts, indent=2)
+    return json.dumps(result_dict, indent=2)
 
 
 def json_to_multipart_messages(json_str: str) -> List[PromptMessageMultipart]:
     """
-    Parse a JSON string into PromptMessageMultipart objects.
+    Parse a JSON string in GetPromptResult format into PromptMessageMultipart objects.
 
     Args:
-        json_str: JSON string representation of messages
+        json_str: JSON string representation of GetPromptResult
 
     Returns:
         List of PromptMessageMultipart objects
     """
-    # Parse JSON to list of dictionaries
-    message_dicts = json.loads(json_str)
+    # Parse JSON to dictionary
+    result_dict = json.loads(json_str)
 
-    # Convert dictionaries to PromptMessageMultipart objects
-    messages = []
-    for message_dict in message_dicts:
-        # Parse message using Pydantic's model_validate method (Pydantic v2)
-        # For Pydantic v1, this would use parse_obj instead
-        message = PromptMessageMultipart.model_validate(message_dict)
-        messages.append(message)
+    # Parse as GetPromptResult
+    result = GetPromptResult.model_validate(result_dict)
 
-    return messages
+    # Convert to multipart messages
+    return PromptMessageMultipart.to_multipart(result.messages)
 
 
 def save_messages_to_json_file(messages: List[PromptMessageMultipart], file_path: str) -> None:
@@ -113,17 +136,18 @@ def load_messages_from_json_file(file_path: str) -> List[PromptMessageMultipart]
 def save_messages_to_file(messages: List[PromptMessageMultipart], file_path: str) -> None:
     """
     Save PromptMessageMultipart objects to a file, with format determined by file extension.
-    
-    Uses JSON format for .json files and delimited text format for other extensions.
-    
+
+    Uses GetPromptResult JSON format for .json files (fully MCP compatible) and
+    delimited text format for other extensions.
+
     Args:
         messages: List of PromptMessageMultipart objects
         file_path: Path to save the file
     """
     path_str = str(file_path).lower()
-    
+
     if path_str.endswith(".json"):
-        # Use JSON format for .json files (MCP SDK compatible format)
+        # Use GetPromptResult JSON format for .json files (fully MCP compatible)
         save_messages_to_json_file(messages, file_path)
     else:
         # Use delimited text format for other extensions
@@ -133,19 +157,20 @@ def save_messages_to_file(messages: List[PromptMessageMultipart], file_path: str
 def load_messages_from_file(file_path: str) -> List[PromptMessageMultipart]:
     """
     Load PromptMessageMultipart objects from a file, with format determined by file extension.
-    
-    Uses JSON format for .json files and delimited text format for other extensions.
-    
+
+    Uses GetPromptResult JSON format for .json files (fully MCP compatible) and
+    delimited text format for other extensions.
+
     Args:
         file_path: Path to the file
-        
+
     Returns:
         List of PromptMessageMultipart objects
     """
     path_str = str(file_path).lower()
-    
+
     if path_str.endswith(".json"):
-        # Use JSON format for .json files (MCP SDK compatible format)
+        # Use GetPromptResult JSON format for .json files (fully MCP compatible)
         return load_messages_from_json_file(file_path)
     else:
         # Use delimited text format for other extensions
