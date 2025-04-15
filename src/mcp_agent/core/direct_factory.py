@@ -28,7 +28,7 @@ AgentConfigDict = Dict[str, Dict[str, Any]]
 T = TypeVar("T")  # For generic types
 
 # Type for model factory functions
-ModelFactoryFn = Callable[[Optional[str], Optional[RequestParams]], Callable[[], Any]]
+ModelFactoryFn = Callable[[Optional[str], Optional[RequestParams],Optional[str]], Callable[[], Any]]
 
 
 logger = get_logger(__name__)
@@ -54,6 +54,8 @@ def get_model_factory(
     request_params: Optional[RequestParams] = None,
     default_model: Optional[str] = None,
     cli_model: Optional[str] = None,
+    provider: Optional[str] = None,
+    cli_provider: Optional[str] = None,
 ) -> Callable:
     """
     Get model factory using specified or default model.
@@ -71,14 +73,23 @@ def get_model_factory(
     """
     # Config has lowest precedence
     model_spec = default_model or context.config.default_model
-
+    provider_spec = None
+    
     # Command line override has next precedence
     if cli_model:
         model_spec = cli_model
+    
+    # Provider from command line has next precedence
+    if cli_provider:
+        provider_spec = cli_provider
 
     # Model from decorator has highest precedence
     if model:
         model_spec = model
+    
+    # Provider from decorator has highest precedence
+    if provider:
+        provider_spec = provider
 
     # Update or create request_params with the final model choice
     if request_params:
@@ -87,7 +98,7 @@ def get_model_factory(
         request_params = RequestParams(model=model_spec)
 
     # Let model factory handle the model string parsing and setup
-    return ModelFactory.create_factory(model_spec, request_params=request_params)
+    return ModelFactory.create_factory(model_spec, request_params=request_params,provider_name=provider_spec)
 
 
 async def create_agents_by_type(
@@ -147,7 +158,7 @@ async def create_agents_by_type(
                 await agent.initialize()
 
                 # Attach LLM to the agent
-                llm_factory = model_factory_func(model=config.model)
+                llm_factory = model_factory_func(model=config.model,provider=config.provider)
                 await agent.attach_llm(llm_factory, request_params=config.default_request_params)
                 result_agents[name] = agent
 
@@ -180,7 +191,7 @@ async def create_agents_by_type(
                 await orchestrator.initialize()
 
                 # Attach LLM to the orchestrator
-                llm_factory = model_factory_func(model=config.model)
+                llm_factory = model_factory_func(model=config.model,provider=config.provider)
                 await orchestrator.attach_llm(
                     llm_factory, request_params=config.default_request_params
                 )
@@ -241,7 +252,7 @@ async def create_agents_by_type(
                 await router.initialize()
 
                 # Attach LLM to the router
-                llm_factory = model_factory_func(model=config.model)
+                llm_factory = model_factory_func(model=config.model,provider=config.provider)
                 await router.attach_llm(llm_factory, request_params=config.default_request_params)
                 result_agents[name] = router
 

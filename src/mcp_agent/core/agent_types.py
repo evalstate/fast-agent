@@ -34,7 +34,7 @@ class AgentConfig:
     default_request_params: RequestParams | None = None
     human_input: bool = False
     agent_type: str = AgentType.BASIC.value
-
+    provider: str | None = None
     def __post_init__(self) -> None:
         """Ensure default_request_params exists with proper history setting"""
 

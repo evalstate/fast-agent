@@ -129,6 +129,11 @@ class FastAgent:
             default="0.0.0.0",
             help="Host address to bind to when running as a server with SSE transport",
         )
+        parser.add_argument(
+            "--provider",
+            default=None,
+            help="Provider to use for custom models",
+        )
 
         if ignore_unknown_args:
             known_args, _ = parser.parse_known_args()
@@ -241,12 +246,14 @@ class FastAgent:
                 validate_workflow_references(self.agents)
 
                 # Get a model factory function
-                def model_factory_func(model=None, request_params=None):
+                def model_factory_func(model=None, request_params=None, provider=None):
                     return get_model_factory(
                         self.context,
                         model=model,
+                        provider=provider,
                         request_params=request_params,
                         cli_model=self.args.model if hasattr(self, "args") else None,
+                        cli_provider=self.args.provider if hasattr(self, "args") else None,
                     )
 
                 # Create all agents in dependency order
@@ -445,6 +452,10 @@ class FastAgent:
         self.args.model = None
         if hasattr(original_args, "model"):
             self.args.model = original_args.model
+            
+        self.args.provider = None
+        if hasattr(original_args, "provider"):
+            self.args.provider = original_args.provider
 
         # Run the application, which will detect the server flag and start server mode
         async with self.run():
