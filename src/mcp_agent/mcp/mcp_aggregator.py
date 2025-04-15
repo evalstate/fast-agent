@@ -97,11 +97,17 @@ class MCPAggregator(ContextDependent):
         connection_persistence: bool = True,  # Default to True for better stability
         context: Optional["Context"] = None,
         name: str = None,
+        include_tools: List[str] = None,
+        exclude_tools: List[str] = None,
         **kwargs,
     ) -> None:
         """
         :param server_names: A list of server names to connect to.
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
+        :param context: Optional Context instance.
+        :param name: Optional name for this aggregator.
+        :param include_tools: Optional list of tool names. When provided, only the listed tools will be registered. Tool names must be prefixed with the server name: "{server_name}-{tool_name}". Tools in exclude_tools will still be excluded.
+        :param exclude_tools: Optional list of tool names. When provided, the listed tools will not be registered. Tool names must be prefixed with the server name: "{server_name}-{tool_name}". Excludes any tools also listed in include_tools.
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -112,6 +118,8 @@ class MCPAggregator(ContextDependent):
         self.server_names = server_names
         self.connection_persistence = connection_persistence
         self.agent_name = name
+        self.include_tools = include_tools or []
+        self.exclude_tools = exclude_tools or []
         self._persistent_connection_manager: MCPConnectionManager = None
 
         # Set up logger with agent name in namespace if available
@@ -276,16 +284,31 @@ class MCPAggregator(ContextDependent):
 
             # Process tools
             self._server_to_tool_map[server_name] = []
+            
+            # Filter and register tools in a single loop
+            filtered_tools_count = 0
             for tool in tools:
                 namespaced_tool_name = f"{server_name}{SEP}{tool.name}"
+                
+                # Apply exclusion filter
+                if self.exclude_tools and namespaced_tool_name in self.exclude_tools:
+                    logger.debug(f"Excluding namespaced tool '{namespaced_tool_name}'")
+                    continue
+                
+                # Apply inclusion filter if specified
+                if self.include_tools and namespaced_tool_name not in self.include_tools:
+                    logger.debug(f"Skipping tool '{namespaced_tool_name}' not in include list")
+                    continue
+                
+                # Create and register the tool that passed the filters
                 namespaced_tool = NamespacedTool(
                     tool=tool,
                     server_name=server_name,
                     namespaced_tool_name=namespaced_tool_name,
                 )
-
                 self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
                 self._server_to_tool_map[server_name].append(namespaced_tool)
+                filtered_tools_count += 1
 
             # Process prompts
             async with self._prompt_cache_lock:
@@ -297,7 +320,7 @@ class MCPAggregator(ContextDependent):
                     "progress_action": ProgressAction.INITIALIZED,
                     "server_name": server_name,
                     "agent_name": self.agent_name,
-                    "tool_count": len(tools),
+                    "tool_count": filtered_tools_count,
                     "prompt_count": len(prompts),
                 },
             )

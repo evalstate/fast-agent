@@ -82,6 +82,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             server_names=self.config.servers,
             connection_persistence=connection_persistence,
             name=self.config.name,
+            include_tools=self.config.include_tools,
+            exclude_tools=self.config.exclude_tools,
             **kwargs,
         )
 
