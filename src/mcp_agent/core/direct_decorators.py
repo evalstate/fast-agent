@@ -90,6 +90,7 @@ def _decorator_impl(
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    provider: Optional[str] = None,
     **extra_kwargs,
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
@@ -132,6 +133,7 @@ def _decorator_impl(
             model=model,
             use_history=use_history,
             human_input=human_input,
+            provider=provider,
         )
 
         # Update request params if provided
@@ -174,6 +176,7 @@ def agent(
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    provider: Optional[str] = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -203,6 +206,7 @@ def agent(
         use_history=use_history,
         request_params=request_params,
         human_input=human_input,
+        provider=provider,
     )
 
 
@@ -218,6 +222,7 @@ def orchestrator(
     human_input: bool = False,
     plan_type: Literal["full", "iterative"] = "full",
     max_iterations: int = 30,
+    provider: Optional[str] = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
     """
     Decorator to create and register an orchestrator agent with type-safe signature.
@@ -232,7 +237,7 @@ def orchestrator(
         human_input: Whether to enable human input capabilities
         plan_type: Planning approach - "full" or "iterative"
         max_iterations: Maximum number of planning iterations
-
+        provider: Provider name
     Returns:
         A decorator that registers the orchestrator with proper type annotations
     """
@@ -259,6 +264,7 @@ def orchestrator(
             child_agents=agents,
             plan_type=plan_type,
             max_iterations=max_iterations,
+            provider=provider,
         ),
     )
 
@@ -274,6 +280,7 @@ def router(
     use_history: bool = False,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    provider: Optional[str] = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]:
     """
     Decorator to create and register a router agent with type-safe signature.
@@ -308,6 +315,7 @@ def router(
             request_params=request_params,
             human_input=human_input,
             router_agents=agents,
+            provider=provider,
         ),
     )
 

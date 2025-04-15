@@ -137,16 +137,24 @@ class ModelFactory:
     }
 
     @classmethod
-    def parse_model_string(cls, model_string: str) -> ModelConfig:
+    def parse_model_string(cls, model_string: str,provider_name:Optional[str]=None) -> ModelConfig:
         """Parse a model string into a ModelConfig object"""
+        
+        provider = None
+        reasoning_effort = None
+        
+        # Support for custom models
+        if provider_name is not None:
+            provider = cls.PROVIDER_MAP.get(provider_name.lower())
+            if provider:
+                return ModelConfig(provider=provider, model_name=model_string, reasoning_effort=None)
+        
         # Check if model string is an alias
         model_string = cls.MODEL_ALIASES.get(model_string, model_string)
         parts = model_string.split(".")
 
         # Start with all parts as the model name
         model_parts = parts.copy()
-        provider = None
-        reasoning_effort = None
 
         # Check last part for reasoning effort
         if len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
@@ -175,7 +183,7 @@ class ModelFactory:
 
     @classmethod
     def create_factory(
-        cls, model_string: str, request_params: Optional[RequestParams] = None
+        cls, model_string: str, request_params: Optional[RequestParams] = None,provider_name:Optional[str]=None
     ) -> Callable[..., AugmentedLLMProtocol]:
         """
         Creates a factory function that follows the attach_llm protocol.
@@ -188,7 +196,7 @@ class ModelFactory:
             A callable that takes an agent parameter and returns an LLM instance
         """
         # Parse configuration up front
-        config = cls.parse_model_string(model_string)
+        config = cls.parse_model_string(model_string,provider_name)
         if config.model_name in cls.MODEL_SPECIFIC_CLASSES:
             llm_class = cls.MODEL_SPECIFIC_CLASSES[config.model_name]
         else:
