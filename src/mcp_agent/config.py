@@ -126,6 +126,10 @@ class OpenAISettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class AzureOpenAISettings(OpenAISettings):
+    api_version: str | None = None
+
+
 class DeepSeekSettings(BaseModel):
     """
     Settings for using OpenAI models in the fast-agent application.
@@ -149,15 +153,16 @@ class GenericSettings(BaseModel):
     base_url: str | None = None
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
-    
+
 
 class OpenRouterSettings(BaseModel):
     """
     Settings for using OpenRouter models via its OpenAI-compatible API.
     """
+
     api_key: str | None = None
-    
-    base_url: str | None = None # Optional override, defaults handled in provider
+
+    base_url: str | None = None  # Optional override, defaults handled in provider
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -271,6 +276,9 @@ class Settings(BaseSettings):
     """OpenTelemetry logging settings for the fast-agent application"""
 
     openai: OpenAISettings | None = None
+    """Settings for using OpenAI models in the fast-agent application"""
+
+    azure_openai: AzureOpenAISettings | None = None
     """Settings for using OpenAI models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None

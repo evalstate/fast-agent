@@ -8,6 +8,7 @@ from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_azure_openai import AzureOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
@@ -33,6 +34,7 @@ class Provider(Enum):
 
     ANTHROPIC = auto()
     OPENAI = auto()
+    AZURE_OPENAI = auto()
     FAST_AGENT = auto()
     DEEPSEEK = auto()
     GENERIC = auto()
@@ -63,6 +65,7 @@ class ModelFactory:
     PROVIDER_MAP = {
         "anthropic": Provider.ANTHROPIC,
         "openai": Provider.OPENAI,
+        "azure_openai": Provider.AZURE_OPENAI,
         "fast-agent": Provider.FAST_AGENT,
         "deepseek": Provider.DEEPSEEK,
         "generic": Provider.GENERIC,
@@ -124,6 +127,7 @@ class ModelFactory:
     PROVIDER_CLASSES: Dict[Provider, LLMClass] = {
         Provider.ANTHROPIC: AnthropicAugmentedLLM,
         Provider.OPENAI: OpenAIAugmentedLLM,
+        Provider.AZURE_OPENAI: AzureOpenAIAugmentedLLM,
         Provider.FAST_AGENT: PassthroughLLM,
         Provider.DEEPSEEK: DeepSeekAugmentedLLM,
         Provider.GENERIC: GenericAugmentedLLM,
