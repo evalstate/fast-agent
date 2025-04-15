@@ -1,4 +1,4 @@
-default_model: sonnet
+default_model: azure-gpt-4o
 
 # on windows, adjust the mount point to be the full path e.g. x:/temp/data-analysis/mount-point:/mnt/data/
 

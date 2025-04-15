@@ -524,6 +524,60 @@
       "title": "OpenAISettings",
       "type": "object"
     },
+    "AzureOpenAISettings": {
+      "additionalProperties": true,
+      "description": "Settings for using AzureOpenAI models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "reasoning_effort": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        },
+        "api_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "API Version"
+        }
+      },
+      "title": "OpenAISettings",
+      "type": "object"
+    },
     "OpenTelemetrySettings": {
       "description": "OTEL settings for the fast-agent application.",
       "properties": {
@@ -663,7 +717,7 @@
           "type": "null"
         }
       ],
-      "default": "haiku",
+      "default": "azure-gpt-4o",
       "title": "Default Model"
     },
     "temporal": {
@@ -721,6 +775,18 @@
       ],
       "default": null,
       "description": "Settings for using OpenAI models in the fast-agent application"
+    },
+    "azureopenai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AzureOpenAISettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using AzureOpenAI models in the fast-agent application"
     },
     "deepseek": {
       "anyOf": [

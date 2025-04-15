@@ -112,6 +112,19 @@ class AnthropicSettings(BaseModel):
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
+# class BedrockAnthropicSettings(BaseModel):
+#     """
+#     Settings for using Anthropic models in the fast-agent application.
+#     """
+
+#     aws_access_key: str | None = None
+#     aws_secret_key: str | None = None
+#     # aws_session_token: str | None = None
+
+#     base_url: str | None = None
+
+#     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
 
 class OpenAISettings(BaseModel):
     """
@@ -125,6 +138,19 @@ class OpenAISettings(BaseModel):
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
+class AzureOpenAISettings(BaseModel):
+    """
+    Settings for using Azure OpenAI models in the MCP Agent application.
+    """
+
+    api_key: str | None = None
+    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+
+    base_url: str | None = None
+    api_version: str | None = None
+    
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 class DeepSeekSettings(BaseModel):
     """
@@ -256,7 +282,7 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio", "temporal"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
-    default_model: str | None = "haiku"
+    default_model: str | None = "azure-gpt-4o"
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4o, o3-mini etc.
@@ -267,11 +293,17 @@ class Settings(BaseSettings):
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""
 
+    # bedrockanthropic: BedrockAnthropicSettings | None = None
+    # """Settings for using Anthropic models in the fast-agent application"""
+
     otel: OpenTelemetrySettings | None = OpenTelemetrySettings()
     """OpenTelemetry logging settings for the fast-agent application"""
 
     openai: OpenAISettings | None = None
     """Settings for using OpenAI models in the fast-agent application"""
+
+    azureopenai: AzureOpenAISettings | None = None
+    """Settings for using Azure OpenAI models in the MCP Agent application"""
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
