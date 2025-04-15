@@ -34,6 +34,8 @@ class AgentConfig:
     default_request_params: RequestParams | None = None
     human_input: bool = False
     agent_type: str = AgentType.BASIC.value
+    include_tools: List[str] = dataclasses.field(default_factory=list)
+    exclude_tools: List[str] = dataclasses.field(default_factory=list)
 
     def __post_init__(self) -> None:
         """Ensure default_request_params exists with proper history setting"""

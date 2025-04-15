@@ -90,6 +90,8 @@ def _decorator_impl(
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    include_tools: List[str] = [],
+    exclude_tools: List[str] = [],
     **extra_kwargs,
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
@@ -104,6 +106,8 @@ def _decorator_impl(
         use_history: Whether to maintain conversation history
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
+        include_tools: Optional list of tool names. When provided, only the listed tools will be registered. Tool names must be prefixed with the server name: "{server_name}-{tool_name}". Tools in exclude_tools will still be excluded.
+        exclude_tools: Optional list of tool names. When provided, the listed tools will not be registered. Tool names must be prefixed with the server name: "{server_name}-{tool_name}". Excludes any tools also listed in include_tools.
         **extra_kwargs: Additional agent/workflow-specific parameters
     """
 
@@ -132,6 +136,8 @@ def _decorator_impl(
             model=model,
             use_history=use_history,
             human_input=human_input,
+            include_tools=include_tools,
+            exclude_tools=exclude_tools,
         )
 
         # Update request params if provided
@@ -174,6 +180,8 @@ def agent(
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    include_tools: List[str] = [],
+    exclude_tools: List[str] = [],
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -187,6 +195,8 @@ def agent(
         use_history: Whether to maintain conversation history
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
+        include_tools: List of tool names (including server name) to include (if empty, include all tools)
+        exclude_tools: List of tool names (including server name) to exclude (if empty, exclude none)
 
     Returns:
         A decorator that registers the agent with proper type annotations
@@ -203,6 +213,8 @@ def agent(
         use_history=use_history,
         request_params=request_params,
         human_input=human_input,
+        include_tools=include_tools,
+        exclude_tools=exclude_tools,
     )
 
 
