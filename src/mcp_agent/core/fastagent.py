@@ -21,6 +21,9 @@ from mcp_agent.core.direct_decorators import (
     agent as agent_decorator,
 )
 from mcp_agent.core.direct_decorators import (
+    custom as custom_decorator,
+)
+from mcp_agent.core.direct_decorators import (
     chain as chain_decorator,
 )
 from mcp_agent.core.direct_decorators import (
@@ -197,6 +200,7 @@ class FastAgent:
 
     # Decorator methods with type-safe implementations
     agent = agent_decorator
+    custom = custom_decorator
     orchestrator = orchestrator_decorator
     router = router_decorator
     chain = chain_decorator
