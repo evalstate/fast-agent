@@ -294,215 +294,35 @@ async def test_basic_tool_calling(fast_agent, model_name):
     await weather_forecast()
 
 
-response_format = {
-    "type": "json_schema",
-    "json_schema": {
-        "name": "formatted_response",
-        "strict": True,
-        "schema": {
-            "type": "object",
-            "properties": {
-                "thinking": {
-                    "type": "string",
-                    "description": "Your reflection on the conversation that is not seen by the user.",
-                },
-                "message": {
-                    "type": "string",
-                    "description": "Your message to the user.",
-                },
-            },
-            "required": ["thinking", "message"],
-            "additionalProperties": False,
-        },
-    },
-}
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "deepseek",
+        "haiku35",
+        "gpt-4o",
+        "gpt-4.1",
+        "gpt-4.1-nano",
+        "gpt-4.1-mini",
+        "google.gemini-2.0-flash",
+        "openrouter.anthropic/claude-3.7-sonnet",
+    ],
+)
+async def test_tool_calls_no_args(fast_agent, model_name):
+    """Test that the agent can generate structured weather forecast data."""
+    fast = fast_agent
 
+    @fast.agent(
+        "shirt_colour",
+        instruction="You are a helpful assistant that provides information on shirt colours.",
+        model=model_name,
+        servers=["test_server"],
+    )
+    async def weather_forecast():
+        async with fast.run() as agent:
+            response = await agent.send(Prompt.user("get the shirt colour"))
+            assert "blue" in response
 
-# @pytest.mark.integration
-# @pytest.mark.asyncio
-# @pytest.mark.e2e
-# @pytest.mark.parametrize("model_name", ["generic.qwen2.5:latest"])
-# async def test_structured_weather_forecast_request_params_style(fast_agent, model_name):
-#     """Test that the agent can generate structured weather forecast data."""
-#     fast = fast_agent
-
-#     @fast.agent(
-#         "weatherforecast",
-#         instruction="You are a helpful assistant that provides syntehsized weather data for testing"
-#         " purposes.",
-#         model=model_name,
-#     )
-#     async def weather_forecast():
-#         async with fast.run() as agent:
-#             # Create a structured prompt that asks for weather forecast
-#             prompt_text = """
-#             Generate a 5-day weather forecast for San Francisco, California.
-
-#             The forecast should include:
-#             - Daily high and low temperatures in celsius
-#             - Weather conditions (sunny, cloudy, rainy, snowy, or stormy)
-#             - Precipitation chance
-#             - Any special notes about the weather for each day
-
-#             Provide a brief summary of the overall forecast period at the end.
-
-#             Your response must be supplied in JSON format, with the following structure:
-#             {
-#                 "location": "San Francisco, California",
-#                 "unit": "celsius",
-#                 "forecast": [
-#                     {
-#                         "day": "Monday",
-#                         "condition": "sunny",
-#                         "temperature_high": 25.0,
-#                         "temperature_low": 15.0,
-#                         "precipitation_chance": 10.0,
-#                         "notes": "A beautiful day ahead."
-#                     },
-#                     ...
-#                 ],
-#                 "summary": "Overall, the week looks sunny with a chance of rain on Wednesday."
-#             }
-
-#             DO NOT USE CODE FENCES, BLOCKS, BACKTICKS (`) OR ANY OTHER MARKUP TO FORMAT THE JSON
-#             """
-
-#             # Get structured response
-#             forecast, _ = await agent.weatherforecast.structured(
-#                 [Prompt.user(prompt_text)],
-#                 model=WeatherForecast,
-#                 request_params=RequestParams(response_format=response_format),
-#             )
-
-#             # Verify the structured response
-#             assert forecast is not None, "Structured response should not be None"
-#             assert isinstance(forecast, WeatherForecast), (
-#                 "Response should be a WeatherForecast object"
-#             )
-
-#             # Verify forecast content
-#             assert forecast.location.lower().find("san francisco") >= 0, (
-#                 "Location should be San Francisco"
-#             )
-#             assert forecast.unit == "celsius", "Temperature unit should be celsius"
-#             assert len(forecast.forecast) == 5, "Should have 5 days of forecast"
-#             assert all(isinstance(day, DailyForecast) for day in forecast.forecast), (
-#                 "Each day should be a DailyForecast"
-#             )
-
-#             # Verify data types and ranges
-#             for day in forecast.forecast:
-#                 assert 0 <= day.precipitation_chance <= 100, (
-#                     f"Precipitation chance should be 0-100%, got {day.precipitation_chance}"
-#                 )
-#                 assert -50 <= day.temperature_low <= 60, (
-#                     f"Temperature low should be reasonable, got {day.temperature_low}"
-#                 )
-#                 assert -30 <= day.temperature_high <= 70, (
-#                     f"Temperature high should be reasonable, got {day.temperature_high}"
-#                 )
-#                 assert day.temperature_high >= day.temperature_low, (
-#                     "High temp should be >= low temp"
-#                 )
-
-#             # Print forecast summary for debugging
-#             print(f"Weather forecast for {forecast.location}: {forecast.summary}")
-
-#     await weather_forecast()
-
-
-# @pytest.mark.integration
-# @pytest.mark.asyncio
-# @pytest.mark.e2e
-# @pytest.mark.parametrize(
-#     "model_name",
-#     [
-#         "deepseek",  # TODO DeepSeek model - switch to using JSON mode : https://api-docs.deepseek.com/guides/json_mode
-#         "haiku35",  # TODO Anthropic model - switch to tool calling
-#     ],
-# )
-# async def test_structured_weather_forecast_prompting_style(fast_agent, model_name):
-#     """Test that the agent can generate structured weather forecast data."""
-#     fast = fast_agent
-
-#     @fast.agent(
-#         "weatherforecast",
-#         instruction="You are a helpful assistant that provides syntehsized weather data for testing"
-#         " purposes.",
-#         model=model_name,
-#     )
-#     async def weather_forecast():
-#         async with fast.run() as agent:
-#             # Create a structured prompt that asks for weather forecast
-#             prompt_text = """
-#             Generate a 5-day weather forecast for San Francisco, California.
-
-#             The forecast should include:
-#             - Daily high and low temperatures in celsius
-#             - Weather conditions (sunny, cloudy, rainy, snowy, or stormy)
-#             - Precipitation chance
-#             - Any special notes about the weather for each day
-
-#             Provide a brief summary of the overall forecast period at the end.
-
-#             Your response must be supplied in JSON format, with the following structure:
-#             {
-#                 "location": "San Francisco, California",
-#                 "unit": "celsius",
-#                 "forecast": [
-#                     {
-#                         "day": "Monday",
-#                         "condition": "sunny",
-#                         "temperature_high": 25.0,
-#                         "temperature_low": 15.0,
-#                         "precipitation_chance": 10.0,
-#                         "notes": "A beautiful day ahead."
-#                     },
-#                     ...
-#                 ],
-#                 "summary": "Overall, the week looks sunny with a chance of rain on Wednesday."
-#             }
-
-#             DO NOT USE CODE FENCES, BLOCKS, BACKTICKS (`) OR ANY OTHER MARKUP TO FORMAT THE JSON
-#             """
-
-#             # Get structured response
-#             forecast, _ = await agent.weatherforecast.structured(
-#                 [Prompt.user(prompt_text)], WeatherForecast
-#             )
-
-#             # Verify the structured response
-#             assert forecast is not None, "Structured response should not be None"
-#             assert isinstance(forecast, WeatherForecast), (
-#                 "Response should be a WeatherForecast object"
-#             )
-
-#             # Verify forecast content
-#             assert forecast.location.lower().find("san francisco") >= 0, (
-#                 "Location should be San Francisco"
-#             )
-#             assert forecast.unit == "celsius", "Temperature unit should be celsius"
-#             assert len(forecast.forecast) == 5, "Should have 5 days of forecast"
-#             assert all(isinstance(day, DailyForecast) for day in forecast.forecast), (
-#                 "Each day should be a DailyForecast"
-#             )
-
-#             # Verify data types and ranges
-#             for day in forecast.forecast:
-#                 assert 0 <= day.precipitation_chance <= 100, (
-#                     f"Precipitation chance should be 0-100%, got {day.precipitation_chance}"
-#                 )
-#                 assert -50 <= day.temperature_low <= 60, (
-#                     f"Temperature low should be reasonable, got {day.temperature_low}"
-#                 )
-#                 assert -30 <= day.temperature_high <= 70, (
-#                     f"Temperature high should be reasonable, got {day.temperature_high}"
-#                 )
-#                 assert day.temperature_high >= day.temperature_low, (
-#                     "High temp should be >= low temp"
-#                 )
-
-#             # Print forecast summary for debugging
-#             print(f"Weather forecast for {forecast.location}: {forecast.summary}")
-
-#     await weather_forecast()
+    await weather_forecast()
