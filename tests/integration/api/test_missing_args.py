@@ -2,8 +2,9 @@
 Test that FastAgent handles missing args[] in server configuration.
 """
 
-import pytest
 import inspect
+import pytest
+
 from mcp_agent.config import MCPServerSettings
 from mcp_agent.mcp_server_registry import ServerRegistry
 
