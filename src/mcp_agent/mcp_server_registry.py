@@ -119,10 +119,12 @@ class ServerRegistry:
         )
 
         if config.transport == "stdio":
-            if not config.command or not config.args:
+            if not config.command:
                 raise ValueError(
-                    f"Command and args are required for stdio transport: {server_name}"
+                    f"Command is required for stdio transport: {server_name}"
                 )
+            if config.args is None:
+                config.args = []
 
             server_params = StdioServerParameters(
                 command=config.command,
