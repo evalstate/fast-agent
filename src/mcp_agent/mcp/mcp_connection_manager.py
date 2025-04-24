@@ -262,7 +262,7 @@ class MCPConnectionManager(ContextDependent):
             if config.transport == "stdio":
                 server_params = StdioServerParameters(
                     command=config.command,
-                    args=config.args,
+                    args=config.args if config.args is not None else [],
                     env={**get_default_environment(), **(config.env or {})},
                 )
                 # Create custom error handler to ensure all output is captured
