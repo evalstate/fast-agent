@@ -15,3 +15,4 @@ class Provider(Enum):
     DEEPSEEK = "deepseek"
     GENERIC = "generic"
     OPENROUTER = "openrouter"
+    TENSORZERO = "tensorzero"  # For TensorZero Gateway
