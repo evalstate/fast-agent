@@ -31,7 +31,6 @@ dependencies = [
     "prompt-toolkit>=3.0.50",
     "aiohttp>=3.11.13",
     "a2a-types>=0.1.0",
-    "tensorzero>=2025.4.7",
 ]
 
 [project.optional-dependencies]
