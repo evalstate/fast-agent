@@ -197,6 +197,19 @@ class OpenTelemetrySettings(BaseModel):
     """Sample rate for tracing (1.0 = sample everything)"""
 
 
+class TensorZeroSettings(BaseModel):
+    """
+    Settings for using TensorZero via its OpenAI-compatible API.
+    """
+    # Configurable via config.yaml
+    base_url: Optional[str] = None
+    # Configurable via secrets.yaml (merged into config)
+    uri: Optional[str] = None
+    api_key: Optional[str] = None
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class LoggerSettings(BaseModel):
     """
     Logger settings for the fast-agent application.
@@ -238,6 +251,7 @@ class LoggerSettings(BaseModel):
     """Show MCP Sever tool calls on the console"""
     truncate_tools: bool = True
     """Truncate display of long tool calls"""
+
 
 
 class Settings(BaseSettings):
@@ -285,6 +299,9 @@ class Settings(BaseSettings):
 
     generic: GenericSettings | None = None
     """Settings for using Generic models in the fast-agent application"""
+
+    tensorzero: Optional[TensorZeroSettings] = None
+    """Settings for using TensorZero models via OpenAI compatibility layer"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""
