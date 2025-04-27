@@ -42,7 +42,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         super().__init__(agent=agent, model=model, provider=Provider.TENSORZERO, request_params=request_params, **kwargs)
 
         self.gateway: Optional[AsyncTensorZeroGateway] = None
-        self._resolved_uri: Optional[str] = None
+        self._resolved_url: Optional[str] = None
         self.t0_system_template_vars: Dict[str, Any] = {}
 
         self.logger.info(f"TensorZero LLM provider initialized for function '{self.t0_function_name}' (client pending).")
@@ -67,22 +67,18 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             try:
                 if not self.context:
                      raise ModelConfigError("Context not found for lazy T0 client initialization.")
-                base_url = None; uri = None
+                base_url = None
                 if self.context.config and hasattr(self.context.config, 'tensorzero') and self.context.config.tensorzero:
                     t0_config = self.context.config.tensorzero
                     base_url = getattr(t0_config, 'base_url', None)
-                    if not base_url: uri = getattr(t0_config, 'uri', None)
-                elif hasattr(self.context, 'secrets') and self.context.secrets:
-                     t0_secrets = self.context.secrets.get("tensorzero", {})
-                     uri = t0_secrets.get("uri")
-                self._resolved_uri = base_url or uri
-                if not self._resolved_uri:
+                self._resolved_url = base_url
+                if not self._resolved_url:
                     raise ModelConfigError(
-                        "TensorZero native base URL/URI not configured.",
-                        "Configure 'base_url' or 'uri' under 'tensorzero' in config/secrets."
+                        "TensorZero native base URL not configured.",
+                        "Configure 'base_url' in fastagent.config.yaml"
                     )
-                self.gateway = AsyncTensorZeroGateway(base_url=self._resolved_uri)
-                self.logger.info(f"TensorZero Gateway client initialized for URI: {self._resolved_uri}")
+                self.gateway = AsyncTensorZeroGateway(base_url=self._resolved_url)
+                self.logger.info(f"TensorZero Gateway client initialized for URL: {self._resolved_url}")
             except Exception as e:
                  self.logger.error(f"Failed to initialize T0 Gateway lazily: {e}")
                  raise ModelConfigError(f"Failed to initialize T0 Gateway lazily: {e}") from e
@@ -222,11 +218,11 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
 
         # Update instance episode ID if changed
         if t0_episode_id_str and self._episode_id != t0_episode_id_str:
-             self.logger.debug(f"Updating stored episode_id to: {t0_episode_id_str}")
+             self.logger.warning(f"Updating stored episode_id to: {t0_episode_id_str}")
              self._episode_id = t0_episode_id_str
 
         content_parts: List[Union[TextContent, ImageContent, EmbeddedResource]] = []
-        tool_calls_data = [] # Initialize always
+        tool_calls_data = []
         
         for block in completion.content:
             block_type = getattr(block, 'type', 'UNKNOWN')
