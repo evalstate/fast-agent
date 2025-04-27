@@ -1,5 +1,4 @@
 import json
-import inspect # For checking async generator
 from typing import Any, Dict, List, Optional, Union
 
 from tensorzero.types import ChatChunk, JsonChunk, TensorZeroError
@@ -42,9 +41,9 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
 
         super().__init__(agent=agent, model=model, provider=Provider.TENSORZERO, request_params=request_params, **kwargs)
 
-        # initialize gateway lazily
         self.gateway: Optional[AsyncTensorZeroGateway] = None
         self._resolved_uri: Optional[str] = None
+        self.t0_system_template_vars: Dict[str, Any] = {}
 
         self.logger.info(f"TensorZero LLM provider initialized for function '{self.t0_function_name}' (client pending).")
         if not isinstance(self.history, SimpleMemory):
@@ -173,24 +172,38 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
              error_content = TextContent(type="text", text=f"Unexpected error: {e}")
              return PromptMessageMultipart(role="assistant", content=[error_content])
 
-    def _prepare_t0_input(self, messages: List[PromptMessageMultipart], merged_params: RequestParams) -> Dict[str, Any]:
-        """Prepares the 'input' dictionary for the native T0 API call."""
-        system_prompt_args = None
-        if merged_params.metadata and isinstance(merged_params.metadata, dict): system_prompt_args = merged_params.metadata.get("tensorzero_arguments")
-        base_instruction = self.instruction or "You are a helpful assistant."
-        t0_system_object = {"BASE_INSTRUCTIONS": base_instruction, "DISCLAIMER_TEXT": "", "BIBLE": "", "USER_PORTFOLIO_DESCRIPTION": "", "USER_PROFILE_DATA": "{}", "CONTEXT": ""}
-        if isinstance(system_prompt_args, dict): t0_system_object.update(system_prompt_args)
+    def _prepare_t0_input(
+        self,
+        messages: List[PromptMessageMultipart],
+        merged_params: RequestParams
+    ) -> Dict[str, Any]:
+        """Prepares the 'input' dictionary using instance template vars and metadata overrides."""
+        t0_system_object = self.t0_system_template_vars.copy()
+        metadata_args = None
+        if merged_params.metadata and isinstance(merged_params.metadata, dict):
+            metadata_args = merged_params.metadata.get("tensorzero_arguments")
+        if isinstance(metadata_args, dict):
+            t0_system_object.update(metadata_args)
+            self.logger.debug(f"Merged tensorzero_arguments from metadata: {metadata_args}")
+
         t0_messages = []
         for msg in messages:
             if msg.role != "system":
-                 t0_content = []
-                 for part in msg.content:
-                      if isinstance(part, TextContent): t0_content.append({"type": "text", "text": part.text})
-                      elif isinstance(part, ImageContent):
-                          if hasattr(part, "url") and part.url: t0_content.append({"type": "image", "url": part.url})
-                          elif hasattr(part, "data") and hasattr(part, "mime_type"): t0_content.append({"type": "image", "data": part.data, "mime_type": part.mime_type})
-                 if t0_content: t0_messages.append({"role": msg.role, "content": t0_content})
-        return {"messages": t0_messages, "system": t0_system_object}
+                t0_content = []
+                for part in msg.content:
+                    if isinstance(part, TextContent): t0_content.append({"type": "text", "text": part.text})
+                    elif isinstance(part, ImageContent):
+                        if hasattr(part, "url") and part.url: t0_content.append({"type": "image", "url": part.url})
+                        elif hasattr(part, "data") and hasattr(part, "mime_type"): t0_content.append({"type": "image", "data": part.data, "mime_type": part.mime_type})
+                if t0_content: t0_messages.append({"role": msg.role, "content": t0_content})
+
+        # Handle system prompt separately
+        final_input = {
+            "messages": t0_messages,
+            "system": t0_system_object
+        }
+        self.logger.debug(f"Prepared T0 input with system args: {list(t0_system_object.keys())}")
+        return final_input
 
     def _adapt_t0_native_completion(self, completion: Union[ChatInferenceResponse, JsonInferenceResponse]) -> PromptMessageMultipart:
         """Adapts a non-streaming native T0 response to PromptMessageMultipart."""
