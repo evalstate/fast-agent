@@ -31,6 +31,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from opentelemetry import trace
 from pydantic import BaseModel
 
 from mcp_agent.core.agent_types import AgentConfig, AgentType
@@ -92,6 +93,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         )
 
         self._context = context
+        self.tracer = trace.get_tracer(__name__)
         self.name = self.config.name
         self.instruction = self.config.instruction
         self.functions = functions or []
@@ -588,7 +590,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             The LLM's response as a PromptMessageMultipart
         """
         assert self._llm
-        return await self._llm.generate(multipart_messages, request_params)
+        with self.tracer.start_as_current_span(f"Agent: '{self.name}' generate"):
+            return await self._llm.generate(multipart_messages, request_params)
 
     async def structured(
         self,
@@ -609,7 +612,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             An instance of the specified model, or None if coercion fails
         """
         assert self._llm
-        return await self._llm.structured(multipart_messages, model, request_params)
+        with self.tracer.start_as_current_span(f"Agent: '{self.name}' structured"):
+            return await self._llm.structured(multipart_messages, model, request_params)
 
     async def apply_prompt_messages(
         self, prompts: List[PromptMessageMultipart], request_params: RequestParams | None = None

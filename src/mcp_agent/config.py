@@ -181,13 +181,11 @@ class OpenTelemetrySettings(BaseModel):
     OTEL settings for the fast-agent application.
     """
 
-    enabled: bool = True
+    enabled: bool = False
 
     service_name: str = "fast-agent"
-    service_instance_id: str | None = None
-    service_version: str | None = None
 
-    otlp_endpoint: str | None = None
+    otlp_endpoint: str = "http://localhost:4318/v1/traces"
     """OTLP endpoint for OpenTelemetry tracing"""
 
     console_debug: bool = False

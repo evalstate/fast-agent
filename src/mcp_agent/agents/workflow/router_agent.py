@@ -7,6 +7,7 @@ by determining the best agent for a request and dispatching to it.
 
 from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Type
 
+from opentelemetry import trace
 from pydantic import BaseModel
 
 from mcp_agent.agents.agent import Agent
@@ -158,17 +159,18 @@ class RouterAgent(BaseAgent):
         Returns:
             The response from the selected agent
         """
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"Routing: '{self.name}' generate"):
+            route, warn = await self._route_request(multipart_messages[-1])
 
-        route, warn = await self._route_request(multipart_messages[-1])
+            if not route:
+                return Prompt.assistant(warn or "No routing result or warning received")
 
-        if not route:
-            return Prompt.assistant(warn or "No routing result or warning received")
+            # Get the selected agent
+            agent: Agent = self.agent_map[route.agent]
 
-        # Get the selected agent
-        agent: Agent = self.agent_map[route.agent]
-
-        # Dispatch the request to the selected agent
-        return await agent.generate(multipart_messages, request_params)
+            # Dispatch the request to the selected agent
+            return await agent.generate(multipart_messages, request_params)
 
     async def structured(
         self,
@@ -187,18 +189,21 @@ class RouterAgent(BaseAgent):
         Returns:
             The parsed response from the selected agent, or None if parsing fails
         """
-        route, warn = await self._route_request(multipart_messages[-1])
 
-        if not route:
-            return None, Prompt.assistant(
-                warn or "No routing result or warning received (structured)"
-            )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"Routing: '{self.name}' structured"):
+            route, warn = await self._route_request(multipart_messages[-1])
 
-        # Get the selected agent
-        agent: Agent = self.agent_map[route.agent]
+            if not route:
+                return None, Prompt.assistant(
+                    warn or "No routing result or warning received (structured)"
+                )
 
-        # Dispatch the request to the selected agent
-        return await agent.structured(multipart_messages, model, request_params)
+            # Get the selected agent
+            agent: Agent = self.agent_map[route.agent]
+
+            # Dispatch the request to the selected agent
+            return await agent.structured(multipart_messages, model, request_params)
 
     async def _route_request(
         self, message: PromptMessageMultipart

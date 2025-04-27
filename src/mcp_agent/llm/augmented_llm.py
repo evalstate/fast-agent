@@ -171,6 +171,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         # We never expect this for structured() calls - this is for interactive use - developers
         # can do this programatically
         # TODO -- create a "fast-agent" control role rather than magic strings
+
         if multipart_messages[-1].first_text().startswith("***SAVE_HISTORY"):
             parts: list[str] = multipart_messages[-1].first_text().split(" ", 1)
             filename: str = (
@@ -220,6 +221,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
         """Return a structured response from the LLM using the provided messages."""
+
         self._precall(multipart_messages)
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
             multipart_messages, model, request_params

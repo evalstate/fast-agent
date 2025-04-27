@@ -21,6 +21,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from opentelemetry import trace
 from pydantic import AnyUrl, BaseModel, ConfigDict
 
 from mcp_agent.context_dependent import ContextDependent
@@ -469,16 +470,20 @@ class MCPAggregator(ContextDependent):
             },
         )
 
-        return await self._execute_on_server(
-            server_name=server_name,
-            operation_type="tool",
-            operation_name=local_tool_name,
-            method_name="call_tool",
-            method_args={"name": local_tool_name, "arguments": arguments},
-            error_factory=lambda msg: CallToolResult(
-                isError=True, content=[TextContent(type="text", text=msg)]
-            ),
-        )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
+            trace.get_current_span().set_attribute("tool_name", local_tool_name)
+            trace.get_current_span().set_attribute("server_name", server_name)
+            return await self._execute_on_server(
+                server_name=server_name,
+                operation_type="tool",
+                operation_name=local_tool_name,
+                method_name="call_tool",
+                method_args={"name": local_tool_name, "arguments": arguments},
+                error_factory=lambda msg: CallToolResult(
+                    isError=True, content=[TextContent(type="text", text=msg)]
+                ),
+            )
 
     async def get_prompt(
         self,

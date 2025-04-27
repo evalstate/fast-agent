@@ -222,7 +222,10 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                         method="tools/call",
                         params=CallToolRequestParams(
                             name=tool_call.function.name,
-                            arguments={} if not tool_call.function.arguments or tool_call.function.arguments.strip() == '' else from_json(tool_call.function.arguments, allow_partial=True),
+                            arguments={}
+                            if not tool_call.function.arguments
+                            or tool_call.function.arguments.strip() == ""
+                            else from_json(tool_call.function.arguments, allow_partial=True),
                         ),
                     )
                     result = await self.call_tool(tool_call_request, tool_call.id)
