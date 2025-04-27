@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Dict
 from uuid import UUID
 
 from mcp_agent.core.exceptions import ModelConfigError
@@ -23,10 +23,9 @@ class TensorZeroAugmentedLLM(OpenAIAugmentedLLM):
         Relies on base classes to set up context.
         Parses model name and constructs T0 identifier for base class.
         """
-        # --- Model Name Processing --- START
-        self.t0_function_name: Optional[str] = None # Store the original function name
+        self.t0_function_name: Optional[str] = None  # Store the original function name
         self._episode_id: Optional[str] = kwargs.get("episode_id")
-        model_arg = kwargs.get("model") # This is the function name (e.g., "chat") from factory
+        model_arg = kwargs.get("model")  # This is the function name (e.g., "chat") from factory
 
         if model_arg and isinstance(model_arg, str):
             # Store the function name
@@ -38,8 +37,9 @@ class TensorZeroAugmentedLLM(OpenAIAugmentedLLM):
             # Cannot log here yet, logger initialized in super()
         else:
             # Factory should have passed a model name if provider is T0
-            raise ModelConfigError("TensorZeroAugmentedLLM initialized without a valid model name in kwargs")
-        # --- Model Name Processing --- END
+            raise ModelConfigError(
+                "TensorZeroAugmentedLLM initialized without a valid model name in kwargs"
+            )
 
         # Initialize base classes. ContextDependent will try to find/set self.context.
         # OpenAIAugmentedLLM will use the modified kwargs['model'].
@@ -47,7 +47,9 @@ class TensorZeroAugmentedLLM(OpenAIAugmentedLLM):
         super().__init__(*args, provider=Provider.TENSORZERO, **kwargs)
 
         # Logger is now initialized
-        self.logger.debug(f"TensorZero LLM initialized. Base model: {self.default_request_params.model}")
+        self.logger.debug(
+            f"TensorZero LLM initialized. Base model: {self.default_request_params.model}"
+        )
 
     # --- Use self.context.config to access config/secrets --- START
     def _base_url(self) -> str:
@@ -56,26 +58,28 @@ class TensorZeroAugmentedLLM(OpenAIAugmentedLLM):
         uri = None
 
         if not self.context or not self.context.config:
-             raise ModelConfigError("Context or config not available when resolving TensorZero base URL")
+            raise ModelConfigError(
+                "Context or config not available when resolving TensorZero base URL"
+            )
 
         # Check config object for tensorzero settings
-        if hasattr(self.context.config, 'tensorzero') and self.context.config.tensorzero:
+        if hasattr(self.context.config, "tensorzero") and self.context.config.tensorzero:
             t0_config = self.context.config.tensorzero
             # 1. Check for base_url attribute (from config.yaml)
-            base_url = getattr(t0_config, 'base_url', None)
+            base_url = getattr(t0_config, "base_url", None)
             # 2. Check for uri attribute (from secrets.yaml merged into config)
             if not base_url:
-                 uri = getattr(t0_config, 'uri', None)
+                uri = getattr(t0_config, "uri", None)
         else:
-             self.logger.debug("'tensorzero' configuration block not found in self.context.config")
+            self.logger.debug("'tensorzero' configuration block not found in self.context.config")
 
-        resolved_url = base_url or uri # Prioritize base_url if both exist
+        resolved_url = base_url or uri  # Prioritize base_url if both exist
 
         if not resolved_url:
-              raise ModelConfigError(
-                  "TensorZero base URL/URI not configured.",
-                  "Please configure 'base_url' or 'uri' under 'tensorzero' in fastagent.config.yaml or fastagent.secrets.yaml."
-              )
+            raise ModelConfigError(
+                "TensorZero base URL/URI not configured.",
+                "Please configure 'base_url' or 'uri' under 'tensorzero' in fastagent.config.yaml or fastagent.secrets.yaml.",
+            )
         return resolved_url
 
     def _api_key(self) -> str:
@@ -85,15 +89,19 @@ class TensorZeroAugmentedLLM(OpenAIAugmentedLLM):
         api_key = None
 
         if not self.context or not self.context.config:
-             self.logger.warning("Context or config not available when resolving TensorZero API key. Using dummy key.")
-             return "dummy-key-for-t0"
+            self.logger.warning(
+                "Context or config not available when resolving TensorZero API key. Using dummy key."
+            )
+            return "dummy-key-for-t0"
 
         # Check config object for tensorzero settings and api_key attribute
-        if hasattr(self.context.config, 'tensorzero') and self.context.config.tensorzero:
+        if hasattr(self.context.config, "tensorzero") and self.context.config.tensorzero:
             t0_config = self.context.config.tensorzero
-            api_key = getattr(t0_config, 'api_key', None)
+            api_key = getattr(t0_config, "api_key", None)
         else:
-             self.logger.debug("'tensorzero' configuration block not found when checking for API key.")
+            self.logger.debug(
+                "'tensorzero' configuration block not found when checking for API key."
+            )
 
         if api_key:
             self.logger.debug("Using configured TensorZero API key.")
@@ -101,51 +109,87 @@ class TensorZeroAugmentedLLM(OpenAIAugmentedLLM):
         else:
             self.logger.debug("No TensorZero API key configured, using dummy key.")
             return "dummy-key-for-t0"
-    # --- Use self.context.config to access config/secrets --- END
 
     def _prepare_api_request(
-        self, messages, tools, request_params: RequestParams
-    ) -> dict[str, Any]:
-        """Prepare API request, adding T0 episode_id via extra_body if available."""
-        args = super()._prepare_api_request(messages, tools, request_params)
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]],
+        request_params: RequestParams,
+    ) -> Dict[str, Any]:
+        """
+        Prepare API request for T0 OpenAI compatibility layer.
+        Always formats the system prompt using tensorzero::arguments structure.
+        Injects episode_id if available.
+        """
+        # Get standard args prepared by base class (messages list might contain a simple system prompt)
+        args: Dict[str, Any] = super()._prepare_api_request(messages, tools, request_params)
 
-        # Add episode_id using extra_body (relies on underlying openai client support)
+        # --- Always format system prompt for T0 --- START
+        # Get base instruction and metadata args
+        base_instruction = (
+            self.instruction or "You are a helpful assistant."
+        )  # Default if agent has no instruction
+        metadata_args = (
+            request_params.metadata.get("tensorzero_arguments", {})
+            if request_params.metadata
+            else {}
+        )
+        if not isinstance(metadata_args, dict):
+            self.logger.warning(
+                f"'tensorzero_arguments' in metadata is not a dict, ignoring. Value: {metadata_args}"
+            )
+            metadata_args = {}
+
+        # Define defaults for required T0 args
+        t0_final_args = {
+            "BASE_INSTRUCTIONS": base_instruction,
+            "DISCLAIMER_TEXT": "",
+            "BIBLE": "",
+            "USER_PORTFOLIO_DESCRIPTION": "",
+            "USER_PROFILE_DATA": "{}",  # Default empty JSON string
+            "CONTEXT": "",
+        }
+
+        # Merge metadata args over defaults
+        t0_final_args.update(metadata_args)
+        self.logger.debug(f"Using final tensorzero::arguments: {t0_final_args}")
+
+        # Construct the T0 system message
+        t0_system_message = {
+            "role": "system",
+            "content": [{"type": "text", "tensorzero::arguments": t0_final_args}],
+        }
+
+        # Rebuild messages list: T0 system message + non-system messages from original
+        formatted_messages: List[Dict[str, Any]] = [t0_system_message]  # Start with T0 system msg
+        original_messages: List[Dict[str, Any]] = args.get("messages", [])
+
+        if isinstance(original_messages, list):
+            for msg in original_messages:
+                # Check message format is dict before accessing role
+                if isinstance(msg, dict) and msg.get("role") != "system":
+                    formatted_messages.append(msg)
+        else:
+            self.logger.warning("Base class did not return 'messages' as a list in args")
+
+        # Replace messages in args dict
+        args["messages"] = formatted_messages
+        # --- Always format system prompt for T0 --- END
+
+        # Add episode_id using extra_body
         if self._episode_id:
             self.logger.debug(f"Adding episode_id to T0 request: {self._episode_id}")
-            extra_body = args.get("extra_body", {})
-            # Use a namespaced key as suggested by T0 example, verify if needed
+            extra_body = args.get("extra_body")
+            if not isinstance(extra_body, dict):
+                extra_body = {}
             extra_body["tensorzero::episode_id"] = str(self._episode_id)
             args["extra_body"] = extra_body
 
+        self.logger.debug(f"Final prepared T0 API request args: {args}")
         return args
 
     async def _openai_completion(self, *args, **kwargs) -> List[Any]:
-        """Execute completion and capture T0 episode_id from response object."""
+        """Execute completion using base class. Episode ID capture removed due to fragility."""
         # Execute the completion using the base class method
         responses = await super()._openai_completion(*args, **kwargs)
-        last_response = None
-        if hasattr(self, "executor") and hasattr(self.executor, "last_response"):
-            last_response = self.executor.last_response
-
-        if last_response and hasattr(last_response, "episode_id"):
-            new_episode_id = getattr(last_response, "episode_id")
-            # Check if it's a UUID or string and convert if necessary
-            if isinstance(new_episode_id, UUID):
-                 new_episode_id_str = str(new_episode_id)
-            elif isinstance(new_episode_id, str):
-                 new_episode_id_str = new_episode_id
-            else:
-                 new_episode_id_str = None
-                 self.logger.warning(f"Unexpected type for episode_id in response: {type(new_episode_id)}")
-
-            if new_episode_id_str and new_episode_id_str != self._episode_id:
-                self._episode_id = new_episode_id_str
-                self.logger.debug(f"Captured/Updated episode_id from T0 response: {self._episode_id}")
-            elif not new_episode_id_str:
-                 pass
-            # else: episode_id hasn't changed
-
         return responses
-
-    # Inherits generate(), structured(), shutdown() etc. from OpenAIAugmentedLLM
-    # Base class uses OpenAIConverter for message mapping and handles streaming/tools.
