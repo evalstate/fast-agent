@@ -140,14 +140,9 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             final_assembled_message = self._adapt_t0_native_completion(completion)
 
             display_text = final_assembled_message.all_text()
-            print(f"!!! T0 APPLY (Non-Stream): Text to display: '{display_text[:50]}...'")
             if display_text and display_text != "<no text>":
                 title = f"ASSISTANT/{self.t0_function_name}"
-                print(f"!!! T0 APPLY (Non-Stream): About to call self.show_assistant_message...")
                 await self.show_assistant_message(message_text=display_text, title=title)
-                print(f"!!! T0 APPLY (Non-Stream): Finished display call.")
-            else:
-                print(f"!!! T0 APPLY (Non-Stream): Display condition not met (Text='{display_text}').")
 
 
             if final_assembled_message and merged_params.use_history:
@@ -199,7 +194,24 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
 
     def _adapt_t0_native_completion(self, completion: Union[ChatInferenceResponse, JsonInferenceResponse]) -> PromptMessageMultipart:
         """Adapts a non-streaming native T0 response to PromptMessageMultipart."""
-        metadata = { ... } 
+        usage_data = None
+        t0_episode_id_str = str(completion.episode_id) if completion.episode_id else None
+
+        metadata = {
+            "provider_name": "tensorzero",
+            "t0_inference_id": str(completion.inference_id),
+            "t0_episode_id": t0_episode_id_str, # Use the string version
+            "t0_variant_name": completion.variant_name,
+            "t0_usage": usage_data,
+            "t0_finish_reason": completion.finish_reason.value if completion.finish_reason else None,
+            "raw_response": completion, # Store raw object
+        }
+
+        # Update instance episode ID if changed
+        if t0_episode_id_str and self._episode_id != t0_episode_id_str:
+             self.logger.debug(f"Updating stored episode_id to: {t0_episode_id_str}")
+             self._episode_id = t0_episode_id_str
+
         content_parts: List[Union[TextContent, ImageContent, EmbeddedResource]] = []
         tool_calls_data = [] # Initialize always
         
@@ -225,7 +237,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                 thought_text = getattr(block, 'text', None)
                 metadata["t0_thought"] = thought_text
             else:
-                print(f"!!! T0 Adapt: Skipping unknown block type: {block_type}") # ADD
+                self.logger.warning(f"T0 Adapt: Skipping unknown block type: {block_type}")
 
         # Assign tool call metadata (outside the loop)
         if tool_calls_data:
