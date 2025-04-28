@@ -93,6 +93,9 @@ class MCPServerSettings(BaseModel):
     sampling: MCPSamplingSettings | None = None
     """Sampling settings for this Client/Server pair"""
 
+    cwd: str | None = None
+    """Working directory for the executed server command."""
+
 
 class MCPSettings(BaseModel):
     """Configuration for all MCP servers."""

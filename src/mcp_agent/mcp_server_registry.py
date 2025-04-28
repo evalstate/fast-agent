@@ -128,6 +128,7 @@ class ServerRegistry:
                 command=config.command,
                 args=config.args,
                 env={**get_default_environment(), **(config.env or {})},
+                cwd=config.cwd,
             )
 
             # Create a stderr handler that logs to our application logger
