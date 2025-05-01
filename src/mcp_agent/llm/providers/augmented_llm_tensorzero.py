@@ -7,15 +7,11 @@ from tensorzero.types import (
     TensorZeroError,
 )
 
-# Try importing ToolDefinition/FunctionDefinition from base tensorzero
 from tensorzero import (
     AsyncTensorZeroGateway,
     ChatInferenceResponse,
     JsonInferenceResponse,
-    InferenceResponse,
-    InferenceChunk,
 )
-from pydantic_core import from_json
 
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.exceptions import ModelConfigError
@@ -34,7 +30,6 @@ from mcp.types import (
     CallToolResult,
 )
 
-# Import helper for getting text from content parts
 from mcp_agent.mcp.helpers.content_helpers import get_text
 
 
@@ -202,7 +197,9 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                 response_iter_or_completion, (ChatInferenceResponse, JsonInferenceResponse)
             ):
                 completion = response_iter_or_completion
-                final_assembled_message = await self._adapt_t0_native_completion(completion)
+                final_assembled_message = await self._adapt_t0_native_completion(
+                    completion, available_tools
+                )
             else:
                 self.logger.error(f"Unexpected response type: {type(response_iter_or_completion)}")
                 error_content = TextContent(
@@ -218,7 +215,19 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
 
             if final_assembled_message and merged_params.use_history:
                 self.logger.debug("Returning final message; history update handled by base class.")
-                pass
+                # Restore history update logic:
+                try:
+                    # Combine the messages sent to the API with the final response
+                    # Note: all_messages already includes history + current user messages
+                    updated_history_content = all_messages + [final_assembled_message]
+                    # Filter out any potential None values if final_assembled_message was None
+                    valid_history_to_set = [m for m in updated_history_content if m is not None]
+                    self.history.set(valid_history_to_set)
+                    self.logger.debug(
+                        f"Updated self.history with {len(valid_history_to_set)} total messages."
+                    )
+                except Exception as e:
+                    self.logger.error(f"Failed to update self.history: {e}")
 
             return final_assembled_message or PromptMessageMultipart(role="assistant", content=[])
 
@@ -393,7 +402,9 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             return None
 
     async def _adapt_t0_native_completion(
-        self, completion: Union[ChatInferenceResponse, JsonInferenceResponse]
+        self,
+        completion: Union[ChatInferenceResponse, JsonInferenceResponse],
+        available_tools_for_display: Optional[List[Dict[str, Any]]] = None,
     ) -> PromptMessageMultipart:
         """Adapts a non-streaming native T0 response to PromptMessageMultipart."""
         # --- Metadata Extraction (REMOVED - Cannot set metadata on PromptMessageMultipart) ---
@@ -425,13 +436,20 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     if text_val is not None:
                         content_parts.append(TextContent(type="text", text=text_val))
 
-                elif block_type == "tool_use":  # T0 uses 'tool_use' for requests
+                elif (
+                    block_type == "tool_call"
+                ):  # T0 uses 'tool_call' for requests (corrected from tool_use)
                     tool_use_id = getattr(block, "id", None)
                     tool_name = getattr(block, "name", None)
-                    tool_input = getattr(block, "input", {}) or {}
+                    tool_input = (
+                        getattr(block, "arguments", {}) or {}
+                    )  # T0 uses 'arguments' for input
 
                     if tool_use_id and tool_name:
-                        self.show_tool_call(None, tool_name, json.dumps(tool_input))
+                        # Pass the received tools list to the display function
+                        self.show_tool_call(
+                            available_tools_for_display, tool_name, json.dumps(tool_input)
+                        )
                         mcp_tool_request = CallToolRequest(
                             method="tools/call",
                             params=CallToolRequestParams(name=tool_name, arguments=tool_input),
@@ -501,19 +519,6 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             role="assistant",
             content=content_parts,
         )
-
-        # If tool results were generated, store them somewhere the framework can find them
-        # to construct the *next* message correctly. Using history is one way.
-        if executed_tool_results_for_next_turn:
-            # The base class or agent loop should handle adding these results
-            # to the history/next message list before calling the LLM again.
-            # We mark the current message as needing followup with tool results.
-            setattr(
-                final_message, "requires_tool_result_followup", executed_tool_results_for_next_turn
-            )
-            self.logger.debug(
-                f"Storing {len(executed_tool_results_for_next_turn)} tool results for next turn."
-            )
 
         return final_message
 
