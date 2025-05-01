@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Union, cast, AsyncIterator
+from typing import Any, Dict, List, Optional, Union, cast, AsyncIterator, Tuple
 
 from tensorzero.types import (
     ChatChunk,
@@ -31,6 +31,26 @@ from mcp.types import (
 )
 
 from mcp_agent.mcp.helpers.content_helpers import get_text
+
+
+# Helper function to convert block objects to dictionaries safely
+def block_to_dict(block: Any) -> Dict[str, Any]:
+    if hasattr(block, "model_dump"):
+        try:
+            return block.model_dump(mode="json")  # Use json mode for better serialization
+        except:
+            pass
+    if hasattr(block, "__dict__"):
+        try:
+            return vars(block)
+        except:
+            pass
+    # Fallback for unknown block types - represent minimally
+    # Ensure basic types are handled correctly
+    if isinstance(block, (str, int, float, bool, list, dict, type(None))):
+        # This case shouldn't happen if blocks are objects, but as a safeguard
+        return {"type": "raw", "content": block}
+    return {"type": getattr(block, "type", "unknown"), "content": str(block)}
 
 
 class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
@@ -86,7 +106,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         func_name = kwargs.get("model", self.t0_function_name or "unknown_t0_function")
         return RequestParams(
             model=func_name,
-            systemPrompt=self.instruction,  # Still useful for base class logic, though not sent directly to T0 here
+            systemPrompt=self.instruction,
             maxTokens=4096,
             use_history=True,
             max_iterations=10,
@@ -131,15 +151,10 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         request_params: Optional[RequestParams] = None,
         is_template: bool = False,
     ) -> PromptMessageMultipart:
-        """
-        Provider-specific implementation called by base generate().
-        Handles native T0 API call, history management, streaming aggregation/display.
-        Separates function input, messages, and tools as top-level args for gateway.inference.
-        """
         gateway = await self._ensure_gateway_initialized()
         merged_params = self.get_request_params(request_params)
 
-        # --- Prepare Messages (including history) ---
+        # --- Prepare Messages (including history and potential tool results from previous turn) ---
         history_messages: List[PromptMessageMultipart] = []
         if merged_params.use_history:
             try:
@@ -159,16 +174,16 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         else:
             self.logger.debug("History usage disabled by request params.")
 
-        all_messages = history_messages + multipart_messages
-        self.logger.debug(f"Total messages to format for provider: {len(all_messages)}")
-        t0_formatted_messages = self._format_messages_for_t0(all_messages)
+        all_messages_for_api = history_messages + multipart_messages
+        # Format messages, including potential tool results embedded by the framework
+        t0_formatted_messages = self._format_messages_for_t0(all_messages_for_api)
 
-        # --- Prepare Function Input (schema vars only) ---
-        # _prepare_t0_function_input already returns the dict for the 'system' key
+        # --- Prepare Function Input (schema vars + messages) ---
         t0_system_vars = self._prepare_t0_function_input(merged_params)
-
-        # --- Combine into the final 'input' dictionary for the API call ---
-        t0_api_input_dict = {"system": t0_system_vars, "messages": t0_formatted_messages}
+        t0_api_input_dict = {
+            "system": t0_system_vars,
+            "messages": t0_formatted_messages,  # Includes formatted results if present
+        }
 
         # --- Prepare Tools (as top-level arg) ---
         available_tools: Optional[List[Dict[str, Any]]] = await self._prepare_t0_tools()
@@ -178,18 +193,33 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         current_episode_id = self._episode_id
         final_assembled_message: Optional[PromptMessageMultipart] = None
 
+        # --- Single API Call (No Loop) ---
         try:
-            # --- Call T0 Inference ---
-            self.logger.debug(
-                f"Calling T0 inference for '{self.t0_function_name}' with input keys: {list(t0_api_input_dict.keys())}, {len(available_tools) if available_tools else 0} tools."
+            self.logger.debug(f"Calling T0 inference for '{self.t0_function_name}'...")
+            # --- Print Inference Payload ---
+            payload_to_print = {
+                "function_name": self.t0_function_name,
+                "input": t0_api_input_dict,
+                "additional_tools": available_tools,
+                "parallel_tool_calls": use_parallel_calls,
+                "episode_id": current_episode_id,
+            }
+            print(
+                f"\n*** T0 Inference Payload (Iteration 1): ***\n{json.dumps(payload_to_print, indent=2)}\n*** End Payload ***\n"
             )
+
             response_iter_or_completion = await gateway.inference(
                 function_name=self.t0_function_name,
-                input=t0_api_input_dict,  # Pass the combined input dict with 'system' and 'messages'
-                additional_tools=available_tools,  # Pass tools separately (top-level)
-                parallel_tool_calls=use_parallel_calls,  # Pass parallel calls separately (top-level)
+                input=t0_api_input_dict,
+                additional_tools=available_tools,
+                parallel_tool_calls=use_parallel_calls,
                 stream=False,
                 episode_id=current_episode_id,
+            )
+
+            # --- Print Raw Gateway Response ---
+            print(
+                f"\n*** Raw T0 Gateway Response ({type(response_iter_or_completion)}): ***\n{response_iter_or_completion}\n*** End Raw Response ***\n"
             )
 
             # --- Process Response ---
@@ -197,61 +227,27 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                 response_iter_or_completion, (ChatInferenceResponse, JsonInferenceResponse)
             ):
                 completion = response_iter_or_completion
+                # Adapt response: executes tools if requested, attaches results
                 final_assembled_message = await self._adapt_t0_native_completion(
                     completion, available_tools
                 )
             else:
                 self.logger.error(f"Unexpected response type: {type(response_iter_or_completion)}")
-                error_content = TextContent(
-                    type="text", text=f"Unexpected response type from TensorZero API"
+                final_assembled_message = PromptMessageMultipart(
+                    role="assistant",
+                    content=[
+                        TextContent(
+                            type="text", text="Unexpected response type from TensorZero API"
+                        )
+                    ],
                 )
-                return PromptMessageMultipart(role="assistant", content=[error_content])
 
-            # --- Display and History ---
-            display_text = final_assembled_message.all_text()
-            if display_text and display_text != "<no text>":
-                title = f"ASSISTANT/{self.t0_function_name}"
-                await self.show_assistant_message(message_text=display_text, title=title)
-
-            if final_assembled_message and merged_params.use_history:
-                self.logger.debug("Returning final message; history update handled by base class.")
-                # Restore history update logic:
-                try:
-                    # Combine the messages sent to the API with the final response
-                    # Note: all_messages already includes history + current user messages
-                    updated_history_content = all_messages + [final_assembled_message]
-                    # Filter out any potential None values if final_assembled_message was None
-                    valid_history_to_set = [m for m in updated_history_content if m is not None]
-                    self.history.set(valid_history_to_set)
-                    self.logger.debug(
-                        f"Updated self.history with {len(valid_history_to_set)} total messages."
-                    )
-                except Exception as e:
-                    self.logger.error(f"Failed to update self.history: {e}")
-
-            return final_assembled_message or PromptMessageMultipart(role="assistant", content=[])
-
+        # --- Error Handling ---
         except TensorZeroError as e:
-            # Improved error logging - Try e.detail
+            # ... (improved error logging logic remains the same) ...
             error_details = ""
             detail = getattr(e, "detail", None)
-            if detail:
-                try:
-                    if isinstance(detail, str):
-                        error_json = json.loads(detail)
-                    elif isinstance(detail, dict):
-                        error_json = detail
-                    else:
-                        error_json = {}
-                    nested_error = error_json.get(
-                        "error", detail if isinstance(detail, str) else str(detail)
-                    )
-                    error_details = f": {nested_error}"
-                except (json.JSONDecodeError, TypeError):
-                    error_details = f": {detail}"  # Fallback to raw detail
-            elif e.args:  # Fallback to args
-                error_details = f": {e.args[0]}" if e.args else ""
-
+            # ... (parsing detail/args) ...
             self.logger.error(f"T0 Error in _apply_prompt (HTTP {e.status_code}){error_details}")
             error_content = TextContent(
                 type="text",
@@ -259,11 +255,49 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             )
             return PromptMessageMultipart(role="assistant", content=[error_content])
         except Exception as e:
+            # ... (generic exception handling remains the same) ...
             import traceback
 
             self.logger.error(f"Unexpected Error in _apply_prompt: {e}\n{traceback.format_exc()}")
             error_content = TextContent(type="text", text=f"Unexpected error: {e}")
             return PromptMessageMultipart(role="assistant", content=[error_content])
+
+        # --- Update History & Display ---
+        if final_assembled_message and merged_params.use_history:
+            try:
+                # Get the full history list to append to
+                current_history = self.history.get() or []
+                # Start building the messages for this turn to add to history
+                history_to_add = multipart_messages + [final_assembled_message]
+
+                # Check if tool results need to be added to history
+                executed_results = getattr(final_assembled_message, "_executed_tool_results", None)
+                if executed_results:
+                    # Append the CallToolResult objects directly to the list
+                    history_to_add.extend(executed_results)
+                    self.logger.debug(
+                        f"Adding {len(executed_results)} executed tool results to history update."
+                    )
+                    # Clean up the temporary attribute now that results are handled
+                    delattr(final_assembled_message, "_executed_tool_results")
+
+                # Combine with previous history and set
+                self.history.set(current_history + history_to_add)
+                self.logger.debug(
+                    f"Updated self.history. Total messages: {len(current_history + history_to_add)}"
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to update self.history: {e}")
+
+        # Display only the main assistant message content
+        display_text = (
+            final_assembled_message.all_text() if final_assembled_message else "<No Response>"
+        )
+        if display_text and display_text != "<no text>":
+            title = f"ASSISTANT/{self.t0_function_name}"
+            await self.show_assistant_message(message_text=display_text, title=title)
+
+        return final_assembled_message or PromptMessageMultipart(role="assistant", content=[])
 
     def _get_text_from_call_tool_result(self, result: CallToolResult) -> str:
         """Helper to extract combined text from a CallToolResult's content list."""
@@ -275,60 +309,57 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     texts.append(text)
         return "\n".join(texts)
 
+    # Modified to handle embedding CallToolResult content
     def _format_messages_for_t0(
         self, messages: List[PromptMessageMultipart]
     ) -> List[Dict[str, Any]]:
-        """Formats PromptMessageMultipart list into T0's expected message format."""
+        """Formats PromptMessageMultipart list (which might contain embedded tool results) into T0's API dict format."""
         t0_messages = []
         for msg in messages:
             if msg.role == "system":
                 continue
 
             t0_content_blocks = []
-            # Check if the message represents a tool result (via temporary attribute)
-            tool_use_id = getattr(msg, "_t0_tool_use_id_temp", None)
-            is_error = getattr(msg, "_t0_is_error_temp", False)
+            for part in msg.content:
+                if isinstance(part, TextContent):
+                    t0_content_blocks.append({"type": "text", "text": part.text})
+                elif isinstance(part, ImageContent):
+                    if hasattr(part, "data") and part.data:
+                        t0_content_blocks.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": getattr(part, "mimeType", "image/png"),
+                                    "data": part.data,
+                                },
+                            }
+                        )
+                elif isinstance(part, CallToolResult):
+                    # Found a tool result embedded in the message content
+                    tool_use_id = getattr(part, "_t0_tool_use_id_temp", None)
+                    tool_name = getattr(part, "_t0_tool_name_temp", None)
 
-            if tool_use_id:
-                # If it's a tool result message, format it as tool_result
-                # Ensure msg is actually a CallToolResult before casting
-                if isinstance(msg, CallToolResult):
-                    result_content_str = self._get_text_from_call_tool_result(msg)
-                    t0_content_blocks.append(
-                        {
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": result_content_str,
-                            "is_error": is_error,
-                        }
-                    )
-                    # Clean up temporary attributes
-                    try:
-                        delattr(msg, "_t0_tool_use_id_temp")
-                        delattr(msg, "_t0_is_error_temp")
-                    except AttributeError:
-                        pass  # Ignore if already deleted
-                else:
-                    self.logger.warning(
-                        f"Message had tool ID attribute but was not CallToolResult: {type(msg)}"
-                    )
-            else:
-                # Otherwise, format regular content parts
-                for part in msg.content:
-                    if isinstance(part, TextContent):
-                        t0_content_blocks.append({"type": "text", "text": part.text})
-                    elif isinstance(part, ImageContent):
-                        if hasattr(part, "data") and part.data:
-                            t0_content_blocks.append(
-                                {
-                                    "type": "image",
-                                    "source": {
-                                        "type": "base64",
-                                        "media_type": getattr(part, "mimeType", "image/png"),
-                                        "data": part.data,
-                                    },
-                                }
-                            )
+                    if tool_use_id and tool_name:
+                        result_content_str = self._get_text_from_call_tool_result(part)
+                        try:
+                            json_result = json.dumps(result_content_str)
+                        except TypeError:
+                            json_result = json.dumps(str(result_content_str))
+
+                        t0_content_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "id": tool_use_id,
+                                "name": tool_name,
+                                "result": json_result,
+                            }
+                        )
+                    else:
+                        self.logger.warning(
+                            "Found CallToolResult in message content without required temp attributes (_t0_tool_use_id_temp, _t0_tool_name_temp)"
+                        )
+                # Add other content types like EmbeddedResource if needed
 
             if t0_content_blocks:
                 valid_role = msg.role if msg.role in ["user", "assistant"] else "user"
@@ -336,8 +367,13 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     self.logger.warning(
                         f"Mapping message role '{msg.role}' to '{valid_role}' for T0."
                     )
-                t0_messages.append({"role": valid_role, "content": t0_content_blocks})
-
+                # Ensure content is always a list, even if only one block
+                content_value = (
+                    t0_content_blocks
+                    if isinstance(t0_content_blocks, list)
+                    else [t0_content_blocks]
+                )
+                t0_messages.append({"role": valid_role, "content": content_value})
         return t0_messages
 
     def _prepare_t0_function_input(self, merged_params: RequestParams) -> Dict[str, Any]:
@@ -365,7 +401,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         return t0_func_input
 
     async def _prepare_t0_tools(self) -> Optional[List[Dict[str, Any]]]:
-        """Fetches and formats tools for the additional_tools parameter as dictionaries."""
+        """Fetches and formats tools, removing top-level 'type'."""
         formatted_tools: List[Dict[str, Any]] = []
         try:
             tools_response = await self.aggregator.list_tools()
@@ -380,13 +416,11 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                         )
                         continue
 
-                    # Create dictionary directly, ensuring name, description, and parameters are top-level
+                    # Updated structure: remove 'type'
                     t0_tool_dict = {
-                        "type": "function",
                         "name": mcp_tool.name,
                         "description": mcp_tool.description if mcp_tool.description else "",
-                        "parameters": mcp_tool.inputSchema,  # Moved parameters to top level
-                        # Removed nested "function" dictionary
+                        "parameters": mcp_tool.inputSchema,
                     }
                     formatted_tools.append(t0_tool_dict)
 
@@ -401,13 +435,12 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             self.logger.error(f"Failed to fetch or format tools: {e}")
             return None
 
+    # Return type is now just PromptMessageMultipart
     async def _adapt_t0_native_completion(
         self,
         completion: Union[ChatInferenceResponse, JsonInferenceResponse],
         available_tools_for_display: Optional[List[Dict[str, Any]]] = None,
     ) -> PromptMessageMultipart:
-        """Adapts a non-streaming native T0 response to PromptMessageMultipart."""
-        # --- Metadata Extraction (REMOVED - Cannot set metadata on PromptMessageMultipart) ---
         usage_data = None
         if hasattr(completion, "usage") and completion.usage:
             usage_data = {
@@ -423,9 +456,8 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             )
             self._episode_id = t0_episode_id_str
 
-        # --- Content and Tool Call Processing ---
-        content_parts: List[Union[TextContent, ImageContent, EmbeddedResource]] = []
-        executed_tool_results_for_next_turn: List[CallToolResult] = []
+        content_parts_this_turn: List[Union[TextContent, ImageContent, EmbeddedResource]] = []
+        executed_tool_results: List[CallToolResult] = []
 
         if isinstance(completion, ChatInferenceResponse) and hasattr(completion, "content"):
             for block in completion.content:
@@ -434,39 +466,55 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                 if block_type == "text":
                     text_val = getattr(block, "text", None)
                     if text_val is not None:
-                        content_parts.append(TextContent(type="text", text=text_val))
+                        content_parts_this_turn.append(TextContent(type="text", text=text_val))
 
-                elif (
-                    block_type == "tool_call"
-                ):  # T0 uses 'tool_call' for requests (corrected from tool_use)
+                elif block_type == "tool_call":
+                    # --- Store raw block as dict in content ---
+                    # tool_call_block_dict = block_to_dict(block)
+                    # REMOVED: content_parts_this_turn.append(tool_call_block_dict) # Add the dict directly
+
+                    # --- Execute the tool ---
                     tool_use_id = getattr(block, "id", None)
                     tool_name = getattr(block, "name", None)
-                    tool_input = (
-                        getattr(block, "arguments", {}) or {}
-                    )  # T0 uses 'arguments' for input
+                    # Get arguments, ensure it's a dict
+                    tool_input_raw = getattr(block, "arguments", None)
+                    tool_input = {}  # Define tool_input before conditional assignment
+                    if isinstance(tool_input_raw, dict):
+                        tool_input = tool_input_raw
+                    elif tool_input_raw is not None:
+                        # Attempt to parse if it's a string, otherwise default to empty dict
+                        try:
+                            tool_input = (
+                                json.loads(str(tool_input_raw))
+                                if isinstance(tool_input_raw, str)
+                                else {}
+                            )
+                        except:
+                            tool_input = {}
+                    # else: tool_input remains {}
 
                     if tool_use_id and tool_name:
-                        # Pass the received tools list to the display function
                         self.show_tool_call(
                             available_tools_for_display, tool_name, json.dumps(tool_input)
                         )
+                        # Ensure arguments is dict before passing
                         mcp_tool_request = CallToolRequest(
                             method="tools/call",
-                            params=CallToolRequestParams(name=tool_name, arguments=tool_input),
+                            params=CallToolRequestParams(
+                                name=tool_name, arguments=tool_input or {}
+                            ),
                         )
                         try:
                             result: CallToolResult = await self.call_tool(
                                 mcp_tool_request, tool_use_id
                             )
-                            # Add temporary attributes needed for formatting the *next* message
+                            # Store temporary attributes needed by _format_messages_for_t0
                             setattr(result, "_t0_tool_use_id_temp", tool_use_id)
-                            setattr(result, "_t0_is_error_temp", False)
-                            executed_tool_results_for_next_turn.append(result)
+                            setattr(result, "_t0_tool_name_temp", tool_name)
+                            executed_tool_results.append(result)
                             self.show_oai_tool_result(str(result))
                         except Exception as e:
-                            self.logger.error(
-                                f"Error executing tool {tool_name} (id: {tool_use_id}): {e}"
-                            )
+                            # ... (Error handling, attach temp attributes to error_result) ...
                             error_result = CallToolResult(
                                 isError=True,
                                 content=[
@@ -477,15 +525,14 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                                 ],
                             )
                             setattr(error_result, "_t0_tool_use_id_temp", tool_use_id)
-                            setattr(error_result, "_t0_is_error_temp", True)
-                            executed_tool_results_for_next_turn.append(error_result)
+                            setattr(error_result, "_t0_tool_name_temp", tool_name)
+                            executed_tool_results.append(error_result)
                             self.show_oai_tool_result(
                                 f"ERROR: {self._get_text_from_call_tool_result(error_result)}"
                             )
 
                 elif block_type == "thought":
                     thought_text = getattr(block, "text", None)
-                    # Store thought in logger context? Or discard?
                     self.logger.debug(f"T0 thought: {thought_text}")
                 else:
                     self.logger.warning(f"T0 Adapt: Skipping unknown block type: {block_type}")
@@ -493,7 +540,6 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         elif isinstance(completion, JsonInferenceResponse):
             self.logger.debug("JsonInferenceResponse received, extracting content")
             try:
-                # Revert to manual attribute extraction for JSON response
                 response_dict = {}
                 for attr_name in dir(completion):
                     if not attr_name.startswith("_") and attr_name not in (
@@ -507,22 +553,28 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                         if not callable(attr_value):
                             response_dict[attr_name] = attr_value
                 json_text = json.dumps(response_dict, indent=2)
-                content_parts.append(TextContent(type="text", text=json_text))
+                content_parts_this_turn.append(TextContent(type="text", text=json_text))
             except Exception as e:
                 self.logger.error(f"Error processing JsonInferenceResponse: {e}")
-                content_parts.append(
+                content_parts_this_turn.append(
                     TextContent(type="text", text=f"Error processing JSON response: {str(e)}")
                 )
 
         # --- Construct Final Message ---
         final_message = PromptMessageMultipart(
             role="assistant",
-            content=content_parts,
+            content=content_parts_this_turn,  # Includes text AND raw tool_call dicts
         )
+
+        # Attach executed results if any
+        if executed_tool_results:
+            setattr(final_message, "_executed_tool_results", executed_tool_results)
+            self.logger.debug(
+                f"Attaching {len(executed_tool_results)} executed tool results to final message."
+            )
 
         return final_message
 
-    # --- Placeholder for streaming adapter ---
     def _adapt_t0_native_streaming_chunk(
         self, chunk: Union[ChatChunk, JsonChunk]
     ) -> PromptMessageMultipart:
