@@ -144,7 +144,45 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         assert self.gateway is not None
         return self.gateway
 
-    # --- Implement the required abstract method --- #
+    def _format_tool_results_for_user_message(
+        self, results: List[CallToolResult]
+    ) -> Optional[Dict[str, Any]]:
+        """Formats CallToolResult list into T0's tool_result blocks within a user message dict."""
+        t0_tool_result_blocks = []
+        for result in results:
+            tool_use_id = getattr(result, "_t0_tool_use_id_temp", None)
+            tool_name = getattr(result, "_t0_tool_name_temp", None)
+
+            if tool_use_id and tool_name:
+                result_content_str = self._get_text_from_call_tool_result(result)
+                try:
+                    json_result = json.dumps(result_content_str)
+                except TypeError:
+                    json_result = json.dumps(str(result_content_str))
+
+                t0_block = {
+                    "type": "tool_result",
+                    "id": tool_use_id,
+                    "name": tool_name,
+                    "result": json_result,
+                }
+                t0_tool_result_blocks.append(t0_block)
+
+                try:
+                    delattr(result, "_t0_tool_use_id_temp")
+                    delattr(result, "_t0_tool_name_temp")
+                    if hasattr(result, "_t0_is_error_temp"):
+                        delattr(result, "_t0_is_error_temp")
+                except AttributeError:
+                    pass
+            else:
+                self.logger.warning(f"Could not find id/name for CallToolResult: {result}")
+
+        if not t0_tool_result_blocks:
+            return None
+
+        return {"role": "user", "content": t0_tool_result_blocks}
+
     async def _apply_prompt_provider_specific(
         self,
         multipart_messages: List[PromptMessageMultipart],
@@ -154,148 +192,178 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
         gateway = await self._ensure_gateway_initialized()
         merged_params = self.get_request_params(request_params)
 
-        # --- Prepare Messages (including history and potential tool results from previous turn) ---
+        # --- Prepare Initial Messages & Input ---
         history_messages: List[PromptMessageMultipart] = []
         if merged_params.use_history:
             try:
-                retrieved_history = self.history.get()
-                if isinstance(retrieved_history, list):
-                    valid_history = [
-                        m for m in retrieved_history if isinstance(m, PromptMessageMultipart)
-                    ]
-                    history_messages.extend(valid_history)
-                    self.logger.debug(f"Retrieved {len(valid_history)} messages from history.")
-                else:
-                    self.logger.warning(
-                        f"History retrieval returned unexpected type: {type(retrieved_history)}"
-                    )
+                retrieved_history = self.history.get() or []
+                valid_history = [
+                    m for m in retrieved_history if isinstance(m, PromptMessageMultipart)
+                ]
+                history_messages.extend(valid_history)
+                # self.logger.debug(f"Retrieved {len(valid_history)} messages from history.")
             except Exception as e:
                 self.logger.error(f"Error retrieving history: {e}")
-        else:
-            self.logger.debug("History usage disabled by request params.")
 
-        all_messages_for_api = history_messages + multipart_messages
-        # Format messages, including potential tool results embedded by the framework
-        t0_formatted_messages = self._format_messages_for_t0(all_messages_for_api)
+        all_initial_messages = history_messages + multipart_messages
+        current_api_messages = self._format_messages_for_t0(all_initial_messages)
 
-        # --- Prepare Function Input (schema vars + messages) ---
         t0_system_vars = self._prepare_t0_function_input(merged_params)
-        t0_api_input_dict = {
-            "system": t0_system_vars,
-            "messages": t0_formatted_messages,  # Includes formatted results if present
-        }
-
-        # --- Prepare Tools (as top-level arg) ---
+        t0_api_input_dict = {"system": t0_system_vars}  # Messages added inside loop
         available_tools: Optional[List[Dict[str, Any]]] = await self._prepare_t0_tools()
-        use_parallel_calls = merged_params.parallel_tool_calls if available_tools else False
 
-        # --- Prepare other args ---
-        current_episode_id = self._episode_id
-        final_assembled_message: Optional[PromptMessageMultipart] = None
+        # --- Loop for Tool Use ---
+        final_content_parts: List[Union[TextContent, ImageContent, EmbeddedResource]] = []
+        last_completion_object = None  # Store the last successful completion
 
-        # --- Single API Call (No Loop) ---
-        try:
-            self.logger.debug(f"Calling T0 inference for '{self.t0_function_name}'...")
-            # --- Print Inference Payload ---
-            payload_to_print = {
-                "function_name": self.t0_function_name,
-                "input": t0_api_input_dict,
-                "additional_tools": available_tools,
-                "parallel_tool_calls": use_parallel_calls,
-                "episode_id": current_episode_id,
-            }
-            print(
-                f"\n*** T0 Inference Payload (Iteration 1): ***\n{json.dumps(payload_to_print, indent=2)}\n*** End Payload ***\n"
-            )
+        for i in range(merged_params.max_iterations):
+            use_parallel_calls = merged_params.parallel_tool_calls if available_tools else False
+            current_episode_id = self._episode_id
 
-            response_iter_or_completion = await gateway.inference(
-                function_name=self.t0_function_name,
-                input=t0_api_input_dict,
-                additional_tools=available_tools,
-                parallel_tool_calls=use_parallel_calls,
-                stream=False,
-                episode_id=current_episode_id,
-            )
-
-            # --- Print Raw Gateway Response ---
-            print(
-                f"\n*** Raw T0 Gateway Response ({type(response_iter_or_completion)}): ***\n{response_iter_or_completion}\n*** End Raw Response ***\n"
-            )
-
-            # --- Process Response ---
-            if isinstance(
-                response_iter_or_completion, (ChatInferenceResponse, JsonInferenceResponse)
-            ):
-                completion = response_iter_or_completion
-                # Adapt response: executes tools if requested, attaches results
-                final_assembled_message = await self._adapt_t0_native_completion(
-                    completion, available_tools
-                )
-            else:
-                self.logger.error(f"Unexpected response type: {type(response_iter_or_completion)}")
-                final_assembled_message = PromptMessageMultipart(
-                    role="assistant",
-                    content=[
-                        TextContent(
-                            type="text", text="Unexpected response type from TensorZero API"
-                        )
-                    ],
-                )
-
-        # --- Error Handling ---
-        except TensorZeroError as e:
-            # ... (improved error logging logic remains the same) ...
-            error_details = ""
-            detail = getattr(e, "detail", None)
-            # ... (parsing detail/args) ...
-            self.logger.error(f"T0 Error in _apply_prompt (HTTP {e.status_code}){error_details}")
-            error_content = TextContent(
-                type="text",
-                text=f"Error communicating with TensorZero (HTTP {e.status_code}){error_details}",
-            )
-            return PromptMessageMultipart(role="assistant", content=[error_content])
-        except Exception as e:
-            # ... (generic exception handling remains the same) ...
-            import traceback
-
-            self.logger.error(f"Unexpected Error in _apply_prompt: {e}\n{traceback.format_exc()}")
-            error_content = TextContent(type="text", text=f"Unexpected error: {e}")
-            return PromptMessageMultipart(role="assistant", content=[error_content])
-
-        # --- Update History & Display ---
-        if final_assembled_message and merged_params.use_history:
             try:
-                # Get the full history list to append to
-                current_history = self.history.get() or []
-                # Start building the messages for this turn to add to history
-                history_to_add = multipart_messages + [final_assembled_message]
-
-                # Check if tool results need to be added to history
-                executed_results = getattr(final_assembled_message, "_executed_tool_results", None)
-                if executed_results:
-                    # Append the CallToolResult objects directly to the list
-                    history_to_add.extend(executed_results)
-                    self.logger.debug(
-                        f"Adding {len(executed_results)} executed tool results to history update."
-                    )
-                    # Clean up the temporary attribute now that results are handled
-                    delattr(final_assembled_message, "_executed_tool_results")
-
-                # Combine with previous history and set
-                self.history.set(current_history + history_to_add)
                 self.logger.debug(
-                    f"Updated self.history. Total messages: {len(current_history + history_to_add)}"
+                    f"Calling T0 inference (Iteration {i + 1}/{merged_params.max_iterations}) for '{self.t0_function_name}' with {len(current_api_messages)} messages, {len(available_tools) if available_tools else 0} tools."
+                )
+                t0_api_input_dict["messages"] = current_api_messages  # type: ignore
+
+                # --- Print Inference Payload ---
+                payload_to_print = {
+                    "function_name": self.t0_function_name,
+                    "input": t0_api_input_dict,
+                    "additional_tools": available_tools,
+                    "parallel_tool_calls": use_parallel_calls,
+                    "episode_id": current_episode_id,
+                }
+                print(
+                    f"\n*** T0 Inference Payload (Iteration {i + 1}): ***\n{json.dumps(payload_to_print, indent=2)}\n*** End Payload ***\n"
+                )
+
+                response_iter_or_completion = await gateway.inference(
+                    function_name=self.t0_function_name,
+                    input=t0_api_input_dict,
+                    additional_tools=available_tools,
+                    parallel_tool_calls=use_parallel_calls,
+                    stream=False,
+                    episode_id=current_episode_id,
+                )
+
+                # --- Print Raw Gateway Response ---
+                print(
+                    f"\n*** Raw T0 Gateway Response ({type(response_iter_or_completion)}): ***\n{response_iter_or_completion}\n*** End Raw Response ***\n"
+                )
+
+                # --- Process Response ---
+                if not isinstance(
+                    response_iter_or_completion, (ChatInferenceResponse, JsonInferenceResponse)
+                ):
+                    self.logger.error(
+                        f"Unexpected T0 response type: {type(response_iter_or_completion)}"
+                    )
+                    final_content_parts = [
+                        TextContent(type="text", text="Unexpected response type")
+                    ]
+                    break  # Exit loop
+
+                completion = response_iter_or_completion
+                last_completion_object = completion  # Store for potential history update if needed
+
+                (
+                    content_parts_this_turn,
+                    executed_results,
+                    raw_tool_call_blocks,
+                ) = await self._adapt_t0_native_completion(completion, available_tools)
+
+                # --- Construct and Add Assistant Message (potentially with tool calls) ---
+                assistant_api_content = []
+                for part in content_parts_this_turn:  # Add text/image parts
+                    if isinstance(part, TextContent):
+                        assistant_api_content.append({"type": "text", "text": part.text})
+                    # Add image handling if needed
+                if raw_tool_call_blocks:  # Add raw tool calls if present
+                    # Ensure blocks are dicts before extending
+                    assistant_api_content.extend([block_to_dict(b) for b in raw_tool_call_blocks])
+
+                if assistant_api_content:  # Don't add empty assistant messages
+                    assistant_api_message = {"role": "assistant", "content": assistant_api_content}
+                    current_api_messages.append(assistant_api_message)
+
+                # Store text/image content from this turn for the final message object
+                final_content_parts = content_parts_this_turn
+
+                # --- Check if Loop Should End or Continue ---
+                if not executed_results:
+                    self.logger.debug(f"Iteration {i + 1}: No tool calls detected. Finishing loop.")
+                    break  # Exit loop, final response is in final_content_parts
+                else:
+                    # --- Format and Add User Message with Tool Results ---
+                    self.logger.debug(
+                        f"Iteration {i + 1}: Formatting {len(executed_results)} tool results for next iteration."
+                    )
+                    user_message_with_results = self._format_tool_results_for_user_message(
+                        executed_results
+                    )
+                    if user_message_with_results:
+                        current_api_messages.append(user_message_with_results)
+                    else:
+                        self.logger.error("Failed to format tool results, breaking loop.")
+                        break
+
+                # Check max iterations
+                if i == merged_params.max_iterations - 1:
+                    self.logger.warning(f"Max iterations ({merged_params.max_iterations}) reached.")
+                    break
+
+            # --- Error Handling for Inference Call ---
+            except TensorZeroError as e:
+                error_details = ""
+                detail = getattr(e, "detail", None)
+                if detail:
+                    error_details = f": {detail}"
+                elif e.args:
+                    error_details = f": {e.args[0]}"
+                self.logger.error(
+                    f"T0 Error in _apply_prompt (HTTP {e.status_code}){error_details}"
+                )
+                error_content = TextContent(
+                    type="text",
+                    text=f"Error communicating with TensorZero (HTTP {e.status_code}){error_details}",
+                )
+                return PromptMessageMultipart(role="assistant", content=[error_content])
+            except Exception as e:
+                import traceback
+
+                self.logger.error(
+                    f"Unexpected Error in _apply_prompt: {e}\n{traceback.format_exc()}"
+                )
+                error_content = TextContent(type="text", text=f"Unexpected error: {e}")
+                return PromptMessageMultipart(role="assistant", content=[error_content])
+
+        # --- Construct Final Message & Update History ---
+        final_assembled_message = PromptMessageMultipart(
+            role="assistant", content=final_content_parts
+        )
+
+        if merged_params.use_history:
+            try:
+                # Simplified history: initial messages + final assembled message.
+                # Loses intermediate tool turns in self.history.
+                history_to_set = all_initial_messages + [final_assembled_message]
+                self.history.set(history_to_set)
+                self.logger.debug(
+                    f"Updated self.history (simplified). Final API message count: {len(current_api_messages)}"
                 )
             except Exception as e:
-                self.logger.error(f"Failed to update self.history: {e}")
+                self.logger.error(f"Failed to update self.history after loop: {e}")
 
-        # Display only the main assistant message content
-        display_text = (
-            final_assembled_message.all_text() if final_assembled_message else "<No Response>"
-        )
+        # Display final message
+        display_text = final_assembled_message.all_text()
         if display_text and display_text != "<no text>":
             title = f"ASSISTANT/{self.t0_function_name}"
             await self.show_assistant_message(message_text=display_text, title=title)
+        elif not final_content_parts:  # Log if final message was empty (likely ended on tool call)
+            self.logger.debug(
+                "Final assistant message has no displayable content (likely ended after tool call)."
+            )
 
         return final_assembled_message or PromptMessageMultipart(role="assistant", content=[])
 
@@ -309,57 +377,60 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     texts.append(text)
         return "\n".join(texts)
 
-    # Modified to handle embedding CallToolResult content
     def _format_messages_for_t0(
         self, messages: List[PromptMessageMultipart]
     ) -> List[Dict[str, Any]]:
-        """Formats PromptMessageMultipart list (which might contain embedded tool results) into T0's API dict format."""
         t0_messages = []
         for msg in messages:
             if msg.role == "system":
                 continue
 
             t0_content_blocks = []
-            for part in msg.content:
-                if isinstance(part, TextContent):
-                    t0_content_blocks.append({"type": "text", "text": part.text})
-                elif isinstance(part, ImageContent):
-                    if hasattr(part, "data") and part.data:
-                        t0_content_blocks.append(
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": getattr(part, "mimeType", "image/png"),
-                                    "data": part.data,
-                                },
-                            }
-                        )
-                elif isinstance(part, CallToolResult):
-                    # Found a tool result embedded in the message content
-                    tool_use_id = getattr(part, "_t0_tool_use_id_temp", None)
-                    tool_name = getattr(part, "_t0_tool_name_temp", None)
+            if len(msg.content) == 1 and isinstance(msg.content[0], CallToolResult):
+                part = msg.content[0]
+                tool_use_id = getattr(part, "_t0_tool_use_id_temp", None)
+                tool_name = getattr(part, "_t0_tool_name_temp", None)
 
-                    if tool_use_id and tool_name:
-                        result_content_str = self._get_text_from_call_tool_result(part)
-                        try:
-                            json_result = json.dumps(result_content_str)
-                        except TypeError:
-                            json_result = json.dumps(str(result_content_str))
+                if tool_use_id and tool_name:
+                    result_content_str = self._get_text_from_call_tool_result(part)
+                    try:
+                        json_result = json.dumps(result_content_str)
+                    except TypeError:
+                        json_result = json.dumps(str(result_content_str))
 
-                        t0_content_blocks.append(
-                            {
-                                "type": "tool_result",
-                                "id": tool_use_id,
-                                "name": tool_name,
-                                "result": json_result,
-                            }
-                        )
-                    else:
-                        self.logger.warning(
-                            "Found CallToolResult in message content without required temp attributes (_t0_tool_use_id_temp, _t0_tool_name_temp)"
-                        )
-                # Add other content types like EmbeddedResource if needed
+                    t0_content_blocks.append(
+                        {
+                            "type": "tool_result",
+                            "id": tool_use_id,
+                            "name": tool_name,
+                            "result": json_result,
+                        }
+                    )
+                    try:
+                        delattr(part, "_t0_tool_use_id_temp")
+                        delattr(part, "_t0_tool_name_temp")
+                    except AttributeError:
+                        pass
+                else:
+                    self.logger.warning(
+                        "Found CallToolResult without required temp attributes (_t0_tool_use_id_temp, _t0_tool_name_temp)"
+                    )
+            else:
+                for part in msg.content:
+                    if isinstance(part, TextContent):
+                        t0_content_blocks.append({"type": "text", "text": part.text})
+                    elif isinstance(part, ImageContent):
+                        if hasattr(part, "data") and part.data:
+                            t0_content_blocks.append(
+                                {
+                                    "type": "image",
+                                    "source": {
+                                        "type": "base64",
+                                        "media_type": getattr(part, "mimeType", "image/png"),
+                                        "data": part.data,
+                                    },
+                                }
+                            )
 
             if t0_content_blocks:
                 valid_role = msg.role if msg.role in ["user", "assistant"] else "user"
@@ -367,12 +438,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     self.logger.warning(
                         f"Mapping message role '{msg.role}' to '{valid_role}' for T0."
                     )
-                # Ensure content is always a list, even if only one block
-                content_value = (
-                    t0_content_blocks
-                    if isinstance(t0_content_blocks, list)
-                    else [t0_content_blocks]
-                )
+                content_value = t0_content_blocks  # Content is already a list
                 t0_messages.append({"role": valid_role, "content": content_value})
         return t0_messages
 
@@ -435,29 +501,18 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
             self.logger.error(f"Failed to fetch or format tools: {e}")
             return None
 
-    # Return type is now just PromptMessageMultipart
     async def _adapt_t0_native_completion(
         self,
         completion: Union[ChatInferenceResponse, JsonInferenceResponse],
         available_tools_for_display: Optional[List[Dict[str, Any]]] = None,
-    ) -> PromptMessageMultipart:
-        usage_data = None
-        if hasattr(completion, "usage") and completion.usage:
-            usage_data = {
-                "input_tokens": getattr(completion.usage, "input_tokens", 0),
-                "output_tokens": getattr(completion.usage, "output_tokens", 0),
-            }
-            self.logger.debug(f"T0 Usage: {usage_data}")
-
-        t0_episode_id_str = str(completion.episode_id) if completion.episode_id else None
-        if t0_episode_id_str and self._episode_id != t0_episode_id_str:
-            self.logger.warning(
-                f"Updating stored episode_id from {self._episode_id} to: {t0_episode_id_str}"
-            )
-            self._episode_id = t0_episode_id_str
-
+    ) -> Tuple[
+        List[Union[TextContent, ImageContent, EmbeddedResource]],  # Content parts
+        List[CallToolResult],  # Executed results
+        List[Any],  # Raw tool_call blocks
+    ]:
         content_parts_this_turn: List[Union[TextContent, ImageContent, EmbeddedResource]] = []
         executed_tool_results: List[CallToolResult] = []
+        raw_tool_call_blocks_from_t0: List[Any] = []  # Store raw block objects
 
         if isinstance(completion, ChatInferenceResponse) and hasattr(completion, "content"):
             for block in completion.content:
@@ -469,52 +524,48 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                         content_parts_this_turn.append(TextContent(type="text", text=text_val))
 
                 elif block_type == "tool_call":
-                    # --- Store raw block as dict in content ---
-                    # tool_call_block_dict = block_to_dict(block)
-                    # REMOVED: content_parts_this_turn.append(tool_call_block_dict) # Add the dict directly
+                    # --- Store the raw block object ---
+                    raw_tool_call_blocks_from_t0.append(block)
 
                     # --- Execute the tool ---
                     tool_use_id = getattr(block, "id", None)
                     tool_name = getattr(block, "name", None)
-                    # Get arguments, ensure it's a dict
                     tool_input_raw = getattr(block, "arguments", None)
-                    tool_input = {}  # Define tool_input before conditional assignment
+                    tool_input = {}
                     if isinstance(tool_input_raw, dict):
                         tool_input = tool_input_raw
-                    elif tool_input_raw is not None:
-                        # Attempt to parse if it's a string, otherwise default to empty dict
+                    elif isinstance(tool_input_raw, str):  # Check if it's a string first
                         try:
-                            tool_input = (
-                                json.loads(str(tool_input_raw))
-                                if isinstance(tool_input_raw, str)
-                                else {}
-                            )
-                        except:
-                            tool_input = {}
-                    # else: tool_input remains {}
+                            tool_input = json.loads(tool_input_raw)
+                        except json.JSONDecodeError:
+                            tool_input = {}  # Default if not valid JSON
+                    elif tool_input_raw is not None:  # Handle other non-dict types if necessary
+                        self.logger.warning(
+                            f"Tool arguments were not dict or string: {type(tool_input_raw)}. Using empty dict."
+                        )
+                        tool_input = {}
 
                     if tool_use_id and tool_name:
                         self.show_tool_call(
                             available_tools_for_display, tool_name, json.dumps(tool_input)
                         )
-                        # Ensure arguments is dict before passing
                         mcp_tool_request = CallToolRequest(
                             method="tools/call",
-                            params=CallToolRequestParams(
-                                name=tool_name, arguments=tool_input or {}
-                            ),
+                            params=CallToolRequestParams(name=tool_name, arguments=tool_input),
                         )
                         try:
                             result: CallToolResult = await self.call_tool(
                                 mcp_tool_request, tool_use_id
                             )
-                            # Store temporary attributes needed by _format_messages_for_t0
                             setattr(result, "_t0_tool_use_id_temp", tool_use_id)
                             setattr(result, "_t0_tool_name_temp", tool_name)
+                            setattr(result, "_t0_is_error_temp", False)
                             executed_tool_results.append(result)
                             self.show_oai_tool_result(str(result))
                         except Exception as e:
-                            # ... (Error handling, attach temp attributes to error_result) ...
+                            self.logger.error(
+                                f"Error executing tool {tool_name} (id: {tool_use_id}): {e}"
+                            )
                             error_result = CallToolResult(
                                 isError=True,
                                 content=[
@@ -526,6 +577,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                             )
                             setattr(error_result, "_t0_tool_use_id_temp", tool_use_id)
                             setattr(error_result, "_t0_tool_name_temp", tool_name)
+                            setattr(error_result, "_t0_is_error_temp", True)
                             executed_tool_results.append(error_result)
                             self.show_oai_tool_result(
                                 f"ERROR: {self._get_text_from_call_tool_result(error_result)}"
@@ -538,7 +590,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     self.logger.warning(f"T0 Adapt: Skipping unknown block type: {block_type}")
 
         elif isinstance(completion, JsonInferenceResponse):
-            self.logger.debug("JsonInferenceResponse received, extracting content")
+            # Handle JSON response - add its content as text
             try:
                 response_dict = {}
                 for attr_name in dir(completion):
@@ -560,20 +612,8 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Any, Any]):
                     TextContent(type="text", text=f"Error processing JSON response: {str(e)}")
                 )
 
-        # --- Construct Final Message ---
-        final_message = PromptMessageMultipart(
-            role="assistant",
-            content=content_parts_this_turn,  # Includes text AND raw tool_call dicts
-        )
-
-        # Attach executed results if any
-        if executed_tool_results:
-            setattr(final_message, "_executed_tool_results", executed_tool_results)
-            self.logger.debug(
-                f"Attaching {len(executed_tool_results)} executed tool results to final message."
-            )
-
-        return final_message
+        # Return the tuple
+        return content_parts_this_turn, executed_tool_results, raw_tool_call_blocks_from_t0
 
     def _adapt_t0_native_streaming_chunk(
         self, chunk: Union[ChatChunk, JsonChunk]
