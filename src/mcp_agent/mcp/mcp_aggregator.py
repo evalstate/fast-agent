@@ -12,8 +12,6 @@ from typing import (
 
 from mcp import GetPromptResult, ReadResourceResult
 from mcp.client.session import ClientSession
-from mcp.server.lowlevel.server import Server
-from mcp.server.stdio import stdio_server
 from mcp.types import (
     CallToolResult,
     ListToolsResult,
@@ -42,6 +40,14 @@ SEP = "-"
 # Define type variables for the generalized method
 T = TypeVar("T")
 R = TypeVar("R")
+
+def create_namespaced_name(server_name: str, resource_name: str) -> str:
+    """Create a namespaced resource name from server and resource names"""
+    return f"{server_name}{SEP}{resource_name}"
+
+def is_namespaced_name(name: str) -> bool:
+    """Check if a name is already namespaced"""
+    return SEP in name
 
 
 class NamespacedTool(BaseModel):
@@ -231,8 +237,7 @@ class MCPAggregator(ContextDependent):
 
         async def fetch_prompts(client: ClientSession, server_name: str) -> List[Prompt]:
             # Only fetch prompts if the server supports them
-            capabilities = await self.get_capabilities(server_name)
-            if not capabilities or not capabilities.prompts:
+            if not await self.server_supports_feature(server_name, "prompts"):
                 logger.debug(f"Server '{server_name}' does not support prompts")
                 return []
 
@@ -278,7 +283,7 @@ class MCPAggregator(ContextDependent):
             # Process tools
             self._server_to_tool_map[server_name] = []
             for tool in tools:
-                namespaced_tool_name = f"{server_name}{SEP}{tool.name}"
+                namespaced_tool_name = create_namespaced_name(server_name, tool.name)
                 namespaced_tool = NamespacedTool(
                     tool=tool,
                     server_name=server_name,
@@ -320,6 +325,41 @@ class MCPAggregator(ContextDependent):
         except Exception as e:
             logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
             return None
+            
+    async def validate_server(self, server_name: str) -> bool:
+        """
+        Validate that a server exists in our server list.
+        
+        Args:
+            server_name: Name of the server to validate
+            
+        Returns:
+            True if the server exists, False otherwise
+        """
+        valid = server_name in self.server_names
+        if not valid:
+            logger.debug(f"Server '{server_name}' not found")
+        return valid
+    
+    async def server_supports_feature(self, server_name: str, feature: str) -> bool:
+        """
+        Check if a server supports a specific feature.
+        
+        Args:
+            server_name: Name of the server to check
+            feature: Feature to check for (e.g., "prompts", "resources")
+            
+        Returns:
+            True if the server supports the feature, False otherwise
+        """
+        if not await self.validate_server(server_name):
+            return False
+            
+        capabilities = await self.get_capabilities(server_name)
+        if not capabilities:
+            return False
+            
+        return getattr(capabilities, feature, False)
 
     async def list_servers(self) -> List[str]:
         """Return the list of server names aggregated by this agent."""
@@ -420,40 +460,45 @@ class MCPAggregator(ContextDependent):
         Returns:
             Tuple of (server_name, local_resource_name)
         """
-        server_name = None
-        local_name = None
-
-        if SEP in name:  # Namespaced resource name
-            server_name, local_name = name.split(SEP, 1)
-        else:
-            # For tools, search all servers for the tool
-            if resource_type == "tool":
-                for _, tools in self._server_to_tool_map.items():
-                    for namespaced_tool in tools:
-                        if namespaced_tool.tool.name == name:
-                            server_name = namespaced_tool.server_name
-                            local_name = name
-                            break
-                    if server_name:
-                        break
-            # For all other resource types, use the first server
-            # (prompt resource type is specially handled in get_prompt)
-            else:
-                local_name = name
-                server_name = self.server_names[0] if self.server_names else None
-
-        return server_name, local_name
+        # First, check if this is a direct hit in our namespaced tool map
+        # This handles both namespaced and non-namespaced direct lookups
+        if resource_type == "tool" and name in self._namespaced_tool_map:
+            namespaced_tool = self._namespaced_tool_map[name]
+            return namespaced_tool.server_name, namespaced_tool.tool.name
+            
+        # Next, attempt to interpret as a namespaced name
+        if is_namespaced_name(name):
+            parts = name.split(SEP, 1)
+            server_name, local_name = parts[0], parts[1]
+            
+            # Validate that the parsed server actually exists
+            if server_name in self.server_names:
+                return server_name, local_name
+            
+            # If the server name doesn't exist, it might be a tool with a hyphen in its name
+            # Fall through to the next checks
+            
+        # For tools, search all servers for the tool by exact name match
+        if resource_type == "tool":
+            for server_name, tools in self._server_to_tool_map.items():
+                for namespaced_tool in tools:
+                    if namespaced_tool.tool.name == name:
+                        return server_name, name
+                        
+        # For all other resource types, use the first server
+        return (self.server_names[0] if self.server_names else None, name)
 
     async def call_tool(self, name: str, arguments: dict | None = None) -> CallToolResult:
         """
-        Call a namespaced tool, e.g., 'server_name.tool_name'.
+        Call a namespaced tool, e.g., 'server_name-tool_name'.
         """
         if not self.initialized:
             await self.load_servers()
 
+        # Use the common parser to get server and tool name
         server_name, local_tool_name = await self._parse_resource_name(name, "tool")
 
-        if server_name is None or local_tool_name is None:
+        if server_name is None:
             logger.error(f"Error: Tool '{name}' not found")
             return CallToolResult(
                 isError=True,
@@ -506,27 +551,37 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        # Handle the case where prompt_name is None
-        if SEP in prompt_name and server_name is None:
-            server_name, local_prompt_name = prompt_name.split(SEP, 1)
-            namespaced_name = prompt_name  # Already namespaced
-        # Plain prompt name - use provided server or search
+        # If server_name is explicitly provided, use it
+        if server_name:
+            local_prompt_name = prompt_name
+        # Otherwise, check if prompt_name is namespaced and validate the server exists
+        elif is_namespaced_name(prompt_name):
+            parts = prompt_name.split(SEP, 1)
+            potential_server = parts[0]
+            
+            # Only treat as namespaced if the server part is valid
+            if potential_server in self.server_names:
+                server_name = potential_server
+                local_prompt_name = parts[1]
+            else:
+                # The hyphen is part of the prompt name, not a namespace separator
+                local_prompt_name = prompt_name
+        # Otherwise, use prompt_name as-is for searching
         else:
             local_prompt_name = prompt_name
-            namespaced_name = None  # Will be set when server is found
-
+            # We'll search all servers below
+        
         # If we have a specific server to check
         if server_name:
-            if server_name not in self.server_names:
+            if not await self.validate_server(server_name):
                 logger.error(f"Error: Server '{server_name}' not found")
                 return GetPromptResult(
                     description=f"Error: Server '{server_name}' not found",
                     messages=[],
                 )
-
+                
             # Check if server supports prompts
-            capabilities = await self.get_capabilities(server_name)
-            if not capabilities or not capabilities.prompts:
+            if not await self.server_supports_feature(server_name, "prompts"):
                 logger.debug(f"Server '{server_name}' does not support prompts")
                 return GetPromptResult(
                     description=f"Server '{server_name}' does not support prompts",
@@ -564,7 +619,7 @@ class MCPAggregator(ContextDependent):
 
             # Add namespaced name and source server to the result
             if result and result.messages:
-                result.namespaced_name = namespaced_name or f"{server_name}{SEP}{local_prompt_name}"
+                result.namespaced_name = create_namespaced_name(server_name, local_prompt_name)
 
                 # Store the arguments in the result for display purposes
                 if arguments:
@@ -616,7 +671,7 @@ class MCPAggregator(ContextDependent):
                             f"Successfully retrieved prompt '{local_prompt_name}' from server '{s_name}'"
                         )
                         # Add namespaced name using the actual server where found
-                        result.namespaced_name = f"{s_name}{SEP}{local_prompt_name}"
+                        result.namespaced_name = create_namespaced_name(s_name, local_prompt_name)
 
                         # Store the arguments in the result for display purposes
                         if arguments:
@@ -664,7 +719,7 @@ class MCPAggregator(ContextDependent):
                             f"Found prompt '{local_prompt_name}' on server '{s_name}' (not in cache)"
                         )
                         # Add namespaced name using the actual server where found
-                        result.namespaced_name = f"{s_name}{SEP}{local_prompt_name}"
+                        result.namespaced_name = create_namespaced_name(s_name, local_prompt_name)
 
                         # Store the arguments in the result for display purposes
                         if arguments:
@@ -942,68 +997,3 @@ class MCPAggregator(ContextDependent):
                 logger.error(f"Error fetching resources from {s_name}: {e}")
 
         return results
-
-
-class MCPCompoundServer(Server):
-    """
-    A compound server (server-of-servers) that aggregates multiple MCP servers and is itself an MCP server
-    """
-
-    def __init__(self, server_names: List[str], name: str = "MCPCompoundServer") -> None:
-        super().__init__(name)
-        self.aggregator = MCPAggregator(server_names)
-
-        # Register handlers for tools, prompts, and resources
-        self.list_tools()(self._list_tools)
-        self.call_tool()(self._call_tool)
-        self.get_prompt()(self._get_prompt)
-        self.list_prompts()(self._list_prompts)
-
-    async def _list_tools(self) -> List[Tool]:
-        """List all tools aggregated from connected MCP servers."""
-        tools_result = await self.aggregator.list_tools()
-        return tools_result.tools
-
-    async def _call_tool(self, name: str, arguments: dict | None = None) -> CallToolResult:
-        """Call a specific tool from the aggregated servers."""
-        try:
-            result = await self.aggregator.call_tool(name=name, arguments=arguments)
-            return result.content
-        except Exception as e:
-            return CallToolResult(
-                isError=True,
-                content=[TextContent(type="text", text=f"Error calling tool: {e}")],
-            )
-
-    async def _get_prompt(
-        self, name: str = None, arguments: dict[str, str] = None
-    ) -> GetPromptResult:
-        """
-        Get a prompt from the aggregated servers.
-
-        Args:
-            name: Name of the prompt to get (optionally namespaced)
-            arguments: Optional dictionary of string arguments for prompt templating
-        """
-        try:
-            result = await self.aggregator.get_prompt(prompt_name=name, arguments=arguments)
-            return result
-        except Exception as e:
-            return GetPromptResult(description=f"Error getting prompt: {e}", messages=[])
-
-    async def _list_prompts(self, server_name: str = None) -> Dict[str, List[Prompt]]:
-        """List available prompts from the aggregated servers."""
-        try:
-            return await self.aggregator.list_prompts(server_name=server_name)
-        except Exception as e:
-            logger.error(f"Error listing prompts: {e}")
-            return {}
-
-    async def run_stdio_async(self) -> None:
-        """Run the server using stdio transport."""
-        async with stdio_server() as (read_stream, write_stream):
-            await self.run(
-                read_stream=read_stream,
-                write_stream=write_stream,
-                initialization_options=self.create_initialization_options(),
-            )

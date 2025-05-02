@@ -32,3 +32,6 @@ mcp:
     test_server:
       command: "uv"
       args: ["run", "test_server.py"]
+    hyphen-name:
+      command: "uv"
+      args: ["run", "test_server.py"]

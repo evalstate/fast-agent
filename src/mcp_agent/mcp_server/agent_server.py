@@ -110,7 +110,10 @@ class AgentMCPServer:
 
         # Register handlers for SIGINT (Ctrl+C) and SIGTERM
         for sig, is_term in [(signal.SIGINT, False), (signal.SIGTERM, True)]:
-            loop.add_signal_handler(sig, lambda term=is_term: handle_signal(term))
+            import platform
+
+            if platform.system() != "Windows":
+                loop.add_signal_handler(sig, lambda term=is_term: handle_signal(term))
 
         logger.debug("Signal handlers installed")
 

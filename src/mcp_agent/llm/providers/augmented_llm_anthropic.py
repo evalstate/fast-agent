@@ -79,7 +79,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             maxTokens=4096,  # default haiku3
             systemPrompt=self.instruction,
             parallel_tool_calls=True,
-            max_iterations=10,
+            max_iterations=20,
             use_history=True,
         )
 

@@ -264,6 +264,7 @@ class MCPConnectionManager(ContextDependent):
                     command=config.command,
                     args=config.args if config.args is not None else [],
                     env={**get_default_environment(), **(config.env or {})},
+                    cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured
                 error_handler = get_stderr_handler(server_name)

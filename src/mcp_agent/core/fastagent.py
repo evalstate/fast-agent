@@ -324,13 +324,16 @@ class FastAgent:
                                 print("\nServer stopped by user (Ctrl+C)")
                         except Exception as e:
                             if not quiet_mode:
+                                import traceback
+
+                                traceback.print_exc()
                                 print(f"\nServer stopped with error: {e}")
 
                         # Exit after server shutdown
                         raise SystemExit(0)
 
                     # Handle direct message sending if  --message is provided
-                    if self.args.message:
+                    if hasattr(self.args, "message") and self.args.message:
                         agent_name = self.args.agent
                         message = self.args.message
 
@@ -356,7 +359,7 @@ class FastAgent:
                             print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
                             raise SystemExit(1)
 
-                    if self.args.prompt_file:
+                    if hasattr(self.args, "prompt_file") and self.args.prompt_file:
                         agent_name = self.args.agent
                         prompt: List[PromptMessageMultipart] = load_prompt_multipart(
                             Path(self.args.prompt_file)

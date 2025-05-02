@@ -28,6 +28,11 @@ def check_weather(location: str) -> str:
     return "It's sunny in " + location
 
 
+@app.tool(name="shirt-colour", description="Returns the colour of a shirt.")
+def shirt_colour() -> str:
+    return "blue polka dots"
+
+
 if __name__ == "__main__":
     # Run the server using stdio transport
     app.run(transport="stdio")

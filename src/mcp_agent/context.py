@@ -4,6 +4,7 @@ A central context object to store global state that is shared across the applica
 
 import asyncio
 import concurrent.futures
+import uuid
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 from mcp import ServerSession
@@ -79,12 +80,12 @@ async def configure_otel(config: "Settings") -> None:
     except:  # noqa: E722
         app_version = "unknown"
 
-    # Create resource identifying this service
     resource = Resource.create(
         attributes={
             key: value
             for key, value in {
                 "service.name": service_name,
+                "service.instance.id": str(uuid.uuid4())[:6],
                 "service.version": app_version,
             }.items()
             if value is not None
