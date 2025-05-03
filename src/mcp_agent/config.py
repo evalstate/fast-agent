@@ -202,6 +202,7 @@ class TensorZeroSettings(BaseModel):
     """
     Settings for using TensorZero via its OpenAI-compatible API.
     """
+
     base_url: str = None
     api_key: Optional[str] = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -248,7 +249,6 @@ class LoggerSettings(BaseModel):
     """Show MCP Sever tool calls on the console"""
     truncate_tools: bool = True
     """Truncate display of long tool calls"""
-
 
 
 class Settings(BaseSettings):
@@ -298,7 +298,7 @@ class Settings(BaseSettings):
     """Settings for using Generic models in the fast-agent application"""
 
     tensorzero: Optional[TensorZeroSettings] = None
-    """Settings for using TensorZero models via OpenAI compatibility layer"""
+    """Settings for using TensorZero inference gateway"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""

@@ -1,32 +1,29 @@
 import json
-from typing import Any, Dict, List, Optional, Union, cast, AsyncIterator, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 
-from tensorzero.types import (
-    ChatChunk,
-    JsonChunk,
-    TensorZeroError,
-    ChatInferenceResponse,
-    JsonInferenceResponse,
+from mcp.types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    CallToolResult,
+    EmbeddedResource,
+    ImageContent,
+    TextContent,
 )
 from tensorzero import AsyncTensorZeroGateway
+from tensorzero.types import (
+    ChatInferenceResponse,
+    JsonInferenceResponse,
+    TensorZeroError,
+)
 
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.exceptions import ModelConfigError
 from mcp_agent.core.request_params import RequestParams
-
+from mcp_agent.llm.augmented_llm import AugmentedLLM
+from mcp_agent.llm.memory import Memory, SimpleMemory
+from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.multipart_converter_tensorzero import TensorZeroConverter
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.llm.augmented_llm import AugmentedLLM
-from mcp_agent.llm.memory import SimpleMemory, Memory
-from mcp_agent.llm.provider_types import Provider
-from mcp.types import (
-    TextContent,
-    ImageContent,
-    EmbeddedResource,
-    CallToolRequest,
-    CallToolRequestParams,
-    CallToolResult,
-)
 
 
 class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
@@ -66,12 +63,12 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         if hasattr(block, "model_dump"):
             try:
                 return block.model_dump(mode="json")
-            except:
+            except Exception:
                 pass
         if hasattr(block, "__dict__"):
             try:
                 return vars(block)
-            except:
+            except Exception:
                 pass
         if isinstance(block, (str, int, float, bool, list, dict, type(None))):
             return {"type": "raw", "content": block}
