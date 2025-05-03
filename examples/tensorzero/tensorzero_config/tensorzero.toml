@@ -14,3 +14,10 @@ type = "chat_completion"
 model = "anthropic::claude-3-5-haiku-20241022"
 weight = 0.5
 system_template = "./system_template.minijinja"
+
+# Object Storage Configuration for MinIO, simulating AWS S3 bucket
+[object_storage]
+type = "s3_compatible"
+endpoint = "http://minio:9000"
+bucket_name = "tensorzero"
+allow_http = true
