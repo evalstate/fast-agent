@@ -43,6 +43,24 @@ services:
       mcp-server:
         condition: service_healthy
 
+  gateway-ui:
+    image: tensorzero/ui
+    volumes:
+      - ./tensorzero_config:/app/config:ro
+    env_file:
+      - ./.env
+    command: --config-file /app/config/tensorzero.toml
+    environment:
+      TENSORZERO_CLICKHOUSE_URL: http://chuser:chpassword@clickhouse:8123/tensorzero
+      TENSORZERO_GATEWAY_URL: http://gateway:3000
+      S3_ACCESS_KEY_ID: user
+      S3_SECRET_ACCESS_KEY: password
+    ports:
+      - "4000:4000"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
   mcp-server:
     build:
       context: ../..

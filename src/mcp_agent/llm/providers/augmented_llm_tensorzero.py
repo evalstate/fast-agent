@@ -92,7 +92,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
             parallel_tool_calls=True,
         )
 
-    async def _ensure_gateway_initialized(self) -> AsyncTensorZeroGateway:
+    async def _initialize_gateway(self) -> AsyncTensorZeroGateway:
         if self.gateway is None:
             self.logger.debug("Initializing AsyncTensorZeroGateway client...")
             try:
@@ -107,15 +107,17 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
                     base_url = getattr(self.context.config.tensorzero, "base_url", None)
                 if not base_url:
                     raise ModelConfigError("TensorZero base URL not configured")
-                self._resolved_url = base_url
-                self.gateway = AsyncTensorZeroGateway(base_url=self._resolved_url)
-                self.logger.info(
-                    f"TensorZero Gateway client initialized for URL: {self._resolved_url}"
-                )
+
+                resolved_url = str(base_url)
+                self._resolved_url = resolved_url
+
+                gateway_instance = await AsyncTensorZeroGateway.build_http(gateway_url=resolved_url)  # type: ignore
+                self.gateway = gateway_instance
+                self.logger.info(f"TensorZero Gateway client initialized for URL: {resolved_url}")
             except Exception as e:
-                self.logger.error(f"Failed to initialize T0 Gateway lazily: {e}")
-                raise ModelConfigError(f"Failed to initialize T0 Gateway lazily: {e}") from e
-        assert self.gateway is not None
+                self.logger.error(f"Failed to initialize T0 Gateway: {e}")
+                raise ModelConfigError(f"Failed to initialize T0 Gateway lazily: {e}")
+
         return self.gateway
 
     async def _apply_prompt_provider_specific(
@@ -124,7 +126,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         request_params: Optional[RequestParams] = None,
         is_template: bool = False,
     ) -> PromptMessageMultipart:
-        gateway = await self._ensure_gateway_initialized()
+        gateway = await self._initialize_gateway()
         merged_params = self.get_request_params(request_params)
 
         # [1] Retrieve history

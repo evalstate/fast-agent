@@ -3,7 +3,7 @@
 build:
 	docker compose build
 
-resources:
+up:
 	docker compose up -d
 
 logs:
