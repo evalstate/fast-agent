@@ -38,7 +38,7 @@ Start by installing the [uv package manager](https://docs.astral.sh/uv/) for Pyt
 ```bash
 uv pip install fast-agent-mcp       # install fast-agent!
 
-fast-agent setup                    # create an example agent and config files
+fast-agent setup                    # create an example agent and tensorzero_config files
 uv run agent.py                     # run your first agent
 uv run agent.py --model=o3-mini.low # specify a model
 fast-agent quickstart workflow       # create "building effective agents" examples
@@ -108,7 +108,7 @@ Agents can be chained to build a workflow, using MCP Servers defined in the `fas
 @fast.agent(
     "url_fetcher",
     "Given a URL, provide a complete and comprehensive summary",
-    servers=["fetch"], # Name of an MCP Server defined in fastagent.config.yaml
+    servers=["fetch"], # Name of an MCP Server defined in fastagent.tensorzero_config.yaml
 )
 @fast.agent(
     "social_media",

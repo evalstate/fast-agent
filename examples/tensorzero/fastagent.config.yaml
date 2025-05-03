@@ -36,11 +36,11 @@ mcp:
   servers:
     tester:
       transport: "sse"
-      url: "http://127.0.0.1:8000/t0-example-server/sse"
+      url: "http://localhost:8000/t0-example-server/sse"
       read_transport_sse_timeout_seconds: 300
-    fetch:
-      command: "uvx"
-      args: ["mcp-server-fetch"]
-    filesystem:
-      command: "npx"
-      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    # fetch:
+    #   command: "uvx"
+    #   args: ["mcp-server-fetch"]
+    # filesystem:
+    #   command: "npx"
+    #   args: ["-y", "@modelcontextprotocol/server-filesystem", "."]

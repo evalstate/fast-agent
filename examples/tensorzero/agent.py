@@ -1,7 +1,9 @@
 import asyncio
 from mcp_agent.core.fastagent import FastAgent
 
-fast = FastAgent("fast-agent example", ignore_unknown_args=True)
+# Explicitly provide the path to the config file in the current directory
+CONFIG_FILE = "fastagent.config.yaml"
+fast = FastAgent("fast-agent example", config_path=CONFIG_FILE, ignore_unknown_args=True)
 
 
 @fast.agent(
@@ -23,7 +25,7 @@ async def main():
             "TEST_VARIABLE_1": "Roses are red",
             "TEST_VARIABLE_2": "Violets are blue",
             "TEST_VARIABLE_3": "Sugar is sweet",
-            "TEST_VARIABLE_4": "And containing entropy when using LLMs to code is an essential practice",
+            "TEST_VARIABLE_4": "Careless vibe coding will kill your app",
         }
 
         # --- Set the template variables on the LLM instance ---

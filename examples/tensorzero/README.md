@@ -13,6 +13,37 @@
 
 ## Quickstart guide
 
-Ensure that ports `8000` and `3000` are unallocated before running this demo.
+- Build and activate the `uv` `fast-agent` environment
+- Ensure that ports `8000` and `3000` are unallocated before running this demo.
+- Run `cp .env.sample .env` and then drop in at least one of `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Make sure the accounts are funded.
+- `make resources`
+- `make agent`
 
-`cp .env.sample .env`, followed by population with values. note: you can run this without either your ANTHROPIC or OPENAI keys
+The demo test's our implementation's ability to:
+
+- Implement the T0 model gateway as an inference backend
+- Implement T0's dynamic templating feature
+- Have in-conversation memory
+- Describe and execute tool calls
+- Remember previous tool calls
+
+A version of a conversation to test all of this could be:
+
+```
+Hi. 
+
+Tell me a poem.
+
+Do you have any tools that you can use? 
+
+Please demonstrate the use of that tool on your last response. 
+
+Please summarize the conversation so far.
+
+What tool calls have you executed in this session, and what were their results?
+```
+
+Development note:
+- `make stop` will stop the MCP server and the tensorzero server
+- `make tenzorzero-logs` will tail the tensorzero server logs
+- `make mcp-logs` will tail the MCP server logs
