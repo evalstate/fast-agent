@@ -101,17 +101,29 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         if self.gateway is None:
             self.logger.debug("Initializing AsyncTensorZeroGateway client...")
             try:
-                if not self.context:
-                    raise ModelConfigError("Context not found")
                 base_url = None
                 if (
-                    self.context.config
+                    self.context
+                    and self.context.config
                     and hasattr(self.context.config, "tensorzero")
                     and self.context.config.tensorzero
                 ):
                     base_url = getattr(self.context.config.tensorzero, "base_url", None)
                 if not base_url:
-                    raise ModelConfigError("TensorZero base URL not configured")
+                    default_url = "http://localhost:3000/inference"
+                    self.logger.warning(
+                        f"TensorZero base URL not configured in context.config.tensorzero.base_url. "
+                        f"Using default: {default_url}"
+                    )
+                    base_url = default_url
+                elif not self.context:
+                    # Handle case where context itself is missing, log and use default
+                    default_url = "http://localhost:3000/inference"
+                    self.logger.warning(
+                        f"LLM context not found. Cannot read TensorZero base URL configuration. "
+                        f"Using default: {default_url}"
+                    )
+                    base_url = default_url
 
                 resolved_url = str(base_url)
                 self._resolved_url = resolved_url

@@ -16,7 +16,7 @@
 - Build and activate the `uv` `fast-agent` environment
 - Ensure that ports `3000`, `4000`, `8000`, and `9000` are unallocated before running this demo.
 - Run `cp .env.sample .env` and then drop in at least one of `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Make sure the accounts are funded.
-- `make resources`
+- `make up`
 - `make agent`
 
 The demo test's our implementation's ability to:
