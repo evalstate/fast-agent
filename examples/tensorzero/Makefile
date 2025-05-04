@@ -23,3 +23,6 @@ stop:
 
 agent:
 	uv run agent.py --model=tensorzero.test_chat
+
+image-test:
+	uv run image_demo.py 
