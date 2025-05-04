@@ -30,24 +30,39 @@ class TensorZeroConverter:
             if text is not None:
                 return {"type": "text", "text": text}
         elif isinstance(part, ImageContent):
-            # Check for data attribute *after* confirming it's ImageContent
-            if hasattr(part, "data") and part.data:
+            # Handle Base64: needs data, mimeType (and mimeType must not be empty)
+            if hasattr(part, "data") and part.data and hasattr(part, "mimeType") and part.mimeType:
+                _logger.debug(
+                    f"Converting ImageContent as base64 for T0 native: mime={part.mimeType}, data_len={len(part.data) if isinstance(part.data, str) else 'N/A'}"
+                )
+                supported_mime_types = ["image/jpeg", "image/png", "image/webp"]
+                mime_type = getattr(part, "mimeType", "")
+
+                # Use the provided mime_type if supported, otherwise default to png
+                if mime_type not in supported_mime_types:
+                    _logger.warning(
+                        f"Unsupported mimeType '{mime_type}' for T0 base64 image, defaulting to image/png."
+                    )
+                    mime_type = "image/png"
+
                 return {
                     "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": getattr(part, "mimeType", "image/png"),
-                        "data": getattr(part, "data", ""),  # Safe now
-                    },
+                    "mime_type": mime_type,  # Note: T0 uses mime_type, not media_type
+                    "data": getattr(part, "data", ""),  # Data is direct property
                 }
             else:
-                _logger.warning(f"Skipping ImageContent without data: {part}")
+                # Log cases where it's an ImageContent but doesn't fit Base64 criteria
+                _logger.warning(
+                    f"Skipping ImageContent: Missing required base64 fields (mimeType/data), or mimeType is empty: {part}"
+                )
+
         elif isinstance(part, EmbeddedResource):
-            # TODO: Add handling for EmbeddedResource if T0 supports documents/other files
             _logger.warning(f"Skipping EmbeddedResource, T0 conversion not implemented: {part}")
         else:
-            # This case handles potential future types or unexpected input
-            _logger.warning(f"Unsupported content part type for T0 conversion: {type(part)}")
+            _logger.error(
+                f"Unsupported content part type for T0 conversion: {type(part)}"
+            )  # Changed to error
+
         return None  # Return None if no block was successfully created
 
     @staticmethod
@@ -74,22 +89,24 @@ class TensorZeroConverter:
             if tool_use_id and tool_name:
                 result_content_str = TensorZeroConverter._get_text_from_call_tool_result(result)
                 try:
-                    json_result = json.dumps(result_content_str)
-                except TypeError as json_err:
-                    _logger.error(
-                        f"Failed to JSON encode tool result string: {result_content_str} - {json_err}"
-                    )
-                    json_result = json.dumps(str(result_content_str))  # Fallback
+                    # Attempt to treat result as JSON if possible, else use raw string
+                    try:
+                        json_result = json.loads(result_content_str)
+                    except json.JSONDecodeError:
+                        json_result = result_content_str  # Fallback to string if not valid JSON
+                except Exception as e:
+                    _logger.error(f"Unexpected error processing tool result content: {e}")
+                    json_result = str(result_content_str)  # Safest fallback
 
                 t0_block = {
                     "type": "tool_result",
                     "id": tool_use_id,
                     "name": tool_name,
-                    # Assign the JSON encoded string
-                    "result": json_result,
+                    "result": json_result,  # T0 expects the result directly
                 }
                 t0_tool_result_blocks.append(t0_block)
 
+                # Clean up temporary attributes
                 try:
                     delattr(result, "_t0_tool_use_id_temp")
                     delattr(result, "_t0_tool_name_temp")
@@ -121,38 +138,25 @@ class TensorZeroConverter:
         contains_tool_result = False
 
         for part in msg.content:
-            if isinstance(part, TextContent):
-                t0_content_blocks.append({"type": "text", "text": part.text})
-            elif isinstance(part, ImageContent):
-                if hasattr(part, "data") and part.data:
-                    t0_content_blocks.append(
-                        {
-                            "type": "image",
-                            "source": {
-                                "type": "base64",
-                                "media_type": getattr(part, "mimeType", "image/png"),
-                                "data": getattr(part, "data", ""),
-                            },
-                        }
-                    )
-                else:
-                    _logger.warning(f"Skipping ImageContent without data: {part}")
+            # Use the corrected _convert_content_part
+            converted_block = TensorZeroConverter._convert_content_part(part)
+            if converted_block:
+                t0_content_blocks.append(converted_block)
             elif isinstance(part, CallToolResult):
-                # Format embedded tool results
+                # Existing logic for handling embedded CallToolResult (seems compatible with T0 tool_result spec)
                 contains_tool_result = True
                 tool_use_id = getattr(part, "_t0_tool_use_id_temp", None)
                 tool_name = getattr(part, "_t0_tool_name_temp", None)
                 if tool_use_id and tool_name:
                     result_content_str = TensorZeroConverter._get_text_from_call_tool_result(part)
-                    # Format result as a JSON object before dumping
-                    result_object = {"text_result": result_content_str}
+                    # Try to format result as JSON object/string
                     try:
-                        json_result = json.dumps(result_object)
-                    except TypeError as json_err:
-                        _logger.error(
-                            f"Failed to JSON encode tool result object: {result_object} - {json_err}"
-                        )
-                        json_result = json.dumps(str(result_content_str))
+                        json_result = json.loads(result_content_str)
+                    except json.JSONDecodeError:
+                        json_result = result_content_str  # Fallback
+                    except Exception as e:
+                        _logger.error(f"Error processing embedded tool result: {e}")
+                        json_result = str(result_content_str)
 
                     t0_content_blocks.append(
                         {
@@ -162,33 +166,27 @@ class TensorZeroConverter:
                             "result": json_result,
                         }
                     )
+                    # Clean up temp attributes
                     try:
                         delattr(part, "_t0_tool_use_id_temp")
-                    except AttributeError:
-                        pass
-                    try:
                         delattr(part, "_t0_tool_name_temp")
                     except AttributeError:
                         pass
                 else:
                     _logger.warning(
-                        f"Found CallToolResult without required temp attributes: {part}"
+                        f"Found embedded CallToolResult without required temp attributes: {part}"
                     )
-            elif isinstance(part, EmbeddedResource):
-                _logger.warning(f"Skipping EmbeddedResource, T0 conversion not implemented: {part}")
-            else:
-                _logger.warning(f"Unsupported content part type for T0 conversion: {type(part)}")
+            # Note: The _convert_content_part handles logging for other skipped/unsupported types
 
         if not t0_content_blocks:
             return None
 
-        # Determine role - if content ONLY contains tool results, role must be 'user'
-        # Otherwise, use the original role.
+        # Determine role - logic remains the same
         valid_role = msg.role if msg.role in ["user", "assistant"] else "user"
         if contains_tool_result and all(
             block.get("type") == "tool_result" for block in t0_content_blocks
         ):
-            final_role = "user"  # Force role to user if only tool results present
+            final_role = "user"
             if valid_role != final_role:
                 _logger.debug(f"Overriding role to '{final_role}' for tool result message.")
         else:

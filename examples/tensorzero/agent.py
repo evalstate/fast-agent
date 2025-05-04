@@ -25,7 +25,7 @@ async def main():
             "TEST_VARIABLE_1": "Roses are red",
             "TEST_VARIABLE_2": "Violets are blue",
             "TEST_VARIABLE_3": "Sugar is sweet",
-            "TEST_VARIABLE_4": "Careless vibe coding will kill your app",
+            "TEST_VARIABLE_4": "Vibe code responsibly 👍",
         }
 
         # --- Set the template variables on the LLM instance ---

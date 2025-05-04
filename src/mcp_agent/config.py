@@ -203,7 +203,7 @@ class TensorZeroSettings(BaseModel):
     Settings for using TensorZero via its OpenAI-compatible API.
     """
 
-    base_url: str = None
+    base_url: Optional[str] = None
     api_key: Optional[str] = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

@@ -140,7 +140,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
             except Exception as e:
                 self.logger.error(f"Error retrieving history: {e}")
 
-        # [2] Convert *new* incoming PromptMessageMultipart messages to API dicts and add them to the current list of API messages list from history
+        # [2] Convert *new* incoming PromptMessageMultipart messages to API dicts
         for msg in multipart_messages:
             msg_dict = TensorZeroConverter.convert_mcp_to_t0_message(msg)
             if msg_dict:

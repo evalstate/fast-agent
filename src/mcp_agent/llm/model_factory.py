@@ -146,10 +146,10 @@ class ModelFactory:
                 model_parts = model_parts[1:]
 
         if provider == Provider.TENSORZERO and not model_parts:
-             raise ModelConfigError(
-                 f"TensorZero provider requires a function name after the provider "
-                 f"(e.g., tensorzero.my-function), got: {model_string}"
-             )
+            raise ModelConfigError(
+                f"TensorZero provider requires a function name after the provider "
+                f"(e.g., tensorzero.my-function), got: {model_string}"
+            )
         # Join remaining parts as model name
         model_name = ".".join(model_parts)
 
