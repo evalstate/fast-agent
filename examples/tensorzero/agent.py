@@ -1,4 +1,5 @@
 import asyncio
+
 from mcp_agent.core.fastagent import FastAgent
 
 # Explicitly provide the path to the config file in the current directory

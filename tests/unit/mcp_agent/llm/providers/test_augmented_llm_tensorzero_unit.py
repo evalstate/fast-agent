@@ -1,28 +1,24 @@
-import pytest
 import uuid
-import json
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from mcp.types import (
-    TextContent,
-    CallToolRequest,
-    CallToolRequestParams,
-    CallToolResult,
     ListToolsResult,
+    TextContent,
     Tool,
 )
 from tensorzero.types import (
     ChatInferenceResponse,
-    Text as T0Text,
-    ToolCall as T0ToolCall,
-    Usage,
     FinishReason,
+    Usage,
 )
+from tensorzero.types import (
+    Text as T0Text,
+)
+
 from mcp_agent.agents.agent import Agent
-from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
 from mcp_agent.core.request_params import RequestParams
-from mcp_agent.core.exceptions import ModelConfigError
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
 
 
 @pytest.fixture
