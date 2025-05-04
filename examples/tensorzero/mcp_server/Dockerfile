@@ -2,7 +2,6 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# We will use MinIO's CLI to initialize the bucket in the minio container
 RUN apt-get update && apt-get install -y curl wget && \
     wget https://dl.min.io/client/mc/release/linux-amd64/mc -O /usr/local/bin/mc && \
     chmod +x /usr/local/bin/mc && \

@@ -45,9 +45,9 @@ What tool calls have you executed in this session, and what were their results?
 
 ## Multimodal support
 
-Run `make image-test` to test the gateway's ability to base base64-encoded image data
+Run `make image-test` to test the gateway's ability to handle base64-encoded image data
 
-## Development note:
+## Development notes:
 
 - `make stop` will stop the MCP server and the tensorzero server
 - `make tenzorzero-logs` will tail the tensorzero server logs
