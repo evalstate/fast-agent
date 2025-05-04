@@ -14,7 +14,7 @@
 ## Quickstart guide
 
 - Build and activate the `uv` `fast-agent` environment
-- Ensure that ports `3000`, `4000`, `8000`, and `9000` are unallocated before running this demo.
+- Ensure that ports `3000`, `4000`, `8000`, `9000`, and `9001` are unallocated before running this demo.
 - Run `cp .env.sample .env` and then drop in at least one of `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Make sure the accounts are funded.
 - `make up`
 - `make agent`
@@ -45,10 +45,11 @@ What tool calls have you executed in this session, and what were their results?
 
 ## Multimodal support
 
-Run `uv run image_demo.py` to test the gateway's ability to base base64-encoded image data
+Run `make image-test` to test the gateway's ability to base base64-encoded image data
 
 ## Development note:
 
 - `make stop` will stop the MCP server and the tensorzero server
 - `make tenzorzero-logs` will tail the tensorzero server logs
 - `make mcp-logs` will tail the MCP server logs
+- Generic `make logs` dumps all log output from all services to terminal
