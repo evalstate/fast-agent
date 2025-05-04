@@ -182,6 +182,7 @@ fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/
 
+tests/integration/api/weather_location.txt
 tests/integration/prompt-state/simple.txt
 tests/integration/workflow/router/fastagent.jsonl
 tests/e2e/smoke/weather_location.txt

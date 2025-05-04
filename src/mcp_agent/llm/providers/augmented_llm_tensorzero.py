@@ -62,22 +62,27 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
     def block_to_dict(block: Any) -> Dict[str, Any]:
         if hasattr(block, "model_dump"):
             try:
-                return block.model_dump(mode="json")
+                dumped = block.model_dump(mode="json")
+                if dumped:
+                    return dumped
             except Exception:
                 pass
         if hasattr(block, "__dict__"):
             try:
-                return vars(block)
+                block_vars = vars(block)
+                if block_vars:
+                    return block_vars
             except Exception:
                 pass
         if isinstance(block, (str, int, float, bool, list, dict, type(None))):
             return {"type": "raw", "content": block}
+
         # Basic attribute extraction as fallback
         d = {"type": getattr(block, "type", "unknown")}
         for attr in ["id", "name", "text", "arguments"]:
             if hasattr(block, attr):
                 d[attr] = getattr(block, attr)
-        if len(d) == 1:
+        if len(d) == 1 and d.get("type") == "unknown":
             d["content"] = str(block)
         return d
 

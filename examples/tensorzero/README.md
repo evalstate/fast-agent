@@ -9,7 +9,7 @@
 - Organization of LLM inference data into a Clickhouse DB allowing for sophisticated downstream analytics
 - A bunch of other good stuff is always in development
 
-`tensorzero` is not the lightest framework, so we provide here a quickstart example that combines the basic components of `fast-agent`, an MCP server, and `tensorzero` into a cohesive whole.
+`tensorzero` is powerful heavy, so we provide here a quickstart example that combines the basic components of `fast-agent`, an MCP server, `tensorzero`, and other supporting services into a cohesive whole.
 
 ## Quickstart guide
 
@@ -43,7 +43,11 @@ Please summarize the conversation so far.
 What tool calls have you executed in this session, and what were their results?
 ```
 
-Development note:
+## Multimodal support
+
+Run `uv run image_demo.py` to test the gateway's ability to base base64-encoded image data
+
+## Development note:
 
 - `make stop` will stop the MCP server and the tensorzero server
 - `make tenzorzero-logs` will tail the tensorzero server logs

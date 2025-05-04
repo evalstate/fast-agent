@@ -26,11 +26,11 @@ async def main():
             "TEST_VARIABLE_3": "Sugar is sweet",
             "TEST_VARIABLE_4": "Vibe code responsibly 👍",
         }
-        agent_instance._llm.t0_system_template_vars = my_t0_system_vars
+        agent_instance._llm.t0_system_template_vars = my_t0_system_vars  # type: ignore
 
         print("\nStarting interactive session...")
         await agent_app.interactive(agent=agent_name)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())  # type: ignore

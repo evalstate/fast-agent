@@ -46,6 +46,8 @@ async def main():
                 mime_type = "image/jpeg"
             elif ext == ".png":
                 mime_type = "image/png"
+        if mime_type is None:
+            mime_type = "image/png"  # Default fallback if still None
 
         with open(file_path, "rb") as image_file:
             image_bytes = image_file.read()
@@ -62,4 +64,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    asyncio.run(main())  # type: ignore
