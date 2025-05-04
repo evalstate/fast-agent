@@ -146,8 +146,11 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
             if msg_dict:
                 current_api_messages.append(msg_dict)
 
-        t0_system_vars = self._prepare_t0_function_input(merged_params)
-        t0_api_input_dict = {"system": t0_system_vars}
+        t0_system_vars = self._prepare_t0_system_params(merged_params)
+        if t0_system_vars:
+            t0_api_input_dict = {"system": t0_system_vars}
+        else:
+            t0_api_input_dict = {}
         available_tools: Optional[List[Dict[str, Any]]] = await self._prepare_t0_tools()
 
         # [3] Initialize storage arrays for the text content of the assistant message reply and, optionally, tool calls and results, and begin inference loop
@@ -289,7 +292,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
 
         return final_message_to_return
 
-    def _prepare_t0_function_input(self, merged_params: RequestParams) -> Dict[str, Any]:
+    def _prepare_t0_system_params(self, merged_params: RequestParams) -> Dict[str, Any]:
         """Prepares the 'system' dictionary part of the main input."""
         t0_func_input = self.t0_system_template_vars.copy()
         metadata_args = None

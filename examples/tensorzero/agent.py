@@ -20,19 +20,14 @@ async def main():
         agent_instance = agent_app.default
         print(f"Found agent: {agent_name}")
 
-        # --- Define the System Template Variables ---
         my_t0_system_vars = {
             "TEST_VARIABLE_1": "Roses are red",
             "TEST_VARIABLE_2": "Violets are blue",
             "TEST_VARIABLE_3": "Sugar is sweet",
             "TEST_VARIABLE_4": "Vibe code responsibly 👍",
         }
-
-        # --- Set the template variables on the LLM instance ---
-        # TODO: For now this requires manual override of the t0_system_template_vars. An optional update to the base agent class could make sense
         agent_instance._llm.t0_system_template_vars = my_t0_system_vars
 
-        # --- Start interactive mode using the AgentApp wrapper ---
         print("\nStarting interactive session...")
         await agent_app.interactive(agent=agent_name)
 
