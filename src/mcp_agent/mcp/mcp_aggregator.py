@@ -41,9 +41,11 @@ SEP = "-"
 T = TypeVar("T")
 R = TypeVar("R")
 
+
 def create_namespaced_name(server_name: str, resource_name: str) -> str:
     """Create a namespaced resource name from server and resource names"""
     return f"{server_name}{SEP}{resource_name}"
+
 
 def is_namespaced_name(name: str) -> bool:
     """Check if a name is already namespaced"""
@@ -325,14 +327,14 @@ class MCPAggregator(ContextDependent):
         except Exception as e:
             logger.debug(f"Error getting capabilities for server '{server_name}': {e}")
             return None
-            
+
     async def validate_server(self, server_name: str) -> bool:
         """
         Validate that a server exists in our server list.
-        
+
         Args:
             server_name: Name of the server to validate
-            
+
         Returns:
             True if the server exists, False otherwise
         """
@@ -340,25 +342,25 @@ class MCPAggregator(ContextDependent):
         if not valid:
             logger.debug(f"Server '{server_name}' not found")
         return valid
-    
+
     async def server_supports_feature(self, server_name: str, feature: str) -> bool:
         """
         Check if a server supports a specific feature.
-        
+
         Args:
             server_name: Name of the server to check
             feature: Feature to check for (e.g., "prompts", "resources")
-            
+
         Returns:
             True if the server supports the feature, False otherwise
         """
         if not await self.validate_server(server_name):
             return False
-            
+
         capabilities = await self.get_capabilities(server_name)
         if not capabilities:
             return False
-            
+
         return getattr(capabilities, feature, False)
 
     async def list_servers(self) -> List[str]:
@@ -465,26 +467,26 @@ class MCPAggregator(ContextDependent):
         if resource_type == "tool" and name in self._namespaced_tool_map:
             namespaced_tool = self._namespaced_tool_map[name]
             return namespaced_tool.server_name, namespaced_tool.tool.name
-            
+
         # Next, attempt to interpret as a namespaced name
         if is_namespaced_name(name):
             parts = name.split(SEP, 1)
             server_name, local_name = parts[0], parts[1]
-            
+
             # Validate that the parsed server actually exists
             if server_name in self.server_names:
                 return server_name, local_name
-            
+
             # If the server name doesn't exist, it might be a tool with a hyphen in its name
             # Fall through to the next checks
-            
+
         # For tools, search all servers for the tool by exact name match
         if resource_type == "tool":
             for server_name, tools in self._server_to_tool_map.items():
                 for namespaced_tool in tools:
                     if namespaced_tool.tool.name == name:
                         return server_name, name
-                        
+
         # For all other resource types, use the first server
         return (self.server_names[0] if self.server_names else None, name)
 
@@ -524,7 +526,10 @@ class MCPAggregator(ContextDependent):
                 operation_type="tool",
                 operation_name=local_tool_name,
                 method_name="call_tool",
-                method_args={"name": local_tool_name, "arguments": arguments},
+                method_args={
+                    "name": local_tool_name,
+                    "arguments": arguments,
+                },
                 error_factory=lambda msg: CallToolResult(
                     isError=True, content=[TextContent(type="text", text=msg)]
                 ),
@@ -558,7 +563,7 @@ class MCPAggregator(ContextDependent):
         elif is_namespaced_name(prompt_name):
             parts = prompt_name.split(SEP, 1)
             potential_server = parts[0]
-            
+
             # Only treat as namespaced if the server part is valid
             if potential_server in self.server_names:
                 server_name = potential_server
@@ -570,7 +575,7 @@ class MCPAggregator(ContextDependent):
         else:
             local_prompt_name = prompt_name
             # We'll search all servers below
-        
+
         # If we have a specific server to check
         if server_name:
             if not await self.validate_server(server_name):
@@ -579,7 +584,7 @@ class MCPAggregator(ContextDependent):
                     description=f"Error: Server '{server_name}' not found",
                     messages=[],
                 )
-                
+
             # Check if server supports prompts
             if not await self.server_supports_feature(server_name, "prompts"):
                 logger.debug(f"Server '{server_name}' does not support prompts")

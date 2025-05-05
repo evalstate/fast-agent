@@ -3,6 +3,7 @@ A derived client session for the MCP Agent framework.
 It adds logging and supports sampling requests.
 """
 
+from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
 from mcp import ClientSession
@@ -73,10 +74,13 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
+        request_read_timeout_seconds: timedelta | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
         try:
-            result = await super().send_request(request, result_type)
+            result = await super().send_request(
+                request, result_type, request_read_timeout_seconds=request_read_timeout_seconds
+            )
             logger.debug("send_request: response=", data=result.model_dump())
             return result
         except Exception as e:

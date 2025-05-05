@@ -82,6 +82,7 @@ class PromptConfig(PromptMetadata):
     http_timeout: float = 10.0
     transport: str = "stdio"
     port: int = 8000
+    host: str = "0.0.0.0"
 
 
 # We'll maintain registries of all exposed resources and prompts
@@ -345,6 +346,12 @@ def parse_args():
         help="Port to use for SSE transport (default: 8000)",
     )
     parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind to for SSE transport (default: 0.0.0.0)",
+    )
+    parser.add_argument(
         "--test", type=str, help="Test a specific prompt without starting the server"
     )
 
@@ -380,6 +387,7 @@ def initialize_config(args) -> PromptConfig:
         http_timeout=args.http_timeout,
         transport=args.transport,
         port=args.port,
+        host=args.host,
     )
 
 
@@ -497,7 +505,10 @@ async def async_main() -> int:
     if config.transport == "stdio":
         await mcp.run_stdio_async()
     else:  # sse
-        # TODO update to 2025-03-26 specification and test config.
+        # Set the host and port in settings before running the server
+        mcp.settings.host = config.host
+        mcp.settings.port = config.port
+        logger.info(f"Starting SSE server on {config.host}:{config.port}")
         await mcp.run_sse_async()
     return 0
 
