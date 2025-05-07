@@ -1,7 +1,7 @@
 default_model: haiku
 
 tensorzero:
-  base_url: http://localhost:3000/inference
+  base_url: http://localhost:3000
 
 logger:
   level: "info"

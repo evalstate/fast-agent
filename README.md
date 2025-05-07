@@ -18,8 +18,7 @@ The simple declarative syntax lets you concentrate on composing your Prompts and
 
 `fast-agent` is multi-modal, supporting Images and PDFs for both Anthropic and OpenAI endpoints via Prompts, Resources and MCP Tool Call results. The inclusion of passthrough and playback LLMs enable rapid development and test of Python glue-code for your applications.
 
-> [!IMPORTANT]
-> `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
+> [!IMPORTANT] > `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
 
 ### Agent Application Development
 
@@ -36,12 +35,12 @@ Simple model selection makes testing Model <-> MCP Server interaction painless. 
 Start by installing the [uv package manager](https://docs.astral.sh/uv/) for Python. Then:
 
 ```bash
-uv pip install fast-agent-mcp       # install fast-agent!
+uv pip install fast-agent-mcp          # install fast-agent!
 
-fast-agent setup                    # create an example agent and config files
-uv run agent.py                     # run your first agent
-uv run agent.py --model=o3-mini.low # specify a model
-fast-agent quickstart workflow       # create "building effective agents" examples
+uv run fast-agent setup                # create an example agent and config files
+uv run agent.py                        # run your first agent
+uv run agent.py --model=o3-mini.low    # specify a model
+uv run fast-agent quickstart workflow  # create "building effective agents" examples
 ```
 
 Other quickstart examples include a Researcher Agent (with Evaluator-Optimizer workflow) and Data Analysis Agent (similar to the ChatGPT experience), demonstrating MCP Roots support.

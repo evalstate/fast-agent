@@ -40,9 +40,10 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         request_params: Optional[RequestParams] = None,
         **kwargs: Any,
     ):
-        self.t0_function_name: str = model
-        self._episode_id: Optional[str] = kwargs.get("episode_id")
-        self._t0_input_keys = kwargs.get("t0_input_keys", None)
+        self._t0_gateway: Optional[AsyncTensorZeroGateway] = None
+        self._t0_function_name: str = model
+        self._t0_episode_id: Optional[str] = kwargs.get("episode_id")
+
         super().__init__(
             agent=agent,
             model=model,
@@ -50,11 +51,11 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
             request_params=request_params,
             **kwargs,
         )
+
         self.history: Memory[Dict[str, Any]] = SimpleMemory[Dict[str, Any]]()
-        self.gateway: Optional[AsyncTensorZeroGateway] = None
-        self._resolved_url: Optional[str] = None
+
         self.logger.info(
-            f"TensorZero LLM provider initialized for function '{self.t0_function_name}'. History type: {type(self.history)}"
+            f"TensorZero LLM provider initialized for function '{self._t0_function_name}'. History type: {type(self.history)}"
         )
 
     @staticmethod
@@ -86,7 +87,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         return d
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
-        func_name = kwargs.get("model", self.t0_function_name or "unknown_t0_function")
+        func_name = kwargs.get("model", self._t0_function_name or "unknown_t0_function")
         return RequestParams(
             model=func_name,
             systemPrompt=self.instruction,
@@ -97,10 +98,12 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         )
 
     async def _initialize_gateway(self) -> AsyncTensorZeroGateway:
-        if self.gateway is None:
+        if self._t0_gateway is None:
             self.logger.debug("Initializing AsyncTensorZeroGateway client...")
             try:
-                base_url = None
+                base_url: Optional[str] = None
+                default_url = "http://localhost:3000"
+
                 if (
                     self.context
                     and self.context.config
@@ -108,33 +111,29 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
                     and self.context.config.tensorzero
                 ):
                     base_url = getattr(self.context.config.tensorzero, "base_url", None)
+
                 if not base_url:
-                    default_url = "http://localhost:3000/inference"
-                    self.logger.warning(
-                        f"TensorZero base URL not configured in context.config.tensorzero.base_url. "
-                        f"Using default: {default_url}"
-                    )
-                    base_url = default_url
-                elif not self.context:
-                    # Handle case where context itself is missing, log and use default
-                    default_url = "http://localhost:3000/inference"
-                    self.logger.warning(
-                        f"LLM context not found. Cannot read TensorZero base URL configuration. "
-                        f"Using default: {default_url}"
-                    )
+                    if not self.context:
+                        # Handle case where context itself is missing, log and use default
+                        self.logger.warning(
+                            f"LLM context not found. Cannot read TensorZero Gateway base URL configuration. "
+                            f"Using default: {default_url}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"TensorZero Gateway base URL not configured in context.config.tensorzero.base_url. "
+                            f"Using default: {default_url}"
+                        )
+
                     base_url = default_url
 
-                resolved_url = str(base_url)
-                self._resolved_url = resolved_url
-
-                gateway_instance = await AsyncTensorZeroGateway.build_http(gateway_url=resolved_url)  # type: ignore
-                self.gateway = gateway_instance
-                self.logger.info(f"TensorZero Gateway client initialized for URL: {resolved_url}")
+                self._t0_gateway = await AsyncTensorZeroGateway.build_http(gateway_url=base_url)  # type: ignore
+                self.logger.info(f"TensorZero Gateway client initialized for URL: {base_url}")
             except Exception as e:
-                self.logger.error(f"Failed to initialize T0 Gateway: {e}")
-                raise ModelConfigError(f"Failed to initialize T0 Gateway lazily: {e}")
+                self.logger.error(f"Failed to initialize TensorZero Gateway: {e}")
+                raise ModelConfigError(f"Failed to initialize TensorZero Gateway lazily: {e}")
 
-        return self.gateway
+        return self._t0_gateway
 
     async def _apply_prompt_provider_specific(
         self,
@@ -175,45 +174,48 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
 
         for i in range(merged_params.max_iterations):
             use_parallel_calls = merged_params.parallel_tool_calls if available_tools else False
-            current_episode_id = self._episode_id
+            current_t0_episode_id = self._t0_episode_id
 
             try:
                 self.logger.debug(
-                    f"Calling T0 inference (Iteration {i + 1}/{merged_params.max_iterations})..."
+                    f"Calling TensorZero inference (Iteration {i + 1}/{merged_params.max_iterations})..."
                 )
                 t0_api_input_dict["messages"] = current_api_messages  # type: ignore
 
-                # [4] Call the T0 inference API
+                # [4] Call the TensorZero inference API
                 response_iter_or_completion = await gateway.inference(
-                    function_name=self.t0_function_name,
+                    function_name=self._t0_function_name,
                     input=t0_api_input_dict,
                     additional_tools=available_tools,
                     parallel_tool_calls=use_parallel_calls,
                     stream=False,
-                    episode_id=current_episode_id,
+                    episode_id=current_t0_episode_id,
                 )
 
                 if not isinstance(
                     response_iter_or_completion, (ChatInferenceResponse, JsonInferenceResponse)
                 ):
                     self.logger.error(
-                        f"Unexpected T0 response type: {type(response_iter_or_completion)}"
+                        f"Unexpected TensorZero response type: {type(response_iter_or_completion)}"
                     )
                     final_assistant_message = [
                         TextContent(type="text", text="Unexpected response type")
                     ]
                     break  # Exit loop
 
-                # [5] quick check to confirm that episode_id is present and being used correctly by T0
+                # [5] quick check to confirm that episode_id is present and being used correctly by TensorZero
                 completion = response_iter_or_completion
                 if completion.episode_id:  #
-                    self._episode_id = str(completion.episode_id)
-                    if self._episode_id != current_episode_id and current_episode_id is not None:
+                    self._t0_episode_id = str(completion.episode_id)
+                    if (
+                        self._t0_episode_id != current_t0_episode_id
+                        and current_t0_episode_id is not None
+                    ):
                         raise Exception(
-                            f"Episode ID mismatch: {self._episode_id} != {current_episode_id}"
+                            f"Episode ID mismatch: {self._t0_episode_id} != {current_t0_episode_id}"
                         )
 
-                # [6] Adapt T0 inference response to a format compatible with the broader framework
+                # [6] Adapt TensorZero inference response to a format compatible with the broader framework
                 (
                     content_parts_this_turn,  # Text/Image content ONLY
                     executed_results_this_iter,  # Results from THIS iteration
@@ -272,8 +274,8 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
             # --- Error Handling for Inference Call ---
             except TensorZeroError as e:
                 error_details = getattr(e, "detail", str(e.args[0] if e.args else e))
-                self.logger.error(f"T0 Error (HTTP {e.status_code}): {error_details}")
-                error_content = TextContent(type="text", text=f"T0 Error: {error_details}")
+                self.logger.error(f"TensorZero Error (HTTP {e.status_code}): {error_details}")
+                error_content = TextContent(type="text", text=f"TensorZero Error: {error_details}")
                 return PromptMessageMultipart(role="assistant", content=[error_content])
             except Exception as e:
                 import traceback
@@ -300,7 +302,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         # [10] Post final assistant message to display
         display_text = final_message_to_return.all_text()
         if display_text and display_text != "<no text>":
-            title = f"ASSISTANT/{self.t0_function_name}"
+            title = f"ASSISTANT/{self._t0_function_name}"
             await self.show_assistant_message(message_text=display_text, title=title)
 
         elif not final_assistant_message and last_executed_results:
@@ -417,40 +419,24 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
 
                 elif block_type == "thought":
                     thought_text = getattr(block, "text", None)
-                    self.logger.debug(f"T0 thought: {thought_text}")
-                # TODO: Add handling for 'image' block type from completion if needed
+                    self.logger.debug(f"TensorZero thought: {thought_text}")
                 else:
-                    self.logger.warning(f"T0 Adapt: Skipping unknown block type: {block_type}")
+                    self.logger.warning(
+                        f"TensorZero Adapt: Skipping unknown block type: {block_type}"
+                    )
 
         elif isinstance(completion, JsonInferenceResponse):
-            try:
-                response_dict = {}
-                for attr_name in dir(completion):
-                    if not attr_name.startswith("_") and attr_name not in (
-                        "episode_id",
-                        "inference_id",
-                        "variant_name",
-                        "finish_reason",
-                        "usage",
-                    ):
-                        attr_value = getattr(completion, attr_name)
-                        if not callable(attr_value):
-                            response_dict[attr_name] = attr_value
-                json_text = json.dumps(response_dict, indent=2)
-                content_parts_this_turn.append(TextContent(type="text", text=json_text))
-            except Exception as e:
-                self.logger.error(f"Error processing JsonInferenceResponse: {e}")
-                content_parts_this_turn.append(
-                    TextContent(type="text", text=f"Error processing JSON response: {str(e)}")
-                )
+            # `completion.output.raw` should always be present unless the LLM provider returns unexpected data
+            if completion.output.raw:
+                content_parts_this_turn.append(TextContent(type="text", text=completion.output.raw))
 
         return content_parts_this_turn, executed_tool_results, raw_tool_call_blocks_from_t0
 
     async def shutdown(self):
-        """Close the T0 gateway client if initialized."""
-        if self.gateway:
+        """Close the TensorZero gateway client if initialized."""
+        if self._t0_gateway:
             try:
-                await self.gateway.close()
+                await self._t0_gateway.close()
                 self.logger.debug("TensorZero Gateway client closed.")
             except Exception as e:
                 self.logger.error(f"Error closing TensorZero Gateway client: {e}")

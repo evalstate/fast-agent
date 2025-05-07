@@ -1,4 +1,3 @@
-import uuid
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -15,6 +14,7 @@ from tensorzero.types import (
 from tensorzero.types import (
     Text as T0Text,
 )
+from tensorzero.util import uuid7
 
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.request_params import RequestParams
@@ -69,8 +69,8 @@ def t0_llm(mock_agent):
 async def test_adapt_t0_text_response(t0_llm):
     """Test adapting a simple text response from T0."""
     t0_completion = ChatInferenceResponse(
-        inference_id=uuid.uuid4(),
-        episode_id=uuid.uuid4(),
+        inference_id=uuid7(),
+        episode_id=uuid7(),
         variant_name="test_variant",
         content=[T0Text(type="text", text="Hello there!")],
         usage=Usage(input_tokens=10, output_tokens=5),
