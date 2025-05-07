@@ -53,7 +53,6 @@ def test_convert_tool_results_to_t0_user_message():
         ],
     }
     assert TensorZeroConverter.convert_tool_results_to_t0_user_message(results) == expected_t0_msg
-    # Verify temporary attributes are cleaned up
     assert not hasattr(tool_result_1, "_t0_tool_use_id_temp")
     assert not hasattr(tool_result_2, "_t0_tool_use_id_temp")
 
@@ -78,9 +77,7 @@ def test_convert_mcp_image_message():
     # Valid JPEG
     mcp_msg_jpeg = PromptMessageMultipart(
         role="user",
-        content=[
-            ImageContent(type="image", mimeType="image/jpeg", data="/9j/...")
-        ],  # Truncated data ok for test
+        content=[ImageContent(type="image", mimeType="image/jpeg", data="/9j/...")],
     )
     expected_jpeg = {
         "role": "user",

@@ -27,7 +27,6 @@ def mock_agent():
     agent.name = "mock_agent_name"
     agent.instruction = "mock instruction"
 
-    # Mock the context and config structure directly ON THE AGENT MOCK
     mock_config = MagicMock(name="agent_config_mock")
     mock_tensorzero_config = MagicMock(name="agent_tensorzero_config_mock")
     mock_tensorzero_config.base_url = "http://mock-t0-url"
@@ -37,13 +36,11 @@ def mock_agent():
     mock_context.config = mock_config
     agent.context = mock_context
 
-    # Add mocked display object with async methods
     agent.display = MagicMock(name="agent_display_mock")
-    agent.display.show_tool_call = MagicMock()  # Use regular mock if display methods aren't async
+    agent.display.show_tool_call = MagicMock()
     agent.display.show_oai_tool_result = MagicMock()
     agent.display.show_assistant_message = AsyncMock()
 
-    # Other agent mocks
     agent.logger = MagicMock(name="agent_logger_mock")
     agent.aggregator = AsyncMock(name="agent_aggregator_mock")
     return agent
@@ -53,18 +50,15 @@ def mock_agent():
 def t0_llm(mock_agent):
     default_vars = {"TEST_VARIABLE_1": "Test value"}
     llm = TensorZeroAugmentedLLM(
-        agent=mock_agent,  # This agent now has the correct context structure
+        agent=mock_agent,
         model="tensorzero.test_chat",
         request_params=RequestParams(t0_system_template_vars=default_vars),
     )
 
-    # No longer need to manually set llm.context as it should be handled by __init__
-
-    # Assign mocks for methods/attributes NOT copied from agent or needed explicitly
     llm.call_tool = AsyncMock()
-    llm.logger = mock_agent.logger  # Continue using the agent's logger mock
+    llm.logger = mock_agent.logger
     llm.display = mock_agent.display
-    llm.show_tool_call = MagicMock()  # Mock the methods on llm directly
+    llm.show_tool_call = MagicMock()
     llm.show_oai_tool_result = MagicMock()
     llm.show_assistant_message = AsyncMock()
 

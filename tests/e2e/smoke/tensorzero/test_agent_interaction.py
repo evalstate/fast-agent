@@ -12,11 +12,8 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
     Smoke test for the TensorZero agent interaction defined in examples/tensorzero/agent.py.
     Sends a predefined sequence of messages.
     """
-    # Explicitly provide the path to the config file in the example directory
-    # Since we changed CWD with chdir_to_tensorzero_example, relative path is fine
     config_file = "fastagent.config.yaml"
 
-    # Define T0 system variables here
     my_t0_system_vars = {
         "TEST_VARIABLE_1": "Roses are red",
         "TEST_VARIABLE_2": "Violets are blue",
@@ -50,16 +47,6 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
 
     async with fast.run() as agent_app:
         agent_instance = agent_app.default
-
-        # The t0_system_template_vars are now set via the decorator in this test definition.
-        # No need to modify agent_instance._llm here.
-        # if hasattr(agent_instance._llm, "t0_system_template_vars"):
-        #     agent_instance._llm.t0_system_template_vars = my_t0_system_vars  # type: ignore # REMOVED
-        # else:
-        #     print(
-        #         f"Warning: LLM for agent {agent_instance.name} does not have 't0_system_template_vars'. LLM type: {type(agent_instance._llm)}"
-        #     )
-
         print(f"\nSending {len(messages_to_send)} messages to agent '{agent_instance.name}'...")
         for i, msg_text in enumerate(messages_to_send):
             print(f"Sending message {i + 1}: '{msg_text}'")

@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import Any, List, Dict
+from typing import Any, Dict, List
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
