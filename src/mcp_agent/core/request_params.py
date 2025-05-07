@@ -49,8 +49,7 @@ class RequestParams(CreateMessageRequestParams):
     Override response format for structured calls. Prefer sending pydantic model - only use in exceptional circumstances
     """
 
-    t0_system_template_vars: Dict[str, Any] = Field(default_factory=dict)
+    template_vars: Dict[str, Any] = Field(default_factory=dict)
     """
-    Optional dictionary of template variables for TensorZero system prompts.
-    These variables can be used to pass dynamoc fields to T0 system prompts on the fly.
+    Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
     """

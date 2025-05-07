@@ -17,7 +17,7 @@ fast = FastAgent("fast-agent example", config_path=CONFIG_FILE, ignore_unknown_a
 async def main():
     async with fast.run() as agent_app:
         agent_name = "default"
-        print("\nStarting interactive session with t0_system_template_vars set via decorator...")
+        print("\nStarting interactive session with template_vars set via decorator...")
         await agent_app.interactive(agent=agent_name)
 
 

@@ -310,7 +310,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
 
     def _prepare_t0_system_params(self, merged_params: RequestParams) -> Dict[str, Any]:
         """Prepares the 'system' dictionary part of the main input."""
-        t0_func_input = merged_params.t0_system_template_vars.copy()
+        t0_func_input = merged_params.template_vars.copy()
 
         metadata_args = None
         if merged_params.metadata and isinstance(merged_params.metadata, dict):

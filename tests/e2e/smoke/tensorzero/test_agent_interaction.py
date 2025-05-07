@@ -31,7 +31,7 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
         """,
         servers=["tester"],
         model="tensorzero.test_chat",
-        request_params=RequestParams(t0_system_template_vars=my_t0_system_vars),
+        request_params=RequestParams(template_vars=my_t0_system_vars),
     )
     async def dummy_agent_func():
         pass

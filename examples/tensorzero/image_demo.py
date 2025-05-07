@@ -34,7 +34,7 @@ fast = FastAgent("TensorZero Image Demo - Base64 Only")
 @fast.agent(
     name=AGENT_NAME,
     model=TENSORZERO_MODEL,
-    request_params=RequestParams(t0_system_template_vars=MY_T0_SYSTEM_VARS),
+    request_params=RequestParams(template_vars=MY_T0_SYSTEM_VARS),
 )
 async def main():
     content_parts: List[Union[TextContent, ImageContent]] = []

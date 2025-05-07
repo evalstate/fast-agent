@@ -23,12 +23,12 @@ my_t0_system_vars = {
         that requires you to invoke the test tools, please do so. When you use the tool, describe your rationale for doing so. 
     """,
     servers=["tester"],
-    request_params=RequestParams(t0_system_template_vars=my_t0_system_vars),
+    request_params=RequestParams(template_vars=my_t0_system_vars),
 )
 async def main():
     async with fast.run() as agent_app:  # Get the AgentApp wrapper
         agent_name = "default"
-        print("\nStarting interactive session with t0_system_template_vars set via decorator...")
+        print("\nStarting interactive session with template_vars set via decorator...")
         await agent_app.interactive(agent=agent_name)
 
 
