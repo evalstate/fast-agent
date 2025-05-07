@@ -7,6 +7,7 @@ from typing import List, Union
 from mcp.types import ImageContent, TextContent
 
 from mcp_agent.core.fastagent import FastAgent
+from mcp_agent.core.request_params import RequestParams
 from mcp_agent.core.prompt import Prompt
 
 AGENT_NAME = "tensorzero_image_tester"
@@ -33,6 +34,7 @@ fast = FastAgent("TensorZero Image Demo - Base64 Only")
 @fast.agent(
     name=AGENT_NAME,
     model=TENSORZERO_MODEL,
+    request_params=RequestParams(t0_system_template_vars=MY_T0_SYSTEM_VARS),
 )
 async def main():
     content_parts: List[Union[TextContent, ImageContent]] = []
@@ -58,8 +60,6 @@ async def main():
     message = Prompt.user(*content_parts)
     async with fast.run() as agent_app:
         agent = getattr(agent_app, AGENT_NAME)
-        # inject system variables
-        agent._llm.t0_system_template_vars = MY_T0_SYSTEM_VARS  # type: ignore
         await agent.send(message)
 
 

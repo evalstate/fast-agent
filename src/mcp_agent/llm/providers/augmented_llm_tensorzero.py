@@ -53,7 +53,6 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
         self.history: Memory[Dict[str, Any]] = SimpleMemory[Dict[str, Any]]()
         self.gateway: Optional[AsyncTensorZeroGateway] = None
         self._resolved_url: Optional[str] = None
-        self.t0_system_template_vars: Dict[str, Any] = kwargs.get("t0_system_template_vars", {})
         self.logger.info(
             f"TensorZero LLM provider initialized for function '{self.t0_function_name}'. History type: {type(self.history)}"
         )
@@ -311,7 +310,8 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
 
     def _prepare_t0_system_params(self, merged_params: RequestParams) -> Dict[str, Any]:
         """Prepares the 'system' dictionary part of the main input."""
-        t0_func_input = self.t0_system_template_vars.copy()
+        t0_func_input = merged_params.t0_system_template_vars.copy()
+
         metadata_args = None
         if merged_params.metadata and isinstance(merged_params.metadata, dict):
             metadata_args = merged_params.metadata.get("tensorzero_arguments")

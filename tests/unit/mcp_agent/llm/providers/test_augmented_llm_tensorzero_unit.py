@@ -51,10 +51,11 @@ def mock_agent():
 
 @pytest.fixture
 def t0_llm(mock_agent):
+    default_vars = {"TEST_VARIABLE_1": "Test value"}
     llm = TensorZeroAugmentedLLM(
         agent=mock_agent,  # This agent now has the correct context structure
         model="tensorzero.test_chat",
-        t0_system_template_vars={"TEST_VARIABLE_1": "Test value"},
+        request_params=RequestParams(t0_system_template_vars=default_vars),
     )
 
     # No longer need to manually set llm.context as it should be handled by __init__
@@ -95,21 +96,43 @@ async def test_adapt_t0_text_response(t0_llm):
 
 def test_prepare_t0_system_params(t0_llm):
     """Test preparation of the system parameters dictionary."""
-    # Base params from fixture
-    request_params = RequestParams(model="tensorzero.test_chat")
-    system_params = t0_llm._prepare_t0_system_params(request_params)
-    assert system_params == {"TEST_VARIABLE_1": "Test value"}
+    # Scenario 1: t0_system_template_vars provided in RequestParams
+    # These vars are now expected to be part of the RequestParams passed to _prepare_t0_system_params
+    vars_in_params = {"PARAM_VAR_1": "Value from params"}
+    request_params_with_vars = RequestParams(
+        model="tensorzero.test_chat", t0_system_template_vars=vars_in_params.copy()
+    )
+    system_params = t0_llm._prepare_t0_system_params(request_params_with_vars)
+    assert system_params == vars_in_params
 
-    # With metadata arguments
+    # Scenario 2: t0_system_template_vars in RequestParams, plus metadata arguments
+    vars_in_params_2 = {"PARAM_VAR_2": "Another value"}
     request_params_meta = RequestParams(
         model="tensorzero.test_chat",
+        t0_system_template_vars=vars_in_params_2.copy(),
         metadata={"tensorzero_arguments": {"TEST_VARIABLE_2": "Meta value"}},
     )
     system_params_meta = t0_llm._prepare_t0_system_params(request_params_meta)
-    assert system_params_meta == {
-        "TEST_VARIABLE_1": "Test value",
-        "TEST_VARIABLE_2": "Meta value",
-    }
+    # _prepare_t0_system_params starts with a copy of t0_system_template_vars from the input RequestParams,
+    # then updates it with metadata.
+    expected_meta_params = vars_in_params_2.copy()
+    expected_meta_params.update({"TEST_VARIABLE_2": "Meta value"})
+    assert system_params_meta == expected_meta_params
+
+    # Scenario 3: Empty t0_system_template_vars in RequestParams (default_factory=dict)
+    request_params_empty_vars = RequestParams(
+        model="tensorzero.test_chat"
+    )  # t0_system_template_vars will be {}
+    system_params_empty = t0_llm._prepare_t0_system_params(request_params_empty_vars)
+    assert system_params_empty == {}
+
+    # Scenario 4: Empty t0_system_template_vars in RequestParams, with metadata
+    request_params_empty_with_meta = RequestParams(
+        model="tensorzero.test_chat",
+        metadata={"tensorzero_arguments": {"META_ONLY": "Meta only value"}},
+    )  # t0_system_template_vars will be {}
+    system_params_empty_meta = t0_llm._prepare_t0_system_params(request_params_empty_with_meta)
+    assert system_params_empty_meta == {"META_ONLY": "Meta only value"}
 
 
 @pytest.mark.asyncio

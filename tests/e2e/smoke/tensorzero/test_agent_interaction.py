@@ -1,6 +1,7 @@
 import pytest
 
 from mcp_agent.core.fastagent import FastAgent
+from mcp_agent.core.request_params import RequestParams
 
 pytestmark = pytest.mark.usefixtures("tensorzero_docker_env")
 
@@ -15,6 +16,14 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
     # Since we changed CWD with chdir_to_tensorzero_example, relative path is fine
     config_file = "fastagent.config.yaml"
 
+    # Define T0 system variables here
+    my_t0_system_vars = {
+        "TEST_VARIABLE_1": "Roses are red",
+        "TEST_VARIABLE_2": "Violets are blue",
+        "TEST_VARIABLE_3": "Sugar is sweet",
+        "TEST_VARIABLE_4": "Vibe code responsibly 👍",
+    }
+
     fast = FastAgent("fast-agent example test", config_path=config_file, ignore_unknown_args=True)
 
     @fast.agent(
@@ -25,6 +34,7 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
         """,
         servers=["tester"],
         model="tensorzero.test_chat",
+        request_params=RequestParams(t0_system_template_vars=my_t0_system_vars),
     )
     async def dummy_agent_func():
         pass
@@ -41,20 +51,14 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
     async with fast.run() as agent_app:
         agent_instance = agent_app.default
 
-        # Set system vars like in the example script
-        my_t0_system_vars = {
-            "TEST_VARIABLE_1": "Roses are red",
-            "TEST_VARIABLE_2": "Violets are blue",
-            "TEST_VARIABLE_3": "Sugar is sweet",
-            "TEST_VARIABLE_4": "Vibe code responsibly 👍",
-        }
-        # Ensure LLM is initialized before accessing t0_system_template_vars
-        if hasattr(agent_instance._llm, "t0_system_template_vars"):
-            agent_instance._llm.t0_system_template_vars = my_t0_system_vars  # type: ignore
-        else:
-            print(
-                f"Warning: LLM for agent {agent_instance.name} does not have 't0_system_template_vars'. LLM type: {type(agent_instance._llm)}"
-            )
+        # The t0_system_template_vars are now set via the decorator in this test definition.
+        # No need to modify agent_instance._llm here.
+        # if hasattr(agent_instance._llm, "t0_system_template_vars"):
+        #     agent_instance._llm.t0_system_template_vars = my_t0_system_vars  # type: ignore # REMOVED
+        # else:
+        #     print(
+        #         f"Warning: LLM for agent {agent_instance.name} does not have 't0_system_template_vars'. LLM type: {type(agent_instance._llm)}"
+        #     )
 
         print(f"\nSending {len(messages_to_send)} messages to agent '{agent_instance.name}'...")
         for i, msg_text in enumerate(messages_to_send):

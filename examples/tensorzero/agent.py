@@ -1,10 +1,19 @@
 import asyncio
 
 from mcp_agent.core.fastagent import FastAgent
+from mcp_agent.core.request_params import RequestParams
 
 # Explicitly provide the path to the config file in the current directory
 CONFIG_FILE = "fastagent.config.yaml"
 fast = FastAgent("fast-agent example", config_path=CONFIG_FILE, ignore_unknown_args=True)
+
+# Define T0 system variables here
+my_t0_system_vars = {
+    "TEST_VARIABLE_1": "Roses are red",
+    "TEST_VARIABLE_2": "Violets are blue",
+    "TEST_VARIABLE_3": "Sugar is sweet",
+    "TEST_VARIABLE_4": "Vibe code responsibly 👍",
+}
 
 
 @fast.agent(
@@ -14,22 +23,12 @@ fast = FastAgent("fast-agent example", config_path=CONFIG_FILE, ignore_unknown_a
         that requires you to invoke the test tools, please do so. When you use the tool, describe your rationale for doing so. 
     """,
     servers=["tester"],
+    request_params=RequestParams(t0_system_template_vars=my_t0_system_vars),
 )
 async def main():
     async with fast.run() as agent_app:  # Get the AgentApp wrapper
         agent_name = "default"
-        agent_instance = agent_app.default
-        print(f"Found agent: {agent_name}")
-
-        my_t0_system_vars = {
-            "TEST_VARIABLE_1": "Roses are red",
-            "TEST_VARIABLE_2": "Violets are blue",
-            "TEST_VARIABLE_3": "Sugar is sweet",
-            "TEST_VARIABLE_4": "Vibe code responsibly 👍",
-        }
-        agent_instance._llm.t0_system_template_vars = my_t0_system_vars  # type: ignore
-
-        print("\nStarting interactive session...")
+        print("\nStarting interactive session with t0_system_template_vars set via decorator...")
         await agent_app.interactive(agent=agent_name)
 
 
