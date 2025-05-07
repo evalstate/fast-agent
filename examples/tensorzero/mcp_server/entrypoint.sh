@@ -32,4 +32,4 @@ echo "Entrypoint: Bucket 'tensorzero' check/creation complete."
 
 echo "Entrypoint: Executing the main container command: $@"
 
-exec "$@" 
+exec "$@"
