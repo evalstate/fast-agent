@@ -18,7 +18,9 @@ The simple declarative syntax lets you concentrate on composing your Prompts and
 
 `fast-agent` is multi-modal, supporting Images and PDFs for both Anthropic and OpenAI endpoints via Prompts, Resources and MCP Tool Call results. The inclusion of passthrough and playback LLMs enable rapid development and test of Python glue-code for your applications.
 
-> [!IMPORTANT] > `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
+> [!IMPORTANT]
+>
+> `fast-agent` The fast-agent documentation repo is here: https://github.com/evalstate/fast-agent-docs. Please feel free to submit PRs for documentation, experience reports or other content you think others may find helpful. All help and feedback warmly received.
 
 ### Agent Application Development
 
