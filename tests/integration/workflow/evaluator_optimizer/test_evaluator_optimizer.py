@@ -233,6 +233,73 @@ async def test_early_stop_on_quality(fast_agent):
 
     await agent_function()
 
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_check_markup_config(fast_agent):
+    """Test that evaluator-optimizer stops when quality threshold is met."""
+    fast = fast_agent
+
+    @fast.agent(name="generator_quality", model="passthrough")
+    @fast.agent(name="evaluator_quality", model="passthrough")
+    @fast.evaluator_optimizer(
+        name="optimizer_quality",
+        generator="generator_quality",
+        evaluator="evaluator_quality",
+        min_rating=QualityRating.GOOD,  # Stop when reaching GOOD quality
+        max_refinements=5,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Initial generation
+            initial_response = f"{FIXED_RESPONSE_INDICATOR} Initial draft."
+            await agent.generator_quality._llm.generate([Prompt.user(initial_response)])
+
+            # First evaluation - needs improvement (FAIR is below GOOD threshold)
+            first_eval = {
+                "rating": "FAIR",
+                "feedback": "Needs improvement.",
+                "needs_improvement": True,
+                "focus_areas": ["Be more specific"],
+            }
+            first_eval_json = json.dumps(first_eval)
+            await agent.evaluator_quality._llm.generate(
+                [Prompt.user(f"{FIXED_RESPONSE_INDICATOR} {first_eval_json}")]
+            )
+
+            # First refinement
+            first_refinement = f"{FIXED_RESPONSE_INDICATOR} First refinement with more details."
+            await agent.generator_quality._llm.generate([Prompt.user(first_refinement)])
+
+            # Second evaluation - meets quality threshold (GOOD)
+            second_eval = {
+                "rating": "GOOD",
+                "feedback": "Much better!",
+                "needs_improvement": False,
+                "focus_areas": [],
+            }
+            second_eval_json = json.dumps(second_eval)
+            await agent.evaluator_quality._llm.generate(
+                [Prompt.user(f"{FIXED_RESPONSE_INDICATOR} {second_eval_json}")]
+            )
+
+            # Additional refinement response (should not be used because we hit quality threshold)
+            unused_response = f"{FIXED_RESPONSE_INDICATOR} This refinement should never be used."
+            await agent.generator_quality._llm.generate([Prompt.user(unused_response)])
+
+            # Send the input and get optimized output
+            result = await agent.optimizer_quality.send("'[/]Write something")
+
+            # Just check we got a non-empty result - we don't need to check the exact content
+            # since what matters is that the proper early stopping occurred
+            assert result is not None
+            assert len(result) > 0  # Should have some content
+
+            # Verify early stopping
+            history = agent.optimizer_quality.refinement_history
+            assert len(history) <= 2  # Should not have more than 2 iterations
+
+    await agent_function()
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
