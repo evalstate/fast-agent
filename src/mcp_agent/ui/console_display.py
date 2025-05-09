@@ -46,7 +46,7 @@ class ConsoleDisplay:
             if len(str(result.content)) > 360:
                 panel.height = 8
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self.config.logger.enable_markup)
         console.console.print("\n")
 
     def show_oai_tool_result(self, result) -> None:
@@ -67,7 +67,7 @@ class ConsoleDisplay:
             if len(str(result)) > 360:
                 panel.height = 8
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self.config.logger.enable_markup)
         console.console.print("\n")
 
     def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
@@ -92,7 +92,7 @@ class ConsoleDisplay:
             if len(str(tool_args)) > 360:
                 panel.height = 8
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self.config.logger.enable_markup)
         console.console.print("\n")
 
     def _format_tool_list(self, available_tools, selected_tool_name):
@@ -172,7 +172,7 @@ class ConsoleDisplay:
             subtitle=display_server_list,
             subtitle_align="left",
         )
-        console.console.print(panel)
+        console.console.print(panel, markup=self.config.logger.enable_markup)
         console.console.print("\n")
 
     def show_user_message(
@@ -196,7 +196,7 @@ class ConsoleDisplay:
             subtitle=subtitle_text,
             subtitle_align="left",
         )
-        console.console.print(panel)
+        console.console.print(panel, markup=self.config.logger.enable_markup)
         console.console.print("\n")
 
     async def show_prompt_loaded(
@@ -270,5 +270,5 @@ class ConsoleDisplay:
             subtitle_align="left",
         )
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self.config.logger.enable_markup)
         console.console.print("\n")

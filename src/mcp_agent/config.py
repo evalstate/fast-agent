@@ -249,6 +249,7 @@ class LoggerSettings(BaseModel):
     """Show MCP Sever tool calls on the console"""
     truncate_tools: bool = True
     """Truncate display of long tool calls"""
+    enable_markup: bool = True
 
 
 class Settings(BaseSettings):
