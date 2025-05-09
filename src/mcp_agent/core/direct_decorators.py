@@ -205,10 +205,53 @@ def agent(
         human_input=human_input,
     )
 
+def custom(
+    self,
+    cls,
+    name: str = "default",
+    instruction_or_kwarg: Optional[str] = None,
+    *,
+    instruction: str = "You are a helpful agent.",
+    servers: List[str] = [],
+    model: Optional[str] = None,
+    use_history: bool = True,
+    request_params: RequestParams | None = None,
+    human_input: bool = False,
+) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
+    """
+    Decorator to create and register a standard agent with type-safe signature.
+
+    Args:
+        name: Name of the agent
+        instruction_or_kwarg: Optional positional parameter for instruction
+        instruction: Base instruction for the agent (keyword arg)
+        servers: List of server names the agent should connect to
+        model: Model specification string
+        use_history: Whether to maintain conversation history
+        request_params: Additional request parameters for the LLM
+        human_input: Whether to enable human input capabilities
+
+    Returns:
+        A decorator that registers the agent with proper type annotations
+    """
+    final_instruction = instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+
+    return _decorator_impl(
+        self,
+        AgentType.CUSTOM,
+        name=name,
+        instruction=final_instruction,
+        servers=servers,
+        model=model,
+        use_history=use_history,
+        request_params=request_params,
+        human_input=human_input,
+        agent_class=cls,
+    )
 
 DEFAULT_INSTRUCTION_ORCHESTRATOR = """
-You are an expert planner. Given an objective task and a list of Agents 
-(which are collections of capabilities), your job is to break down the objective 
+You are an expert planner. Given an objective task and a list of Agents
+(which are collections of capabilities), your job is to break down the objective
 into a series of steps, which can be performed by these agents.
 """
 
@@ -381,7 +424,7 @@ def parallel(
         A decorator that registers the parallel agent with proper type annotations
     """
     default_instruction = """
-    You are a parallel processor that executes multiple agents simultaneously 
+    You are a parallel processor that executes multiple agents simultaneously
     and aggregates their results.
     """
 
