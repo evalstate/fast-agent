@@ -2,6 +2,8 @@ logging:
   dir_path: null
   file_path: null
   level: DEBUG
+logger:
+  enable_markup: false
 
 mcp:
   name: evaluator_optimizer_tests
