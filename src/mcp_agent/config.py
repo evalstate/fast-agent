@@ -250,6 +250,7 @@ class LoggerSettings(BaseModel):
     truncate_tools: bool = True
     """Truncate display of long tool calls"""
     enable_markup: bool = True
+    """Enable markup in console output. Disable for outputs that may conflict with rich console formatting"""
 
 
 class Settings(BaseSettings):

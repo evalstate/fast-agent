@@ -199,3 +199,4 @@ fastagent.jsonl
 
 # JetBrains IDEs
 .idea/
+tests/e2e/smoke/base/weather_location.txt
