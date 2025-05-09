@@ -1,7 +1,6 @@
 import pytest
 from rich.errors import MarkupError
 
-from mcp_agent.core.fastagent import FastAgent
 from mcp_agent.core.prompt import Prompt
 
 
