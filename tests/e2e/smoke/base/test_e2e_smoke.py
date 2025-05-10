@@ -24,10 +24,9 @@ if TYPE_CHECKING:
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
         "deepseek",
-        #        "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
         "openrouter.google/gemini-2.0-flash-001",
-        "google.gemini-2.0-flash",
+        "gemini2",
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -61,10 +60,10 @@ async def test_basic_textual_prompting(fast_agent, model_name):
         "haiku35",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
+        "gemini2",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
-    """Test that the agent can process an image and respond appropriately."""
     fast = fast_agent
 
     # Define the agent
@@ -148,6 +147,8 @@ class WeatherForecast(BaseModel):
         "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
+        "gemini2",
+        "gemini25",
     ],
 )
 async def test_structured_weather_forecast_openai_structured_api(fast_agent, model_name):
@@ -181,34 +182,34 @@ async def test_structured_weather_forecast_openai_structured_api(fast_agent, mod
 
             # Verify the structured response
             assert forecast is not None, "Structured response should not be None"
-            assert isinstance(forecast, WeatherForecast), (
-                "Response should be a WeatherForecast object"
-            )
+            assert isinstance(
+                forecast, WeatherForecast
+            ), "Response should be a WeatherForecast object"
 
             # Verify forecast content
-            assert forecast.location.lower().find("san francisco") >= 0, (
-                "Location should be San Francisco"
-            )
+            assert (
+                forecast.location.lower().find("san francisco") >= 0
+            ), "Location should be San Francisco"
             assert forecast.unit == "celsius", "Temperature unit should be celsius"
             assert len(forecast.forecast) == 5, "Should have 5 days of forecast"
-            assert all(isinstance(day, DailyForecast) for day in forecast.forecast), (
-                "Each day should be a DailyForecast"
-            )
+            assert all(
+                isinstance(day, DailyForecast) for day in forecast.forecast
+            ), "Each day should be a DailyForecast"
 
             # Verify data types and ranges
             for day in forecast.forecast:
-                assert 0 <= day.precipitation_chance <= 100, (
-                    f"Precipitation chance should be 0-100%, got {day.precipitation_chance}"
-                )
-                assert -50 <= day.temperature_low <= 60, (
-                    f"Temperature low should be reasonable, got {day.temperature_low}"
-                )
-                assert -30 <= day.temperature_high <= 70, (
-                    f"Temperature high should be reasonable, got {day.temperature_high}"
-                )
-                assert day.temperature_high >= day.temperature_low, (
-                    "High temp should be >= low temp"
-                )
+                assert (
+                    0 <= day.precipitation_chance <= 100
+                ), f"Precipitation chance should be 0-100%, got {day.precipitation_chance}"
+                assert (
+                    -50 <= day.temperature_low <= 60
+                ), f"Temperature low should be reasonable, got {day.temperature_low}"
+                assert (
+                    -30 <= day.temperature_high <= 70
+                ), f"Temperature high should be reasonable, got {day.temperature_high}"
+                assert (
+                    day.temperature_high >= day.temperature_low
+                ), "High temp should be >= low temp"
 
             # Print forecast summary for debugging
             print(f"Weather forecast for {forecast.location}: {forecast.summary}")
@@ -261,7 +262,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
-        "google.gemini-2.0-flash",
+        "gemini2",
         "openrouter.google/gemini-2.0-flash-001",
     ],
 )
@@ -288,9 +289,9 @@ async def test_basic_tool_calling(fast_agent, model_name):
             assert "sunny" in response
 
             # Check that the file exists after response
-            assert os.path.exists("weather_location.txt"), (
-                "File should exist after response (created by tool call)"
-            )
+            assert os.path.exists(
+                "weather_location.txt"
+            ), "File should exist after response (created by tool call)"
 
     await weather_forecast()
 
@@ -307,7 +308,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
-        "google.gemini-2.0-flash",
+        "gemini2",
         "openrouter.anthropic/claude-3.7-sonnet",
     ],
 )

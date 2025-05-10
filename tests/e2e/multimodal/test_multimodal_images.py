@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
+        "gemini25",
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -49,9 +50,9 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4.1-mini",  # OpenAI model
-        "sonnet",  # Anthropic model
-        #    "gemini2",
+        "gpt-4.1-mini",  # OpenAI
+        "sonnet",  # Anthropic
+        "gemini25",
     ],
 )
 async def test_agent_with_mcp_image(fast_agent, model_name):
@@ -61,7 +62,7 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
     # Define the agent
     @fast.agent(
         "agent",
-        instruction="You are a helpful AI Agent",
+        instruction="You are a helpful AI Agent. Do not ask any questions.",
         servers=["image_server"],
         model=model_name,
     )
@@ -88,7 +89,6 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
     ],
 )
 async def test_agent_with_mcp_pdf(fast_agent, model_name):
-    """Test that the agent can process an image and respond appropriately."""
     fast = fast_agent
 
     # Define the agent
