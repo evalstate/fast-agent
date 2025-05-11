@@ -229,7 +229,7 @@ class OrchestratorAgent(BaseAgent):
                     self.logger.warning(
                         f"Reached maximum step limit ({max_steps}) without completing objective"
                     )
-                    plan_result.max_steps_reached = True
+                    plan_result.max_iterations_reached = True
                     break
 
                 # Execute the step and collect results
@@ -239,7 +239,7 @@ class OrchestratorAgent(BaseAgent):
                 total_steps_executed += 1
 
             # Check if we need to break due to hitting max steps
-            if getattr(plan_result, "max_steps_reached", False):
+            if getattr(plan_result, "max_iterations_reached", False):
                 break
 
             # If the plan is marked complete, finalize the result
