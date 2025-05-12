@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel, Field
 
 from mcp_agent.core.prompt import Prompt
+from mcp_agent.llm.memory import Memory
 
 if TYPE_CHECKING:
     from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
@@ -47,6 +48,39 @@ async def test_basic_textual_prompting(fast_agent, model_name):
             words = response_text.split()
             word_count = len(words)
             assert 40 <= word_count <= 60, f"Expected between 40-60 words, got {word_count}"
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "gpt-4.1-nano",
+    ],
+)
+async def test_open_ai_history(fast_agent, model_name):
+    """Test that the agent can process an image and respond appropriately."""
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(
+        "agent",
+        instruction="SYSTEM PROMPT",
+        model=model_name,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            await agent.send("MESSAGE ONE")
+            await agent.send("MEESAGE TWO")
+
+            provider_history: Memory = agent.agent._llm.history
+            multipart_history = agent.agent.message_history
+
+            assert 4 == len(provider_history.get())
+            assert 4 == len(multipart_history)
 
     await agent_function()
 
