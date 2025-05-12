@@ -132,7 +132,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         messages: List[ChatCompletionMessageParam] = []
         system_prompt = self.instruction or request_params.systemPrompt
         if system_prompt:
-            self.history.set([ChatCompletionSystemMessageParam(role="system", content=system_prompt)], is_prompt=True)
+            messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
 
         messages.extend(self.history.get(include_completion_history=request_params.use_history))
         messages.append(message)
@@ -274,7 +274,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             # Calculate new conversation messages (excluding prompts)
             new_messages = messages[len(prompt_messages) :]
 
-            # Update conversation history
+            if system_prompt:
+                new_messages = new_messages[1:]
+
             self.history.set(new_messages)
 
         self._log_chat_finished(model=self.default_request_params.model)
