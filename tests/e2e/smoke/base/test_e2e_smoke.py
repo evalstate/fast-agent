@@ -24,10 +24,10 @@ if TYPE_CHECKING:
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
         "deepseek",
-        #        "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
         "openrouter.google/gemini-2.0-flash-001",
-        "google.gemini-2.0-flash",
+        "gemini2",
+        "gemini2",
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -61,10 +61,10 @@ async def test_basic_textual_prompting(fast_agent, model_name):
         "haiku35",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
+        "gemini2",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
-    """Test that the agent can process an image and respond appropriately."""
     fast = fast_agent
 
     # Define the agent
@@ -148,6 +148,8 @@ class WeatherForecast(BaseModel):
         "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
+        "gemini2",
+        "gemini25",
     ],
 )
 async def test_structured_weather_forecast_openai_structured_api(fast_agent, model_name):
@@ -261,7 +263,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
-        "google.gemini-2.0-flash",
+        "gemini2",
         "openrouter.google/gemini-2.0-flash-001",
     ],
 )
@@ -307,7 +309,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
-        "google.gemini-2.0-flash",
+        "gemini2",
         "openrouter.anthropic/claude-3.7-sonnet",
     ],
 )

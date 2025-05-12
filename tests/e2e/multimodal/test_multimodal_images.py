@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
+        "gemini25",
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -49,9 +50,9 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4.1-mini",  # OpenAI model
-        "sonnet",  # Anthropic model
-        #    "gemini2",
+        "gpt-4.1-mini",  # OpenAI
+        "sonnet",  # Anthropic
+        "gemini25",
     ],
 )
 async def test_agent_with_mcp_image(fast_agent, model_name):
@@ -61,7 +62,7 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
     # Define the agent
     @fast.agent(
         "agent",
-        instruction="You are a helpful AI Agent",
+        instruction="You are a helpful AI Agent. Do not ask any questions.",
         servers=["image_server"],
         model=model_name,
     )
@@ -85,16 +86,16 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "gemini25",
     ],
 )
 async def test_agent_with_mcp_pdf(fast_agent, model_name):
-    """Test that the agent can process an image and respond appropriately."""
     fast = fast_agent
 
     # Define the agent
     @fast.agent(
         "agent",
-        instruction="You are a helpful AI Agent",
+        instruction="You are a helpful AI Agent. You have PDF support and summarisation capabilities.",
         servers=["image_server"],
         model=model_name,
     )
@@ -118,6 +119,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "gemini25",
     ],
 )
 async def test_agent_with_pdf_prompt(fast_agent, model_name):
@@ -156,13 +158,12 @@ async def test_agent_with_pdf_prompt(fast_agent, model_name):
     ],
 )
 async def test_agent_includes_tool_results_in_multipart_result_anthropic(fast_agent, model_name):
-    """Test that the agent can process a PDF document and respond appropriately."""
     fast = fast_agent
 
     # Define the agent
     @fast.agent(
         "agent",
-        instruction="You are a helpful AI Agent",
+        instruction="You are a helpful AI Agent. You have vision capabilities and can analyse the image.",
         servers=["image_server"],
         model=model_name,
     )
@@ -191,6 +192,7 @@ async def test_agent_includes_tool_results_in_multipart_result_anthropic(fast_ag
     "model_name",
     [
         "gpt-4.1-mini",  # OpenAI model
+        "gemini25",
     ],
 )
 async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent, model_name):
@@ -200,7 +202,7 @@ async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent
     # Define the agent
     @fast.agent(
         "agent",
-        instruction="You are a helpful AI Agent",
+        instruction="You are a helpful AI Agent. You have vision capabilities.",
         servers=["image_server"],
         model=model_name,
     )

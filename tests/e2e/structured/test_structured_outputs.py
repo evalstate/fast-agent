@@ -125,7 +125,7 @@ response_format = {
         # "haiku", -- anthropic do not support structured outputs this way
         "gpt-4.1-mini",
         "openrouter.google/gemini-2.0-flash-001",
-        "google.gemini-2.0-flash",
+        "gemini2",
     ],
 )
 async def test_structured_output_with_response_format_overriden(fast_agent, model_name):
@@ -157,7 +157,7 @@ async def test_structured_output_with_response_format_overriden(fast_agent, mode
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    ["gpt-4.1-mini", "haiku", "google.gemini-2.0-flash"],
+    ["gpt-4.1-mini", "haiku", "gemini2"],
 )
 async def test_history_management_with_structured(fast_agent, model_name):
     """Test that the agent can generate structured response with response_format_specified."""

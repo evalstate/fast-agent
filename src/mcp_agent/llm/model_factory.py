@@ -86,6 +86,9 @@ class ModelFactory:
         "claude-3-opus-20240229": Provider.ANTHROPIC,
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
+        "gemini-2.0-flash": Provider.GOOGLE,
+        "gemini-2.5-flash-preview-04-17": Provider.GOOGLE,
+        "gemini-2.5-pro-preview-03-25": Provider.GOOGLE,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
     }
 
@@ -101,6 +104,9 @@ class ModelFactory:
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
+        "gemini2": "gemini-2.0-flash",
+        "gemini25": "gemini-2.5-flash-preview-04-17",
+        "gemini25pro": "gemini-2.5-pro-preview-03-25",
     }
 
     # Mapping of providers to their LLM classes
