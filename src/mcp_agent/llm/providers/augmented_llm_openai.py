@@ -132,7 +132,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         messages: List[ChatCompletionMessageParam] = []
         system_prompt = self.instruction or request_params.systemPrompt
         if system_prompt:
-            messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
+            self.history.set([ChatCompletionSystemMessageParam(role="system", content=system_prompt)], is_prompt=True)
 
         messages.extend(self.history.get(include_completion_history=request_params.use_history))
         messages.append(message)
