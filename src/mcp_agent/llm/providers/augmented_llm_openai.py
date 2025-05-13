@@ -78,7 +78,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                 self._reasoning_effort = self.context.config.openai.reasoning_effort
 
         # Determine if we're using a reasoning model
-        # TODO -- move this to model capabiltities, add o4.
+        # TODO -- move this to model capabilities, add o4.
         chosen_model = self.default_request_params.model if self.default_request_params else None
         self._reasoning = chosen_model and (
             chosen_model.startswith("o3") or chosen_model.startswith("o1")
@@ -95,7 +95,6 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         return RequestParams(
             model=chosen_model,
             systemPrompt=self.instruction,
-            parallel_tool_calls=True,
             max_iterations=20,
             use_history=True,
         )
@@ -345,9 +344,6 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             )
         else:
             base_args["max_tokens"] = request_params.maxTokens
-
-        if tools:
-            base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
         arguments: Dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
