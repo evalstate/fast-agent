@@ -95,6 +95,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         return RequestParams(
             model=chosen_model,
             systemPrompt=self.instruction,
+            parallel_tool_calls=True,
             max_iterations=20,
             use_history=True,
         )
@@ -324,7 +325,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         return result
 
     def _prepare_api_request(
-        self, messages, tools, request_params: RequestParams
+        self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams
     ) -> dict[str, str]:
         # Create base arguments dictionary
 
@@ -344,6 +345,8 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             )
         else:
             base_args["max_tokens"] = request_params.maxTokens
+            if tools:
+                base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
         arguments: Dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
