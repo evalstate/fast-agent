@@ -16,3 +16,4 @@ class Provider(Enum):
     GENERIC = "generic"
     OPENROUTER = "openrouter"
     TENSORZERO = "tensorzero"  # For TensorZero Gateway
+    AZURE_OPENAI = "azure_openai"

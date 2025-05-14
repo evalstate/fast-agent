@@ -207,6 +207,18 @@ class TensorZeroSettings(BaseModel):
     api_key: Optional[str] = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
+class AzureOpenAISettings(BaseModel):
+    """
+    Settings for using Azure OpenAI models in the fast-agent application.
+    """
+
+    api_key: str | None = None
+    base_url: str | None = None
+    api_version: str = "2025-01-01"
+    deployment_id: str | None = None
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
 
 class LoggerSettings(BaseModel):
     """
@@ -301,6 +313,9 @@ class Settings(BaseSettings):
 
     tensorzero: Optional[TensorZeroSettings] = None
     """Settings for using TensorZero inference gateway"""
+
+    azure_openai: AzureOpenAISettings | None = None
+    """Settings for using Azure OpenAI models in the fast-agent application"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""
