@@ -16,6 +16,7 @@ from mcp_agent.llm.providers.augmented_llm_google import GoogleAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_azure_openai import AzureOpenAIAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
@@ -30,6 +31,7 @@ LLMClass = Union[
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
     Type[TensorZeroAugmentedLLM],
+    Type[AzureOpenAIAugmentedLLM],
 ]
 
 
@@ -86,6 +88,7 @@ class ModelFactory:
         "claude-3-opus-20240229": Provider.ANTHROPIC,
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
+        "azure_openai": Provider.AZURE_OPENAI,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
     }
 
@@ -101,6 +104,7 @@ class ModelFactory:
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
+        "azure_openai": "azure_openai",
     }
 
     # Mapping of providers to their LLM classes
@@ -113,6 +117,7 @@ class ModelFactory:
         Provider.GOOGLE: GoogleAugmentedLLM,  # type: ignore
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
+        Provider.AZURE_OPENAI: AzureOpenAIAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes

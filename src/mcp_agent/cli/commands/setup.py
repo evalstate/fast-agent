@@ -66,6 +66,11 @@ deepseek:
     api_key: <your-api-key-here>
 openrouter:
     api_key: <your-api-key-here>
+azure_openai:
+    api_key: <your-api-key-here>
+    base_url: <your-endpoint-here>
+    api_version: <your-api-version-here>
+    deployment_id: <your-deployment-id-here>
 
 
 # Example of setting an MCP Server environment variable
