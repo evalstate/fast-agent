@@ -3,9 +3,9 @@
 **Goal**: Add support for Amazon Bedrock to the fast-agent client using the bedrock converse API so users can specify their preferred Bedrock language models.
 
 ## Progress Summary
-- [x] COMPLETED: 50%
+- [x] COMPLETED: 80%
 - [~] IN_PROGRESS: 0%
-- [ ] NOT_STARTED: 50%
+- [ ] NOT_STARTED: 20%
 
 ## Task Legend
 - [ ] NOT_STARTED
@@ -75,18 +75,18 @@
 ## Phase 4: Integration and Configuration (Week 4)
 
 ### Model Factory Integration
-- [ ] **Task 4.1**: Register Bedrock provider in model factory
+- [x] **Task 4.1**: Register Bedrock provider in model factory
   - Estimated completion: Day 16
   - Dependencies: Task 3.3
   - Description: Update DEFAULT_PROVIDERS and PROVIDER_CLASSES in model_factory.py
 
-- [ ] **Task 4.2**: Add model aliases for Bedrock models
+- [x] **Task 4.2**: Add model aliases for Bedrock models
   - Estimated completion: Day 17
   - Dependencies: Task 4.1
   - Description: Add user-friendly aliases for Bedrock models in MODEL_ALIASES
 
 ### Configuration and Examples
-- [ ] **Task 4.3**: Create example configuration files
+- [x] **Task 4.3**: Create example configuration files
   - Estimated completion: Day 18
   - Dependencies: Task 4.2
   - Description: Create fastagent.config.yaml examples for Bedrock in examples/bedrock/
@@ -99,12 +99,12 @@
 ## Phase 5: Testing and Validation (Week 5)
 
 ### Unit Testing
-- [ ] **Task 5.1**: Create unit tests for BedrockAugmentedLLM
+- [x] **Task 5.1**: Create unit tests for BedrockAugmentedLLM
   - Estimated completion: Day 21
   - Dependencies: Task 4.4
   - Description: Implement comprehensive unit tests for the core provider class
 
-- [ ] **Task 5.2**: Create unit tests for message converters
+- [x] **Task 5.2**: Create unit tests for message converters
   - Estimated completion: Day 22
   - Dependencies: Task 5.1
   - Description: Implement tests for message format conversion logic
@@ -128,13 +128,13 @@
   - Dependencies: Task 5.4
   - Description: Add Bedrock provider documentation to project README
 
-- [ ] **Task 6.2**: Create detailed Bedrock setup guide
+- [x] **Task 6.2**: Create detailed Bedrock setup guide
   - Estimated completion: Day 27
   - Dependencies: Task 6.1
   - Description: Write comprehensive documentation for AWS setup and configuration
 
 ### Example Implementation
-- [ ] **Task 6.3**: Create example Bedrock agent implementations
+- [x] **Task 6.3**: Create example Bedrock agent implementations
   - Estimated completion: Day 29
   - Dependencies: Task 6.2
   - Description: Create example Python scripts demonstrating Bedrock usage

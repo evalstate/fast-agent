@@ -1,0 +1,84 @@
+# Production Configuration for Amazon Bedrock in FastAgent
+#
+# This configuration demonstrates best practices for production environments
+# using Amazon Bedrock with FastAgent.
+#
+# In production environments, we recommend using:
+# 1. IAM roles for EC2/ECS/Lambda (avoiding hardcoded credentials)
+# 2. Model-specific retry settings for resilience
+# 3. Regional failover for high availability
+
+# Default model (main production model)
+default_model: "bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+# Additional models that can be accessed via fastagent.run(model="...")
+models:
+  fallback_model: "bedrock.anthropic.claude-3-5-sonnet-20240620-v1:0"
+  premium_model: "bedrock.anthropic.claude-3-7-sonnet-20250219-v1:0"
+
+# Bedrock configuration
+bedrock:
+  # Primary region (make sure your models are available here)
+  region: "us-east-1"
+  
+  # Production best practice: Use IAM roles instead of hardcoded credentials
+  # For EC2, ECS, Lambda, etc. - this will use the instance profile
+  use_default_credentials: true
+  
+  # Optional: Fallback regions for high availability
+  # If specified, FastAgent will try these regions if the primary region fails
+  # Note: Your AWS IAM policy must allow access to Bedrock in these regions
+  fallback_regions:
+    - "us-west-2"
+    - "eu-west-1"
+  
+  # Optional: Connection settings
+  connection:
+    timeout: 30  # Request timeout in seconds
+    max_retries: 3  # Number of retries on connection failure
+    retry_delay: 1.0  # Seconds between retries (exponential backoff applies)
+  
+  # Model-specific parameters
+  model_params:
+    # Claude 3.5 Sonnet (latest) parameters
+    "anthropic.claude-3-5-sonnet-20241022-v2:0":
+      temperature: 0.5  # Lower temperature for more consistent outputs
+      top_p: 0.9
+      top_k: 50
+      max_tokens: 4096
+      
+    # Claude 3.7 Sonnet (premium) parameters
+    "anthropic.claude-3-7-sonnet-20250219-v1:0":
+      temperature: 0.3  # Lowest temperature for premium tier
+      top_p: 0.95
+      top_k: 40
+      max_tokens: 8192
+      
+    # Claude 3.5 Sonnet (fallback) parameters
+    "anthropic.claude-3-5-sonnet-20240620-v1:0":
+      temperature: 0.5
+      top_p: 0.9
+      top_k: 50
+      max_tokens: 4096
+      
+    # Titan parameters (fallback model)
+    "amazon.titan-text-express-v1":
+      temperature: 0.7
+      top_p: 0.9
+      max_tokens: 2048
+
+# Logger settings
+logger:
+  type: "json"  # Use structured JSON logging for production
+  level: "info"
+  path: "/var/log/fastagent/bedrock.jsonl"  # Production log path
+  rotate_size_mb: 100  # Rotate logs when they reach this size
+  max_files: 10  # Keep this many rotated log files
+  include_timestamps: true  # Include precise timestamps
+  redact_sensitive_data: true  # Redact potential PII/sensitive data
+
+# Monitoring settings
+monitoring:
+  enable_metrics: true
+  latency_threshold_ms: 2000  # Alert if responses take longer than this
+  error_threshold_percent: 5  # Alert if error rate exceeds this percentage

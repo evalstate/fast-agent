@@ -11,6 +11,7 @@ from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_azure import AzureOpenAIAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_bedrock import BedrockAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google import GoogleAugmentedLLM
@@ -31,6 +32,10 @@ LLMClass = Union[
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
     Type[TensorZeroAugmentedLLM],
+    Type[BedrockAugmentedLLM],
+    Type[AzureOpenAIAugmentedLLM],
+    Type[GoogleAugmentedLLM],
+    Type[GenericAugmentedLLM],
 ]
 
 
@@ -88,6 +93,19 @@ class ModelFactory:
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
+        
+        # Bedrock models
+        "anthropic.claude-3-haiku-20240307": Provider.BEDROCK,
+        "anthropic.claude-3-5-sonnet-20240620-v1:0": Provider.BEDROCK,
+        "anthropic.claude-3-5-sonnet-20241022-v2:0": Provider.BEDROCK,
+        "anthropic.claude-3-7-sonnet-20250219-v1:0": Provider.BEDROCK,
+        "anthropic.claude-3-opus-20240229": Provider.BEDROCK,
+        "amazon.titan-text-express-v1": Provider.BEDROCK,
+        "amazon.titan-text-lite-v1": Provider.BEDROCK,
+        "amazon.titan-text-premier-v1": Provider.BEDROCK,
+        "meta.llama3-8b-instruct-v1:0": Provider.BEDROCK,
+        "meta.llama3-70b-instruct-v1:0": Provider.BEDROCK,
+        "meta.llama3-405b-instruct-v1:0": Provider.BEDROCK,
     }
 
     MODEL_ALIASES = {
@@ -102,6 +120,20 @@ class ModelFactory:
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
+        
+        # Bedrock model aliases
+        "bedrock.haiku": "anthropic.claude-3-haiku-20240307",
+        "bedrock.sonnet": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "bedrock.sonnet-latest": "anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "bedrock.sonnet-previous": "anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "bedrock.sonnet37": "anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "bedrock.opus": "anthropic.claude-3-opus-20240229",
+        "bedrock.titan-express": "amazon.titan-text-express-v1",
+        "bedrock.titan-lite": "amazon.titan-text-lite-v1",
+        "bedrock.titan-premier": "amazon.titan-text-premier-v1",
+        "bedrock.llama3-8b": "meta.llama3-8b-instruct-v1:0",
+        "bedrock.llama3-70b": "meta.llama3-70b-instruct-v1:0",
+        "bedrock.llama3-405b": "meta.llama3-405b-instruct-v1:0",
     }
 
     # Mapping of providers to their LLM classes
@@ -115,6 +147,7 @@ class ModelFactory:
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
+        Provider.BEDROCK: BedrockAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes

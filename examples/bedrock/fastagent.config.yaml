@@ -1,0 +1,82 @@
+# Configuration file for Amazon Bedrock in FastAgent
+#
+# This configuration demonstrates how to connect to AWS Bedrock using FastAgent.
+# There are multiple authentication options for connecting to Bedrock:
+#
+# 1. Direct API key authentication (access_key_id and secret_access_key)
+# 2. Default AWS credential chain (environment variables, profiles, or IAM roles)
+# 3. Named profile from AWS credentials file
+#
+# Choose the option that best fits your environment and security requirements.
+
+# Default model (can be referred to by its alias for convenience)
+default_model: "bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+# Bedrock configuration
+bedrock:
+  # AWS region where Bedrock is available
+  # Common regions with good model support: us-east-1, us-west-2
+  region: "us-east-1"
+  
+  # OPTION 1: Direct API key authentication
+  # Uncomment and set these values for direct API key authentication
+  # access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
+  # secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
+  
+  # OPTION 2: Use AWS credential provider chain (environment, profiles, or IAM roles)
+  # This will try environment variables, then ~/.aws/credentials, then IAM roles
+  use_default_credentials: true
+  
+  # OPTION 3: Use a specific named profile from AWS credentials file
+  # profile: "myprofile"
+  
+  # Optional: Custom endpoint URL (for VPC endpoints or testing)
+  # endpoint_url: "https://bedrock-runtime.us-east-1.amazonaws.com"
+  
+  # Optional: Default parameters for all Bedrock models
+  default_params:
+    temperature: 0.7
+    top_p: 0.9
+    max_tokens: 2048
+    
+  # Optional: Model-specific parameters
+  model_params:
+    # Claude-specific parameters
+    "anthropic.claude-3-5-sonnet-20241022-v2:0":
+      temperature: 0.7
+      top_p: 0.9
+      top_k: 50
+      max_tokens: 4096
+    
+    "anthropic.claude-3-7-sonnet-20250219-v1:0":
+      temperature: 0.6
+      top_p: 0.9
+      top_k: 50
+      max_tokens: 8192
+      
+    "anthropic.claude-3-5-sonnet-20240620-v1:0":
+      temperature: 0.7
+      top_p: 0.9
+      top_k: 50
+      max_tokens: 4096
+    
+    # Amazon Titan parameters
+    "amazon.titan-text-express-v1":
+      temperature: 0.8
+      top_p: 0.9
+      max_tokens: 2048
+    
+    # Meta Llama parameters
+    "meta.llama3-70b-instruct-v1:0":
+      temperature: 0.6
+      top_p: 0.9
+      max_tokens: 2048
+
+# Logger settings
+logger:
+  type: "file"
+  level: "info"
+  progress_display: true
+  path: "bedrock.jsonl"
+  show_chat: true
+  show_tools: true
