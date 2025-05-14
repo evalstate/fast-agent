@@ -193,6 +193,41 @@ class AzureSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class BedrockSettings(BaseModel):
+    """
+    Settings for using AWS Bedrock Service in the fast-agent application.
+    
+    Supports multiple authentication methods:
+    1. Direct API keys (access_key_id and secret_access_key)
+    2. Default credential chain (use_default_credentials)
+    3. Profile from AWS credentials file (profile)
+    """
+
+    # AWS Region for Bedrock service
+    region: str = "us-east-1"
+    
+    # AWS Credentials
+    access_key_id: str | None = None
+    secret_access_key: str | None = None
+    
+    # Use default AWS credential provider chain
+    use_default_credentials: bool = False
+    
+    # Optional AWS profile name
+    profile: str | None = None
+    
+    # Optional custom endpoint URL
+    endpoint_url: str | None = None
+    
+    # Default parameters for all Bedrock models
+    default_params: dict | None = None
+    
+    # Model-specific parameters
+    model_params: dict | None = None
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class OpenTelemetrySettings(BaseModel):
     """
     OTEL settings for the fast-agent application.
@@ -318,6 +353,9 @@ class Settings(BaseSettings):
 
     azure: AzureSettings | None = None
     """Settings for using Azure OpenAI Service in the fast-agent application"""
+
+    bedrock: BedrockSettings | None = None
+    """Settings for using AWS Bedrock Service in the fast-agent application"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""

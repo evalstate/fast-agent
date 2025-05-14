@@ -1,0 +1,51 @@
+# Configuration file for Amazon Bedrock integration tests
+# This file configures the fast-agent client for testing with Bedrock
+
+# Default model to use when testing
+default_model: "bedrock.anthropic.claude-3-sonnet-20240229-v1:0"
+
+# Bedrock configuration
+bedrock:
+  # AWS region where Bedrock is available
+  # Based on our model testing, us-east-1 or us-west-2 have the most comprehensive model support
+  region: "us-east-1"
+  
+  # AWS credentials can be provided in multiple ways:
+  # 1. Through environment variables (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+  # 2. Through AWS credentials file (~/.aws/credentials)
+  # 3. Through IAM roles (when running on EC2 or ECS)
+  
+  # Option 1: Uncomment and set these values for direct API key authentication
+  # access_key_id: "YOUR_AWS_ACCESS_KEY_ID"
+  # secret_access_key: "YOUR_AWS_SECRET_ACCESS_KEY"
+  
+  # Option 2: Use AWS credential provider chain (environment variables, profiles, or IAM roles)
+  use_default_credentials: true
+  
+  # Optional: AWS profile name from ~/.aws/credentials
+  # profile: "default"
+  
+  # Optional: Custom endpoint URL (for VPC endpoints or testing)
+  # endpoint_url: "https://bedrock-runtime.us-east-1.amazonaws.com"
+  
+  # Optional: Default parameters for all Bedrock models
+  default_params:
+    temperature: 0.7
+    top_p: 0.9
+    
+  # Optional: Model-specific parameters
+  model_params:
+    # Claude-specific parameters
+    "anthropic.claude-3-sonnet-20240229-v1:0":
+      temperature: 0.7
+      top_p: 0.9
+      top_k: 50
+
+# Logger settings
+logger:
+  type: "file"
+  level: "info"
+  progress_display: true
+  path: "bedrock_test.jsonl"
+  show_chat: true
+  show_tools: true

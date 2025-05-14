@@ -43,6 +43,10 @@ openai = [
 azure = [
     "azure-identity>=1.14.0"
 ]
+# For Amazon Bedrock support, install with: pip install fast-agent-mcp[bedrock]
+bedrock = [
+    "boto3>=1.34.0"
+]
 dev = [
     "anthropic>=0.42.0",
     "pre-commit>=4.0.1",

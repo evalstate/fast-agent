@@ -17,6 +17,7 @@ PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "generic": "GENERIC_API_KEY",
+    "bedrock": "AWS_ACCESS_KEY_ID",
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 
@@ -27,6 +28,9 @@ class ProviderKeyManager:
     This class abstracts away the provider-specific key access logic,
     making the provider implementations more generic.
     """
+    
+    # AWS-specific environment variable for the secret access key
+    AWS_SECRET_KEY_ENV = "AWS_SECRET_ACCESS_KEY"
 
     @staticmethod
     def get_env_var(provider_name: str) -> str | None:
@@ -73,6 +77,20 @@ class ProviderKeyManager:
         if not api_key and provider_name == "generic":
             api_key = "ollama"  # Default for generic provider
 
+        # For Bedrock, handle the AWS credential chain logic differently
+        if not api_key and provider_name == "bedrock":
+            # For Bedrock, missing AWS_ACCESS_KEY_ID might be OK if using default credentials
+            # We'll check this later in the provider implementation
+            if isinstance(config, BaseModel):
+                config_dict = config.model_dump()
+            else:
+                config_dict = config
+                
+            bedrock_cfg = config_dict.get("bedrock", {})
+            if bedrock_cfg.get("use_default_credentials", False) or bedrock_cfg.get("profile"):
+                # We're using default credentials or a profile, so no explicit API key is needed
+                return ""
+            
         if not api_key:
             raise ProviderKeyError(
                 f"{provider_name.title()} API key not configured",
@@ -82,3 +100,31 @@ class ProviderKeyManager:
             )
 
         return api_key
+        
+    @staticmethod
+    def get_aws_secret_key(config: Any) -> str | None:
+        """
+        Gets the AWS secret access key from config or environment.
+        
+        Args:
+            config: The application configuration object
+            
+        Returns:
+            The secret key as a string, or None if not found
+        """
+        # Try to get from config first
+        secret_key = None
+        if isinstance(config, BaseModel):
+            config_dict = config.model_dump()
+        else:
+            config_dict = config
+            
+        bedrock_cfg = config_dict.get("bedrock", {})
+        if bedrock_cfg:
+            secret_key = bedrock_cfg.get("secret_access_key")
+            
+        # If not in config, try environment variable
+        if not secret_key:
+            secret_key = os.getenv(ProviderKeyManager.AWS_SECRET_KEY_ENV)
+            
+        return secret_key
