@@ -114,12 +114,21 @@ class MCPApp:
             self._logger = get_logger(f"mcp_agent.{self.name}")
         return self._logger
 
-    async def initialize(self) -> None:
-        """Initialize the application."""
+    async def initialize(self, user_id: Optional[str] = None) -> None:
+        """
+        Initialize the application.
+        
+        Args:
+            user_id: Optional user ID to fetch server configurations from database
+        """
         if self._initialized:
             return
-
-        self._context = await initialize_context(self._config_or_path)
+            
+        # Pass the user_id to initialize_context if provided
+        self._context = await initialize_context(
+            config=self._config_or_path, 
+            user_id=user_id
+        )
 
         # Set the properties that were passed in the constructor
         self._context.human_input_handler = self._human_input_callback
@@ -133,6 +142,7 @@ class MCPApp:
                 "progress_action": "Running",
                 "target": self.name or "mcp_application",
                 "agent_name": self.name or "fastagent loop",
+                "user_id": user_id,  # Include user_id in the log for traceability
             },
         )
 
@@ -159,16 +169,19 @@ class MCPApp:
         self._initialized = False
 
     @asynccontextmanager
-    async def run(self):
+    async def run(self, user_id: Optional[str] = None):
         """
         Run the application. Use as context manager.
 
+        Args:
+            user_id: Optional user ID to fetch server configurations from database
+
         Example:
-            async with app.run() as running_app:
-                # App is initialized here
+            async with app.run(user_id="user123") as running_app:
+                # App is initialized here with user-specific configurations
                 pass
         """
-        await self.initialize()
+        await self.initialize(user_id=user_id)
         try:
             yield self
         finally:

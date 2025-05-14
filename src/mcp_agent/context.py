@@ -147,10 +147,17 @@ async def configure_executor(config: "Settings"):
 
 
 async def initialize_context(
-    config: Optional[Union["Settings", str]] = None, store_globally: bool = False
+    config: Optional[Union["Settings", str]] = None, 
+    store_globally: bool = False,
+    user_id: Optional[str] = None
 ):
     """
     Initialize the global application context.
+    
+    Args:
+        config: Optional Settings object or path to config file
+        store_globally: Whether to store the context globally
+        user_id: Optional user ID to fetch server configurations from database
     """
     if config is None:
         config = get_settings()
@@ -159,7 +166,9 @@ async def initialize_context(
 
     context = Context()
     context.config = config
-    context.server_registry = ServerRegistry(config=config)
+    
+    # Use user_id if provided, otherwise use the config
+    context.server_registry = ServerRegistry(config=config, user_id=user_id)
 
     # Configure logging and telemetry
     await configure_otel(config)
