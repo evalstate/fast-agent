@@ -1,0 +1,43 @@
+# FastAgent Configuration File
+
+# DeepInfra Model Configuration:
+# 
+# Takes format:
+#   deepinfra.<model_string> (e.g. deepinfra.Qwen/Qwen3-30B-A3B or deepinfra.meta-llama/Llama-4-Scout-17B-16E-Instruct)
+# Accepts all models from https://deepinfra.com/models
+
+default_model: deepinfra.Qwen/Qwen3-14B
+
+# Logging and Console Configuration:
+logger:
+    # level: "debug" | "info" | "warning" | "error"
+    # type: "none" | "console" | "file" | "http"
+    # path: "/path/to/logfile.jsonl"
+
+    
+    # Switch the progress display on or off
+    progress_display: true
+
+    # Show chat User/Assistant messages on the console
+    show_chat: true
+    # Show tool calls on the console
+    show_tools: true
+    # Truncate long tool responses on the console 
+    truncate_tools: true
+
+# MCP Servers
+mcp:
+    servers:
+        fetch:
+            command: "uvx"
+            args: ["mcp-server-fetch"]
+        filesystem:
+            command: "npx"
+            args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+        webcam: 
+            command: "npx"
+            args: ["-y","@llmindset/mcp-webcam"]
+        hfspace:
+            command: "npx"
+            args: ["-y","@llmindset/mcp-hfspace"]
+
