@@ -3,7 +3,7 @@ from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.augmented_llm import RequestParams
 
 
-DEFAULT_DEEP_INFRA_MODEL = "Qwen/QwQ-32B"
+DEFAULT_DEEP_INFRA_MODEL = "deepseek-ai/DeepSeek-V3-0324"
 
 class DeepInfraAugmentedLLM(OpenAIAugmentedLLM):
 

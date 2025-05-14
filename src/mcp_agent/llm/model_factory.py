@@ -154,14 +154,9 @@ class ModelFactory:
                 f"TensorZero provider requires a function name after the provider "
                 f"(e.g., tensorzero.my-function), got: {model_string}"
             )
-        elif provider == Provider.DEEPINFRA and not model_parts:
-            raise ModelConfigError(
-                f"DeepInfra provider requires a model name after the provider "
-                f"(e.g., deepinfra.my-model), got: {model_string}"
-            )
         # Join remaining parts as model name
         model_name = ".".join(model_parts)
-        
+
         # If no provider was found in the string, look it up in defaults
         if provider is None:
             provider = cls.DEFAULT_PROVIDERS.get(model_name)
