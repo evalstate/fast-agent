@@ -171,6 +171,9 @@ examples/mcp_root_test/test_data/*.png
 #.idea/
 uv.lock
 
+# MacOS
+.DS_Store
+
 # File generated from promptify script (to create an LLM-friendly prompt for the repo)
 project_contents.md
 
