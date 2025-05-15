@@ -1,0 +1,54 @@
+# NOTE: Since version X.X, the Azure OpenAI integration in FastAgent reuses the OpenAI logic.
+# Authentication (API Key or DefaultAzureCredential) and connectivity are managed automatically.
+# You only need to configure the 'azure' section as indicated below; the system will select the appropriate method.
+#
+# Example configuration for Azure OpenAI in fast-agent
+#
+# There are three supported authentication/configuration modes for Azure OpenAI:
+#
+# 1. Using 'resource_name' and 'api_key' (recommended for most users)
+# 2. Using 'base_url' and 'api_key' (for custom endpoints or sovereign clouds)
+# 3. Using 'base_url' and DefaultAzureCredential (for managed identity, Azure CLI, etc.)
+#
+# Use ONLY one of the parameters: 'resource_name' or 'base_url'.
+# - If you define 'base_url', it will be used directly as the endpoint and 'resource_name' will be ignored.
+# - If you define 'resource_name' (and not 'base_url'), the endpoint will be constructed automatically.
+# - If both are missing, the configuration is invalid.
+#
+# Do not include both at the same time.
+
+# --- OPTION 1: Using resource_name and api_key (recommended for standard Azure) ---
+default_model: "azure.my-deployment"
+
+azure:
+  api_key: "YOUR_AZURE_OPENAI_API_KEY"
+  resource_name: "your-resource-name"
+  azure_deployment: "my-deployment"
+  api_version: "2023-05-15"
+  # Do not include base_url if you use resource_name
+
+# --- OPTION 2: Using base_url and api_key (for custom endpoints or sovereign clouds) ---
+# default_model: "azure.my-deployment"
+#
+# azure:
+#   api_key: "YOUR_AZURE_OPENAI_API_KEY"
+#   base_url: "https://your-resource-name.openai.azure.com/"
+#   azure_deployment: "my-deployment"
+#   api_version: "2023-05-15"
+#   # Do not include resource_name if you use base_url
+
+# --- OPTION 3: Using base_url and DefaultAzureCredential (for managed identity, Azure CLI, etc.) ---
+# Requires the 'azure-identity' package to be installed.
+# No api_key or resource_name should be present in this mode.
+# base_url is required and must be the full endpoint URL.
+#
+# default_model: "azure.my-deployment"
+#
+# azure:
+#   use_default_azure_credential: true
+#   base_url: "https://your-resource-name.openai.azure.com/"
+#   azure_deployment: "my-deployment"
+#   api_version: "2023-05-15"
+#   # Do not include api_key or resource_name in this mode
+
+# You can add other providers or settings as needed.

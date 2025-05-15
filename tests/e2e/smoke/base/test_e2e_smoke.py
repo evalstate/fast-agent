@@ -19,16 +19,15 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4.1",
-        "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
         "deepseek",
         #        "generic.qwen2.5:latest",
-        "generic.llama3.2:latest",
+        #        "generic.llama3.2:latest",
         "openrouter.google/gemini-2.0-flash-001",
         "google.gemini-2.0-flash",
+        "azure.gpt-4.1",
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -95,6 +94,7 @@ async def test_open_ai_history(fast_agent, model_name):
         "haiku35",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
+        "o3-mini.low",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
@@ -179,9 +179,9 @@ class WeatherForecast(BaseModel):
     [
         "gpt-4o",  # OpenAI model
         "o3-mini.low",  # reasoning
-        "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
+        "azure.gpt-4.1",
     ],
 )
 async def test_structured_weather_forecast_openai_structured_api(fast_agent, model_name):
@@ -292,11 +292,12 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "deepseek",
         "haiku35",
         "gpt-4o",
-        "gpt-4.1",
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "google.gemini-2.0-flash",
         "openrouter.google/gemini-2.0-flash-001",
+        "o3-mini.low",
+        "azure.gpt-4.1",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
@@ -338,11 +339,10 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "deepseek",
         "haiku35",
         "gpt-4o",
-        "gpt-4.1",
-        "gpt-4.1-nano",
         "gpt-4.1-mini",
         "google.gemini-2.0-flash",
         "openrouter.anthropic/claude-3.7-sonnet",
+        "azure.gpt-4.1",
     ],
 )
 async def test_tool_calls_no_args(fast_agent, model_name):

@@ -5,7 +5,8 @@ from rich.panel import Panel
 from rich.text import Text
 
 from mcp_agent import console
-from mcp_agent.mcp.mcp_aggregator import SEP
+from mcp_agent.mcp.common import SEP
+from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 
 # Constants
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
@@ -93,6 +94,32 @@ class ConsoleDisplay:
             if len(str(tool_args)) > 360:
                 panel.height = 8
 
+        console.console.print(panel, markup=self._markup)
+        console.console.print("\n")
+
+    async def show_tool_update(self, aggregator: MCPAggregator | None, updated_server: str) -> None:
+        """Show a tool update for a server"""
+        if not self.config or not self.config.logger.show_tools:
+            return
+
+        display_server_list = Text()
+
+        if aggregator:
+            for server_name in await aggregator.list_servers():
+                style = "green" if updated_server == server_name else "dim white"
+                display_server_list.append(f"[{server_name}] ", style)
+
+        panel = Panel(
+            f"[dim green]Updating tools for server {updated_server}[/]",
+            title="[TOOL UPDATE]",
+            title_align="left",
+            style="green",
+            border_style="bold white",
+            padding=(1, 2),
+            subtitle=display_server_list,
+            subtitle_align="left",
+        )
+        console.console.print("\n")
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
