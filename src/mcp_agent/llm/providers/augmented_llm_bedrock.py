@@ -402,80 +402,188 @@ class BedrockAugmentedLLM(AugmentedLLM[Dict[str, Any], Dict[str, Any]]):
     ) -> Dict[str, Any]:
         """
         Prepare the request for Amazon Nova models on Bedrock.
-        """
-        # For Nova models, we need to extract input text from messages
-        # Typically, Nova expects a format like:
-        # {"inputText": "user message", "textGenerationConfig": {...}}
         
-        # Get the last user message
-        user_messages = [msg for msg in messages if msg.get("role") == "user"]
-        if not user_messages:
-            self.logger.warning("No user messages found for Nova request")
-            input_text = ""
+        This method supports two formats:
+        1. The newer Converse API format for Nova Pro, supporting structured messages
+        2. The original InvokeModel format with inputText for older Nova models
+        
+        Nova Pro (us.amazon.nova-pro-v1:0) can use the Converse API with structured messages
+        similar to Claude models.
+        """
+        # Check if this is Nova Pro model which supports the Converse API
+        model = request_params.model
+        is_nova_pro = "nova-pro" in model.lower()
+        
+        if is_nova_pro:
+            # For Nova Pro, use a format similar to Claude with structured messages
+            self.logger.debug(f"Using Converse API format for Nova Pro model: {model}")
+            
+            # Create base request similar to Claude format
+            bedrock_request = {
+                "messages": messages,
+                "max_tokens": request_params.maxTokens or 8192,  # Nova Pro supports up to 8192 tokens
+            }
+            
+            # Add basic parameters
+            if hasattr(request_params, "temperature") and request_params.temperature is not None:
+                bedrock_request["temperature"] = request_params.temperature
+                
+            if hasattr(request_params, "top_p") and request_params.top_p is not None:
+                bedrock_request["top_p"] = request_params.top_p
+                
+            if hasattr(request_params, "top_k") and request_params.top_k is not None:
+                bedrock_request["top_k"] = request_params.top_k
+                
+            # Add stop sequences if provided
+            if hasattr(request_params, "stopSequences") and request_params.stopSequences:
+                bedrock_request["stop_sequences"] = request_params.stopSequences
+            
+            # Add additional parameters from request_params
+            additional_params = self.prepare_provider_arguments(
+                base_args={},
+                request_params=request_params,
+                exclude_fields=self.BEDROCK_EXCLUDE_FIELDS,
+            )
+            
+            # Add additional params to the request
+            for key, value in additional_params.items():
+                if value is not None and key not in bedrock_request:
+                    bedrock_request[key] = value
+            
+            # Add model-specific parameters
+            for key, value in model_specific_params.items():
+                if value is not None and key not in bedrock_request:
+                    bedrock_request[key] = value
+            
+            # Add tool calling if available
+            if available_tools and request_params.parallel_tool_calls:
+                tools = []
+                for tool in available_tools:
+                    if isinstance(tool, Dict) and "function" in tool:
+                        tool_def = tool["function"]
+                        tools.append({
+                            "name": tool_def.get("name", ""),
+                            "description": tool_def.get("description", ""),
+                            "input_schema": tool_def.get("parameters", {})
+                        })
+                
+                if tools:
+                    bedrock_request["tools"] = tools
+                    
+                    # Enable tool use
+                    bedrock_request["tool_choice"] = "auto"
+            
+            # Log the request for debugging (with sensitive data redacted)
+            debug_request = bedrock_request.copy()
+            if "messages" in debug_request:
+                debug_request["messages"] = f"[{len(debug_request['messages'])} messages]"
+            self.logger.debug(f"Nova Pro request prepared: {debug_request}")
+            
+            return bedrock_request
+        
         else:
-            # Use the last user message
-            last_user_msg = user_messages[-1]
-            # Get text from message - Nova expects plain text
-            if "text" in last_user_msg:
-                input_text = last_user_msg["text"]
+            # For older Nova models, use the traditional InvokeModel format
+            self.logger.debug(f"Using InvokeModel API format for Nova model: {model}")
+            
+            # Get the last user message
+            user_messages = [msg for msg in messages if msg.get("role") == "user"]
+            if not user_messages:
+                self.logger.warning("No user messages found for Nova request")
+                input_text = ""
             else:
-                # Try to extract text from content
-                text_parts = []
-                if "content" in last_user_msg and isinstance(last_user_msg["content"], list):
-                    for item in last_user_msg["content"]:
+                # Use the last user message
+                last_user_msg = user_messages[-1]
+                # Get text from message - Nova expects plain text
+                if "text" in last_user_msg:
+                    input_text = last_user_msg["text"]
+                else:
+                    # Try to extract text from content
+                    text_parts = []
+                    if "content" in last_user_msg and isinstance(last_user_msg["content"], list):
+                        for item in last_user_msg["content"]:
+                            if isinstance(item, dict) and "text" in item:
+                                text_parts.append(item["text"])
+                    input_text = "\n".join(text_parts)
+            
+            # Combine with system message if available
+            system_messages = [msg for msg in messages if msg.get("role") == "system"]
+            if system_messages:
+                system_msg = system_messages[0]
+                system_text = ""
+                
+                if "text" in system_msg:
+                    system_text = system_msg["text"]
+                elif "content" in system_msg and isinstance(system_msg["content"], list):
+                    text_parts = []
+                    for item in system_msg["content"]:
                         if isinstance(item, dict) and "text" in item:
                             text_parts.append(item["text"])
-                input_text = "\n".join(text_parts)
-        
-        # Combine with any assistant message history if needed
-        assistant_messages = [msg for msg in messages if msg.get("role") == "assistant"]
-        if assistant_messages and "text" in assistant_messages[-1]:
-            # Some Nova models support chat history in a special format
-            conversation_history = []
-            for i, msg in enumerate(messages):
-                if "text" in msg:
-                    role = "user" if i % 2 == 0 else "assistant"
-                    conversation_history.append(f"{role}: {msg['text']}")
+                    system_text = "\n".join(text_parts)
+                
+                if system_text:
+                    input_text = f"<<SYS>>\n{system_text}\n<</SYS>>\n\n{input_text}"
             
-            # Add the current user message
-            conversation_history.append(f"user: {input_text}")
-            # Set the combined history as input
-            input_text = "\n".join(conversation_history)
-        
-        # Create the base request for Nova
-        bedrock_request = {
-            "inputText": input_text,
-            "textGenerationConfig": {
-                "maxTokenCount": request_params.maxTokens or 2048,
-                "temperature": request_params.temperature or 0.7,
-                "topP": request_params.top_p or 0.9,
+            # Combine with any assistant message history if needed
+            assistant_messages = [msg for msg in messages if msg.get("role") == "assistant"]
+            if assistant_messages and "text" in assistant_messages[-1]:
+                # Some Nova models support chat history in a special format
+                conversation_history = []
+                for i, msg in enumerate(messages):
+                    if msg.get("role") == "system":
+                        continue  # Handled separately
+                        
+                    role = msg.get("role", "")
+                    content = ""
+                    
+                    if "text" in msg:
+                        content = msg["text"]
+                    elif "content" in msg and isinstance(msg["content"], list):
+                        text_parts = []
+                        for item in msg["content"]:
+                            if isinstance(item, dict) and "text" in item:
+                                text_parts.append(item["text"])
+                        content = "\n".join(text_parts)
+                        
+                    if role and content:
+                        conversation_history.append(f"{role}: {content}")
+                
+                # Set the combined history as input
+                input_text = "\n".join(conversation_history)
+            
+            # Create the base request for Nova with traditional format
+            bedrock_request = {
+                "inputText": input_text,
+                "textGenerationConfig": {
+                    "maxTokenCount": request_params.maxTokens or 2048,
+                    "temperature": request_params.temperature or 0.7,
+                    "topP": request_params.top_p or 0.9,
+                }
             }
-        }
-        
-        # Add additional parameters from request_params
-        additional_params = self.prepare_provider_arguments(
-            base_args={},
-            request_params=request_params,
-            exclude_fields=self.BEDROCK_EXCLUDE_FIELDS,
-        )
-        
-        # Add any additional params to textGenerationConfig
-        for key, value in additional_params.items():
-            if value is not None and key not in bedrock_request["textGenerationConfig"]:
-                bedrock_request["textGenerationConfig"][key] = value
-        
-        # Add model-specific parameters
-        for key, value in model_specific_params.items():
-            if value is not None:
-                if key in ["stopSequences", "stop"]:
-                    bedrock_request["textGenerationConfig"]["stopSequences"] = value
-                elif key not in bedrock_request["textGenerationConfig"]:
+            
+            # Add additional parameters from request_params
+            additional_params = self.prepare_provider_arguments(
+                base_args={},
+                request_params=request_params,
+                exclude_fields=self.BEDROCK_EXCLUDE_FIELDS,
+            )
+            
+            # Add any additional params to textGenerationConfig
+            for key, value in additional_params.items():
+                if value is not None and key not in bedrock_request["textGenerationConfig"]:
                     bedrock_request["textGenerationConfig"][key] = value
-        
-        # Log the request for debugging
-        self.logger.debug(f"Nova request prepared: {bedrock_request}")
-        
-        return bedrock_request
+            
+            # Add model-specific parameters
+            for key, value in model_specific_params.items():
+                if value is not None:
+                    if key in ["stopSequences", "stop"]:
+                        bedrock_request["textGenerationConfig"]["stopSequences"] = value
+                    elif key not in bedrock_request["textGenerationConfig"]:
+                        bedrock_request["textGenerationConfig"][key] = value
+            
+            # Log the request for debugging
+            self.logger.debug(f"Nova request prepared: {bedrock_request}")
+            
+            return bedrock_request
     
     def _prepare_meta_request(
         self,
@@ -768,13 +876,86 @@ class BedrockAugmentedLLM(AugmentedLLM[Dict[str, Any], Dict[str, Any]]):
                         continue
                 
                 elif model_family == ModelFamily.NOVA:
-                    # Handle Nova response format
-                    if "results" in response_json and len(response_json["results"]) > 0:
-                        # Nova returns a list of results with output text
+                    # Check if this is Nova Pro model (supports Converse API with structured responses)
+                    is_nova_pro = "nova-pro" in model_id.lower()
+                    
+                    if is_nova_pro and "content" in response_json:
+                        # Handle Nova Pro response similar to Claude format
+                        text_content = []
+                        
+                        # Extract text from response - should be similar to Claude format
+                        for content_item in response_json.get("content", []):
+                            if content_item.get("type") == "text":
+                                text_content.append(content_item.get("text", ""))
+                        
+                        # Join text content
+                        text = "\n".join(text_content)
+                        responses.append(TextContent(type="text", text=text))
+                        
+                        # Log response parsing approach
+                        self.logger.debug(f"Parsed Nova Pro response using Converse API format")
+                        
+                        # Check for tool calls in the response (if Nova Pro supports tools)
+                        if "tool_use" in response_json:
+                            # Handle tool use response - similar to Claude
+                            tool_calls = response_json["tool_use"]
+                            tool_use_id = tool_calls.get("id")
+                            tool_name = tool_calls.get("name")
+                            tool_input = tool_calls.get("input", {})
+                            
+                            # Show the tool call
+                            self.show_tool_call(
+                                available_tools, tool_name, json.dumps(tool_input)
+                            )
+                            
+                            # Create the tool request
+                            tool_call_request = CallToolRequest(
+                                method="tools/call",
+                                params=CallToolRequestParams(
+                                    name=tool_name,
+                                    arguments=tool_input,
+                                ),
+                            )
+                            
+                            # Call the tool
+                            result = await self.call_tool(tool_call_request, tool_use_id)
+                            self.show_tool_result(result)
+                            
+                            # Convert the tool result to a Bedrock tool result block
+                            tool_result = BedrockConverter.convert_tool_result_to_bedrock(
+                                result, tool_use_id, model_family
+                            )
+                            
+                            # Add the tool result to the messages
+                            bedrock_messages.append({
+                                "role": "user",
+                                "content": [tool_result]
+                            })
+                            
+                            # Continue to the next iteration
+                            continue
+                    
+                    elif "results" in response_json and len(response_json["results"]) > 0:
+                        # Handle traditional Nova response format (InvokeModel API)
                         result = response_json["results"][0]
                         if "outputText" in result:
                             text = result["outputText"]
                             responses.append(TextContent(type="text", text=text))
+                            
+                            # Log response parsing approach
+                            self.logger.debug(f"Parsed Nova response using InvokeModel API format")
+                    
+                    else:
+                        # Fallback: attempt to find text content in other response fields
+                        self.logger.warning(f"Unexpected Nova response format: {response_json.keys()}")
+                        
+                        # Try to extract text from various possible fields
+                        for key in ["output", "text", "message", "response", "generated_text"]:
+                            if key in response_json:
+                                text = response_json[key]
+                                if isinstance(text, str):
+                                    responses.append(TextContent(type="text", text=text))
+                                    break
                 
                 elif model_family == ModelFamily.META:
                     # Handle Meta Llama response format

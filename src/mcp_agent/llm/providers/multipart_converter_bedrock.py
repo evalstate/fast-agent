@@ -162,6 +162,10 @@ class BedrockConverter:
         """
         Convert message to Amazon Nova format for Bedrock.
         
+        This method handles two formats:
+        1. Structured message format for Nova Pro (similar to Claude)
+        2. Simple text format for other Nova models
+        
         Args:
             multipart_msg: The message to convert
             
@@ -169,10 +173,46 @@ class BedrockConverter:
             Message in Nova format
         """
         role = multipart_msg.role
+        
+        # For Nova Pro models, we use a format similar to Claude with proper roles
+        # This works with the Converse API format
+        if role in ["user", "assistant", "system"]:
+            # Extract text and other content 
+            content_items = []
+            
+            if multipart_msg.content:
+                for item in multipart_msg.content:
+                    if is_text_content(item):
+                        text = get_text(item)
+                        content_items.append({"type": "text", "text": text})
+                    elif is_image_content(item):
+                        # Handle image content (if Nova Pro supports it)
+                        image_data = get_image_data(item)
+                        mime_type = getattr(item, "mimeType", "image/jpeg")
+                        content_items.append({
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": mime_type,
+                                "data": image_data
+                            }
+                        })
+                    elif is_resource_content(item):
+                        # For resources, extract text when possible
+                        text = get_text(item)
+                        if text:
+                            content_items.append({"type": "text", "text": text})
+            
+            # Use structured format like Claude models
+            return {
+                "role": role,
+                "content": content_items if content_items else [{"type": "text", "text": ""}]
+            }
+        
+        # Fallback to simple text format for backward compatibility with older Nova models
+        # This is used with the InvokeModel API
         text_content = []
         
-        # For Nova, we combine all text content into a single string
-        # based on the role type
         if multipart_msg.content:
             for content_item in multipart_msg.content:
                 if is_text_content(content_item):
@@ -186,18 +226,7 @@ class BedrockConverter:
         
         text = "\n".join(text_content)
         
-        # Amazon Nova uses a different format with "inputText" for user messages
-        # and no role distinction in their basic format
-        if role == "user":
-            return {"text": text}
-        elif role == "assistant":
-            return {"text": text}
-        elif role == "system":
-            # For Nova, system prompts are prepended to the user message
-            # with a special format
-            return {"text": f"<<SYS>>\n{text}\n<</SYS>>"}
-            
-        # Default case
+        # Return text format for older Nova models or unknown roles
         return {"text": text}
     
     @staticmethod
