@@ -25,16 +25,15 @@ import asyncio
 from typing import List, Optional
 
 from mcp_agent.agents.agent import Agent
-from mcp_agent.config import FastAgentConfig
+from mcp_agent.config import get_settings
 from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.core.prompt import PromptData
-from mcp_agent.mcp.prompt_message_multipart import Role
+from mcp_agent.mcp.prompt_message_multipart import Role, PromptMessageMultipart
 
 
 async def main() -> None:
     """Run a simple agent using Amazon Bedrock Claude model."""
     # Initialize FastAgent with configuration (will use fastagent.config.yaml in this directory)
-    fast = FastAgent(FastAgentConfig.from_default_locations())
+    fast = FastAgent(get_settings())
     
     # Define the agent decorator - we'll use Claude on Bedrock
     # You can use the full model name or create an alias in your configuration
@@ -50,17 +49,17 @@ async def main() -> None:
         # Add context if provided
         if context:
             messages.append(
-                PromptData(
-                    role=Role.SYSTEM,
-                    content="\n\n".join(context)
+                PromptMessageMultipart(
+                    role="system", 
+                    content=["\n\n".join(context)]
                 )
             )
         
         # Add user prompt
         messages.append(
-            PromptData(
-                role=Role.USER,
-                content=prompt
+            PromptMessageMultipart(
+                role="user",
+                content=[prompt]
             )
         )
         
