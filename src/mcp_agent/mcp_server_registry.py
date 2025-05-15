@@ -62,17 +62,30 @@ class ServerRegistry:
         init_hooks (Dict[str, InitHookCallable]): Registered initialization hooks.
     """
 
-    def __init__(self, config: Settings | None = None, config_path: str | None = None) -> None:
+    def __init__(
+        self, 
+        config: Settings | None = None, 
+        config_path: str | None = None,
+        user_id: str | None = None
+    ) -> None:
         """
-        Initialize the ServerRegistry with a configuration file.
+        Initialize the ServerRegistry with configuration.
 
         Args:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
+            user_id (str): User ID to load configurations from database.
         """
-        self.registry = (
-            self.load_registry_from_file(config_path) if config is None else config.mcp.servers
-        )
+        if user_id is not None:
+            # If user_id is provided, load from database
+            self.registry = self.load_registry_from_db(user_id)
+        elif config is not None:
+            # If config object is provided, use it
+            self.registry = config.mcp.servers
+        else:
+            # Otherwise load from file
+            self.registry = self.load_registry_from_file(config_path)
+        
         self.init_hooks: Dict[str, InitHookCallable] = {}
         self.connection_manager = MCPConnectionManager(self)
 
@@ -90,6 +103,38 @@ class ServerRegistry:
         """
 
         servers = get_settings(config_path).mcp.servers or {}
+        return servers
+        
+    def load_registry_from_db(
+        self, user_id: str
+    ) -> Dict[str, MCPServerSettings]:
+        """
+        Load server configurations from the database for a specific user.
+
+        Args:
+            user_id (str): The ID of the user to load configurations for.
+
+        Returns:
+            Dict[str, MCPServerSettings]: A dictionary of server configurations.
+
+        Raises:
+            ValueError: If the configuration cannot be loaded or is invalid.
+        """
+        # This is where you'd implement the database query logic
+        # For example, using an ORM or a database client to fetch the configuration
+        # associated with the given user_id
+        
+        # Example implementation (to be replaced with actual DB query):
+        logger.info(f"Loading server configurations from database for user: {user_id}")
+        
+        # TODO: Replace with actual database query logic
+        # Example: server_configs = fetch_from_database(user_id)
+        
+        # Convert database results to MCPServerSettings dictionary
+        # This is a placeholder - you'll need to implement the actual conversion logic
+        servers = {}
+        
+        # Return the loaded configurations
         return servers
 
     @asynccontextmanager
