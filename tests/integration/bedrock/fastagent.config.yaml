@@ -1,0 +1,49 @@
+# Integration test configuration for Bedrock provider
+
+# Default model for Bedrock tests
+default_model: "bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0"
+
+# Config for Bedrock provider
+bedrock:
+  # AWS region for Bedrock
+  region: "us-east-1"
+  
+  # Use default credentials chain
+  # When running in CI, this will use environment variables
+  # When running locally, this will use ~/.aws/credentials
+  use_default_credentials: true
+  
+  # Alternative: Use API keys
+  # Uncomment and populate these values to use direct API keys
+  # access_key_id: ""
+  # secret_access_key: ""
+  
+  # Alternative: Use a named profile
+  # Uncomment and specify profile name to use a specific AWS profile
+  # profile: "bedrock-profile"
+  
+  # Default parameters for all models
+  default_params:
+    temperature: 0.7
+    max_tokens: 1000
+  
+  # Model-specific parameters
+  model_params:
+    # Claude models
+    "anthropic.claude-3-5-sonnet-20241022-v2:0":
+      temperature: 0.5
+      max_tokens: 2000
+    
+    # Nova models
+    "amazon.titan-text-express-v1:0":
+      temperature: 0.8
+      top_p: 0.9
+    
+    # Meta models
+    "meta.llama3-8b-instruct-v1:0":
+      temperature: 0.7
+      top_p: 0.95
+
+# Log level
+logging:
+  level: "DEBUG"
