@@ -5,12 +5,19 @@ Multimodal Amazon Bedrock Agent Example
 
 This example demonstrates using Amazon Bedrock with multimodal content (images)
 in FastAgent. The example shows how to send images to Claude models through Bedrock
-for analysis and description.
+for analysis and description, and how to maintain context in follow-up questions.
 
 Before running:
-1. Ensure you have AWS credentials configured
-2. Make sure you have access to the Amazon Bedrock models in your AWS account
-3. Place some image files in the 'images' directory or update the paths in the code
+1. Ensure you have AWS credentials configured with Bedrock access
+2. Make sure you have access to the Claude 3.5 Sonnet model in your AWS account
+3. Check your AWS Bedrock quota limits for multimodal requests
+4. Place image files in the 'images' directory (new_york.jpg is included)
+
+Known issues:
+- AWS Bedrock may throttle multiple multimodal requests - the script includes
+  a 10-second delay between requests to mitigate this issue
+- If you encounter throttling errors, you may need to increase the delay or
+  request higher quota limits in your AWS account
 
 To run this example:
 ```
@@ -19,79 +26,162 @@ python -m examples.bedrock.multimodal_agent
 """
 
 import asyncio
+import base64
 import os
+import mimetypes
+import time
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional, Union
 
-from mcp_agent.agents.agent import Agent
-from mcp_agent.config import FastAgentConfig
-from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.core.prompt import PromptData
-from mcp_agent.mcp.helpers.content_helpers import content_from_file
-from mcp_agent.mcp.prompt_message_multipart import Role
+from mcp_agent import FastAgent
+from mcp.types import ImageContent
+from mcp_agent.core.prompt import Prompt
+
+
+def read_image_to_base64(image_path: str) -> tuple[str, str]:
+    """
+    Read an image file and convert it to base64 encoding.
+    
+    Args:
+        image_path: Path to the image file
+        
+    Returns:
+        Tuple of (base64_data, mime_type)
+    """
+    # Guess mime type
+    mime_type, _ = mimetypes.guess_type(image_path)
+    if not mime_type:
+        # Default to JPEG if we can't determine the type
+        mime_type = "image/jpeg"
+    
+    # Read the file as binary and encode as base64
+    with open(image_path, "rb") as f:
+        image_data = f.read()
+        base64_data = base64.b64encode(image_data).decode("utf-8")
+    
+    return base64_data, mime_type
+
+
+def create_image_content_from_file(image_path: str) -> ImageContent:
+    """
+    Create an ImageContent object from an image file.
+    
+    Args:
+        image_path: Path to the image file
+        
+    Returns:
+        ImageContent object ready to send to the model
+    """
+    # Read the image and get base64 data and mime type
+    base64_data, mime_type = read_image_to_base64(image_path)
+    
+    # Create and return the ImageContent object
+    return ImageContent(
+        type="image",
+        data=base64_data,
+        mimeType=mime_type
+    )
 
 
 async def main() -> None:
     """Run a multimodal agent using Amazon Bedrock Claude model."""
+    # Initialize timer for measuring performance
+    start_time = time.time()
+    
     # Initialize FastAgent with configuration
-    fast = FastAgent(FastAgentConfig.from_default_locations())
+    print("Initializing FastAgent with AWS Bedrock configuration...")
+    fast = FastAgent("Bedrock Multimodal Demo", config_path="examples/bedrock/fastagent.config.yaml")
     
     # Create images directory if it doesn't exist
     images_dir = Path(__file__).parent / "images"
     os.makedirs(images_dir, exist_ok=True)
     
-    # Place to add your own image paths
-    # For this example, we'll check if images exist and provide a message if not
-    example_image_path = images_dir / "example.jpg"
+    # Use the new_york.jpg image that's been added
+    image_path = images_dir / "new_york.jpg"
     
-    if not example_image_path.exists():
-        print(f"No image found at {example_image_path}")
-        print(f"Please add images to the {images_dir} directory before running this example.")
-        return
+    # Check if the image exists
+    if not image_path.exists():
+        print(f"Image not found at {image_path}")
+        # Fall back to example.jpg if new_york.jpg doesn't exist
+        image_path = images_dir / "example.jpg"
+        if not image_path.exists():
+            print(f"No fallback image found at {image_path}")
+            print(f"Please add images to the {images_dir} directory before running this example.")
+            return
     
-    @fast.agent(model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0")
-    async def multimodal_agent(
-        prompt: str,
-        image_path: Optional[str] = None,
-        temperature: float = 0.7
-    ) -> str:
-        """Create a multimodal agent that can process images and text."""
-        messages = []
-        
-        # Add system message
-        messages.append(
-            PromptData(
-                role=Role.SYSTEM,
-                content="You are a helpful AI assistant that can analyze images and text. "
-                        "Provide clear, detailed descriptions of what you see in images."
-            )
-        )
-        
-        # Create user message with text and optional image
-        user_content = prompt
-        user_message = PromptData(role=Role.USER, content=user_content)
-        
-        # Add image content if provided
-        if image_path and os.path.exists(image_path):
-            image_content = content_from_file(image_path)
-            user_message.content = [user_content, image_content]
-        
-        messages.append(user_message)
-        
-        # Run the agent with temperature param
-        request_params = {"temperature": temperature}
-        return await Agent.async_run(messages, request_params=request_params)
+    print(f"Using image: {image_path}")
+    print(f"Initialization time: {time.time() - start_time:.2f} seconds")
     
-    # Run the agent with image
-    response = await multimodal_agent(
-        prompt="What do you see in this image? Provide a detailed description.",
-        image_path=str(example_image_path),
-        temperature=0.7
+    # Create an agent with Claude model that supports vision
+    @fast.agent(
+        "multimodal_agent",
+        "You are a helpful AI assistant that can analyze images and text. "
+        "Provide clear, detailed descriptions of what you see in images.",
+        model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0"
     )
+    async def bedrock_multimodal():
+        """Placeholder function for the agent decorator."""
+        pass
     
-    # Print the response
-    print("\nMultimodal Agent Response:\n")
-    print(response)
+    # Run the agent
+    try:
+        async with fast.run() as agent:
+            # First request - initial image analysis
+            request_start = time.time()
+            print("Sending image to Bedrock Claude model...")
+            prompt = Prompt.user(
+                "What do you see in this image? What city is shown? Provide a detailed description.",
+                image_path  # Pass the Path object directly - Prompt.user will handle it
+            )
+            
+            # Send the prompt to the agent
+            try:
+                print("Request sent, waiting for response...")
+                response = await agent.multimodal_agent.send(prompt)
+                print(f"Response received in {time.time() - request_start:.2f} seconds")
+                
+                # Print the response
+                print("\nMultimodal Agent Response:\n")
+                print("-" * 50)
+                print(response)
+                print("-" * 50)
+
+                # Optional: Try a follow-up question about the same image
+                print("\nWaiting 10 seconds before sending follow-up question...")
+                await asyncio.sleep(10)  # Increased delay to better avoid throttling
+                
+                print("Sending follow-up question...")
+                follow_up_start = time.time()
+                # Include the image again in the follow-up question to maintain context
+                follow_up_prompt = Prompt.user(
+                    "What are some famous landmarks or attractions visible in this image?",
+                    image_path  # Include the image again
+                )
+                
+                try:
+                    print("Follow-up request sent, waiting for response...")
+                    follow_up = await agent.multimodal_agent.send(follow_up_prompt)
+                    print(f"Follow-up received in {time.time() - follow_up_start:.2f} seconds")
+                    
+                    print("\nFollow-up Response:\n")
+                    print("-" * 50)
+                    print(follow_up)
+                    print("-" * 50)
+                except Exception as e:
+                    print(f"\nError during follow-up: {e}")
+                    print("This may be due to AWS Bedrock throttling.")
+                    print("Consider:")
+                    print("  - Increasing the delay between requests further")
+                    print("  - Checking your AWS Bedrock quotas in the AWS Console")
+                    print("  - Requesting a quota increase for Claude models if necessary")
+                
+            except Exception as e:
+                print(f"Error sending image to Claude: {e}")
+                print("Check your AWS credentials and Bedrock model access permissions.")
+                return
+    except Exception as e:
+        print(f"Error initializing agent: {e}")
+        return
 
 
 if __name__ == "__main__":

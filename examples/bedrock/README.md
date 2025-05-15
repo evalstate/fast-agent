@@ -89,9 +89,9 @@ providers:
 
 ## Examples
 
-### 1. Simple Bedrock Agent
+### 1. Basic Bedrock Agent
 
-The `simple_agent.py` script demonstrates basic usage of Bedrock models with FastAgent:
+The `basic_agent.py` script demonstrates basic usage of Bedrock models with FastAgent:
 
 ```python
 import asyncio
@@ -99,17 +99,27 @@ from mcp_agent import FastAgent
 
 async def main():
     # Initialize FastAgent with configuration
-    fast = FastAgent(config_file="examples/bedrock/fastagent.config.yaml")
+    fast = FastAgent("Bedrock Basic Demo", config_path="examples/bedrock/fastagent.config.yaml")
     
-    # Create an agent with Bedrock provider
+    # Define a Bedrock agent using the decorator pattern
+    @fast.agent(
+        "bedrock_agent",
+        "You are a helpful assistant that provides concise responses.",
+        model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+    )
+    async def run_bedrock_agent():
+        # This function is just a placeholder for the decorator
+        pass
+    
+    # Run the agent
     async with fast.run() as agent:
-        # Chat with the agent
-        response = await agent.chat("Tell me about Amazon Bedrock in 3 sentences.")
-        print(response.content)
+        # Send a message to the agent
+        response = await agent.bedrock_agent.send("Tell me about Amazon Bedrock in 3 sentences.")
+        print(response)
         
         # Follow-up question
-        response = await agent.chat("Which model am I currently using?")
-        print(response.content)
+        response = await agent.bedrock_agent.send("Which model am I currently using?")
+        print(response)
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -117,7 +127,7 @@ if __name__ == "__main__":
 
 Run the example with:
 ```bash
-python -m examples.bedrock.simple_agent
+python -m examples.bedrock.basic_agent
 ```
 
 ### 2. Multimodal Bedrock Agent
@@ -126,26 +136,49 @@ The `multimodal_agent.py` script shows how to use Bedrock Claude models with ima
 
 ```python
 import asyncio
-import pathlib
+import base64
+import mimetypes
+from pathlib import Path
 from mcp_agent import FastAgent
-from mcp_agent.mcp.mime_utils import create_image_content
+from mcp_agent.core.prompt import Prompt
 
 async def main():
     # Initialize FastAgent with configuration
-    fast = FastAgent(config_file="examples/bedrock/fastagent.config.yaml")
+    fast = FastAgent("Bedrock Multimodal Demo", config_path="examples/bedrock/fastagent.config.yaml")
     
     # Load an image file
-    image_path = pathlib.Path("examples/bedrock/images/sample.jpg")
-    image_content = create_image_content(image_path)
+    image_path = Path("examples/bedrock/images/new_york.jpg")
     
-    # Create a multimodal agent
+    # Create an agent with Claude model that supports vision
+    @fast.agent(
+        "multimodal_agent",
+        "You are a helpful AI assistant that can analyze images and text.",
+        model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+    )
+    async def bedrock_multimodal():
+        # This function is just a placeholder for the decorator
+        pass
+    
+    # Run the agent
     async with fast.run() as agent:
-        # Send a message with both text and image
-        response = await agent.chat(
-            "What's in this image? Describe it in detail.", 
-            attachments=[image_content]
+        # Create a prompt with both text and image using the Prompt.user helper
+        prompt = Prompt.user(
+            "What do you see in this image? What city is shown?",
+            image_path  # Pass the Path object directly - Prompt.user will handle it
         )
-        print(response.content)
+        
+        # Send the prompt to the agent
+        response = await agent.multimodal_agent.send(prompt)
+        print(response)
+        
+        # Follow-up question (including the image again for context)
+        await asyncio.sleep(10)  # Delay to avoid throttling
+        follow_up_prompt = Prompt.user(
+            "What famous landmarks can you identify?",
+            image_path
+        )
+        follow_up = await agent.multimodal_agent.send(follow_up_prompt)
+        print(follow_up)
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -163,67 +196,125 @@ The `function_calling.py` script demonstrates using tool/function calling with C
 ```python
 import asyncio
 import json
+from typing import Dict, Any
 from mcp_agent import FastAgent
-from mcp_agent.mcp.prompt_message_multipart import MPTool
+from mcp.types import Tool
 
-# Define tools/functions available to the model
-WEATHER_TOOL = MPTool(
-    name="get_weather",
-    description="Get the current weather for a city",
-    parameters={
-        "type": "object",
-        "properties": {
-            "city": {
-                "type": "string",
-                "description": "The city name"
-            },
-            "unit": {
-                "type": "string",
-                "enum": ["celsius", "fahrenheit"],
-                "description": "Temperature unit"
-            }
-        },
-        "required": ["city"]
-    }
-)
+# Define handler functions for tools
+def get_weather(location: str, unit: str = "celsius") -> Dict[str, Any]:
+    """
+    Get the current weather for a location.
+    
+    Args:
+        location: The name of the city or location
+        unit: Temperature unit (celsius or fahrenheit)
+        
+    Returns:
+        Weather data dictionary
+    """
+    # This would normally call a weather API
+    # Here we're returning mock data for demonstration
+    if unit == "fahrenheit":
+        return {
+            "location": location,
+            "temperature": 72,
+            "unit": "°F",
+            "condition": "Partly Cloudy",
+            "humidity": 65,
+            "wind_speed": 8,
+            "wind_direction": "NW"
+        }
+    else:
+        return {
+            "location": location,
+            "temperature": 22,
+            "unit": "°C",
+            "condition": "Partly Cloudy", 
+            "humidity": 65,
+            "wind_speed": 13,
+            "wind_direction": "NW"
+        }
 
 async def main():
     # Initialize FastAgent with configuration
-    fast = FastAgent(config_file="examples/bedrock/fastagent.config.yaml")
+    fast = FastAgent("Function Calling Demo", config_path="examples/bedrock/fastagent.config.yaml")
     
-    # Create an agent with tool support
+    # Create tools that will be available to the model
+    weather_tool = Tool(
+        name="get_weather",
+        description="Get the current weather for a location",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "The name of the city or location"
+                },
+                "unit": {
+                    "type": "string",
+                    "enum": ["celsius", "fahrenheit"],
+                    "description": "Temperature unit"
+                }
+            },
+            "required": ["location"]
+        }
+    )
+    
+    # Map tool names to handler functions
+    tool_handlers = {
+        "get_weather": get_weather
+    }
+    
+    # Create an agent with Claude model that supports tool calling
+    @fast.agent(
+        "tool_calling_agent",
+        "You are a helpful assistant that can use tools to provide accurate information.",
+        model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        tools=[weather_tool]
+    )
+    async def tool_calling_agent():
+        # This function is just a placeholder for the decorator
+        pass
+    
+    # Run the agent
     async with fast.run() as agent:
-        # Enable tool calling and register tools
-        agent.tools = [WEATHER_TOOL]
+        print("Sending message that should trigger tool use...")
+        response = await agent.tool_calling_agent.send("What's the weather in Seattle?")
         
-        # Ask a question that should trigger tool use
-        response = await agent.chat("What's the weather like in Seattle right now?")
-        
-        # Handle tool calls
-        if response.tool_calls:
-            print(f"Tool called: {response.tool_calls[0].name}")
-            print(f"Arguments: {json.dumps(response.tool_calls[0].arguments, indent=2)}")
+        # Check if the model has requested to use a tool
+        if hasattr(response, "tool_calls") and response.tool_calls:
+            tool_call = response.tool_calls[0]
+            print(f"\nTool called: {tool_call.name}")
+            print(f"Arguments: {json.dumps(tool_call.arguments, indent=2)}")
             
-            # In a real implementation, you would call the actual service
-            # Here we just mock a response
-            tool_response = {
-                "temperature": 65,
-                "condition": "Partly Cloudy",
-                "humidity": 72
-            }
-            
-            # Send the tool response back to the model
-            final_response = await agent.chat(
-                "",  # Empty message for tool response
-                tool_results=[{
-                    "tool_call_id": response.tool_calls[0].id,
-                    "name": response.tool_calls[0].name,
-                    "results": tool_response
-                }]
-            )
-            
-            print("\nFinal response:")
-            print(final_response.content)
+            # Get the appropriate handler function for this tool
+            if tool_call.name in tool_handlers:
+                handler = tool_handlers[tool_call.name]
+                
+                # Call the handler with the arguments
+                try:
+                    result = handler(**tool_call.arguments)
+                    print(f"\nTool result: {json.dumps(result, indent=2)}")
+                    
+                    # Send the tool result back to the model
+                    final_response = await agent.tool_calling_agent.send(
+                        "",  # Empty message for tool response
+                        tool_results=[{
+                            "tool_call_id": tool_call.id,
+                            "name": tool_call.name,
+                            "result": result
+                        }]
+                    )
+                    
+                    print("\nFinal response:")
+                    print(final_response)
+                    
+                except Exception as e:
+                    print(f"Error executing tool: {e}")
+            else:
+                print(f"No handler found for tool: {tool_call.name}")
+        else:
+            print("Model did not request to use a tool.")
 
 if __name__ == "__main__":
     asyncio.run(main())
@@ -232,6 +323,58 @@ if __name__ == "__main__":
 Run the example with:
 ```bash
 python -m examples.bedrock.function_calling
+```
+
+### 4. Model Format Tester
+
+The `model_format_tester.py` script helps you determine which message formats work with different model families in your specific AWS region:
+
+```python
+import asyncio
+import json
+import boto3
+import argparse
+
+async def main():
+    parser = argparse.ArgumentParser(description='Test AWS Bedrock model formats')
+    parser.add_argument('--region', type=str, default='us-east-1')
+    parser.add_argument('--verbose', action='store_true')
+    args = parser.parse_args()
+    
+    # Test different model formats
+    await test_claude_format(args.region, args.verbose)
+    await test_nova_format(args.region, args.verbose)
+    await test_llama_prompt_format(args.region, args.verbose)
+    await test_llama_messages_format(args.region, args.verbose)
+```
+
+Run the format tester with:
+```bash
+python -m examples.bedrock.model_format_tester --region us-east-1 --verbose
+```
+
+This will test:
+- Claude models with the Converse API + anthropic_version
+- Nova models with the minimal messages format
+- Meta Llama models with both prompt format and messages format
+
+The script will show which formats work in your region, helping you configure FastAgent correctly.
+
+### 5. AWS Bedrock Model Test Suite
+
+The test scripts for different model families:
+
+- `test_amazon_nova.py`: Tests Amazon Nova models (Pro, Lite)
+- `test_anthropic_claude.py`: Tests Anthropic Claude models (3.5, 3.7)
+- `test_meta_llama.py`: Tests Meta Llama models (3 70B)
+
+These scripts test both direct API access and FastAgent integration for each model family, helping to validate your setup.
+
+Run the test scripts with:
+```bash
+python -m examples.bedrock.test_amazon_nova
+python -m examples.bedrock.test_anthropic_claude
+python -m examples.bedrock.test_meta_llama
 ```
 
 ## Configuration Files
@@ -417,6 +560,23 @@ Claude 3 models on Bedrock support several advanced features:
    - Define tools using the `MPTool` class
    - Handle tool responses in your application logic
 
+3. **Message Format**
+   - Claude models use the `messages` format with `anthropic_version` parameter:
+   ```json
+   {
+     "anthropic_version": "bedrock-2023-05-31",
+     "max_tokens": 1024,
+     "messages": [
+       {
+         "role": "user",
+         "content": [
+           {"type": "text", "text": "Your message here"}
+         ]
+       }
+     ]
+   }
+   ```
+
 ### Amazon Nova Models
 
 Nova models provide Amazon's optimized foundation models:
@@ -426,10 +586,41 @@ Nova models provide Amazon's optimized foundation models:
    - Nova Lite: Balanced performance and cost
    - Nova Micro: Light-weight, cost-effective option
 
-2. **Parameter Adjustment**
-   - `temperature`: 0.0-1.0 (default: 0.7)
-   - `top_p`: 0.0-1.0 (default: 0.9)
-   - `top_k`: 1-500 (default: 250)
+2. **Strict Message Format Requirements**
+   - All Nova models (Pro, Lite, Micro, Premier) use the Converse API
+   - They require a very specific format with NO additional parameters:
+   ```json
+   {
+     "messages": [
+       {
+         "role": "user",
+         "content": [{"text": "Your message here"}]
+       }
+     ]
+   }
+   ```
+   - **⚠️ CRITICAL**: Each message MUST have both 'role' and 'content' keys
+   - **⚠️ CRITICAL**: The 'content' field MUST be a list containing objects with 'text' keys
+   - **⚠️ WARNING**: Adding ANY parameters like temperature, top_p, max_tokens will cause ValidationException errors
+
+3. **Response Format**
+   - Response includes an `output` field with the message content:
+   ```json
+   {
+     "output": {"message": {"content": [{"text": "Response text"}], "role": "assistant"}},
+     "usage": {"inputTokens": 10, "outputTokens": 50, "totalTokens": 60}
+   }
+   ```
+   
+4. **Configuration in FastAgent**
+   - For Nova models, use an empty parameter block in fastagent.config.yaml:
+   ```yaml
+   model_params:
+     "us.amazon.nova-pro-v1:0": {}
+     "us.amazon.nova-lite-v1:0": {}
+     "us.amazon.nova-micro-v1:0": {}
+     "us.amazon.nova-premier-v1:0": {}
+   ```
 
 ### Meta Llama Models
 
@@ -442,6 +633,42 @@ Meta's Llama 3 and 4 models offer specialized capabilities:
 2. **Specialized Versions**
    - Llama 4 Maverick: Optimized for creative tasks
    - Llama 4 Scout: Optimized for analytical tasks
+
+3. **Format Variations by Region**
+   - Some regions use traditional **prompt format**:
+   ```json
+   {
+     "prompt": "<s>[INST] Your system message [/INST]\n\nYour user message</s>",
+     "max_gen_len": 1024,
+     "temperature": 0.7
+   }
+   ```
+   
+   - Other regions use Converse API with **messages format**:
+   ```json
+   {
+     "messages": [
+       {
+         "role": "system",
+         "content": "Your system message"
+       },
+       {
+         "role": "user",
+         "content": "Your user message"
+       }
+     ]
+   }
+   ```
+   
+   - **⚠️ WARNING**: Some parameters like `top_p` can cause `'RequestParams' object has no attribute 'top_p'` errors. The safest approach is to use minimal parameters.
+   - Test which format works in your region using the `model_format_tester.py` example
+
+4. **Configuration in FastAgent**
+   - For Meta Llama models, use an empty parameter block in fastagent.config.yaml to avoid errors:
+   ```yaml
+   model_params:
+     "us.meta.llama3-1-70b-instruct-v1:0": {}
+   ```
 
 ## Best Practices
 
@@ -522,5 +749,68 @@ botocore.exceptions.ClientError: An error occurred (ValidationException) when ca
 - Reduce the size of your input (especially for images)
 - Split large requests into multiple smaller requests
 - Check model-specific input size limitations
+
+### Model-Specific Format Errors
+
+For Nova Pro and other Nova models:
+
+```
+An error occurred (ValidationException) when calling the InvokeModel operation: Malformed input request: #/messages/0: required key [role] not found, please reformat your input and try again.
+```
+```
+An error occurred (ValidationException) when calling the InvokeModel operation: Malformed input request: #/messages/0: required key [content] not found, please reformat your input and try again.
+```
+```
+An error occurred (ValidationException) when calling the InvokeModel operation: Malformed input request: #/messages/0: extraneous key [text] is not permitted, please reformat your input and try again.
+```
+
+**Solutions**:
+- Make sure your messages format follows the exact structure required:
+  ```json
+  {"messages": [{"role": "user", "content": [{"text": "Your message"}]}]}
+  ```
+- **CRITICAL**: Each message MUST have both 'role' and 'content' keys
+- **CRITICAL**: The 'content' field MUST be a list containing objects with 'text' keys
+- Remove ALL additional parameters like temperature, top_p, etc.
+- If using a system prompt, include it properly with "role": "system"
+- In FastAgent config, use empty parameter blocks for all Nova models:
+  ```yaml
+  model_params:
+    "us.amazon.nova-pro-v1:0": {}
+    "us.amazon.nova-lite-v1:0": {}
+  ```
+
+For Meta Llama models:
+
+```
+An error occurred (ValidationException) when calling the InvokeModel operation: Malformed input request: #: required key [prompt] not found#: extraneous key [messages] is not permitted, please reformat your input and try again.
+```
+```
+'RequestParams' object has no attribute 'top_p'
+```
+
+**Solutions**:
+- Check which API format your region uses (prompt vs messages)
+- If error mentions "required key [prompt]", use the traditional format:
+  ```json
+  {"prompt": "<s>[INST]...[/INST]</s>", "max_gen_len": 1024, "temperature": 0.7}
+  ```
+- **IMPORTANT**: Use minimal parameters to avoid attribute errors, especially avoid 'top_p' and 'top_k'
+- In FastAgent config, use empty parameter blocks for all Meta models:
+  ```yaml
+  model_params:
+    "us.meta.llama3-1-70b-instruct-v1:0": {}
+  ```
+- Reference the examples in this repository for properly formatted requests
+
+### Error Recovery Strategies
+
+For cases where model API formats change or region-specific differences occur:
+
+1. **Start with minimal requests**: Remove all optional parameters first
+2. **Test with direct AWS SDK**: Use boto3 directly to test the format before integration
+3. **Check region-specific requirements**: Models may have different formats in different regions
+4. **Implement fallback mechanisms**: Your code should gracefully handle format errors and try alternatives
+5. **Monitor AWS announcements**: The Bedrock API evolves, so stay updated on changes
 
 For more help, see [AWS Bedrock documentation](https://docs.aws.amazon.com/bedrock/) or reach out to AWS Support.
