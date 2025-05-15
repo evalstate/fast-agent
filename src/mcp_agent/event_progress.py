@@ -19,6 +19,7 @@ class ProgressAction(str, Enum):
     PLANNING = "Planning"
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
+    UPDATED = "Updated"
     FINISHED = "Finished"
     SHUTDOWN = "Shutdown"
     AGGREGATOR_INITIALIZED = "Running"

@@ -1,6 +1,5 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.2.24"
 description = "QueenBee and WorkerBee for CommandHive.xyz"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -26,18 +25,23 @@ dependencies = [
     "typer>=0.15.1",
     "anthropic>=0.49.0",
     "openai>=1.63.2",
+    "azure-identity>=1.14.0",
     "prompt-toolkit>=3.0.50",
     "aiohttp>=3.11.13",
     "a2a-types>=0.1.0",
-    "opentelemetry-instrumentation-openai>=0.39.3",
-    "opentelemetry-instrumentation-anthropic>=0.39.3",
+    "opentelemetry-instrumentation-openai>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
     "tensorzero>=2025.4.7",
-    "opentelemetry-instrumentation-mcp>=0.40.3",
+    "opentelemetry-instrumentation-mcp>=0.40.3; python_version >= '3.10' and python_version < '4.0'",
 ]
 
 [project.optional-dependencies]
 openai = [
     "openai>=1.58.1",
+]
+# For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
+azure = [
+    "azure-identity>=1.14.0"
 ]
 dev = [
     "anthropic>=0.42.0",
@@ -57,6 +61,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_agent"]
+
+[[tool.poetry.packages]]
+include = "mcp_agent"
+from = "src"
 
 [tool.hatch.build]
 include = [

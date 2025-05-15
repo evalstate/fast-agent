@@ -10,6 +10,7 @@ from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_azure import AzureOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google import GoogleAugmentedLLM
@@ -113,6 +114,7 @@ class ModelFactory:
         Provider.GOOGLE: GoogleAugmentedLLM,  # type: ignore
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
+        Provider.AZURE: AzureOpenAIAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes
