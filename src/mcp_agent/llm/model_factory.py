@@ -94,18 +94,47 @@ class ModelFactory:
         "deepseek-chat": Provider.DEEPSEEK,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
         
-        # Bedrock models
-        "anthropic.claude-3-haiku-20240307": Provider.BEDROCK,
-        "anthropic.claude-3-5-sonnet-20240620-v1:0": Provider.BEDROCK,
-        "anthropic.claude-3-5-sonnet-20241022-v2:0": Provider.BEDROCK,
-        "anthropic.claude-3-7-sonnet-20250219-v1:0": Provider.BEDROCK,
-        "anthropic.claude-3-opus-20240229": Provider.BEDROCK,
-        "amazon.titan-text-express-v1": Provider.BEDROCK,
-        "amazon.titan-text-lite-v1": Provider.BEDROCK,
-        "amazon.titan-text-premier-v1": Provider.BEDROCK,
-        "meta.llama3-8b-instruct-v1:0": Provider.BEDROCK,
-        "meta.llama3-70b-instruct-v1:0": Provider.BEDROCK,
-        "meta.llama3-405b-instruct-v1:0": Provider.BEDROCK,
+        # Bedrock models - Anthropic Claude (US region)
+        "us.anthropic.claude-3-haiku-20240307-v1:0": Provider.BEDROCK,
+        "us.anthropic.claude-3-5-haiku-20241022-v1:0": Provider.BEDROCK,
+        "us.anthropic.claude-3-5-sonnet-20240620-v1:0": Provider.BEDROCK,
+        "us.anthropic.claude-3-5-sonnet-20241022-v2:0": Provider.BEDROCK,
+        "us.anthropic.claude-3-7-sonnet-20250219-v1:0": Provider.BEDROCK,
+        "us.anthropic.claude-3-opus-20240229-v1:0": Provider.BEDROCK,
+        "us.anthropic.claude-3-sonnet-20240229-v1:0": Provider.BEDROCK,
+        
+        # Bedrock models - Anthropic Claude (EU region)
+        "eu.anthropic.claude-3-haiku-20240307-v1:0": Provider.BEDROCK,
+        "eu.anthropic.claude-3-5-sonnet-20240620-v1:0": Provider.BEDROCK,
+        "eu.anthropic.claude-3-7-sonnet-20250219-v1:0": Provider.BEDROCK,
+        "eu.anthropic.claude-3-sonnet-20240229-v1:0": Provider.BEDROCK,
+        
+        # Amazon Nova models (US region)
+        "us.amazon.nova-lite-v1:0": Provider.BEDROCK,
+        "us.amazon.nova-micro-v1:0": Provider.BEDROCK,
+        "us.amazon.nova-premier-v1:0": Provider.BEDROCK,
+        "us.amazon.nova-pro-v1:0": Provider.BEDROCK,
+        
+        # Amazon Nova models (EU region)
+        "eu.amazon.nova-lite-v1:0": Provider.BEDROCK,
+        "eu.amazon.nova-micro-v1:0": Provider.BEDROCK,
+        "eu.amazon.nova-pro-v1:0": Provider.BEDROCK,
+        
+        # Meta Llama models (US region)
+        "us.meta.llama3-1-8b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-1-70b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-1-405b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-2-1b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-2-3b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-2-11b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-2-90b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama3-3-70b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama4-maverick-17b-instruct-v1:0": Provider.BEDROCK,
+        "us.meta.llama4-scout-17b-instruct-v1:0": Provider.BEDROCK,
+        
+        # Meta Llama models (EU region)
+        "eu.meta.llama3-2-1b-instruct-v1:0": Provider.BEDROCK,
+        "eu.meta.llama3-2-3b-instruct-v1:0": Provider.BEDROCK,
     }
 
     MODEL_ALIASES = {
@@ -121,19 +150,51 @@ class ModelFactory:
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
         
-        # Bedrock model aliases
-        "bedrock.haiku": "anthropic.claude-3-haiku-20240307",
-        "bedrock.sonnet": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        "bedrock.sonnet-latest": "anthropic.claude-3-5-sonnet-20241022-v2:0",
-        "bedrock.sonnet-previous": "anthropic.claude-3-5-sonnet-20240620-v1:0",
-        "bedrock.sonnet37": "anthropic.claude-3-7-sonnet-20250219-v1:0",
-        "bedrock.opus": "anthropic.claude-3-opus-20240229",
-        "bedrock.titan-express": "amazon.titan-text-express-v1",
-        "bedrock.titan-lite": "amazon.titan-text-lite-v1",
-        "bedrock.titan-premier": "amazon.titan-text-premier-v1",
-        "bedrock.llama3-8b": "meta.llama3-8b-instruct-v1:0",
-        "bedrock.llama3-70b": "meta.llama3-70b-instruct-v1:0",
-        "bedrock.llama3-405b": "meta.llama3-405b-instruct-v1:0",
+        # Bedrock model aliases - Anthropic Claude
+        "bedrock.haiku": "us.anthropic.claude-3-haiku-20240307-v1:0",
+        "bedrock.haiku35": "us.anthropic.claude-3-5-haiku-20241022-v1:0",
+        "bedrock.sonnet3": "us.anthropic.claude-3-sonnet-20240229-v1:0",
+        "bedrock.sonnet35": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "bedrock.sonnet": "us.anthropic.claude-3-5-sonnet-20241022-v2:0", # Latest Sonnet
+        "bedrock.sonnet-latest": "us.anthropic.claude-3-5-sonnet-20241022-v2:0",
+        "bedrock.sonnet-previous": "us.anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "bedrock.sonnet37": "us.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        "bedrock.opus": "us.anthropic.claude-3-opus-20240229-v1:0",
+        
+        # EU Region models
+        "bedrock.eu.haiku": "eu.anthropic.claude-3-haiku-20240307-v1:0",
+        "bedrock.eu.sonnet3": "eu.anthropic.claude-3-sonnet-20240229-v1:0",
+        "bedrock.eu.sonnet35": "eu.anthropic.claude-3-5-sonnet-20240620-v1:0",
+        "bedrock.eu.sonnet37": "eu.anthropic.claude-3-7-sonnet-20250219-v1:0",
+        
+        # Amazon Nova models (US region)
+        "bedrock.nova-lite": "us.amazon.nova-lite-v1:0",
+        "bedrock.nova-micro": "us.amazon.nova-micro-v1:0",
+        "bedrock.nova-premier": "us.amazon.nova-premier-v1:0",
+        "bedrock.nova-pro": "us.amazon.nova-pro-v1:0",
+        
+        # Amazon Nova models (EU region)
+        "bedrock.eu.nova-lite": "eu.amazon.nova-lite-v1:0",
+        "bedrock.eu.nova-micro": "eu.amazon.nova-micro-v1:0",
+        "bedrock.eu.nova-pro": "eu.amazon.nova-pro-v1:0",
+        
+        # Meta Llama 3 models (US region)
+        "bedrock.llama3-8b": "us.meta.llama3-1-8b-instruct-v1:0",
+        "bedrock.llama3-70b": "us.meta.llama3-1-70b-instruct-v1:0",
+        "bedrock.llama3-405b": "us.meta.llama3-1-405b-instruct-v1:0",
+        "bedrock.llama3.2-1b": "us.meta.llama3-2-1b-instruct-v1:0",
+        "bedrock.llama3.2-3b": "us.meta.llama3-2-3b-instruct-v1:0",
+        "bedrock.llama3.2-11b": "us.meta.llama3-2-11b-instruct-v1:0",
+        "bedrock.llama3.2-90b": "us.meta.llama3-2-90b-instruct-v1:0",
+        "bedrock.llama3.3-70b": "us.meta.llama3-3-70b-instruct-v1:0",
+        
+        # Meta Llama 4 models (US region)
+        "bedrock.llama4-maverick": "us.meta.llama4-maverick-17b-instruct-v1:0",
+        "bedrock.llama4-scout": "us.meta.llama4-scout-17b-instruct-v1:0",
+        
+        # Meta Llama models (EU region)
+        "bedrock.eu.llama3.2-1b": "eu.meta.llama3-2-1b-instruct-v1:0",
+        "bedrock.eu.llama3.2-3b": "eu.meta.llama3-2-3b-instruct-v1:0",
     }
 
     # Mapping of providers to their LLM classes

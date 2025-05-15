@@ -10,7 +10,7 @@
 # Choose the option that best fits your environment and security requirements.
 
 # Default model (can be referred to by its alias for convenience)
-default_model: "bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0"
+default_model: "bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 # Bedrock configuration
 bedrock:
@@ -42,32 +42,47 @@ bedrock:
   # Optional: Model-specific parameters
   model_params:
     # Claude-specific parameters
-    "anthropic.claude-3-5-sonnet-20241022-v2:0":
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0":
       temperature: 0.7
       top_p: 0.9
       top_k: 50
       max_tokens: 4096
     
-    "anthropic.claude-3-7-sonnet-20250219-v1:0":
+    "us.anthropic.claude-3-7-sonnet-20250219-v1:0":
       temperature: 0.6
       top_p: 0.9
       top_k: 50
       max_tokens: 8192
       
-    "anthropic.claude-3-5-sonnet-20240620-v1:0":
+    "us.anthropic.claude-3-5-sonnet-20240620-v1:0":
       temperature: 0.7
       top_p: 0.9
       top_k: 50
       max_tokens: 4096
     
-    # Amazon Titan parameters
-    "amazon.titan-text-express-v1":
+    # Amazon Nova parameters
+    "us.amazon.nova-lite-v1:0":
+      temperature: 0.7
+      top_p: 0.9
+      maxTokenCount: 2048
+      
+    "us.amazon.nova-micro-v1:0":
+      temperature: 0.7
+      top_p: 0.9
+      maxTokenCount: 4096
+      
+    "us.amazon.nova-pro-v1:0":
+      temperature: 0.7
+      top_p: 0.9
+      maxTokenCount: 8192
+      
+    "us.amazon.nova-premier-v1:0":
       temperature: 0.8
       top_p: 0.9
-      max_tokens: 2048
+      maxTokenCount: 16384
     
     # Meta Llama parameters
-    "meta.llama3-70b-instruct-v1:0":
+    "us.meta.llama3-1-70b-instruct-v1:0":
       temperature: 0.6
       top_p: 0.9
       max_tokens: 2048

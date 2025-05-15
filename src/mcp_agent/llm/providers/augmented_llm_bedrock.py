@@ -283,6 +283,14 @@ class BedrockAugmentedLLM(AugmentedLLM[Dict[str, Any], Dict[str, Any]]):
         """
         model = request_params.model
         
+        # Ensure model ID has proper prefix for Claude models
+        if ("claude" in model.lower() and not model.startswith("us.") and 
+            not model.startswith("eu.") and "anthropic" in model.lower()):
+            # Add the US prefix (default region)
+            self.logger.debug(f"Adding 'us.' prefix to Claude model ID: {model}")
+            model = f"us.{model}"
+            request_params.model = model
+        
         # Detect the model family
         model_family = BedrockConverter.detect_model_family(model)
         
@@ -563,8 +571,19 @@ class BedrockAugmentedLLM(AugmentedLLM[Dict[str, Any], Dict[str, Any]]):
         # Get request parameters with defaults
         request_params = self.get_request_params(request_params=request_params)
         
+        # Ensure model ID has proper prefix for Claude models
+        model = request_params.model or self.default_request_params.model
+        
+        # Check if this is a Claude model without a regional prefix
+        if ("claude" in model.lower() and not model.startswith("us.") and 
+            not model.startswith("eu.") and "anthropic" in model.lower()):
+            # Add the US prefix (default region)
+            self.logger.debug(f"Adding 'us.' prefix to Claude model ID: {model}")
+            model = f"us.{model}"
+            request_params.model = model
+        
         # Determine the model family
-        model_family = BedrockConverter.detect_model_family(request_params.model or self.default_request_params.model)
+        model_family = BedrockConverter.detect_model_family(model)
         
         # Convert multipart messages to Bedrock format based on model family
         bedrock_messages = []
@@ -647,6 +666,15 @@ class BedrockAugmentedLLM(AugmentedLLM[Dict[str, Any], Dict[str, Any]]):
                 
                 # Extract the model ID from the request parameters
                 model_id = request_params.model
+                
+                # Ensure model ID has proper prefix for Claude models
+                if ("claude" in model_id.lower() and not model_id.startswith("us.") and 
+                    not model_id.startswith("eu.") and "anthropic" in model_id.lower()):
+                    # Add the US prefix (default region)
+                    self.logger.debug(f"Adding 'us.' prefix to Claude model ID: {model_id}")
+                    model_id = f"us.{model_id}"
+                    # Update the request parameters for future use
+                    request_params.model = model_id
                 
                 # Bedrock requires the request body to be a JSON string
                 request_body = json.dumps(bedrock_request)

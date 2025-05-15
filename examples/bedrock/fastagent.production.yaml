@@ -9,12 +9,12 @@
 # 3. Regional failover for high availability
 
 # Default model (main production model)
-default_model: "bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0"
+default_model: "bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 
 # Additional models that can be accessed via fastagent.run(model="...")
 models:
-  fallback_model: "bedrock.anthropic.claude-3-5-sonnet-20240620-v1:0"
-  premium_model: "bedrock.anthropic.claude-3-7-sonnet-20250219-v1:0"
+  fallback_model: "bedrock.us.anthropic.claude-3-5-sonnet-20240620-v1:0"
+  premium_model: "bedrock.us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 
 # Bedrock configuration
 bedrock:
@@ -41,31 +41,46 @@ bedrock:
   # Model-specific parameters
   model_params:
     # Claude 3.5 Sonnet (latest) parameters
-    "anthropic.claude-3-5-sonnet-20241022-v2:0":
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0":
       temperature: 0.5  # Lower temperature for more consistent outputs
       top_p: 0.9
       top_k: 50
       max_tokens: 4096
       
     # Claude 3.7 Sonnet (premium) parameters
-    "anthropic.claude-3-7-sonnet-20250219-v1:0":
+    "us.anthropic.claude-3-7-sonnet-20250219-v1:0":
       temperature: 0.3  # Lowest temperature for premium tier
       top_p: 0.95
       top_k: 40
       max_tokens: 8192
       
     # Claude 3.5 Sonnet (fallback) parameters
-    "anthropic.claude-3-5-sonnet-20240620-v1:0":
+    "us.anthropic.claude-3-5-sonnet-20240620-v1:0":
       temperature: 0.5
       top_p: 0.9
       top_k: 50
       max_tokens: 4096
       
-    # Titan parameters (fallback model)
-    "amazon.titan-text-express-v1":
+    # Amazon Nova parameters
+    "us.amazon.nova-lite-v1:0":
+      temperature: 0.6
+      top_p: 0.9
+      maxTokenCount: 2048
+      
+    "us.amazon.nova-micro-v1:0":
+      temperature: 0.65
+      top_p: 0.9
+      maxTokenCount: 4096
+      
+    "us.amazon.nova-pro-v1:0":
       temperature: 0.7
       top_p: 0.9
-      max_tokens: 2048
+      maxTokenCount: 8192
+      
+    "us.amazon.nova-premier-v1:0":
+      temperature: 0.5
+      top_p: 0.95
+      maxTokenCount: 16384
 
 # Logger settings
 logger:

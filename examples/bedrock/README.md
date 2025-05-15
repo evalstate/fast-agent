@@ -5,7 +5,7 @@ This directory contains examples and configuration templates for using Amazon Be
 ## Prerequisites
 
 1. An AWS account with access to Amazon Bedrock
-2. Models enabled in your AWS account (Claude, Titan, Llama, etc.)
+2. Models enabled in your AWS account (Claude, Nova, Llama, etc.)
 3. FastAgent installed with Bedrock support:
    ```bash
    pip install fast-agent-mcp[bedrock]
@@ -59,37 +59,103 @@ A more advanced configuration optimized for production use cases:
 
 ## Available Bedrock Models
 
-FastAgent supports all available Bedrock models, including:
+FastAgent supports all available AWS Bedrock models, including:
 
-1. **Anthropic Claude Models**
-   - `anthropic.claude-3-haiku-20240307`
-   - `anthropic.claude-3-5-sonnet-20240620-v1:0`
-   - `anthropic.claude-3-5-sonnet-20241022-v2:0` (Latest)
-   - `anthropic.claude-3-7-sonnet-20250219-v1:0` (Premium)
-   - `anthropic.claude-3-opus-20240229`
+1. **Anthropic Claude Models (US Region)**
+   - `us.anthropic.claude-3-haiku-20240307-v1:0`
+   - `us.anthropic.claude-3-5-haiku-20241022-v1:0`
+   - `us.anthropic.claude-3-5-sonnet-20240620-v1:0`
+   - `us.anthropic.claude-3-5-sonnet-20241022-v2:0` (Latest Sonnet 3.5)
+   - `us.anthropic.claude-3-7-sonnet-20250219-v1:0` (Premium)
+   - `us.anthropic.claude-3-opus-20240229-v1:0`
+   - `us.anthropic.claude-3-sonnet-20240229-v1:0`
 
-2. **Amazon Titan Models**
-   - `amazon.titan-text-express-v1`
-   - `amazon.titan-text-lite-v1`
-   - `amazon.titan-text-premier-v1`
+   **Anthropic Claude Models (EU Region)**
+   - `eu.anthropic.claude-3-haiku-20240307-v1:0`
+   - `eu.anthropic.claude-3-5-sonnet-20240620-v1:0`
+   - `eu.anthropic.claude-3-7-sonnet-20250219-v1:0`
+   - `eu.anthropic.claude-3-sonnet-20240229-v1:0`
 
-3. **Meta Llama Models**
-   - `meta.llama3-8b-instruct-v1:0`
-   - `meta.llama3-70b-instruct-v1:0`
-   - `meta.llama3-405b-instruct-v1:0`
+2. **Amazon Nova Models (US Region)**
+   - `us.amazon.nova-lite-v1:0`
+   - `us.amazon.nova-micro-v1:0`
+   - `us.amazon.nova-premier-v1:0`
+   - `us.amazon.nova-pro-v1:0`
+
+   **Amazon Nova Models (EU Region)**
+   - `eu.amazon.nova-lite-v1:0`
+   - `eu.amazon.nova-micro-v1:0`
+   - `eu.amazon.nova-pro-v1:0`
+
+3. **Meta Llama 3 Models (US Region)**
+   - `us.meta.llama3-1-8b-instruct-v1:0`
+   - `us.meta.llama3-1-70b-instruct-v1:0`
+   - `us.meta.llama3-1-405b-instruct-v1:0`
+   - `us.meta.llama3-2-1b-instruct-v1:0`
+   - `us.meta.llama3-2-3b-instruct-v1:0`
+   - `us.meta.llama3-2-11b-instruct-v1:0`
+   - `us.meta.llama3-2-90b-instruct-v1:0`
+   - `us.meta.llama3-3-70b-instruct-v1:0`
+
+   **Meta Llama 3 Models (EU Region)**
+   - `eu.meta.llama3-2-1b-instruct-v1:0`
+   - `eu.meta.llama3-2-3b-instruct-v1:0`
+
+4. **Meta Llama 4 Models (US Region)**
+   - `us.meta.llama4-maverick-17b-instruct-v1:0`
+   - `us.meta.llama4-scout-17b-instruct-v1:0`
+
+## Important Note on Model IDs
+
+All Claude models on Bedrock require a region prefix in their model IDs:
+- `us.anthropic.claude-3-7-sonnet-20250219-v1:0` (US regions)
+- `eu.anthropic.claude-3-5-sonnet-20241022-v2:0` (EU regions, where available)
+
+If you encounter errors like:
+```
+Validation error: Invocation of model ID anthropic.claude-3-7-sonnet-20250219-v1:0 with on-demand throughput isn't supported
+```
+
+Make sure you're using the correct region prefix in your model ID.
 
 ## Convenient Aliases
 
 FastAgent provides aliases for common Bedrock models:
 
-- `bedrock.haiku` → `anthropic.claude-3-haiku-20240307`
-- `bedrock.sonnet` → `anthropic.claude-3-5-sonnet-20241022-v2:0` (Latest)
-- `bedrock.sonnet-latest` → `anthropic.claude-3-5-sonnet-20241022-v2:0`
-- `bedrock.sonnet-previous` → `anthropic.claude-3-5-sonnet-20240620-v1:0`
-- `bedrock.sonnet37` → `anthropic.claude-3-7-sonnet-20250219-v1:0` (Premium)
-- `bedrock.opus` → `anthropic.claude-3-opus-20240229`
-- `bedrock.titan-express` → `amazon.titan-text-express-v1`
-- `bedrock.llama3-70b` → `meta.llama3-70b-instruct-v1:0`
+### Anthropic Claude Models (US Region)
+- `bedrock.haiku` → `us.anthropic.claude-3-haiku-20240307-v1:0`
+- `bedrock.haiku35` → `us.anthropic.claude-3-5-haiku-20241022-v1:0`
+- `bedrock.sonnet3` → `us.anthropic.claude-3-sonnet-20240229-v1:0`
+- `bedrock.sonnet35` → `us.anthropic.claude-3-5-sonnet-20241022-v2:0`
+- `bedrock.sonnet` → `us.anthropic.claude-3-5-sonnet-20241022-v2:0` (Latest Sonnet)
+- `bedrock.sonnet-latest` → `us.anthropic.claude-3-5-sonnet-20241022-v2:0`
+- `bedrock.sonnet-previous` → `us.anthropic.claude-3-5-sonnet-20240620-v1:0`
+- `bedrock.sonnet37` → `us.anthropic.claude-3-7-sonnet-20250219-v1:0` (Premium)
+- `bedrock.opus` → `us.anthropic.claude-3-opus-20240229-v1:0`
+
+### Anthropic Claude Models (EU Region)
+- `bedrock.eu.haiku` → `eu.anthropic.claude-3-haiku-20240307-v1:0`
+- `bedrock.eu.sonnet3` → `eu.anthropic.claude-3-sonnet-20240229-v1:0`
+- `bedrock.eu.sonnet35` → `eu.anthropic.claude-3-5-sonnet-20240620-v1:0`
+- `bedrock.eu.sonnet37` → `eu.anthropic.claude-3-7-sonnet-20250219-v1:0`
+
+### Amazon Nova Models (US Region)
+- `bedrock.nova-lite` → `us.amazon.nova-lite-v1:0`
+- `bedrock.nova-micro` → `us.amazon.nova-micro-v1:0`
+- `bedrock.nova-premier` → `us.amazon.nova-premier-v1:0`
+- `bedrock.nova-pro` → `us.amazon.nova-pro-v1:0`
+
+### Amazon Nova Models (EU Region)
+- `bedrock.eu.nova-lite` → `eu.amazon.nova-lite-v1:0`
+- `bedrock.eu.nova-micro` → `eu.amazon.nova-micro-v1:0`
+- `bedrock.eu.nova-pro` → `eu.amazon.nova-pro-v1:0`
+
+### Meta Llama Models
+- `bedrock.llama3-8b` → `us.meta.llama3-1-8b-instruct-v1:0`
+- `bedrock.llama3-70b` → `us.meta.llama3-1-70b-instruct-v1:0`
+- `bedrock.llama3-405b` → `us.meta.llama3-1-405b-instruct-v1:0`
+- `bedrock.llama4-maverick` → `us.meta.llama4-maverick-17b-instruct-v1:0`
+- `bedrock.llama4-scout` → `us.meta.llama4-scout-17b-instruct-v1:0`
 
 ## AWS Region Considerations
 
@@ -110,8 +176,12 @@ Check [AWS documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/m
    - Make sure you've enabled the models in your AWS account
    - Some models require explicit model access requests in the AWS console
 
-3. **Configuration Issues**:
+3. **Model ID Format Errors**:
+   - Check that Claude models have the correct region prefix (e.g., `us.` or `eu.`)
+   - Example: `us.anthropic.claude-3-5-sonnet-20241022-v2:0`
+
+4. **Configuration Issues**:
    - When using `resource_name`, don't include `base_url` and vice versa
    - When using IAM roles, set `use_default_credentials: true`
 
-For more help, see [AWS Bedrock documentation](https://docs.aws.amazon.com/bedrock/).
+For more help, see [AWS Bedrock documentation](https://docs.aws.amazon.com/bedrock/)

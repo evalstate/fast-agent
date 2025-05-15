@@ -69,11 +69,17 @@ class BedrockConverter:
         Returns:
             The model family as a string
         """
-        if model_id.startswith(CLAUDE_MODEL_PREFIX) or "claude" in model_id.lower():
+        # Strip region prefix if present (us. or eu.)
+        if model_id.startswith("us.") or model_id.startswith("eu."):
+            model_id_no_prefix = model_id[3:]
+        else:
+            model_id_no_prefix = model_id
+            
+        if model_id_no_prefix.startswith(CLAUDE_MODEL_PREFIX) or "claude" in model_id_no_prefix.lower():
             return ModelFamily.CLAUDE
-        elif model_id.startswith(NOVA_MODEL_PREFIX) or "nova" in model_id.lower():
+        elif model_id_no_prefix.startswith(NOVA_MODEL_PREFIX) or "nova" in model_id_no_prefix.lower():
             return ModelFamily.NOVA
-        elif model_id.startswith(META_MODEL_PREFIX) or "llama" in model_id.lower():
+        elif model_id_no_prefix.startswith(META_MODEL_PREFIX) or "llama" in model_id_no_prefix.lower():
             return ModelFamily.META
         else:
             return ModelFamily.UNKNOWN

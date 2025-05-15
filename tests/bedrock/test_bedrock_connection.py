@@ -15,7 +15,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Test AWS Bedrock connection")
     parser.add_argument("--region", default="us-east-1", help="AWS region")
     parser.add_argument("--profile", help="AWS profile name")
-    parser.add_argument("--model", default="anthropic.claude-3-sonnet-20240229-v1:0", 
+    parser.add_argument("--model", default="us.anthropic.claude-3-5-sonnet-20241022-v2:0", 
                       help="Bedrock model ID to test")
     return parser.parse_args()
 

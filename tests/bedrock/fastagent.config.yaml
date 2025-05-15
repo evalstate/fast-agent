@@ -1,8 +1,8 @@
 # Configuration file for Amazon Bedrock integration tests
 # This file configures the fast-agent client for testing with Bedrock
 
-# Default model to use when testing
-default_model: "bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0"
+# Default model to use when testing (updated to latest version)
+default_model: "bedrock.us.anthropic.claude-3-7-sonnet-20250219-v1:0"
 
 # Bedrock configuration
 bedrock:
@@ -23,7 +23,7 @@ bedrock:
   use_default_credentials: true
   
   # Optional: AWS profile name from ~/.aws/credentials
-  # profile: "default"
+  # profile: "bedrock-profile"
   
   # Optional: Custom endpoint URL (for VPC endpoints or testing)
   # endpoint_url: "https://bedrock-runtime.us-east-1.amazonaws.com"
@@ -35,22 +35,55 @@ bedrock:
     
   # Optional: Model-specific parameters
   model_params:
-    # Claude-specific parameters
-    "anthropic.claude-3-5-sonnet-20241022-v2:0":
+    # Claude 3.7 Sonnet
+    "us.anthropic.claude-3-7-sonnet-20250219-v1:0":
       temperature: 0.7
+      max_tokens: 4000
       top_p: 0.9
-      top_k: 50
     
-    "anthropic.claude-3-7-sonnet-20250219-v1:0":
-      temperature: 0.6
+    # Claude 3.5 Sonnet (latest)
+    "us.anthropic.claude-3-5-sonnet-20241022-v2:0":
+      temperature: 0.7
+      max_tokens: 4000
       top_p: 0.9
-      top_k: 50
+    
+    # Claude 3.5 Sonnet (previous)
+    "us.anthropic.claude-3-5-sonnet-20240620-v1:0":
+      temperature: 0.7
+      max_tokens: 4000
+      top_p: 0.9
+    
+    # Claude 3 Haiku
+    "us.anthropic.claude-3-haiku-20240307-v1:0":
+      temperature: 0.7
+      max_tokens: 2000
+      top_p: 0.9
+
+    # Nova models (Amazon's own models)
+    "us.amazon.nova-lite-v1:0":
+      temperature: 0.7
+      maxTokenCount: 2048
+      
+    "us.amazon.nova-micro-v1:0":
+      temperature: 0.7
+      maxTokenCount: 4096
+      
+    "us.amazon.nova-pro-v1:0":
+      temperature: 0.7
+      maxTokenCount: 8192
+      
+    "us.amazon.nova-premier-v1:0":
+      temperature: 0.7
+      maxTokenCount: 16384
+    
+    # Meta models
+    "us.meta.llama3-1-8b-instruct-v1:0":
+      temperature: 0.7
+      max_gen_len: 2048
 
 # Logger settings
-logger:
-  type: "file"
-  level: "info"
+logging:
+  level: "DEBUG"
   progress_display: true
-  path: "bedrock_test.jsonl"
   show_chat: true
   show_tools: true

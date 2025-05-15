@@ -3,9 +3,9 @@
 **Goal**: Add support for Amazon Bedrock to the fast-agent client using the bedrock converse API so users can specify their preferred Bedrock language models.
 
 ## Progress Summary
-- [x] COMPLETED: 80%
+- [x] COMPLETED: 92%
 - [~] IN_PROGRESS: 0%
-- [ ] NOT_STARTED: 20%
+- [ ] NOT_STARTED: 8%
 
 ## Task Legend
 - [ ] NOT_STARTED
@@ -110,12 +110,12 @@
   - Description: Implement tests for message format conversion logic
 
 ### Integration Testing
-- [ ] **Task 5.3**: Create integration tests for Bedrock provider
+- [x] **Task 5.3**: Create integration tests for Bedrock provider
   - Estimated completion: Day 24
   - Dependencies: Task 5.2
   - Description: Implement end-to-end tests for Bedrock integration
 
-- [ ] **Task 5.4**: Test with real AWS credentials
+- [x] **Task 5.4**: Test with real AWS credentials
   - Estimated completion: Day 25
   - Dependencies: Task 5.3
   - Description: Verify functionality with actual Bedrock API calls
@@ -145,6 +145,11 @@
   - Dependencies: All previous tasks
   - Description: Review code, fix issues, and prepare for release
 
+- [ ] **Task 6.5**: Fix Nova and Meta model parameter handling in BedrockAugmentedLLM
+  - Estimated completion: Day 32
+  - Dependencies: Task 5.4
+  - Description: Update the BedrockAugmentedLLM implementation to properly handle the specific parameter requirements for Amazon Nova and Meta Llama models
+
 ## Risk Assessment and Mitigations
 
 ### Technical Risks
@@ -159,6 +164,7 @@
 3. **Model Differences**
    - Risk: Each foundation model on Bedrock has unique parameters and constraints
    - Mitigation: Implement flexible parameter handling and model-specific defaults
+   - Status: Partially implemented. Claude models work correctly, but Nova and Meta models need additional parameter handling
 
 ### Testing and Validation Risks
 1. **Cost of Testing**

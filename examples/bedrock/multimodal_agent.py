@@ -49,7 +49,7 @@ async def main() -> None:
         print(f"Please add images to the {images_dir} directory before running this example.")
         return
     
-    @fast.agent(model="bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0")
+    @fast.agent(model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0")
     async def multimodal_agent(
         prompt: str,
         image_path: Optional[str] = None,

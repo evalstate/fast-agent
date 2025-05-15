@@ -38,7 +38,7 @@ async def main() -> None:
     
     # Define the agent decorator - we'll use Claude on Bedrock
     # You can use the full model name or create an alias in your configuration
-    @fast.agent(model="bedrock.anthropic.claude-3-5-sonnet-20241022-v2:0")
+    @fast.agent(model="bedrock.us.anthropic.claude-3-5-sonnet-20241022-v2:0")
     async def bedrock_agent(
         prompt: str, 
         temperature: Optional[float] = None,
