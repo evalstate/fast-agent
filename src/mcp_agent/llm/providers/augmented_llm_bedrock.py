@@ -557,6 +557,7 @@ class BedrockAugmentedLLM(AugmentedLLM[Dict[str, Any], Dict[str, Any]]):
                     "maxTokenCount": request_params.maxTokens or 2048,
                     "temperature": request_params.temperature or 0.7,
                     "topP": request_params.top_p or 0.9,
+                    "topK": request_params.top_k or 50,
                 }
             }
             
