@@ -61,31 +61,17 @@ bedrock:
       max_tokens: 4096
     
     # Amazon Nova parameters
-    "us.amazon.nova-lite-v1:0":
-      temperature: 0.7
-      top_p: 0.9
-      maxTokenCount: 2048
-      
-    "us.amazon.nova-micro-v1:0":
-      temperature: 0.7
-      top_p: 0.9
-      maxTokenCount: 4096
-      
-    "us.amazon.nova-pro-v1:0":
-      temperature: 0.7
-      top_p: 0.9
-      maxTokenCount: 8192
-      
-    "us.amazon.nova-premier-v1:0":
-      temperature: 0.8
-      top_p: 0.9
-      maxTokenCount: 16384
+    # IMPORTANT: All Nova models require using ONLY the model identifier
+    # with NO additional parameters - empty configuration blocks required
+    "us.amazon.nova-lite-v1:0": {}
+    "us.amazon.nova-micro-v1:0": {}
+    "us.amazon.nova-pro-v1:0": {}
+    "us.amazon.nova-premier-v1:0": {}
     
     # Meta Llama parameters
-    "us.meta.llama3-1-70b-instruct-v1:0":
-      temperature: 0.6
-      top_p: 0.9
-      max_tokens: 2048
+    # IMPORTANT: Meta Llama models also require minimal configuration with no parameters
+    # to avoid "'RequestParams' object has no attribute 'top_p'" errors
+    "us.meta.llama3-1-70b-instruct-v1:0": {}
 
 # Logger settings
 logger:
