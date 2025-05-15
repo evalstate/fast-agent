@@ -30,21 +30,17 @@ async def test_direct_nova_pro_api():
         # Nova Pro model ID
         model_id = "us.amazon.nova-pro-v1:0"
         
-        # Test both API approaches: InvokeModel and Converse
+        # Let's try a pure messages format
+        print("\nTrying pure messages format for Nova Pro...")
         
-        # 1. First try the Converse API (structured messages)
+        # Based on error message requiring messages key with content as array
+        request_body = json.dumps({
+            "messages": [
+                {"role": "user", "content": [{"text": "What is AWS Bedrock?"}]}
+            ]
+        })
+        
         try:
-            print("\nTrying Converse API with structured messages...")
-            
-            request_body = json.dumps({
-                "messages": [
-                    {"role": "user", "content": [{"type": "text", "text": "What is AWS Bedrock?"}]}
-                ],
-                "max_tokens": 500,
-                "temperature": 0.7,
-                "top_p": 0.9
-            })
-            
             response = bedrock_client.invoke_model(
                 modelId=model_id,
                 body=request_body
@@ -53,42 +49,36 @@ async def test_direct_nova_pro_api():
             # Parse the response
             response_body = json.loads(response['body'].read())
             
-            if "content" in response_body:
-                # Extract text from content
-                print("Success! Nova Pro Converse API format works")
-                print("\nResponse from Nova Pro (Converse API):")
+            print(f"Response format: {list(response_body.keys())}")
+            
+            if "output" in response_body:
+                print("Success! Nova Pro with messages format works")
+                print("\nResponse from Nova Pro:")
+                print("-" * 50)
+                print(response_body["output"])
                 print("-" * 50)
                 
-                text_content = []
-                for content_item in response_body["content"]:
-                    if content_item.get("type") == "text":
-                        text_content.append(content_item.get("text", ""))
+                # Print additional details
+                if "usage" in response_body:
+                    print(f"Token usage: {response_body['usage']}")
+                if "stopReason" in response_body:
+                    print(f"Stop reason: {response_body['stopReason']}")
                 
-                text = "\n".join(text_content)
-                print(text)
-                print("-" * 50)
-                
-                # Return early since this worked
                 return True
-                
             else:
-                print("Converse API request successful but unexpected response format")
-                print(f"Response keys: {response_body.keys()}")
+                print(f"Unexpected response format: {list(response_body.keys())}")
                 
         except Exception as e:
-            print(f"Converse API failed: {e}")
-            print("Falling back to InvokeModel API...")
+            print(f"First approach failed: {e}")
         
-        # 2. Fallback to InvokeModel API with textGenerationConfig
-        print("\nTrying InvokeModel API with textGenerationConfig...")
+        # Try an alternative messages format
+        print("\nTrying alternative messages format for Nova Pro...")
         
+        # Try with type explicitly specified
         request_body = json.dumps({
-            "inputText": "What is AWS Bedrock?",
-            "textGenerationConfig": {
-                "maxTokenCount": 500,
-                "temperature": 0.7,
-                "topP": 0.9
-            }
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "What is AWS Bedrock?"}]}
+            ]
         })
         
         response = bedrock_client.invoke_model(
@@ -99,11 +89,13 @@ async def test_direct_nova_pro_api():
         # Parse the response
         response_body = json.loads(response['body'].read())
         
+        print(f"Response keys: {list(response_body.keys())}")
+        
         if "results" in response_body and len(response_body["results"]) > 0:
             result = response_body["results"][0]
             if "outputText" in result:
-                print("Success! Nova Pro InvokeModel API format works")
-                print("\nResponse from Nova Pro (InvokeModel API):")
+                print("Success! Simple Nova Pro format works")
+                print("\nResponse from Nova Pro (simple format):")
                 print("-" * 50)
                 print(result["outputText"])
                 print("-" * 50)
@@ -123,9 +115,8 @@ async def test_fastagent_nova_pro():
     print("\nTesting FastAgent integration with Nova Pro...")
     
     try:
-        # Initialize FastAgent with configuration
-        settings = get_settings()
-        fast = FastAgent("Nova Pro Test", settings)
+        # Initialize FastAgent with configuration file path
+        fast = FastAgent("Nova Pro Test", config_path="examples/bedrock/fastagent.config.yaml")
         
         # Define a Nova Pro agent
         @fast.agent(
