@@ -179,6 +179,20 @@ class OpenRouterSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class AzureSettings(BaseModel):
+    """
+    Settings for using Azure OpenAI Service in the fast-agent application.
+    """
+
+    api_key: str | None = None
+    resource_name: str | None = None
+    azure_deployment: str | None = None
+    api_version: str | None = None
+    base_url: str | None = None  # Optional, can be constructed from resource_name
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class OpenTelemetrySettings(BaseModel):
     """
     OTEL settings for the fast-agent application.
@@ -301,6 +315,9 @@ class Settings(BaseSettings):
 
     tensorzero: Optional[TensorZeroSettings] = None
     """Settings for using TensorZero inference gateway"""
+
+    azure: AzureSettings | None = None
+    """Settings for using Azure OpenAI Service in the fast-agent application"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""

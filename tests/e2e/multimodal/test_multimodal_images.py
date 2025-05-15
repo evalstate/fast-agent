@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
+        "azure.gpt-4.1",
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -51,6 +52,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
+        "azure.gpt-4.1",
         #    "gemini2",
     ],
 )
