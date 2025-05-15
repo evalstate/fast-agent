@@ -201,3 +201,7 @@ tests/e2e/smoke/base/weather_location.txt
 tests/integration/roots/fastagent.jsonl
 
 **/.claude/settings.local.json
+
+# Project management files
+TASKS.md
+research/
