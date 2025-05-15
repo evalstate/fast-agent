@@ -2,7 +2,7 @@
 
 from sqlalchemy import (
     Column, Integer, String, DateTime,
-    ForeignKey, Index
+    ForeignKey, Index, Enum
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
