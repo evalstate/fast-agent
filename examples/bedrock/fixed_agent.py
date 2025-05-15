@@ -67,7 +67,7 @@ async def main():
                 
                 print("\nResponse from Bedrock agent:")
                 print("-" * 50)
-                print(response.content)
+                print(response)  # Print the response directly
                 print("-" * 50)
                 
                 # Send a follow-up message
@@ -75,7 +75,7 @@ async def main():
                 
                 print("\nFollow-up response:")
                 print("-" * 50)
-                print(response.content)
+                print(response)  # Print the response directly
                 print("-" * 50)
         except Exception as e:
             print(f"\nError during agent execution: {e}")
