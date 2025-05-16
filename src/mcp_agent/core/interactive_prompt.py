@@ -124,7 +124,7 @@ class InteractivePrompt:
                         # If a specific index was provided (from /prompt <number>)
                         if prompt_index is not None:
                             # First get a list of all prompts to look up the index
-                            all_prompts = await self._get_all_prompts(list_prompts_func, agent)
+                            all_prompts = await self._get_all_prompts(list_prompts_func)
                             if not all_prompts:
                                 rich_print("[yellow]No prompts available[/yellow]")
                                 continue
@@ -167,21 +167,18 @@ class InteractivePrompt:
 
         return result
 
-    async def _get_all_prompts(self, list_prompts_func, agent_name):
+    async def _get_all_prompts(self, list_prompts_func):
         """
         Get a list of all available prompts.
 
         Args:
             list_prompts_func: Function to get available prompts
-            agent_name: Name of the agent
 
         Returns:
             List of prompt info dictionaries, sorted by server and name
         """
         try:
-            # Pass None instead of agent_name to get prompts from all servers
-            # the agent_name parameter should never be used as a server name
-            prompt_servers = await list_prompts_func(None)
+            prompt_servers = await list_prompts_func()
             all_prompts = []
 
             # Process the returned prompt servers
@@ -258,9 +255,8 @@ class InteractivePrompt:
             # Directly call the list_prompts function for this agent
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
 
-            # Get all prompts using the helper function - pass None as server name
-            # to get prompts from all available servers
-            all_prompts = await self._get_all_prompts(list_prompts_func, None)
+            # Get all prompts using the helper function
+            all_prompts = await self._get_all_prompts(list_prompts_func)
 
             if all_prompts:
                 # Create a table for better display

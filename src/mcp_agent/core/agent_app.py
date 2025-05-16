@@ -129,6 +129,12 @@ class AgentApp:
         Returns:
             Dictionary mapping server names to lists of available prompts
         """
+        if not agent_name:
+            results = {}
+            for agent in self._agents.values():
+                curr_prompts = await agent.list_prompts(server_name=server_name)
+                results.update(curr_prompts)
+            return results
         return await self._agent(agent_name).list_prompts(server_name=server_name)
 
     async def get_prompt(

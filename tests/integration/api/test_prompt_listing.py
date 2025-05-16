@@ -22,8 +22,8 @@ async def test_get_all_prompts_with_none_server(fast_agent):
             # Get the list_prompts function from the agent
             list_prompts_func = agent.test.list_prompts
 
-            # Call _get_all_prompts directly with None as server name
-            all_prompts = await prompt_ui._get_all_prompts(list_prompts_func, None)
+            # Call _get_all_prompts directly
+            all_prompts = await prompt_ui._get_all_prompts(list_prompts_func)
 
             # Verify we got results
             assert len(all_prompts) > 0
