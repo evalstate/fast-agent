@@ -20,6 +20,9 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
             parallel_tool_calls=True,
             max_iterations=10,
             use_history=True,
+            response_format={
+                                "type": "json_object"
+                            }
         )
 
     def _base_url(self) -> str:

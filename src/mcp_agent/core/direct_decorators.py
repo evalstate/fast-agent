@@ -209,7 +209,7 @@ def agent(
 DEFAULT_INSTRUCTION_ORCHESTRATOR = """
 You are an expert planner. Given an objective task and a list of Agents 
 (which are collections of capabilities), your job is to break down the objective 
-into a series of steps, which can be performed by these agents.
+into a series of steps, which can be performed by these agents. Please provide output in JSON format.
 """
 
 

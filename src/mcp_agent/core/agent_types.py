@@ -26,7 +26,7 @@ class AgentConfig(BaseModel):
     """Configuration for an Agent instance"""
 
     name: str
-    instruction: str = "You are a helpful agent."
+    instruction: str = "You are a helpful agent. Please answer the user's answer in json format."
     servers: List[str] = Field(default_factory=list)
     model: str | None = None
     use_history: bool = True
