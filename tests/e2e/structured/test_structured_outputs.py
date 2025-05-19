@@ -22,8 +22,9 @@ class FormattedResponse(BaseModel):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "generic.qwen2.5:latest",
-        "generic.llama3.2:latest",
+        #        "generic.qwen2.5:latest",
+        #       "generic.llama3.2:latest",
+        "deepseek-chat",
         "haiku",
         "sonnet",
         "gpt-4.1",
