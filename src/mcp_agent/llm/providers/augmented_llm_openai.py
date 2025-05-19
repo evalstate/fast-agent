@@ -355,7 +355,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
     def adjust_schema(self, inputSchema: Dict) -> Dict:
         # return inputSchema
-        if not Provider.OPENAI == self.provider:
+        if self.provider not in [Provider.OPENAI, Provider.AZURE]:
             return inputSchema
 
         if "properties" in inputSchema:
