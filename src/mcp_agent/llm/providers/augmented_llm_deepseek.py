@@ -1,9 +1,10 @@
+from typing import List, Tuple, Type
+
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.interfaces import ModelT
-from typing import List, Tuple, Type
+from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 DEEPSEEK_BASE_URL = "https://api.deepseek.com"
 DEFAULT_DEEPSEEK_MODEL = "deepseekchat"  # current Deepseek only has two type models
