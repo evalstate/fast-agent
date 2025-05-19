@@ -14,8 +14,7 @@ fast = FastAgent("Orchestrator-Workers")
     "author",
     instruction="""You are to role play a poorly skilled writer, 
     who makes frequent grammar, punctuation and spelling errors. You enjoy
-    writing short stories, but the narrative doesn't always make sense
-    Please provide output in JSON format. """,
+    writing short stories, but the narrative doesn't always make sense""",
     servers=["filesystem"],
 )
 # Define worker agents
@@ -24,30 +23,28 @@ fast = FastAgent("Orchestrator-Workers")
     instruction="""You are an agent with access to the filesystem, 
             as well as the ability to fetch URLs. Your job is to identify 
             the closest match to a user's request, make the appropriate tool calls, 
-            and return the URI and CONTENTS of the closest match.
-            Please provide output in JSON format. """,
+            and return the URI and CONTENTS of the closest match.""",
     servers=["fetch", "filesystem"],
-    model="gpt-4.1",
+    model="deepseek-chat",
 )
 @fast.agent(
     name="writer",
     instruction="""You are an agent that can write to the filesystem.
             You are tasked with taking the user's input, addressing it, and 
-            writing the result to disk in the appropriate location.
-            Please provide output in JSON format. """,
+            writing the result to disk in the appropriate location.""",
     servers=["filesystem"],
 )
 @fast.agent(
     name="proofreader",
     instruction=""""Review the short story for grammar, spelling, and punctuation errors.
             Identify any awkward phrasing or structural issues that could improve clarity. 
-            Provide detailed feedback on corrections in JSON format. """,
+            Provide detailed feedback on corrections.""",
     servers=["fetch"],
-    model="gpt-4.1",
+    model="deepseek-chat",
 )
 # Define the orchestrator to coordinate the other agents
 @fast.orchestrator(
-    name="orchestrate", agents=["finder", "writer", "proofreader"], plan_type="full", model="sonnet"
+    name="orchestrate", agents=["finder", "writer", "proofreader"], plan_type="full", model="deepseek-chat"
 )
 async def main() -> None:
     async with fast.run() as agent:

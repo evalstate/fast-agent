@@ -2,6 +2,7 @@
 # Examples in comments below - check/change the paths.
 #
 #
+default_model: deepseek-chat
 
 logger:
   type: file
