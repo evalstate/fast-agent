@@ -1,0 +1,4 @@
+---USER
+hello, my name is {{user_name}}
+---ASSISTANT
+nice to meet you. i am {{assistant_name}}

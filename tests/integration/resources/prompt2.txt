@@ -1,0 +1,6 @@
+---USER
+By attaching resources, the prompt-server exposes resources!
+---RESOURCE
+r2file1.txt
+---RESOURCE
+r2file2.txt

@@ -1,0 +1,20 @@
+{
+  "editor.formatOnSave": true,
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.rulers": []
+  },
+  "yaml.schemas": {
+    "./.vscode/fastagent.config.schema.json": [
+      "fastagent.config.yaml",
+      "fastagent.secrets.yaml"
+    ]
+  },
+  "editor.fontFamily": "BlexMono Nerd Font",
+  "python.testing.pytestArgs": ["tests"],
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestEnabled": true,
+  "python.analysis.typeCheckingMode": "standard"
+}

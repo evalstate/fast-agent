@@ -1,0 +1,4 @@
+here is 
+a
+normal text
+file

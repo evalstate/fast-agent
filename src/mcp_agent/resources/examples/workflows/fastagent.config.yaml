@@ -1,0 +1,23 @@
+# Please edit this configuration file to match your environment (on Windows).
+# Examples in comments below - check/change the paths.
+#
+#
+
+logger:
+  type: file
+  level: error
+  truncate_tools: true
+
+mcp:
+  servers:
+    filesystem:
+      # On windows update the command and arguments to use `node` and the absolute path to the server.
+      # Use `npm i -g @modelcontextprotocol/server-filesystem` to install the server globally.
+      # Use `npm -g root` to find the global node_modules path.`
+      # command: "node"
+      # args: ["c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js","."]
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    fetch:
+      command: "uvx"
+      args: ["mcp-server-fetch"]

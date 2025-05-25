@@ -1,0 +1,14 @@
+---USER
+I want to learn about {{topic}}.
+
+Can you tell me about it in detail?
+
+---ASSISTANT
+I'd be happy to tell you about {{topic}}!
+
+Here are some key facts about {{topic}}:
+1. It's very interesting
+2. It has a rich history
+3. Many people study it
+
+Would you like me to elaborate on any specific aspect?

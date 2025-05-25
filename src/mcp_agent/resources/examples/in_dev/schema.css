@@ -1,0 +1,103 @@
+/* @theme schema */
+
+/* Last update: 23.jun.2023
+                30.dez.2021 
+*/
+
+/* -------------------- ROOT ----------------------------------*/
+:root {
+
+    /* --subtitle-color    : #586e75; */
+    --subtitle-color: #93a1a1;
+
+    --h1-color: black;
+    --border-color: #e99211;
+    --bold-color: orangered;
+    --italic-color: black;
+    --italic-background-color: rgba(255, 210, 8, 0.713);
+
+
+    --background-color: #fdf6e3;
+    --list-item-color: rgb(50, 56, 56);
+    --after-color: rgb(255, 39, 1);
+
+
+    --main-color: rgb(207, 77, 17);
+    --darker-color: #246;
+    --lighter-color: #080a0a;
+    --extra-back-color: rgb(175, 172, 173);
+
+    --letter-spacing: 0.125px;
+
+    --cool-list-color: orangered;
+
+    --author-align: right;
+
+    --blockquote-strong: rgb(255, 1, 1);
+
+    /*------------ table colors --------------------------*/
+    --table-header-color: rgb(28, 36, 43);
+    --table-header-font-color: white;
+    --table-border-top: rgb(97, 96, 96);
+    --table-border-bottom: rgba(97, 97, 96, 0.315);
+    --table-nth-child-color: #eef1f3;
+    /* --table-hover-background-color: rgb(245, 253, 230); */
+    --table-hover-background-color: rgb(252, 11, 11);
+    /* --table-hover-color: black; */
+    --table-hover-color: white;
+
+}
+
+/* -------------------- TRANSITION ---------------------------------*/
+section.transition {
+    --transitionpage-color: orangered;
+}
+
+/* -------------------- BIBLIO -------------------------------*/
+section.biblio {
+    --text-color: white;
+    --biblio-background-color: rgb(11, 50, 175);
+    --border-color: darkorange;
+    --bold-color: orange;
+}
+
+/* ------------------- TITLEPAGE -----------------------------*/
+section.titlepage {
+
+    /* fonts sizes */
+    --title-size: 150%;
+    --subtitle-size: 110%;
+    --author-size: 110%;
+    --date-size: 110%;
+    --institute-size: 90%;
+
+    --letter-spacing: 0.125px;
+
+    /* font weights */
+    --title-font-weight: 600;
+    --subtitle-font-weight: 600;
+
+    /* colors in style */
+    --title-color: #ee0d0d;
+    --title-color: #4d7baf;
+    --title-color: #0a67f1;
+    --title-color: #002b36;
+
+
+
+    --titlepage-color: #242d31;
+    --background-color: #faf7f7;
+
+    --border-color: #f0cf9e;
+    --border-color: #b5c9ee;
+    --border-color: #8aa6da;
+    --border-color: #6c71c4;
+    --border-color: #e99211;
+
+}
+
+/* ------------------- CITE -----------------------------*/
+section.cite {
+    --background-color: #fdf6e3;
+    --strong-color: rgb(182, 112, 27);
+}

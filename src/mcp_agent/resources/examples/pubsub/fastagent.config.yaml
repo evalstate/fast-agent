@@ -1,0 +1,24 @@
+# PubSub Demo Configuration
+
+# Enable PubSub for agent communication
+pubsub_enabled: true
+
+# Logger settings
+logger:
+  progress_display: true
+  show_chat: true
+  show_tools: true
+  truncate_tools: true
+  enable_markup: true
+  pubsub_enabled: true  # Also enable PubSub in logger
+
+# Default model settings
+default_model: "haiku"
+
+# Anthropic settings
+anthropic:
+  # Provide your API key in fastagent.secrets.yaml
+
+# OpenAI settings (if needed)
+openai:
+  # Provide your API key in fastagent.secrets.yaml

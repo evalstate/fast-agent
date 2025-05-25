@@ -1,0 +1,841 @@
+{
+  "$defs": {
+    "AnthropicSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using Anthropic models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "AnthropicSettings",
+      "type": "object"
+    },
+    "DeepSeekSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "DeepSeekSettings",
+      "type": "object"
+    },
+    "GenericSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "GenericSettings",
+      "type": "object"
+    },
+    "GoogleSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "GoogleSettings",
+      "type": "object"
+    },
+    "LoggerSettings": {
+      "description": "Logger settings for the fast-agent application.",
+      "properties": {
+        "type": {
+          "default": "file",
+          "enum": [
+            "none",
+            "console",
+            "file",
+            "http"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "level": {
+          "default": "warning",
+          "enum": [
+            "debug",
+            "info",
+            "warning",
+            "error"
+          ],
+          "title": "Level",
+          "type": "string",
+          "description": "Minimum logging level"
+        },
+        "progress_display": {
+          "default": true,
+          "title": "Progress Display",
+          "type": "boolean",
+          "description": "Enable or disable the progress display"
+        },
+        "path": {
+          "default": "fastagent.jsonl",
+          "title": "Path",
+          "type": "string",
+          "description": "Path to log file, if logger 'type' is 'file'."
+        },
+        "batch_size": {
+          "default": 100,
+          "title": "Batch Size",
+          "type": "integer",
+          "description": "Number of events to accumulate before processing"
+        },
+        "flush_interval": {
+          "default": 2.0,
+          "title": "Flush Interval",
+          "type": "number",
+          "description": "How often to flush events in seconds"
+        },
+        "max_queue_size": {
+          "default": 2048,
+          "title": "Max Queue Size",
+          "type": "integer",
+          "description": "Maximum queue size for event processing"
+        },
+        "http_endpoint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Http Endpoint",
+          "description": "HTTP endpoint for event transport"
+        },
+        "http_headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Http Headers",
+          "description": "HTTP headers for event transport"
+        },
+        "http_timeout": {
+          "default": 5.0,
+          "title": "Http Timeout",
+          "type": "number",
+          "description": "HTTP timeout seconds for event transport"
+        },
+        "show_chat": {
+          "default": true,
+          "title": "Show Chat",
+          "type": "boolean",
+          "description": "Show chat User/Assistant on the console"
+        },
+        "show_tools": {
+          "default": true,
+          "title": "Show Tools",
+          "type": "boolean",
+          "description": "Show MCP Sever tool calls on the console"
+        },
+        "truncate_tools": {
+          "default": true,
+          "title": "Truncate Tools",
+          "type": "boolean",
+          "description": "Truncate display of long tool calls"
+        },
+        "enable_markup": {
+          "default": true,
+          "title": "Enable Markup",
+          "type": "boolean",
+          "description": "Enable markup in console output. Disable for outputs that may conflict with rich console formatting"
+        }
+      },
+      "title": "LoggerSettings",
+      "type": "object"
+    },
+    "MCPRootSettings": {
+      "additionalProperties": true,
+      "description": "Represents a root directory configuration for an MCP server.",
+      "properties": {
+        "uri": {
+          "title": "Uri",
+          "type": "string",
+          "description": "The URI identifying the root. Must start with file://"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name",
+          "description": "Optional name for the root."
+        },
+        "server_uri_alias": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Server Uri Alias",
+          "description": "Optional URI alias for presentation to the server"
+        }
+      },
+      "required": [
+        "uri"
+      ],
+      "title": "MCPRootSettings",
+      "type": "object"
+    },
+    "MCPSamplingSettings": {
+      "additionalProperties": true,
+      "properties": {
+        "model": {
+          "default": "haiku",
+          "title": "Model",
+          "type": "string"
+        }
+      },
+      "title": "MCPSamplingSettings",
+      "type": "object"
+    },
+    "MCPServerAuthSettings": {
+      "additionalProperties": true,
+      "description": "Represents authentication configuration for a server.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        }
+      },
+      "title": "MCPServerAuthSettings",
+      "type": "object"
+    },
+    "MCPServerSettings": {
+      "description": "Represents the configuration for an individual server.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name",
+          "description": "The name of the server."
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description",
+          "description": "The description of the server."
+        },
+        "transport": {
+          "default": "stdio",
+          "enum": [
+            "stdio",
+            "sse",
+            "http"
+          ],
+          "title": "Transport",
+          "type": "string",
+          "description": "The transport mechanism."
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command",
+          "description": "The command to execute the server (e.g. npx)."
+        },
+        "args": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Args",
+          "description": "The arguments for the server command."
+        },
+        "read_timeout_seconds": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Read Timeout Seconds",
+          "description": "The timeout in seconds for the session."
+        },
+        "read_transport_sse_timeout_seconds": {
+          "default": 300,
+          "title": "Read Transport Sse Timeout Seconds",
+          "type": "integer",
+          "description": "The timeout in seconds for the server connection."
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Url",
+          "description": "The URL for the server (e.g. for SSE transport)."
+        },
+        "headers": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Headers",
+          "description": "Headers dictionary for SSE connections"
+        },
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MCPServerAuthSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The authentication configuration for the server."
+        },
+        "roots": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MCPRootSettings"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roots",
+          "description": "Root directories this server has access to."
+        },
+        "env": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Env",
+          "description": "Environment variables to pass to the server process."
+        },
+        "sampling": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MCPSamplingSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Sampling settings for this Client/Server pair"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cwd",
+          "description": "Working directory for the executed server command."
+        }
+      },
+      "title": "MCPServerSettings",
+      "type": "object"
+    },
+    "MCPSettings": {
+      "additionalProperties": true,
+      "description": "Configuration for all MCP servers.",
+      "properties": {
+        "servers": {
+          "additionalProperties": {
+            "$ref": "#/$defs/MCPServerSettings"
+          },
+          "default": {},
+          "title": "Servers",
+          "type": "object"
+        }
+      },
+      "title": "MCPSettings",
+      "type": "object"
+    },
+    "OpenAISettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "reasoning_effort": {
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Reasoning Effort",
+          "type": "string"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "OpenAISettings",
+      "type": "object"
+    },
+    "OpenRouterSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenRouter models via its OpenAI-compatible API.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "OpenRouterSettings",
+      "type": "object"
+    },
+    "OpenTelemetrySettings": {
+      "description": "OTEL settings for the fast-agent application.",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "service_name": {
+          "default": "fast-agent",
+          "title": "Service Name",
+          "type": "string"
+        },
+        "otlp_endpoint": {
+          "default": "http://localhost:4318/v1/traces",
+          "title": "Otlp Endpoint",
+          "type": "string",
+          "description": "OTLP endpoint for OpenTelemetry tracing"
+        },
+        "console_debug": {
+          "default": false,
+          "title": "Console Debug",
+          "type": "boolean",
+          "description": "Log spans to console"
+        },
+        "sample_rate": {
+          "default": 1.0,
+          "title": "Sample Rate",
+          "type": "number",
+          "description": "Sample rate for tracing (1.0 = sample everything)"
+        }
+      },
+      "title": "OpenTelemetrySettings",
+      "type": "object"
+    },
+    "TensorZeroSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using TensorZero via its OpenAI-compatible API.",
+      "properties": {
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        },
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        }
+      },
+      "title": "TensorZeroSettings",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Configuration schema for MCP Agent applications",
+  "properties": {
+    "mcp": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/MCPSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": {
+        "servers": {}
+      },
+      "description": "MCP config, such as MCP servers"
+    },
+    "execution_engine": {
+      "const": "asyncio",
+      "default": "asyncio",
+      "title": "Execution Engine",
+      "type": "string",
+      "description": "Execution engine for the fast-agent application"
+    },
+    "default_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": "haiku",
+      "title": "Default Model"
+    },
+    "anthropic": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AnthropicSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using Anthropic models in the fast-agent application"
+    },
+    "otel": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenTelemetrySettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": {
+        "enabled": false,
+        "service_name": "fast-agent",
+        "otlp_endpoint": "http://localhost:4318/v1/traces",
+        "console_debug": false,
+        "sample_rate": 1.0
+      },
+      "description": "OpenTelemetry logging settings for the fast-agent application"
+    },
+    "openai": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenAISettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using OpenAI models in the fast-agent application"
+    },
+    "deepseek": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/DeepSeekSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using DeepSeek models in the fast-agent application"
+    },
+    "google": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GoogleSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using DeepSeek models in the fast-agent application"
+    },
+    "openrouter": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenRouterSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using OpenRouter models in the fast-agent application"
+    },
+    "generic": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GenericSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using Generic models in the fast-agent application"
+    },
+    "tensorzero": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TensorZeroSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using TensorZero inference gateway"
+    },
+    "logger": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LoggerSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": {
+        "type": "file",
+        "level": "warning",
+        "progress_display": true,
+        "path": "fastagent.jsonl",
+        "batch_size": 100,
+        "flush_interval": 2.0,
+        "max_queue_size": 2048,
+        "http_endpoint": null,
+        "http_headers": null,
+        "http_timeout": 5.0,
+        "show_chat": true,
+        "show_tools": true,
+        "truncate_tools": true,
+        "enable_markup": true
+      },
+      "description": "Logger settings for the fast-agent application"
+    }
+  },
+  "title": "MCP Agent Configuration Schema",
+  "type": "object",
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

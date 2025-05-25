@@ -1,0 +1,27 @@
+# Model string takes format:
+#   <provider>.<model_string>.<reasoning_effort?> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini.low)
+#
+# Can be overriden with a command line switch --model=<model>, or within the Agent decorator.
+# Check here for current details: https://fast-agent.ai/models/
+
+# set the default model for fast-agent below:
+default_model: gpt-4.1
+
+# Logging and Console Configuration:
+logger:
+  # Switched off to avoid cluttering the console
+  progress_display: false
+
+  # Show chat User/Assistant messages on the console
+  show_chat: true
+  # Show tool calls on the console
+  show_tools: true
+  # Truncate long tool responses on the console
+  truncate_tools: true
+
+# MCP Servers
+mcp:
+  servers:
+    agent_one:
+      transport: http
+      url: http://localhost:8001/mcp

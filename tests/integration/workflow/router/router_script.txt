@@ -1,0 +1,17 @@
+---USER
+routing 1
+---ASSISTANT
+{     
+    "agent": "target1", 
+    "confidence": "high",
+    "reasoning": "Request is asking for weather information"                                                
+}
+
+---USER
+routing 2
+---ASSISTANT
+{     
+    "agent": "target2", 
+    "confidence": "high",
+    "reasoning": "Request is asking for weather information"                                                
+}

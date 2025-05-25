@@ -1,0 +1,140 @@
+[project]
+name = "bee-agent"
+version = "0.2.0"
+description = "QueenBee and WorkerBee for CommandHive.xyz"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "Vaibhav Maheshwari" , email = "vaibhav.dkm@gmail.com"}
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent"
+]
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.115.6",
+    "mcp>=1.8.0",
+    "opentelemetry-distro>=0.50b0",
+    "opentelemetry-exporter-otlp-proto-http>=1.29.0",
+    "pydantic-settings>=2.7.0",
+    "pydantic>=2.10.4",
+    "pyyaml>=6.0.2",
+    "rich>=13.9.4",
+    "typer>=0.15.1",
+    "anthropic>=0.49.0",
+    "openai>=1.63.2",
+    "azure-identity>=1.14.0",
+    "prompt-toolkit>=3.0.50",
+    "aiohttp>=3.11.13",
+    "a2a-types>=0.1.0",
+    "opentelemetry-instrumentation-openai>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
+    "tensorzero>=2025.4.7",
+    "opentelemetry-instrumentation-mcp>=0.40.3; python_version >= '3.10' and python_version < '4.0'",
+]
+
+[project.optional-dependencies]
+openai = [
+    "openai>=1.58.1",
+]
+# For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
+azure = [
+    "azure-identity>=1.14.0"
+]
+dev = [
+    "anthropic>=0.42.0",
+    "pre-commit>=4.0.1",
+    "pydantic>=2.10.4",
+    "pyyaml>=6.0.2",
+    "ruff>=0.8.4",
+    "tomli>=2.2.1",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_agent"]
+
+[[tool.poetry.packages]]
+include = "mcp_agent"
+from = "src"
+
+[tool.hatch.build]
+include = [
+    "src/mcp_agent/**/*.py",
+    "src/mcp_agent/**/*.yaml",
+    "src/mcp_agent/**/*.yml",
+    "src/mcp_agent/**/*.csv",
+    "src/mcp_agent/**/*.txt",    
+    "src/mcp_agent/**/*.example",    
+    "examples/**/*.py",
+    "examples/**/*.yaml",
+    "examples/**/*.yml",
+    "examples/**/*.txt",
+    "examples/**/*.csv",
+    "examples/**/*.md",
+    "examples/**/*.css",
+    "examples/**/mount-point/*.csv",
+    "examples/workflows/short_story.txt",
+    "examples/mcp/**/*.py",
+    "examples/mcp/**/*.yaml",
+    "examples/mcp/**/*.example",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "e2e: tests that connect to external resources (llms)",
+    "integration: marks tests as integration tests",
+    "simulated_endpoints: marks tests that use simulated external endpoints"
+]
+# Other pytest options can go here too
+testpaths = ["test", "integration_tests"]
+
+[dependency-groups]
+dev = [
+    "anthropic>=0.49.0",
+    "pre-commit>=4.0.1",
+    "pydantic>=2.10.4",
+    "pyyaml>=6.0.2",
+    "ruff>=0.8.4",
+    "tomli>=2.2.1",
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.1",
+    "pytest-cov>=6.1.1",
+    "ipdb>=0.13.13",
+]
+
+[project.scripts]
+fast-agent = "mcp_agent.cli.__main__:app"
+fastagent = "mcp_agent.cli.__main__:app"
+silsila = "mcp_agent.cli.__main__:app"
+prompt-server = "mcp_agent.mcp.prompts.__main__:main"
+
+[tool.setuptools.package-data]
+mcp_agent = []
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "TCH"  # type checking
+]
+ignore=["E501"]
+
+# More lenient settings for existing code
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN"]  # Don't require type annotations in tests
