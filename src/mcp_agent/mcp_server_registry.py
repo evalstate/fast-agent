@@ -70,9 +70,15 @@ class ServerRegistry:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
         """
-        self.registry = (
-            self.load_registry_from_file(config_path) if config is None else config.mcp.servers
-        )
+        if config is None:
+            self.registry = self.load_registry_from_file(config_path)
+        elif config.mcp is not None and hasattr(config.mcp, 'servers') and config.mcp.servers is not None:
+            # Ensure config.mcp exists, has a 'servers' attribute, and it's not None
+            self.registry = config.mcp.servers
+        else:
+            # Default to an empty dictionary if config.mcp is None or has no 'servers'
+            self.registry = {}
+
         self.init_hooks: Dict[str, InitHookCallable] = {}
         self.connection_manager = MCPConnectionManager(self)
 
@@ -88,8 +94,12 @@ class ServerRegistry:
         Raises:
             ValueError: If the configuration is invalid.
         """
+        settings = get_settings(config_path)
+        if settings.mcp is not None and hasattr(settings.mcp, 'servers') and settings.mcp.servers is not None:
+            return settings.mcp.servers
+        else:
+            return {}
 
-        servers = get_settings(config_path).mcp.servers or {}
         return servers
 
     @asynccontextmanager

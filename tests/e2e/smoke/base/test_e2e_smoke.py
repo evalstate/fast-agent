@@ -28,6 +28,7 @@ if TYPE_CHECKING:
         "openrouter.google/gemini-2.0-flash-001",
         "google.gemini-2.0-flash",
         "gemini2",
+        "gemini25", # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
         "azure.gpt-4.1",
     ],
 )
@@ -96,6 +97,7 @@ async def test_open_ai_history(fast_agent, model_name):
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
         "gemini2",
+        "gemini25", # Works -> DONE.
         "o3-mini.low",
     ],
 )
@@ -183,7 +185,7 @@ class WeatherForecast(BaseModel):
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gemini2",
-        "gemini25",
+        "gemini25", # Works -> DONE.
         "azure.gpt-4.1",
     ],
 )
@@ -299,6 +301,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "gpt-4.1-mini",
         "gemini2",
         "openrouter.google/gemini-2.0-flash-001",
+        "gemini25", # Works -> DONE.
         "o3-mini.low",
         "azure.gpt-4.1",
     ],
@@ -344,6 +347,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "gpt-4o",
         "gpt-4.1-mini",
         "gemini2",
+        "gemini25", # Works -> DONE.
         "openrouter.anthropic/claude-3.7-sonnet",
         "azure.gpt-4.1",
     ],
@@ -378,6 +382,7 @@ async def test_tool_calls_no_args(fast_agent, model_name):
         #     "gpt-4.1-nano",
         "gpt-4.1-mini",
         "google.gemini-2.0-flash",
+        "gemini25", # Works -> DONE.
         #       "openrouter.anthropic/claude-3.7-sonnet",
     ],
 )
@@ -412,6 +417,7 @@ async def test_tool_calls_no_args_typescript(fast_agent, model_name):
         "haiku35",
         "gpt-4.1",
         "google.gemini-2.0-flash",
+        "gemini25", # Works -> DONE.
     ],
 )
 async def test_server_has_hyphen(fast_agent, model_name):

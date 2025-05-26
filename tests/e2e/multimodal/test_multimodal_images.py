@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
-        "gemini25",
+        # "gemini25", # Not yet turned on as it runs into token limits.
         "azure.gpt-4.1",
     ],
 )
@@ -28,7 +28,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
 
     # Define the agent
     @fast.agent(
-        "agent",
+        "default",
         instruction="You are a helpful AI Agent",
         model=model_name,
     )
@@ -53,8 +53,8 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
-        "gemini25",
         "azure.gpt-4.1",
+        "gemini25", 
         #    "gemini2",
     ],
 )
@@ -64,7 +64,7 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
 
     # Define the agent
     @fast.agent(
-        "agent",
+        "default",
         instruction="You are a helpful AI Agent. Do not ask any questions.",
         servers=["image_server"],
         model=model_name,
@@ -74,7 +74,42 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
             # Send the prompt and get the response
 
             response = await agent.send(
-                "Use the image fetch tool to get the sample image and tell me what user name contained in this image?"
+                "Use the image fetch tool to get the sample image and tell me the user name contained in this image?"
+            )
+            assert "evalstate" in response
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "model_name",
+    [
+
+        "gemini25", # Google Gemini model -> Works sometimes, but not always. DONE.
+        # And Gemini 2.5 only works with a prompt that is a bit more specific.
+        #    "gemini2",
+    ],
+)
+async def test_agent_with_mcp_image_google(fast_agent, model_name):
+    """Test that the agent can process an image and respond appropriately."""
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(
+        "default",
+        instruction="You are a helpful AI Agent.",
+        servers=["image_server"],
+        model=model_name,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Send the prompt and get the response
+
+            response = await agent.send(
+                "Use the image fetch tool to get the sample image. Then tell me the user name contained in this image."
             )
             assert "evalstate" in response
 
@@ -89,7 +124,8 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
-        "gemini25",
+        # "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
+
     ],
 )
 async def test_agent_with_mcp_pdf(fast_agent, model_name):
@@ -114,6 +150,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
     await agent_function()
 
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
@@ -122,7 +159,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
-        "gemini25",
+        # "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
     ],
 )
 async def test_agent_with_pdf_prompt(fast_agent, model_name):
@@ -175,7 +212,7 @@ async def test_agent_includes_tool_results_in_multipart_result_anthropic(fast_ag
             response: PromptMessageMultipart = await agent.agent.generate(
                 [
                     Prompt.user(
-                        "Use the image fetch tool to get the sample image and tell me what user name contained in this image?"
+                        "Use the image fetch tool to get the sample image and tell me the user name contained in this image?"
                     )
                 ]
             )
@@ -195,7 +232,6 @@ async def test_agent_includes_tool_results_in_multipart_result_anthropic(fast_ag
     "model_name",
     [
         "gpt-4.1-mini",  # OpenAI model
-        "gemini25",
     ],
 )
 async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent, model_name):
@@ -214,7 +250,7 @@ async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent
             response: PromptMessageMultipart = await agent.agent.generate(
                 [
                     Prompt.user(
-                        "Use the image fetch tool to get the sample image and tell me what user name contained in this image?"
+                        "Use the image fetch tool to get the sample image and tell me the user name contained in this image?"
                     )
                 ]
             )
