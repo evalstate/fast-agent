@@ -15,6 +15,7 @@ from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google import GoogleAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_openai_responses import OpenAIResponsesAgent # Added
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
@@ -31,6 +32,7 @@ LLMClass = Union[
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
     Type[TensorZeroAugmentedLLM],
+    Type[OpenAIResponsesAgent], # Added
 ]
 
 
@@ -88,9 +90,12 @@ class ModelFactory:
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
+        "gpt-4-assistant": Provider.OPENAI_RESPONSES, # Added
+        "gpt-4o-assistant": Provider.OPENAI_RESPONSES, # Added
     }
 
     MODEL_ALIASES = {
+        "gpt4asst": "gpt-4-assistant", # Added
         "sonnet": "claude-3-7-sonnet-latest",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
@@ -115,6 +120,7 @@ class ModelFactory:
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
+        Provider.OPENAI_RESPONSES: OpenAIResponsesAgent, # Added
     }
 
     # Mapping of special model names to their specific LLM classes
