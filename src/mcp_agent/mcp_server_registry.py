@@ -94,12 +94,13 @@ class ServerRegistry:
         Raises:
             ValueError: If the configuration is invalid.
         """
+        servers = {} 
+
         settings = get_settings(config_path)
+        
         if settings.mcp is not None and hasattr(settings.mcp, 'servers') and settings.mcp.servers is not None:
             return settings.mcp.servers
-        else:
-            return {}
-
+        
         return servers
 
     @asynccontextmanager

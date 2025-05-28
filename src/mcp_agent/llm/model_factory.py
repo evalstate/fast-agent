@@ -145,6 +145,7 @@ class ModelFactory:
         model_name_str = model_string  # Default full string as model name initially
         provider = None
         reasoning_effort = None
+        parts_for_provider_model = []
 
         # Check for reasoning effort first (last part)
         if len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
