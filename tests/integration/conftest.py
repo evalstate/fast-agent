@@ -101,3 +101,34 @@ def markup_fast_agent(request):
 
     # Restore original directory
     os.chdir(original_cwd)
+# Add a fixture for auto_sampling disabled tests
+@pytest.fixture
+def auto_sampling_off_fast_agent(request):
+    """
+    Creates a FastAgent with auto_sampling disabled config from the test file's directory.
+    """
+    # Get the directory where the test file is located
+    test_module = request.module.__file__
+    test_dir = os.path.dirname(test_module)
+
+    # Save original directory
+    original_cwd = os.getcwd()
+
+    # Change to the test file's directory
+    os.chdir(test_dir)
+
+    # Explicitly create absolute path to the config file in the test directory
+    config_file = os.path.join(test_dir, "fastagent.config.auto_sampling_off.yaml")
+
+    # Create agent with local config using absolute path
+    agent = FastAgent(
+        "Test Agent",
+        config_path=config_file,
+        ignore_unknown_args=True,
+    )
+
+    # Provide the agent
+    yield agent
+
+    # Restore original directory
+    os.chdir(original_cwd)

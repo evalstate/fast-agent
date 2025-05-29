@@ -4,7 +4,7 @@ It adds logging and supports sampling requests.
 """
 
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from mcp import ClientSession, ServerNotification
 from mcp.shared.session import (
@@ -20,6 +20,7 @@ from pydantic import FileUrl
 
 from mcp_agent.context_dependent import ContextDependent
 from mcp_agent.logging.logger import get_logger
+from mcp_agent.mcp.helpers.server_config_helpers import get_server_config
 from mcp_agent.mcp.sampling import sample
 
 if TYPE_CHECKING:
@@ -31,24 +32,20 @@ logger = get_logger(__name__)
 async def list_roots(ctx: ClientSession) -> ListRootsResult:
     """List roots callback that will be called by the MCP library."""
 
-    roots = []
-    if (
-        hasattr(ctx, "session")
-        and hasattr(ctx.session, "server_config")
-        and ctx.session.server_config
-        and hasattr(ctx.session.server_config, "roots")
-        and ctx.session.server_config.roots
-    ):
-        roots = [
-            Root(
-                uri=FileUrl(
-                    root.server_uri_alias or root.uri,
-                ),
-                name=root.name,
-            )
-            for root in ctx.session.server_config.roots
-        ]
-    return ListRootsResult(roots=roots or [])
+    if server_config := get_server_config(ctx):
+        if server_config.roots:
+            roots = [
+                Root(
+                    uri=FileUrl(
+                        root.server_uri_alias or root.uri,
+                    ),
+                    name=root.name,
+                )
+                for root in server_config.roots
+            ]
+            return ListRootsResult(roots=roots)
+
+    return ListRootsResult(roots=[])
 
 
 class MCPAgentClientSession(ClientSession, ContextDependent):
@@ -72,14 +69,43 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self.session_server_name = kwargs.pop("server_name", None)
         # Extract the notification callbacks if provided
         self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
+        # Extract server_config if provided
+        self.server_config: MCPServerSettings | None = kwargs.pop("server_config", None)
+        # Extract agent_model if provided (for auto_sampling fallback)
+        self.agent_model: str | None = kwargs.pop("agent_model", None)
+
+        # Only register callbacks if the server_config has the relevant settings
+        list_roots_cb = list_roots if (self.server_config and self.server_config.roots) else None
+        
+        # Register sampling callback if either:
+        # 1. Sampling is explicitly configured, OR
+        # 2. Application-level auto_sampling is enabled
+        sampling_cb = None
+        if self.server_config and hasattr(self.server_config, "sampling") and self.server_config.sampling:
+            # Explicit sampling configuration
+            sampling_cb = sample
+        elif self._should_enable_auto_sampling():
+            # Auto-sampling enabled at application level
+            sampling_cb = sample
+
         super().__init__(
             *args,
             **kwargs,
-            list_roots_callback=list_roots,
-            sampling_callback=sample,
+            list_roots_callback=list_roots_cb,
+            sampling_callback=sampling_cb,
             client_info=fast_agent,
         )
-        self.server_config: Optional[MCPServerSettings] = None
+
+    def _should_enable_auto_sampling(self) -> bool:
+        """Check if auto_sampling is enabled at the application level."""
+        try:
+            from mcp_agent.context import get_current_context
+            context = get_current_context()
+            if context and context.config:
+                return getattr(context.config, 'auto_sampling', True)
+        except Exception:
+            pass
+        return True  # Default to True if can't access config
 
     async def send_request(
         self,
@@ -91,10 +117,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         logger.debug("send_request: request=", data=request.model_dump())
         try:
             result = await super().send_request(
-                request,
-                result_type,
+                request=request,
+                result_type=result_type,
                 request_read_timeout_seconds=request_read_timeout_seconds,
                 progress_callback=progress_callback,
+                metadata=None,
             )
             logger.debug("send_request: response=", data=result.model_dump())
             return result

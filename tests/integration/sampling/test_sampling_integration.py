@@ -65,3 +65,37 @@ async def test_sampling_multi_message_passback(fast_agent):
             assert "message 2" in result
 
     await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_auto_sampling_disabled(auto_sampling_off_fast_agent):
+    """Test that sampling fails when auto_sampling is disabled and no explicit config."""
+    fast = auto_sampling_off_fast_agent
+
+    @fast.agent(servers=["sampling_test"])
+    async def agent_function():
+        async with fast.run() as agent:
+            # Should fail because no sampling callback is registered
+            result = await agent("***CALL_TOOL sample")
+            # The Python SDK advertises sampling capability but throws MCP Error when called
+            assert "error" in result.lower() or "not supported" in result.lower()
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_auto_sampling_enabled(fast_agent):
+    """Test that sampling works when auto_sampling is enabled (uses fallback model)."""
+    fast = fast_agent
+
+    @fast.agent(servers=["sampling_test_no_config"])
+    async def agent_function():
+        async with fast.run() as agent:
+            # Should work because auto_sampling uses the default_model (passthrough)
+            result = await agent("***CALL_TOOL sample")
+            # Should get a successful response, not an error
+            assert "hello, world" in result
+
+    await agent_function()
