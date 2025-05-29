@@ -14,7 +14,8 @@ Usage:
     )
 """
 
-from typing import Dict, List, Optional
+import inspect
+from typing import Any, Callable, Dict, List, Optional
 
 from rich import print as rich_print
 from rich.console import Console
@@ -29,6 +30,40 @@ from mcp_agent.core.enhanced_prompt import (
 )
 from mcp_agent.mcp.mcp_aggregator import SEP  # Import SEP once at the top
 from mcp_agent.progress_display import progress_display
+
+
+async def _call_list_prompts_with_dynamic_signature(
+    list_prompts_func: Callable, server_name: Optional[str] = None, agent_name: Optional[str] = None
+) -> Any:
+    """
+    Call list_prompts_func with appropriate parameters based on its signature.
+    
+    Handles three different signatures:
+    - No parameters: list_prompts_func()
+    - Single parameter: list_prompts_func(server_name)
+    - Two parameters: list_prompts_func(server_name, agent_name)
+    
+    Args:
+        list_prompts_func: The function to call
+        server_name: Optional server name (defaults to None to get all servers)
+        agent_name: Optional agent name
+        
+    Returns:
+        Result from calling list_prompts_func
+    """
+    sig = inspect.signature(list_prompts_func)
+    params = list(sig.parameters.keys())
+    
+    if len(params) == 0:
+        # No parameters expected
+        return await list_prompts_func()
+    elif len(params) == 1:
+        # Single parameter - could be agent_name (from agent) or server_name (from aggregator)
+        # Pass server_name (None to get all servers)
+        return await list_prompts_func(server_name)
+    else:
+        # Two parameters - server_name and agent_name (from app)
+        return await list_prompts_func(server_name, agent_name)
 
 
 class InteractivePrompt:
@@ -124,7 +159,7 @@ class InteractivePrompt:
                         # If a specific index was provided (from /prompt <number>)
                         if prompt_index is not None:
                             # First get a list of all prompts to look up the index
-                            all_prompts = await self._get_all_prompts(list_prompts_func)
+                            all_prompts = await self._get_all_prompts(list_prompts_func, agent)
                             if not all_prompts:
                                 rich_print("[yellow]No prompts available[/yellow]")
                                 continue
@@ -171,7 +206,7 @@ class InteractivePrompt:
 
         return result
 
-    async def _get_all_prompts(self, list_prompts_func):
+    async def _get_all_prompts(self, list_prompts_func, agent_name=None):
         """
         Get a list of all available prompts.
 
@@ -182,7 +217,11 @@ class InteractivePrompt:
             List of prompt info dictionaries, sorted by server and name
         """
         try:
-            prompt_servers = await list_prompts_func()
+            # Call list_prompts_func with appropriate parameters
+            prompt_servers = await _call_list_prompts_with_dynamic_signature(
+                list_prompts_func, server_name=None, agent_name=agent_name
+            )
+            
             all_prompts = []
 
             # Process the returned prompt servers
@@ -260,7 +299,7 @@ class InteractivePrompt:
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
 
             # Get all prompts using the helper function
-            all_prompts = await self._get_all_prompts(list_prompts_func)
+            all_prompts = await self._get_all_prompts(list_prompts_func, agent_name)
 
             if all_prompts:
                 # Create a table for better display
@@ -315,9 +354,11 @@ class InteractivePrompt:
         try:
             # Get all available prompts directly from the list_prompts function
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
-            # IMPORTANT: list_prompts_func gets MCP server prompts, not agent prompts
-            # So we pass None to get prompts from all servers, not using agent_name as server name
-            prompt_servers = await list_prompts_func(None)
+            
+            # Call list_prompts_func with appropriate parameters
+            prompt_servers = await _call_list_prompts_with_dynamic_signature(
+                list_prompts_func, server_name=None, agent_name=agent_name
+            )
 
             if not prompt_servers:
                 rich_print("[yellow]No prompts available for this agent[/yellow]")
