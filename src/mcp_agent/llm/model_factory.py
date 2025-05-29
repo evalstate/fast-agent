@@ -156,7 +156,8 @@ class ModelFactory:
         # Check for reasoning effort first (last part)
         if len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
             reasoning_effort = cls.EFFORT_MAP[parts[-1].lower()]
-            # Remove effort from parts list for provider/model name determination            parts_for_provider_model = parts[:-1]
+            # Remove effort from parts list for provider/model name determination
+            parts_for_provider_model = parts[:-1]
         else:
             parts_for_provider_model = parts[:]
 
