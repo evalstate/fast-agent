@@ -12,7 +12,7 @@ class Provider(Enum):
     DEEPSEEK = "deepseek"
     FAST_AGENT = "fast-agent"
     GENERIC = "generic"
-    GOOGLE = "google"  # For Google through OpenAI libraries
+    GOOGLE = "googlenative"  # For Google through OpenAI libraries
     GOOGLE_NATIVE = "googlenative"  # For Google GenAI native library
     OPENAI = "openai"
     OPENROUTER = "openrouter"
