@@ -26,6 +26,7 @@ if TYPE_CHECKING:
         #        "generic.qwen2.5:latest",
         #        "generic.llama3.2:latest",
         "openrouter.google/gemini-2.0-flash-001",
+        "googleoai.gemini-2.5-flash-preview-05-20",
         "google.gemini-2.0-flash",
         "gemini2",
         "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
