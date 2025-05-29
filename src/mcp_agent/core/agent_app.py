@@ -268,7 +268,6 @@ class AgentApp:
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
             available_agents=list(self._agents.keys()),
-            apply_prompt_func=self.apply_prompt,
-            list_prompts_func=self.list_prompts,
+            prompt_provider=self,  # Pass self as the prompt provider
             default=default_prompt,
         )

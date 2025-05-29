@@ -811,12 +811,13 @@ class MCPAggregator(ContextDependent):
             messages=[],
         )
 
-    async def list_prompts(self, server_name: str | None = None) -> Mapping[str, List[Prompt]]:
+    async def list_prompts(self, server_name: str | None = None, agent_name: str | None = None) -> Mapping[str, List[Prompt]]:
         """
         List available prompts from one or all servers.
 
         :param server_name: Optional server name to list prompts from. If not provided,
                            lists prompts from all servers.
+        :param agent_name: Optional agent name (ignored at this level, used by multi-agent apps)
         :return: Dictionary mapping server names to lists of Prompt objects
         """
         if not self.initialized:

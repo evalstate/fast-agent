@@ -9,40 +9,6 @@ from mcp_agent.core.interactive_prompt import InteractivePrompt
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_get_all_prompts_with_none_server(fast_agent):
-    """Test the _get_all_prompts function with None as server name."""
-    fast = fast_agent
-
-    @fast.agent(name="test", servers=["prompts"])
-    async def agent_function():
-        async with fast.run() as agent:
-            # Create instance of InteractivePrompt
-            prompt_ui = InteractivePrompt()
-
-            # Get the list_prompts function from the agent
-            list_prompts_func = agent.test.list_prompts
-
-            # Call _get_all_prompts directly
-            all_prompts = await prompt_ui._get_all_prompts(list_prompts_func)
-
-            # Verify we got results
-            assert len(all_prompts) > 0
-
-            # Verify each prompt has the correct format
-            for prompt in all_prompts:
-                assert "server" in prompt
-                assert "name" in prompt
-                assert "namespaced_name" in prompt
-                assert prompt["server"] == "prompts"  # From our test config
-
-                # Check namespace format
-                assert prompt["namespaced_name"] == f"prompts-{prompt['name']}"
-
-    await agent_function()
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
 async def test_multi_agent_prompt_listing(fast_agent):
     """Test the _get_all_prompts function with None as server name."""
     fast = fast_agent
@@ -55,31 +21,25 @@ async def test_multi_agent_prompt_listing(fast_agent):
             # Create instance of InteractivePrompt
             prompt_ui = InteractivePrompt()
 
-            # Get the list_prompts function from the app level
-            # Since we have multiple agents, we should use the app-level list_prompts
-            list_prompts_func = agent.list_prompts
-
             # Test listing prompts for each agent separately
             # Agent1 should have prompts from "prompts" server (playback.md -> playback)
-            agent1_prompts = await prompt_ui._get_all_prompts(list_prompts_func, "agent1")
+            agent1_prompts = await prompt_ui._get_all_prompts(agent, "agent1")
             assert len(agent1_prompts) == 1
             assert agent1_prompts[0]["server"] == "prompts"
-            assert (
-                agent1_prompts[0]["name"]
-                == "name='playback' description='[USER] user1 assistant1 user2' arguments=[]"
-            )
+            assert agent1_prompts[0]["name"] == "playback"
+            assert agent1_prompts[0]["description"] == "[USER] user1 assistant1 user2"
+            assert agent1_prompts[0]["arg_count"] == 0
 
             # Agent2 should have prompts from "prompts2" server (prompt.txt -> prompt)
-            agent2_prompts = await prompt_ui._get_all_prompts(list_prompts_func, "agent2")
+            agent2_prompts = await prompt_ui._get_all_prompts(agent, "agent2")
             assert len(agent2_prompts) == 1
             assert agent2_prompts[0]["server"] == "prompts2"
-            assert (
-                agent2_prompts[0]["name"]
-                == "name='prompt' description='this is from the prompt file' arguments=[]"
-            )
+            assert agent2_prompts[0]["name"] == "prompt"
+            assert agent2_prompts[0]["description"] == "this is from the prompt file"
+            assert agent2_prompts[0]["arg_count"] == 0
 
             # Agent3 should have no prompts (no servers configured)
-            agent3_prompts = await prompt_ui._get_all_prompts(list_prompts_func, "agent3")
+            agent3_prompts = await prompt_ui._get_all_prompts(agent, "agent3")
             assert len(agent3_prompts) == 0
 
     await agent_function()
