@@ -28,7 +28,7 @@ if TYPE_CHECKING:
         "openrouter.google/gemini-2.0-flash-001",
         "google.gemini-2.0-flash",
         "gemini2",
-        "gemini25", # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
+        "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
         "azure.gpt-4.1",
     ],
 )
@@ -97,7 +97,7 @@ async def test_open_ai_history(fast_agent, model_name):
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
         "gemini2",
-        "gemini25", # Works -> DONE.
+        "gemini25",  # Works -> DONE.
         "o3-mini.low",
     ],
 )
@@ -185,7 +185,7 @@ class WeatherForecast(BaseModel):
         "gpt-4.1-nano",
         "gpt-4.1-mini",
         "gemini2",
-        "gemini25", # Works -> DONE.
+        "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
     ],
 )
@@ -220,34 +220,34 @@ async def test_structured_weather_forecast_openai_structured_api(fast_agent, mod
 
             # Verify the structured response
             assert forecast is not None, "Structured response should not be None"
-            assert isinstance(
-                forecast, WeatherForecast
-            ), "Response should be a WeatherForecast object"
+            assert isinstance(forecast, WeatherForecast), (
+                "Response should be a WeatherForecast object"
+            )
 
             # Verify forecast content
-            assert (
-                forecast.location.lower().find("san francisco") >= 0
-            ), "Location should be San Francisco"
+            assert forecast.location.lower().find("san francisco") >= 0, (
+                "Location should be San Francisco"
+            )
             assert forecast.unit == "celsius", "Temperature unit should be celsius"
             assert len(forecast.forecast) == 5, "Should have 5 days of forecast"
-            assert all(
-                isinstance(day, DailyForecast) for day in forecast.forecast
-            ), "Each day should be a DailyForecast"
+            assert all(isinstance(day, DailyForecast) for day in forecast.forecast), (
+                "Each day should be a DailyForecast"
+            )
 
             # Verify data types and ranges
             for day in forecast.forecast:
-                assert (
-                    0 <= day.precipitation_chance <= 100
-                ), f"Precipitation chance should be 0-100%, got {day.precipitation_chance}"
-                assert (
-                    -50 <= day.temperature_low <= 60
-                ), f"Temperature low should be reasonable, got {day.temperature_low}"
-                assert (
-                    -30 <= day.temperature_high <= 70
-                ), f"Temperature high should be reasonable, got {day.temperature_high}"
-                assert (
-                    day.temperature_high >= day.temperature_low
-                ), "High temp should be >= low temp"
+                assert 0 <= day.precipitation_chance <= 100, (
+                    f"Precipitation chance should be 0-100%, got {day.precipitation_chance}"
+                )
+                assert -50 <= day.temperature_low <= 60, (
+                    f"Temperature low should be reasonable, got {day.temperature_low}"
+                )
+                assert -30 <= day.temperature_high <= 70, (
+                    f"Temperature high should be reasonable, got {day.temperature_high}"
+                )
+                assert day.temperature_high >= day.temperature_low, (
+                    "High temp should be >= low temp"
+                )
 
             # Print forecast summary for debugging
             print(f"Weather forecast for {forecast.location}: {forecast.summary}")
@@ -301,7 +301,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "gpt-4.1-mini",
         "gemini2",
         "openrouter.google/gemini-2.0-flash-001",
-        "gemini25", # Works -> DONE.
+        "gemini25",
         "o3-mini.low",
         "azure.gpt-4.1",
     ],
@@ -312,7 +312,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
 
     @fast.agent(
         "weatherforecast",
-        instruction="You are a helpful assistant that provides syntehsized weather data for testing"
+        instruction="You are a helpful assistant that provides synthesized weather data for testing"
         " purposes.",
         model=model_name,
         servers=["test_server"],
@@ -329,9 +329,9 @@ async def test_basic_tool_calling(fast_agent, model_name):
             assert "sunny" in response
 
             # Check that the file exists after response
-            assert os.path.exists(
-                "weather_location.txt"
-            ), "File should exist after response (created by tool call)"
+            assert os.path.exists("weather_location.txt"), (
+                "File should exist after response (created by tool call)"
+            )
 
     await weather_forecast()
 
@@ -347,7 +347,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "gpt-4o",
         "gpt-4.1-mini",
         "gemini2",
-        "gemini25", # Works -> DONE.
+        "gemini25",  # Works -> DONE.
         "openrouter.anthropic/claude-3.7-sonnet",
         "azure.gpt-4.1",
     ],
@@ -382,7 +382,7 @@ async def test_tool_calls_no_args(fast_agent, model_name):
         #     "gpt-4.1-nano",
         "gpt-4.1-mini",
         "google.gemini-2.0-flash",
-        "gemini25", # Works -> DONE.
+        "gemini25",  # Works -> DONE.
         #       "openrouter.anthropic/claude-3.7-sonnet",
     ],
 )
@@ -417,7 +417,7 @@ async def test_tool_calls_no_args_typescript(fast_agent, model_name):
         "haiku35",
         "gpt-4.1",
         "google.gemini-2.0-flash",
-        "gemini25", # Works -> DONE.
+        "gemini25",  # Works -> DONE.
     ],
 )
 async def test_server_has_hyphen(fast_agent, model_name):

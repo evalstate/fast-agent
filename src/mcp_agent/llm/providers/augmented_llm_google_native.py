@@ -146,7 +146,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
     }.union(AugmentedLLM.BASE_EXCLUDE_FIELDS)
 
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.GOOGLE_OAI, **kwargs)
+        super().__init__(*args, provider=Provider.GOOGLE, **kwargs)
         # Initialize the google.genai client
         self._google_client = self._initialize_google_client()
         # Initialize the converter
