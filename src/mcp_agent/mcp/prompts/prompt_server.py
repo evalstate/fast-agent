@@ -82,6 +82,7 @@ class PromptConfig(PromptMetadata):
     http_timeout: float = 10.0
     transport: str = "stdio"
     port: int = 8000
+    host: str = "0.0.0.0"
 
 
 # We'll maintain registries of all exposed resources and prompts
@@ -228,7 +229,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
             # Create a function with properly typed parameters
             async def template_handler_with_vars(**kwargs):
                 # Extract template variables from kwargs
-                context = {var: kwargs.get(var) for var in template_vars if var in kwargs}
+                context = {
+                    var: kwargs.get(var) for var in template_vars if var in kwargs
+                }
 
                 # Check for missing variables
                 missing_vars = [var for var in template_vars if var not in context]
@@ -246,7 +249,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
 
             # Create a Prompt directly
             arguments = [
-                PromptArgument(name=var, description=f"Template variable: {var}", required=True)
+                PromptArgument(
+                    name=var, description=f"Template variable: {var}", required=True
+                )
                 for var in template_vars
             ]
 
@@ -298,7 +303,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
                             )
                         )
 
-                        logger.info(f"Registered resource: {resource_id} ({resource_file})")
+                        logger.info(
+                            f"Registered resource: {resource_id} ({resource_file})"
+                        )
     except Exception as e:
         logger.error(f"Error registering prompt {file_path}: {e}", exc_info=True)
 
@@ -306,7 +313,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="FastMCP Prompt Server")
-    parser.add_argument("prompt_files", nargs="+", type=str, help="Prompt files to serve")
+    parser.add_argument(
+        "prompt_files", nargs="+", type=str, help="Prompt files to serve"
+    )
     parser.add_argument(
         "--user-delimiter",
         type=str,
@@ -334,7 +343,7 @@ def parse_args():
     parser.add_argument(
         "--transport",
         type=str,
-        choices=["stdio", "sse"],
+        choices=["stdio", "sse", "http"],
         default="stdio",
         help="Transport to use (default: stdio)",
     )
@@ -343,6 +352,12 @@ def parse_args():
         type=int,
         default=8000,
         help="Port to use for SSE transport (default: 8000)",
+    )
+    parser.add_argument(
+        "--host",
+        type=str,
+        default="0.0.0.0",
+        help="Host to bind to for SSE transport (default: 0.0.0.0)",
     )
     parser.add_argument(
         "--test", type=str, help="Test a specific prompt without starting the server"
@@ -380,6 +395,7 @@ def initialize_config(args) -> PromptConfig:
         http_timeout=args.http_timeout,
         transport=args.transport,
         port=args.port,
+        host=args.host,
     )
 
 
@@ -494,11 +510,22 @@ async def async_main() -> int:
         return await test_prompt(args.test, config)
 
     # Start the server with the specified transport
-    if config.transport == "stdio":
-        await mcp.run_stdio_async()
-    else:  # sse
-        # TODO update to 2025-03-26 specification and test config.
+    if config.transport == "sse":  # sse
+        # Set the host and port in settings before running the server
+        mcp.settings.host = config.host
+        mcp.settings.port = config.port
+        logger.info(f"Starting SSE server on {config.host}:{config.port}")
         await mcp.run_sse_async()
+    elif config.transport == "http":
+        mcp.settings.host = config.host
+        mcp.settings.port = config.port
+        logger.info(f"Starting SSE server on {config.host}:{config.port}")
+        await mcp.run_streamable_http_async()
+    elif config.transport == "stdio":
+        await mcp.run_stdio_async()
+    else:
+        logger.error(f"Unknown transport: {config.transport}")
+        return 1
     return 0
 
 

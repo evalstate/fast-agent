@@ -20,6 +20,7 @@ from typing import (
     Union,
 )
 
+from a2a_types.types import AgentCapabilities, AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
     EmbeddedResource,
@@ -30,6 +31,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from opentelemetry import trace
 from pydantic import BaseModel
 
 from mcp_agent.core.agent_types import AgentConfig, AgentType
@@ -56,6 +58,11 @@ LLM = TypeVar("LLM", bound=AugmentedLLMProtocol)
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 if TYPE_CHECKING:
     from mcp_agent.context import Context
+
+
+DEFAULT_CAPABILITIES = AgentCapabilities(
+    streaming=False, pushNotifications=False, stateTransitionHistory=False
+)
 
 
 class BaseAgent(MCPAggregator, AgentProtocol):
@@ -86,6 +93,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         )
 
         self._context = context
+        self.tracer = trace.get_tracer(__name__)
         self.name = self.config.name
         self.instruction = self.config.instruction
         self.functions = functions or []
@@ -582,11 +590,12 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             The LLM's response as a PromptMessageMultipart
         """
         assert self._llm
-        return await self._llm.generate(multipart_messages, request_params)
+        with self.tracer.start_as_current_span(f"Agent: '{self.name}' generate"):
+            return await self._llm.generate(multipart_messages, request_params)
 
     async def structured(
         self,
-        prompt: List[PromptMessageMultipart],
+        multipart_messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -603,7 +612,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             An instance of the specified model, or None if coercion fails
         """
         assert self._llm
-        return await self._llm.structured(prompt, model, request_params)
+        with self.tracer.start_as_current_span(f"Agent: '{self.name}' structured"):
+            return await self._llm.structured(multipart_messages, model, request_params)
 
     async def apply_prompt_messages(
         self, prompts: List[PromptMessageMultipart], request_params: RequestParams | None = None
@@ -626,13 +636,51 @@ class BaseAgent(MCPAggregator, AgentProtocol):
     def agent_type(self) -> AgentType:
         """
         Return the type of this agent.
-
-        This is used for display purposes in the interactive prompt and other UI elements.
-
-        Returns:
-            String representing the agent type
         """
         return AgentType.BASIC
+
+    async def agent_card(self) -> AgentCard:
+        """
+        Return an A2A card describing this Agent
+        """
+
+        skills: List[AgentSkill] = []
+        tools: ListToolsResult = await self.list_tools()
+        for tool in tools.tools:
+            skills.append(await self.convert(tool))
+
+        return AgentCard(
+            name=self.name,
+            description=self.instruction,
+            url=f"fast-agent://agents/{self.name}/",
+            version="0.1",
+            capabilities=DEFAULT_CAPABILITIES,
+            defaultInputModes=["text/plain"],
+            defaultOutputModes=["text/plain"],
+            provider=None,
+            documentationUrl=None,
+            authentication=None,
+            skills=skills,
+        )
+
+    async def convert(self, tool: Tool) -> AgentSkill:
+        """
+        Convert a Tool to an AgentSkill.
+        """
+
+        _, tool_without_namespace = await self._parse_resource_name(tool.name, "tool")
+        return AgentSkill(
+            id=tool.name,
+            name=tool_without_namespace,
+            description=tool.description,
+            tags=["tool"],
+            examples=None,
+            inputModes=None,  # ["text/plain"],
+            # cover TextContent | ImageContent ->
+            # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/223
+            # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/93
+            outputModes=None,  # ,["text/plain", "image/*"],
+        )
 
     @property
     def message_history(self) -> List[PromptMessageMultipart]:

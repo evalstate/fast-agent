@@ -153,8 +153,12 @@ class InteractivePrompt:
                             )
                         continue
 
-                # Skip further processing if command was handled
-                if command_result:
+                # Skip further processing if:
+                # 1. The command was handled (command_result is truthy)
+                # 2. The original input was a dictionary (special command like /prompt)
+                # 3. The command result itself is a dictionary (special command handling result)
+                # This fixes the issue where /prompt without arguments gets sent to the LLM
+                if command_result or isinstance(user_input, dict) or isinstance(command_result, dict):
                     continue
 
                 if user_input.upper() == "STOP":

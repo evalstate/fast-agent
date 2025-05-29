@@ -16,8 +16,9 @@ if TYPE_CHECKING:
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o-mini",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
+        "azure.gpt-4.1",
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -49,8 +50,9 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o-mini",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
+        "azure.gpt-4.1",
         #    "gemini2",
     ],
 )
@@ -83,7 +85,7 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o-mini",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
     ],
 )
@@ -116,7 +118,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
     ],
 )
@@ -190,7 +192,7 @@ async def test_agent_includes_tool_results_in_multipart_result_anthropic(fast_ag
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
     ],
 )
 async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent, model_name):

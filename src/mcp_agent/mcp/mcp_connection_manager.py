@@ -15,6 +15,7 @@ from typing import (
 
 from anyio import Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from httpx import HTTPStatusError
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
@@ -22,6 +23,7 @@ from mcp.client.stdio import (
     get_default_environment,
     stdio_client,
 )
+from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.types import JSONRPCMessage, ServerCapabilities
 
 from mcp_agent.config import MCPServerSettings
@@ -37,6 +39,27 @@ if TYPE_CHECKING:
     from mcp_agent.mcp_server_registry import InitHookCallable, ServerRegistry
 
 logger = get_logger(__name__)
+
+
+class StreamingContextAdapter:
+    """Adapter to provide a 3-value context from a 2-value context manager"""
+
+    def __init__(self, context_manager):
+        self.context_manager = context_manager
+        self.cm_instance = None
+
+    async def __aenter__(self):
+        self.cm_instance = await self.context_manager.__aenter__()
+        read_stream, write_stream = self.cm_instance
+        return read_stream, write_stream, None
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        return await self.context_manager.__aexit__(exc_type, exc_val, exc_tb)
+
+
+def _add_none_to_context(context_manager):
+    """Helper to add a None value to context managers that return 2 values instead of 3"""
+    return StreamingContextAdapter(context_manager)
 
 
 class ServerConnection:
@@ -56,6 +79,7 @@ class ServerConnection:
                 tuple[
                     MemoryObjectReceiveStream[JSONRPCMessage | Exception],
                     MemoryObjectSendStream[JSONRPCMessage],
+                    GetSessionIdCallback | None,
                 ],
                 None,
             ],
@@ -161,14 +185,26 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     try:
         transport_context = server_conn._transport_context_factory()
 
-        async with transport_context as (read_stream, write_stream):
-            #      try:
+        async with transport_context as (read_stream, write_stream, _):
             server_conn.create_session(read_stream, write_stream)
 
             async with server_conn.session:
                 await server_conn.initialize_session()
-
                 await server_conn.wait_for_shutdown_request()
+
+    except HTTPStatusError as http_exc:
+        logger.error(
+            f"{server_name}: Lifecycle task encountered HTTP error: {http_exc}",
+            exc_info=True,
+            data={
+                "progress_action": ProgressAction.FATAL_ERROR,
+                "server_name": server_name,
+            },
+        )
+        server_conn._error_occurred = True
+        server_conn._error_message = f"HTTP Error: {http_exc.response.status_code} {http_exc.response.reason_phrase} for URL: {http_exc.request.url}"
+        server_conn._initialized_event.set()
+        # No raise - let get_server handle it with a friendly message
 
     except Exception as exc:
         logger.error(
@@ -180,7 +216,27 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
             },
         )
         server_conn._error_occurred = True
-        server_conn._error_message = traceback.format_exception(exc)
+
+        if "ExceptionGroup" in type(exc).__name__ and hasattr(exc, "exceptions"):
+            # Handle ExceptionGroup better by extracting the actual errors
+            error_messages = []
+            for subexc in exc.exceptions:
+                if isinstance(subexc, HTTPStatusError):
+                    # Special handling for HTTP errors to make them more user-friendly
+                    error_messages.append(
+                        f"HTTP Error: {subexc.response.status_code} {subexc.response.reason_phrase} for URL: {subexc.request.url}"
+                    )
+                else:
+                    error_messages.append(f"Error: {type(subexc).__name__}: {subexc}")
+                if hasattr(subexc, "__cause__") and subexc.__cause__:
+                    error_messages.append(
+                        f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}"
+                    )
+            server_conn._error_message = error_messages
+        else:
+            # For regular exceptions, keep the traceback but format it more cleanly
+            server_conn._error_message = traceback.format_exception(exc)
+
         # If there's an error, we should also set the event so that
         # 'get_server' won't hang
         server_conn._initialized_event.set()
@@ -262,20 +318,25 @@ class MCPConnectionManager(ContextDependent):
             if config.transport == "stdio":
                 server_params = StdioServerParameters(
                     command=config.command,
-                    args=config.args,
+                    args=config.args if config.args is not None else [],
                     env={**get_default_environment(), **(config.env or {})},
+                    cwd=config.cwd,
                 )
                 # Create custom error handler to ensure all output is captured
                 error_handler = get_stderr_handler(server_name)
                 # Explicitly ensure we're using our custom logger for stderr
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
-                return stdio_client(server_params, errlog=error_handler)
+                return _add_none_to_context(stdio_client(server_params, errlog=error_handler))
             elif config.transport == "sse":
-                return sse_client(
-                    config.url,
-                    config.headers,
-                    sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                return _add_none_to_context(
+                    sse_client(
+                        config.url,
+                        config.headers,
+                        sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                    )
                 )
+            elif config.transport == "http":
+                return streamablehttp_client(config.url, config.headers)
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")
 
@@ -332,9 +393,17 @@ class MCPConnectionManager(ContextDependent):
         # Check if the server is healthy after initialization
         if not server_conn.is_healthy():
             error_msg = server_conn._error_message or "Unknown error"
+
+            # Format the error message for better display
+            if isinstance(error_msg, list):
+                # Join the list with newlines for better readability
+                formatted_error = "\n".join(error_msg)
+            else:
+                formatted_error = str(error_msg)
+
             raise ServerInitializationError(
                 f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
-                error_msg,
+                formatted_error,
             )
 
         return server_conn

@@ -8,7 +8,7 @@ import pytest
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o-mini",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
     ],
 )
@@ -38,7 +38,7 @@ async def test_agent_with_simple_prompt(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o-mini",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
     ],
 )
@@ -68,7 +68,7 @@ async def test_agent_with_prompt_attachment(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4o",  # OpenAI model
+        "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
     ],
 )

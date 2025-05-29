@@ -110,7 +110,10 @@ class AgentMCPServer:
 
         # Register handlers for SIGINT (Ctrl+C) and SIGTERM
         for sig, is_term in [(signal.SIGINT, False), (signal.SIGTERM, True)]:
-            loop.add_signal_handler(sig, lambda term=is_term: handle_signal(term))
+            import platform
+
+            if platform.system() != "Windows":
+                loop.add_signal_handler(sig, lambda term=is_term: handle_signal(term))
 
         logger.debug("Signal handlers installed")
 
@@ -137,9 +140,9 @@ class AgentMCPServer:
         print("Press Ctrl+C again to force exit.")
         self._graceful_shutdown_event.set()
 
-    def run(self, transport: str = "sse", host: str = "0.0.0.0", port: int = 8000) -> None:
+    def run(self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000) -> None:
         """Run the MCP server synchronously."""
-        if transport == "sse":
+        if transport in ["sse", "http"]:
             self.mcp_server.settings.host = host
             self.mcp_server.settings.port = port
 
@@ -177,12 +180,12 @@ class AgentMCPServer:
                 asyncio.run(self._cleanup_stdio())
 
     async def run_async(
-        self, transport: str = "sse", host: str = "0.0.0.0", port: int = 8000
+        self, transport: str = "http", host: str = "0.0.0.0", port: int = 8000
     ) -> None:
         """Run the MCP server asynchronously with improved shutdown handling."""
         # Use different handling strategies based on transport type
-        if transport == "sse":
-            # For SSE, use our enhanced shutdown handling
+        if transport in ["sse", "http"]:
+            # For SSE/HTTP, use our enhanced shutdown handling
             self._setup_signal_handlers()
 
             self.mcp_server.settings.host = host
@@ -233,9 +236,9 @@ class AgentMCPServer:
 
     async def _run_server_with_shutdown(self, transport: str):
         """Run the server with proper shutdown handling."""
-        # This method is only used for SSE transport
-        if transport != "sse":
-            raise ValueError("This method should only be used with SSE transport")
+        # This method is used for SSE/HTTP transport
+        if transport not in ["sse", "http"]:
+            raise ValueError("This method should only be used with SSE or HTTP transport")
 
         # Start a monitor task for shutdown
         shutdown_monitor = asyncio.create_task(self._monitor_shutdown())
@@ -259,8 +262,11 @@ class AgentMCPServer:
                 # Replace with our tracking version
                 self.mcp_server._sse_transport.connect_sse = tracked_connect_sse
 
-            # Run the server (SSE only)
-            await self.mcp_server.run_sse_async()
+            # Run the server based on transport type
+            if transport == "sse":
+                await self.mcp_server.run_sse_async()
+            elif transport == "http":
+                await self.mcp_server.run_streamable_http_async()
         finally:
             # Cancel the monitor when the server exits
             shutdown_monitor.cancel()

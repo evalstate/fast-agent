@@ -19,6 +19,7 @@ class ProgressAction(str, Enum):
     PLANNING = "Planning"
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
+    UPDATED = "Updated"
     FINISHED = "Finished"
     SHUTDOWN = "Shutdown"
     AGGREGATOR_INITIALIZED = "Running"
@@ -88,7 +89,7 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
 
     return ProgressEvent(
         action=ProgressAction(progress_action),
-        target=target,
+        target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
     )

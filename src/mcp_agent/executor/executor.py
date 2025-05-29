@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import functools
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
@@ -206,13 +207,13 @@ class AsyncioExecutor(Executor):
                 else:
                     # Execute the callable and await if it returns a coroutine
                     loop = asyncio.get_running_loop()
-
+                    ctx = contextvars.copy_context()
                     # If kwargs are provided, wrap the function with partial
                     if kwargs:
                         wrapped_task = functools.partial(task, **kwargs)
-                        result = await loop.run_in_executor(None, wrapped_task)
+                        result = await loop.run_in_executor(None, lambda: ctx.run(wrapped_task))
                     else:
-                        result = await loop.run_in_executor(None, task)
+                        result = await loop.run_in_executor(None, lambda: ctx.run(task))
 
                     # Handle case where the sync function returns a coroutine
                     if asyncio.iscoroutine(result):
@@ -234,12 +235,10 @@ class AsyncioExecutor(Executor):
         *tasks: Callable[..., R] | Coroutine[Any, Any, R],
         **kwargs: Any,
     ) -> List[R | BaseException]:
-        # TODO: saqadri - validate if async with self.execution_context() is needed here
-        async with self.execution_context():
-            return await asyncio.gather(
-                *(self._execute_task(task, **kwargs) for task in tasks),
-                return_exceptions=True,
-            )
+        return await asyncio.gather(
+            *(self._execute_task(task, **kwargs) for task in tasks),
+            return_exceptions=True,
+        )
 
     async def execute_streaming(
         self,

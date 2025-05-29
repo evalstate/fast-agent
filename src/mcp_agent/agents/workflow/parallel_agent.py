@@ -2,6 +2,7 @@ import asyncio
 from typing import Any, List, Optional, Tuple
 
 from mcp.types import TextContent
+from opentelemetry import trace
 
 from mcp_agent.agents.agent import Agent
 from mcp_agent.agents.base_agent import BaseAgent
@@ -18,7 +19,7 @@ class ParallelAgent(BaseAgent):
     This workflow performs both the fan-out and fan-in operations using LLMs.
     From the user's perspective, an input is specified and the output is returned.
     """
-    
+
     @property
     def agent_type(self) -> AgentType:
         """Return the type of this agent."""
@@ -62,31 +63,37 @@ class ParallelAgent(BaseAgent):
         Returns:
             The aggregated response from the fan-in agent
         """
-        # Execute all fan-out agents in parallel
-        responses: List[PromptMessageMultipart] = await asyncio.gather(
-            *[agent.generate(multipart_messages, request_params) for agent in self.fan_out_agents]
-        )
 
-        # Extract the received message from the input
-        received_message: Optional[str] = (
-            multipart_messages[-1].all_text() if multipart_messages else None
-        )
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"Parallel: '{self.name}' generate"):
+            # Execute all fan-out agents in parallel
+            responses: List[PromptMessageMultipart] = await asyncio.gather(
+                *[
+                    agent.generate(multipart_messages, request_params)
+                    for agent in self.fan_out_agents
+                ]
+            )
 
-        # Convert responses to strings for aggregation
-        string_responses = []
-        for response in responses:
-            string_responses.append(response.all_text())
+            # Extract the received message from the input
+            received_message: Optional[str] = (
+                multipart_messages[-1].all_text() if multipart_messages else None
+            )
 
-        # Format the responses and send to the fan-in agent
-        aggregated_prompt = self._format_responses(string_responses, received_message)
+            # Convert responses to strings for aggregation
+            string_responses = []
+            for response in responses:
+                string_responses.append(response.all_text())
 
-        # Create a new multipart message with the formatted responses
-        formatted_prompt = PromptMessageMultipart(
-            role="user", content=[TextContent(type="text", text=aggregated_prompt)]
-        )
+            # Format the responses and send to the fan-in agent
+            aggregated_prompt = self._format_responses(string_responses, received_message)
 
-        # Use the fan-in agent to aggregate the responses
-        return await self.fan_in_agent.generate([formatted_prompt], request_params)
+            # Create a new multipart message with the formatted responses
+            formatted_prompt = PromptMessageMultipart(
+                role="user", content=[TextContent(type="text", text=aggregated_prompt)]
+            )
+
+            # Use the fan-in agent to aggregate the responses
+            return await self.fan_in_agent.generate([formatted_prompt], request_params)
 
     def _format_responses(self, responses: List[Any], message: Optional[str] = None) -> str:
         """
@@ -116,7 +123,7 @@ class ParallelAgent(BaseAgent):
 
     async def structured(
         self,
-        prompt: List[PromptMessageMultipart],
+        multipart_messages: List[PromptMessageMultipart],
         model: type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -133,27 +140,35 @@ class ParallelAgent(BaseAgent):
         Returns:
             An instance of the specified model, or None if coercion fails
         """
-        # Generate parallel responses first
-        responses: List[PromptMessageMultipart] = await asyncio.gather(
-            *[agent.generate(prompt, request_params) for agent in self.fan_out_agents]
-        )
 
-        # Extract the received message
-        received_message: Optional[str] = prompt[-1].all_text() if prompt else None
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"Parallel: '{self.name}' generate"):
+            # Generate parallel responses first
+            responses: List[PromptMessageMultipart] = await asyncio.gather(
+                *[
+                    agent.generate(multipart_messages, request_params)
+                    for agent in self.fan_out_agents
+                ]
+            )
 
-        # Convert responses to strings
-        string_responses = [response.all_text() for response in responses]
+            # Extract the received message
+            received_message: Optional[str] = (
+                multipart_messages[-1].all_text() if multipart_messages else None
+            )
 
-        # Format the responses for the fan-in agent
-        aggregated_prompt = self._format_responses(string_responses, received_message)
+            # Convert responses to strings
+            string_responses = [response.all_text() for response in responses]
 
-        # Create a multipart message
-        formatted_prompt = PromptMessageMultipart(
-            role="user", content=[TextContent(type="text", text=aggregated_prompt)]
-        )
+            # Format the responses for the fan-in agent
+            aggregated_prompt = self._format_responses(string_responses, received_message)
 
-        # Use the fan-in agent to parse the structured output
-        return await self.fan_in_agent.structured([formatted_prompt], model, request_params)
+            # Create a multipart message
+            formatted_prompt = PromptMessageMultipart(
+                role="user", content=[TextContent(type="text", text=aggregated_prompt)]
+            )
+
+            # Use the fan-in agent to parse the structured output
+            return await self.fan_in_agent.structured([formatted_prompt], model, request_params)
 
     async def initialize(self) -> None:
         """

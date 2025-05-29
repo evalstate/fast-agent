@@ -58,7 +58,7 @@ class PromptMessageMultipart(BaseModel):
 
     def first_text(self) -> str:
         """
-        Get the first available text content from a message.
+        Get the first available text content from a message. Note this could be tool content etc.
 
         Args:
             message: A PromptMessage or PromptMessageMultipart
@@ -67,6 +67,24 @@ class PromptMessageMultipart(BaseModel):
             First text content or None if no text content exists
         """
         for content in self.content:
+            text = get_text(content)
+            if text is not None:
+                return text
+
+        return "<no text>"
+
+    def last_text(self) -> str:
+        """
+        Get the last available text content from a message. This will usually be the final
+        generation from the Assistant.
+
+        Args:
+            message: A PromptMessage or PromptMessageMultipart
+
+        Returns:
+            First text content or None if no text content exists
+        """
+        for content in reversed(self.content):
             text = get_text(content)
             if text is not None:
                 return text
@@ -90,6 +108,11 @@ class PromptMessageMultipart(BaseModel):
                 result.append(text)
 
         return "\n".join(result)
+
+    def add_text(self, to_add: str) -> TextContent:
+        text = TextContent(type="text", text=to_add)
+        self.content.append(text)
+        return text
 
     @classmethod
     def parse_get_prompt_result(cls, result: GetPromptResult) -> List["PromptMessageMultipart"]:

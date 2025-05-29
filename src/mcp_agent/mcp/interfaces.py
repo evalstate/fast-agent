@@ -20,6 +20,7 @@ from typing import (
     runtime_checkable,
 )
 
+from a2a_types.types import AgentCard
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from deprecated import deprecated
 from mcp import ClientSession
@@ -96,7 +97,7 @@ class AugmentedLLMProtocol(Protocol):
 
     async def structured(
         self,
-        prompt: List[PromptMessageMultipart],
+        multipart_messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -188,6 +189,10 @@ class AgentProtocol(AugmentedLLMProtocol, Protocol):
         server_name: str | None = None,
     ) -> str:
         """Send a message with an attached MCP resource"""
+        ...
+
+    async def agent_card(self) -> AgentCard:
+        """Return an A2A Agent Card for this Agent"""
         ...
 
     async def initialize(self) -> None:

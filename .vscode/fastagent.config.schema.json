@@ -96,6 +96,38 @@
       "title": "GenericSettings",
       "type": "object"
     },
+    "GoogleSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenAI models in the fast-agent application.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "GoogleSettings",
+      "type": "object"
+    },
     "LoggerSettings": {
       "description": "Logger settings for the fast-agent application.",
       "properties": {
@@ -204,6 +236,12 @@
           "title": "Truncate Tools",
           "type": "boolean",
           "description": "Truncate display of long tool calls"
+        },
+        "enable_markup": {
+          "default": true,
+          "title": "Enable Markup",
+          "type": "boolean",
+          "description": "Enable markup in console output. Disable for outputs that may conflict with rich console formatting"
         }
       },
       "title": "LoggerSettings",
@@ -316,7 +354,8 @@
           "default": "stdio",
           "enum": [
             "stdio",
-            "sse"
+            "sse",
+            "http"
           ],
           "title": "Transport",
           "type": "string",
@@ -365,16 +404,9 @@
           "description": "The timeout in seconds for the session."
         },
         "read_transport_sse_timeout_seconds": {
-          "anyOf": [
-            {
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
           "default": 300,
-          "title": "Read Transport SSE Timeout Seconds",
+          "title": "Read Transport Sse Timeout Seconds",
+          "type": "integer",
           "description": "The timeout in seconds for the server connection."
         },
         "url": {
@@ -461,6 +493,19 @@
           ],
           "default": null,
           "description": "Sampling settings for this Client/Server pair"
+        },
+        "cwd": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cwd",
+          "description": "Working directory for the executed server command."
         }
       },
       "title": "MCPServerSettings",
@@ -524,11 +569,43 @@
       "title": "OpenAISettings",
       "type": "object"
     },
+    "OpenRouterSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using OpenRouter models via its OpenAI-compatible API.",
+      "properties": {
+        "api_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Api Key"
+        },
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
+        }
+      },
+      "title": "OpenRouterSettings",
+      "type": "object"
+    },
     "OpenTelemetrySettings": {
       "description": "OTEL settings for the fast-agent application.",
       "properties": {
         "enabled": {
-          "default": true,
+          "default": false,
           "title": "Enabled",
           "type": "boolean"
         },
@@ -537,41 +614,10 @@
           "title": "Service Name",
           "type": "string"
         },
-        "service_instance_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Service Instance Id"
-        },
-        "service_version": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Service Version"
-        },
         "otlp_endpoint": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
+          "default": "http://localhost:4318/v1/traces",
           "title": "Otlp Endpoint",
+          "type": "string",
           "description": "OTLP endpoint for OpenTelemetry tracing"
         },
         "console_debug": {
@@ -590,21 +636,21 @@
       "title": "OpenTelemetrySettings",
       "type": "object"
     },
-    "TemporalSettings": {
-      "description": "Temporal settings for the fast-agent application.",
+    "TensorZeroSettings": {
+      "additionalProperties": true,
+      "description": "Settings for using TensorZero via its OpenAI-compatible API.",
       "properties": {
-        "host": {
-          "title": "Host",
-          "type": "string"
-        },
-        "namespace": {
-          "default": "default",
-          "title": "Namespace",
-          "type": "string"
-        },
-        "task_queue": {
-          "title": "Task Queue",
-          "type": "string"
+        "base_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Base Url"
         },
         "api_key": {
           "anyOf": [
@@ -619,11 +665,7 @@
           "title": "Api Key"
         }
       },
-      "required": [
-        "host",
-        "task_queue"
-      ],
-      "title": "TemporalSettings",
+      "title": "TensorZeroSettings",
       "type": "object"
     }
   },
@@ -645,11 +687,8 @@
       "description": "MCP config, such as MCP servers"
     },
     "execution_engine": {
+      "const": "asyncio",
       "default": "asyncio",
-      "enum": [
-        "asyncio",
-        "temporal"
-      ],
       "title": "Execution Engine",
       "type": "string",
       "description": "Execution engine for the fast-agent application"
@@ -665,18 +704,6 @@
       ],
       "default": "haiku",
       "title": "Default Model"
-    },
-    "temporal": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/TemporalSettings"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "Settings for Temporal workflow orchestration"
     },
     "anthropic": {
       "anyOf": [
@@ -700,11 +727,9 @@
         }
       ],
       "default": {
-        "enabled": true,
+        "enabled": false,
         "service_name": "fast-agent",
-        "service_instance_id": null,
-        "service_version": null,
-        "otlp_endpoint": null,
+        "otlp_endpoint": "http://localhost:4318/v1/traces",
         "console_debug": false,
         "sample_rate": 1.0
       },
@@ -734,6 +759,30 @@
       "default": null,
       "description": "Settings for using DeepSeek models in the fast-agent application"
     },
+    "google": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/GoogleSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using DeepSeek models in the fast-agent application"
+    },
+    "openrouter": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OpenRouterSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using OpenRouter models in the fast-agent application"
+    },
     "generic": {
       "anyOf": [
         {
@@ -745,6 +794,18 @@
       ],
       "default": null,
       "description": "Settings for using Generic models in the fast-agent application"
+    },
+    "tensorzero": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/TensorZeroSettings"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Settings for using TensorZero inference gateway"
     },
     "logger": {
       "anyOf": [
@@ -768,7 +829,8 @@
         "http_timeout": 5.0,
         "show_chat": true,
         "show_tools": true,
-        "truncate_tools": true
+        "truncate_tools": true,
+        "enable_markup": true
       },
       "description": "Logger settings for the fast-agent application"
     }

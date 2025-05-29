@@ -1,7 +1,2 @@
-logging:
-  dir_path: null
-  file_path: null
-  level: DEBUG
-
 mcp:
   name: evaluator_optimizer_tests

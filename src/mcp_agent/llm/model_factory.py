@@ -10,10 +10,13 @@ from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_azure import AzureOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_google import GoogleAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
@@ -27,6 +30,7 @@ LLMClass = Union[
     Type[PlaybackLLM],
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
+    Type[TensorZeroAugmentedLLM],
 ]
 
 
@@ -82,19 +86,25 @@ class ModelFactory:
         "claude-3-7-sonnet-latest": Provider.ANTHROPIC,
         "claude-3-opus-20240229": Provider.ANTHROPIC,
         "claude-3-opus-latest": Provider.ANTHROPIC,
+        "claude-opus-4-0": Provider.ANTHROPIC,
+        "claude-opus-4-20250514": Provider.ANTHROPIC,
+        "claude-sonnet-4-20250514": Provider.ANTHROPIC,
+        "claude-sonnet-4-0": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
     }
 
     MODEL_ALIASES = {
-        "sonnet": "claude-3-7-sonnet-latest",
+        "sonnet": "claude-sonnet-4-0",
+        "sonnet4": "claude-sonnet-4-0",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
-        "claude": "claude-3-7-sonnet-latest",
+        "claude": "claude-sonnet-4-0",
         "haiku": "claude-3-5-haiku-latest",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
-        "opus": "claude-3-opus-latest",
+        "opus": "claude-opus-4-0",
+        "opus4": "claude-opus-4-0",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
@@ -107,7 +117,10 @@ class ModelFactory:
         Provider.FAST_AGENT: PassthroughLLM,
         Provider.DEEPSEEK: DeepSeekAugmentedLLM,
         Provider.GENERIC: GenericAugmentedLLM,
+        Provider.GOOGLE: GoogleAugmentedLLM,  # type: ignore
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
+        Provider.TENSORZERO: TensorZeroAugmentedLLM,
+        Provider.AZURE: AzureOpenAIAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes
@@ -140,6 +153,11 @@ class ModelFactory:
                 provider = Provider(potential_provider)
                 model_parts = model_parts[1:]
 
+        if provider == Provider.TENSORZERO and not model_parts:
+            raise ModelConfigError(
+                f"TensorZero provider requires a function name after the provider "
+                f"(e.g., tensorzero.my-function), got: {model_string}"
+            )
         # Join remaining parts as model name
         model_name = ".".join(model_parts)
 
@@ -161,7 +179,7 @@ class ModelFactory:
         Creates a factory function that follows the attach_llm protocol.
 
         Args:
-            model_string: The model specification string (e.g. "gpt-4o.high")
+            model_string: The model specification string (e.g. "gpt-4.1")
             request_params: Optional parameters to configure LLM behavior
 
         Returns:

@@ -54,7 +54,41 @@ def fast_agent(request):
 
     # Explicitly create absolute path to the config file in the test directory
     config_file = os.path.join(test_dir, "fastagent.config.yaml")
-    
+
+    # Create agent with local config using absolute path
+    agent = FastAgent(
+        "Test Agent",
+        config_path=config_file,  # Use absolute path to local config in test directory
+        ignore_unknown_args=True,
+    )
+
+    # Provide the agent
+    yield agent
+
+    # Restore original directory
+    os.chdir(original_cwd)
+
+
+# Add a fixture that uses the test file's directory
+@pytest.fixture
+def markup_fast_agent(request):
+    """
+    Creates a FastAgent with config from the test file's directory.
+    Automatically changes working directory to match the test file location.
+    """
+    # Get the directory where the test file is located
+    test_module = request.module.__file__
+    test_dir = os.path.dirname(test_module)
+
+    # Save original directory
+    original_cwd = os.getcwd()
+
+    # Change to the test file's directory
+    os.chdir(test_dir)
+
+    # Explicitly create absolute path to the config file in the test directory
+    config_file = os.path.join(test_dir, "fastagent.config.markup.yaml")
+
     # Create agent with local config using absolute path
     agent = FastAgent(
         "Test Agent",

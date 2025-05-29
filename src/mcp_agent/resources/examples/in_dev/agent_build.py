@@ -61,7 +61,7 @@ if needed. Remind the Human of this.
     model="sonnet",
     plan_type="iterative",
     request_params=RequestParams(maxTokens=8192),
-    max_iterations=5,
+    plan_iterations=5,
 )
 async def main() -> None:
     async with fast.run() as agent:

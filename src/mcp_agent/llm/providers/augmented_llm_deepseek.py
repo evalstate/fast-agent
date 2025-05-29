@@ -1,4 +1,3 @@
-
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
@@ -9,10 +8,7 @@ DEFAULT_DEEPSEEK_MODEL = "deepseekchat"  # current Deepseek only has two type mo
 
 class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
     def __init__(self, *args, **kwargs) -> None:
-        kwargs["provider_name"] = "Deepseek"  # Set provider name in kwargs
-        super().__init__(
-            *args, provider=Provider.DEEPSEEK, **kwargs
-        )  # Properly pass args and kwargs to parent
+        super().__init__(*args, provider=Provider.DEEPSEEK, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Deepseek-specific default parameters"""

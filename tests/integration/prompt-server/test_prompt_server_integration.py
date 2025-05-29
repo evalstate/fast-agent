@@ -21,7 +21,9 @@ async def test_no_delimiters(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             x: GetPromptResult = await agent["test"].get_prompt("simple", None)
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "simple, no delimiters" == y[0].first_text()
             assert "user" == y[0].role
             assert len(y) == 1
@@ -43,7 +45,9 @@ async def test_no_delimiters_with_variables(fast_agent):
             x: GetPromptResult = await agent["test"].get_prompt(
                 "simple_sub", {"product": "fast-agent", "company": "llmindset"}
             )
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "this is fast-agent by llmindset" == y[0].first_text()
             assert "user" == y[0].role
             assert len(y) == 1
@@ -63,7 +67,9 @@ async def test_multiturn(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             x: GetPromptResult = await agent["test"].get_prompt("multi", None)
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "good morning" == y[0].first_text()
             assert "user" == y[0].role
             assert "how may i help you?" == y[1].first_text()
@@ -87,7 +93,9 @@ async def test_multiturn_with_subsitition(fast_agent):
             x: GetPromptResult = await agent["test"].get_prompt(
                 "multi_sub", {"user_name": "evalstate", "assistant_name": "HAL9000"}
             )
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "hello, my name is evalstate" == y[0].first_text()
             assert "user" == y[0].role
             assert "nice to meet you. i am HAL9000" == y[1].first_text()
@@ -124,7 +132,9 @@ async def test_get_prompt_with_server_param(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Test with explicit server parameter
-            prompt: GetPromptResult = await agent.test.get_prompt("simple", server_name="prompts")
+            prompt: GetPromptResult = await agent.test.get_prompt(
+                "simple", server_name="prompts"
+            )
             assert "simple, no delimiters" == get_text(prompt.messages[0].content)
 
     await agent_function()
@@ -170,3 +180,97 @@ async def test_handling_multipart_json_format(fast_agent):
             assert is_image_content(x.messages[3].content)
 
     await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_prompt_server_sse_can_set_ports(fast_agent):
+    # Start the SSE server in a subprocess
+    import asyncio
+    import os
+    import subprocess
+
+    # Get the path to the test agent
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Port must match what's in the fastagent.config.yaml
+    port = 8723
+
+    # Start the server process
+    server_proc = subprocess.Popen(
+        ["prompt-server", "--transport", "sse", "--port", str(port), "simple.txt"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=test_dir,
+    )
+
+    try:
+        # Give the server a moment to start
+        await asyncio.sleep(3)
+
+        # Now connect to it via the configured MCP server
+        @fast_agent.agent(name="client", servers=["prompt_sse"], model="passthrough")
+        async def agent_function():
+            async with fast_agent.run() as agent:
+                # Try connecting and sending a message
+                assert "simple" in await agent.apply_prompt("simple")
+
+        #                assert "connected" == await agent.send("connected")
+
+        await agent_function()
+
+    finally:
+        # Terminate the server process
+        if server_proc.poll() is None:  # If still running
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_prompt_server_http_can_set_ports(fast_agent):
+    # Start the SSE server in a subprocess
+    import asyncio
+    import os
+    import subprocess
+
+    # Get the path to the test agent
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Port must match what's in the fastagent.config.yaml
+    port = 8724
+
+    # Start the server process
+    server_proc = subprocess.Popen(
+        ["prompt-server", "--transport", "http", "--port", str(port), "simple.txt"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=test_dir,
+    )
+
+    try:
+        # Give the server a moment to start
+        await asyncio.sleep(3)
+
+        # Now connect to it via the configured MCP server
+        @fast_agent.agent(name="client", servers=["prompt_http"], model="passthrough")
+        async def agent_function():
+            async with fast_agent.run() as agent:
+                # Try connecting and sending a message
+                assert "simple" in await agent.apply_prompt("simple")
+
+        await agent_function()
+
+    finally:
+        # Terminate the server process
+        if server_proc.poll() is None:  # If still running
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()

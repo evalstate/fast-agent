@@ -5,7 +5,7 @@
 # Check here for current details: https://fast-agent.ai/models/
 
 # set the default model for fast-agent below:
-default_model: gpt-4o
+default_model: gpt-4.1
 
 # Logging and Console Configuration:
 logger:
@@ -23,5 +23,5 @@ logger:
 mcp:
   servers:
     agent_one:
-      transport: sse
-      url: http://localhost:8001/sse
+      transport: http
+      url: http://localhost:8001/mcp

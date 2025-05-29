@@ -163,7 +163,9 @@ def load_settings_class(
     return namespace["Settings"], model_info
 
 
-def apply_descriptions_to_schema(schema: Dict[str, Any], model_info: Dict[str, Dict[str, str]]) -> None:
+def apply_descriptions_to_schema(
+    schema: Dict[str, Any], model_info: Dict[str, Dict[str, str]]
+) -> None:
     """Recursively apply descriptions to schema and all its nested models."""
     if not isinstance(schema, dict):
         return
@@ -199,7 +201,7 @@ def generate(
         help="Path to the config.py file",
     ),
     output: Path = typer.Option(
-        Path("schema/mcp-agent.config.schema.json"),
+        Path(".vscode/fastagent.config.schema.json"),
         "--output",
         "-o",
         help="Output path for the schema file",
