@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
-        # "gemini25", # Not yet turned on as it runs into token limits.
+        "gemini25",  # Not yet turned on as it runs into token limits.
         "azure.gpt-4.1",
     ],
 )
@@ -54,7 +54,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
         "gpt-4.1-mini",  # OpenAI model
         "sonnet",  # Anthropic model
         "azure.gpt-4.1",
-        "gemini25", 
+        "gemini25",
         #    "gemini2",
     ],
 )
@@ -87,8 +87,7 @@ async def test_agent_with_mcp_image(fast_agent, model_name):
 @pytest.mark.parametrize(
     "model_name",
     [
-
-        "gemini25", # Google Gemini model -> Works sometimes, but not always. DONE.
+        "gemini25",  # Google Gemini model -> Works sometimes, but not always. DONE.
         # And Gemini 2.5 only works with a prompt that is a bit more specific.
         #    "gemini2",
     ],
@@ -124,8 +123,7 @@ async def test_agent_with_mcp_image_google(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
-        # "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
-
+        #    "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
     ],
 )
 async def test_agent_with_mcp_pdf(fast_agent, model_name):
@@ -150,7 +148,6 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
     await agent_function()
 
 
-
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
@@ -159,7 +156,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
-        # "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
+        "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
     ],
 )
 async def test_agent_with_pdf_prompt(fast_agent, model_name):
