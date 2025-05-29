@@ -13,7 +13,7 @@ class Provider(Enum):
     FAST_AGENT = "fast-agent"
     GENERIC = "generic"
     GOOGLE = "google"  # For Google through OpenAI libraries
-    GOOGLE_NATIVE = "google.native"  # For Google GenAI native library
+    GOOGLE_NATIVE = "googlenative"  # For Google GenAI native library
     OPENAI = "openai"
     OPENROUTER = "openrouter"
     TENSORZERO = "tensorzero"  # For TensorZero Gateway

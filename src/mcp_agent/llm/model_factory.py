@@ -97,10 +97,9 @@ class ModelFactory:
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
-        "gemini-2.0-flash": Provider.GOOGLE,
-        "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
-        "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
-        #        "deepseek-reasoner": Provider.DEEPSEEK, reinstate on release
+        "gemini-2.0-flash": Provider.GOOGLE_NATIVE,
+        "gemini-2.5-flash-preview-05-20": Provider.GOOGLE_NATIVE,
+        "gemini-2.5-pro-preview-05-06": Provider.GOOGLE_NATIVE,
     }
 
     MODEL_ALIASES = {
