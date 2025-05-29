@@ -21,7 +21,9 @@ async def test_no_delimiters(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             x: GetPromptResult = await agent["test"].get_prompt("simple", None)
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "simple, no delimiters" == y[0].first_text()
             assert "user" == y[0].role
             assert len(y) == 1
@@ -43,7 +45,9 @@ async def test_no_delimiters_with_variables(fast_agent):
             x: GetPromptResult = await agent["test"].get_prompt(
                 "simple_sub", {"product": "fast-agent", "company": "llmindset"}
             )
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "this is fast-agent by llmindset" == y[0].first_text()
             assert "user" == y[0].role
             assert len(y) == 1
@@ -63,7 +67,9 @@ async def test_multiturn(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             x: GetPromptResult = await agent["test"].get_prompt("multi", None)
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "good morning" == y[0].first_text()
             assert "user" == y[0].role
             assert "how may i help you?" == y[1].first_text()
@@ -87,7 +93,9 @@ async def test_multiturn_with_subsitition(fast_agent):
             x: GetPromptResult = await agent["test"].get_prompt(
                 "multi_sub", {"user_name": "evalstate", "assistant_name": "HAL9000"}
             )
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(x.messages)
+            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
+                x.messages
+            )
             assert "hello, my name is evalstate" == y[0].first_text()
             assert "user" == y[0].role
             assert "nice to meet you. i am HAL9000" == y[1].first_text()
@@ -124,7 +132,9 @@ async def test_get_prompt_with_server_param(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Test with explicit server parameter
-            prompt: GetPromptResult = await agent.test.get_prompt("simple", server_name="prompts")
+            prompt: GetPromptResult = await agent.test.get_prompt(
+                "simple", server_name="prompts"
+            )
             assert "simple, no delimiters" == get_text(prompt.messages[0].content)
 
     await agent_function()

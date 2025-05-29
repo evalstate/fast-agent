@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.2.26"
+version = "0.2.27"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.8.0",
+    "mcp==1.9.1",
     "opentelemetry-distro>=0.50b0",
     "opentelemetry-exporter-otlp-proto-http>=1.29.0",
     "pydantic-settings>=2.7.0",
