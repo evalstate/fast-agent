@@ -13,8 +13,8 @@ from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLL
 from mcp_agent.llm.providers.augmented_llm_azure import AzureOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
-from mcp_agent.llm.providers.augmented_llm_google import GoogleAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_native import GoogleNativeAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_google_oai import GoogleOaiAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
@@ -97,9 +97,9 @@ class ModelFactory:
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
-        "gemini-2.0-flash": Provider.GOOGLE_NATIVE,
-        "gemini-2.5-flash-preview-05-20": Provider.GOOGLE_NATIVE,
-        "gemini-2.5-pro-preview-05-06": Provider.GOOGLE_NATIVE,
+        "gemini-2.0-flash": Provider.GOOGLE,
+        "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
+        "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
     }
 
     MODEL_ALIASES = {
@@ -128,8 +128,8 @@ class ModelFactory:
         Provider.FAST_AGENT: PassthroughLLM,
         Provider.DEEPSEEK: DeepSeekAugmentedLLM,
         Provider.GENERIC: GenericAugmentedLLM,
-        Provider.GOOGLE: GoogleAugmentedLLM,
-        Provider.GOOGLE_NATIVE: GoogleNativeAugmentedLLM,
+        Provider.GOOGLE_OAI: GoogleOaiAugmentedLLM,
+        Provider.GOOGLE: GoogleNativeAugmentedLLM,
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
