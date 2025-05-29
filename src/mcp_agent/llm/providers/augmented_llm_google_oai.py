@@ -6,9 +6,9 @@ GOOGLE_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
 DEFAULT_GOOGLE_MODEL = "gemini-2.0-flash"
 
 
-class GoogleAugmentedLLM(OpenAIAugmentedLLM):
+class GoogleOaiAugmentedLLM(OpenAIAugmentedLLM):
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.GOOGLE, **kwargs)
+        super().__init__(*args, provider=Provider.GOOGLE_OAI, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Google OpenAI Compatibility default parameters"""

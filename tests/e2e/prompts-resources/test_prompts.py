@@ -10,6 +10,7 @@ import pytest
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "gemini25",  # Google Gemini model -> Works. DONE.
     ],
 )
 async def test_agent_with_simple_prompt(fast_agent, model_name):
@@ -40,6 +41,7 @@ async def test_agent_with_simple_prompt(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        # "gemini25",  # Google Gemini model -> This involves opening a PDF. It is not supported by Google Gemini with the OpenAI format. Unless the format is changed to the native Gemini format, this will not work.
     ],
 )
 async def test_agent_with_prompt_attachment(fast_agent, model_name):
@@ -70,6 +72,7 @@ async def test_agent_with_prompt_attachment(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "gemini25",  # Google Gemini model -> Works. DONE.
     ],
 )
 async def test_agent_multiturn_prompt(fast_agent, model_name):

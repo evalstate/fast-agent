@@ -31,8 +31,12 @@ dependencies = [
     "a2a-types>=0.1.0",
     "opentelemetry-instrumentation-openai>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-anthropic>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
-    "tensorzero>=2025.4.7",
     "opentelemetry-instrumentation-mcp>=0.40.3; python_version >= '3.10' and python_version < '4.0'",
+    "google-genai",
+    "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "tensorzero>=2025.4.7",
+    "google-genai",
+    "opentelemetry-instrumentation-google-genai>=0.2b0",
 ]
 
 [project.optional-dependencies]
