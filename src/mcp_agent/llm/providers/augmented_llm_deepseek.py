@@ -44,13 +44,34 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:  # noqa: F821
         request_params = self.get_request_params(request_params)
 
-        # TODO - convert this to use Tool Calling convention for Anthropic Structured outputs
+        # Get the full schema and extract just the properties
+        full_schema = model.model_json_schema()
+        properties = full_schema.get("properties", {})
+        required_fields = full_schema.get("required", [])
+        
+        # Create a cleaner format description
+        format_description = "{\n"
+        for field_name, field_info in properties.items():
+            field_type = field_info.get("type", "string")
+            description = field_info.get("description", "")
+            format_description += f'  "{field_name}": "{field_type}"'
+            if description:
+                format_description += f'  // {description}'
+            if field_name in required_fields:
+                format_description += '  // REQUIRED'
+            format_description += '\n'
+        format_description += "}"
+
         multipart_messages[-1].add_text(
-            """YOU MUST RESPOND IN THE FOLLOWING FORMAT:
-            {schema}
-            RESPOND ONLY WITH THE JSON, NO PREAMBLE, CODE FENCES OR 'properties' ARE PERMISSABLE """.format(
-                schema=model.model_json_schema()
-            )
+            f"""YOU MUST RESPOND WITH A JSON OBJECT IN EXACTLY THIS FORMAT:
+            {format_description}
+
+            IMPORTANT RULES:
+            - Respond ONLY with the JSON object, no other text
+            - Do NOT include "properties" or "schema" wrappers
+            - Do NOT use code fences or markdown
+            - The response must be valid JSON that matches the format above
+            - All required fields must be included"""
         )
 
         result: PromptMessageMultipart = await self._apply_prompt_provider_specific(
