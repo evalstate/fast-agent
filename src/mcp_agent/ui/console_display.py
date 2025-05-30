@@ -5,7 +5,8 @@ from rich.panel import Panel
 from rich.text import Text
 
 from mcp_agent import console
-from mcp_agent.mcp.mcp_aggregator import SEP
+from mcp_agent.mcp.common import SEP
+from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 
 # Constants
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
@@ -25,6 +26,7 @@ class ConsoleDisplay:
             config: Configuration object containing display preferences
         """
         self.config = config
+        self._markup = config.logger.enable_markup if config else True
 
     def show_tool_result(self, result: CallToolResult) -> None:
         """Display a tool result in a formatted panel."""
@@ -46,7 +48,7 @@ class ConsoleDisplay:
             if len(str(result.content)) > 360:
                 panel.height = 8
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
     def show_oai_tool_result(self, result) -> None:
@@ -67,7 +69,7 @@ class ConsoleDisplay:
             if len(str(result)) > 360:
                 panel.height = 8
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
     def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
@@ -92,7 +94,33 @@ class ConsoleDisplay:
             if len(str(tool_args)) > 360:
                 panel.height = 8
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self._markup)
+        console.console.print("\n")
+
+    async def show_tool_update(self, aggregator: MCPAggregator | None, updated_server: str) -> None:
+        """Show a tool update for a server"""
+        if not self.config or not self.config.logger.show_tools:
+            return
+
+        display_server_list = Text()
+
+        if aggregator:
+            for server_name in await aggregator.list_servers():
+                style = "green" if updated_server == server_name else "dim white"
+                display_server_list.append(f"[{server_name}] ", style)
+
+        panel = Panel(
+            f"[dim green]Updating tools for server {updated_server}[/]",
+            title="[TOOL UPDATE]",
+            title_align="left",
+            style="green",
+            border_style="bold white",
+            padding=(1, 2),
+            subtitle=display_server_list,
+            subtitle_align="left",
+        )
+        console.console.print("\n")
+        console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
     def _format_tool_list(self, available_tools, selected_tool_name):
@@ -172,7 +200,7 @@ class ConsoleDisplay:
             subtitle=display_server_list,
             subtitle_align="left",
         )
-        console.console.print(panel)
+        console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
     def show_user_message(
@@ -196,7 +224,7 @@ class ConsoleDisplay:
             subtitle=subtitle_text,
             subtitle_align="left",
         )
-        console.console.print(panel)
+        console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
     async def show_prompt_loaded(
@@ -270,5 +298,5 @@ class ConsoleDisplay:
             subtitle_align="left",
         )
 
-        console.console.print(panel)
+        console.console.print(panel, markup=self._markup)
         console.console.print("\n")

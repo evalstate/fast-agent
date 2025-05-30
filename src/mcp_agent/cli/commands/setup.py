@@ -15,7 +15,7 @@ FASTAGENT_CONFIG_TEMPLATE = """
 # Takes format:
 #   <provider>.<model_string>.<reasoning_effort?> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini.low)
 # Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3
-# and OpenAI Models: gpt-4o-mini, gpt-4o, o1, o1-mini, o3-mini
+# and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
 #
 # If not specified, defaults to "haiku". 
 # Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
@@ -221,7 +221,7 @@ def init(
         if "fastagent.secrets.yaml" in created:
             console.print("\n[yellow]Important:[/yellow] Remember to:")
             console.print(
-                "1. Add your API keys to fastagent.secrets.yaml or set OPENAI_API_KEY and ANTHROPIC_API_KEY environment variables"
+                "1. Add your API keys to fastagent.secrets.yaml, or set environment variables. Use [cyan]fast-agent check[/cyan] to verify."
             )
             console.print(
                 "2. Keep fastagent.secrets.yaml secure and never commit it to version control"

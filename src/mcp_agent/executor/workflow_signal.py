@@ -7,8 +7,6 @@ from pydantic import BaseModel, ConfigDict
 
 SignalValueT = TypeVar("SignalValueT")
 
-# TODO: saqadri - handle signals properly that works with other execution backends like Temporal as well
-
 
 class Signal(BaseModel, Generic[SignalValueT]):
     """Represents a signal that can be sent to a workflow."""

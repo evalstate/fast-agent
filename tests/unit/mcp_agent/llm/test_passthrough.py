@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 import pytest
+from pydantic import BaseModel
 
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.augmented_llm_passthrough import (
@@ -12,6 +13,14 @@ from mcp_agent.llm.augmented_llm_passthrough import (
 if TYPE_CHECKING:
     from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
     from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+
+
+class FormattedResponse(BaseModel):
+    thinking: str
+    message: str
+
+
+sample_json = '{"thinking":"The user wants to have a conversation about guitars, which are a broad...","message":"Sure! I love talking about guitars."}'
 
 
 @pytest.mark.asyncio
@@ -85,4 +94,13 @@ async def test_parse_tool_call_with_args():
     assert "value" == args["arg"]
 
 
-# actual tool calling is covered in the integration tests
+@pytest.mark.asyncio
+async def test_generates_structured():
+    llm: AugmentedLLMProtocol = PassthroughLLM()
+
+    model, response = await llm.structured([Prompt.user(sample_json)], FormattedResponse)
+    assert model is not None
+    assert (
+        model.thinking
+        == "The user wants to have a conversation about guitars, which are a broad..."
+    )

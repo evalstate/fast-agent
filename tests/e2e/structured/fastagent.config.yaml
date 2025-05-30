@@ -28,7 +28,3 @@ logger:
   # Truncate long tool responses on the console
   truncate_tools: true
 mcp:
-  servers:
-    test_server:
-      command: "uv"
-      args: ["run", "test_server.py"]

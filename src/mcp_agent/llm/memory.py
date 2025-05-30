@@ -19,7 +19,7 @@ class Memory(Protocol, Generic[MessageParamT]):
 
     def append(self, message: MessageParamT, is_prompt: bool = False) -> None: ...
 
-    def get(self, include_history: bool = True) -> List[MessageParamT]: ...
+    def get(self, include_completion_history: bool = True) -> List[MessageParamT]: ...
 
     def clear(self, clear_prompts: bool = False) -> None: ...
 
@@ -75,7 +75,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         else:
             self.history.append(message)
 
-    def get(self, include_history: bool = True) -> List[MessageParamT]:
+    def get(self, include_completion_history: bool = True) -> List[MessageParamT]:
         """
         Get all messages in memory.
 
@@ -86,7 +86,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         Returns:
             Combined list of prompt messages and optionally history messages
         """
-        if include_history:
+        if include_completion_history:
             return self.prompt_messages + self.history
         else:
             return self.prompt_messages.copy()

@@ -60,7 +60,7 @@ class MCPServerSettings(BaseModel):
     description: str | None = None
     """The description of the server."""
 
-    transport: Literal["stdio", "sse"] = "stdio"
+    transport: Literal["stdio", "sse", "http"] = "stdio"
     """The transport mechanism."""
 
     command: str | None = None
@@ -92,6 +92,9 @@ class MCPServerSettings(BaseModel):
 
     sampling: MCPSamplingSettings | None = None
     """Sampling settings for this Client/Server pair"""
+
+    cwd: str | None = None
+    """Working directory for the executed server command."""
 
 
 class MCPSettings(BaseModel):
@@ -139,6 +142,19 @@ class DeepSeekSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class GoogleSettings(BaseModel):
+    """
+    Settings for using OpenAI models in the fast-agent application.
+    """
+
+    api_key: str | None = None
+    # reasoning_effort: Literal["low", "medium", "high"] = "medium"
+
+    base_url: str | None = None
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GenericSettings(BaseModel):
     """
     Settings for using OpenAI models in the fast-agent application.
@@ -163,15 +179,18 @@ class OpenRouterSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
-class TemporalSettings(BaseModel):
+class AzureSettings(BaseModel):
     """
-    Temporal settings for the fast-agent application.
+    Settings for using Azure OpenAI Service in the fast-agent application.
     """
 
-    host: str
-    namespace: str = "default"
-    task_queue: str
     api_key: str | None = None
+    resource_name: str | None = None
+    azure_deployment: str | None = None
+    api_version: str | None = None
+    base_url: str | None = None  # Optional, can be constructed from resource_name
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class OpenTelemetrySettings(BaseModel):
@@ -179,13 +198,11 @@ class OpenTelemetrySettings(BaseModel):
     OTEL settings for the fast-agent application.
     """
 
-    enabled: bool = True
+    enabled: bool = False
 
     service_name: str = "fast-agent"
-    service_instance_id: str | None = None
-    service_version: str | None = None
 
-    otlp_endpoint: str | None = None
+    otlp_endpoint: str = "http://localhost:4318/v1/traces"
     """OTLP endpoint for OpenTelemetry tracing"""
 
     console_debug: bool = False
@@ -193,6 +210,16 @@ class OpenTelemetrySettings(BaseModel):
 
     sample_rate: float = 1.0
     """Sample rate for tracing (1.0 = sample everything)"""
+
+
+class TensorZeroSettings(BaseModel):
+    """
+    Settings for using TensorZero via its OpenAI-compatible API.
+    """
+
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class LoggerSettings(BaseModel):
@@ -236,6 +263,8 @@ class LoggerSettings(BaseModel):
     """Show MCP Sever tool calls on the console"""
     truncate_tools: bool = True
     """Truncate display of long tool calls"""
+    enable_markup: bool = True
+    """Enable markup in console output. Disable for outputs that may conflict with rich console formatting"""
 
 
 class Settings(BaseSettings):
@@ -254,16 +283,17 @@ class Settings(BaseSettings):
     mcp: MCPSettings | None = MCPSettings()
     """MCP config, such as MCP servers"""
 
-    execution_engine: Literal["asyncio", "temporal"] = "asyncio"
+    execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
     default_model: str | None = "haiku"
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
-    Aliases are provided for common models e.g. sonnet, haiku, gpt-4o, o3-mini etc.
+    Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     """
-    temporal: TemporalSettings | None = None
-    """Settings for Temporal workflow orchestration"""
+    
+    auto_sampling: bool = True
+    """Enable automatic sampling model selection if not explicitly configured"""
 
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""
@@ -277,11 +307,20 @@ class Settings(BaseSettings):
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
 
+    google: GoogleSettings | None = None
+    """Settings for using DeepSeek models in the fast-agent application"""
+
     openrouter: OpenRouterSettings | None = None
     """Settings for using OpenRouter models in the fast-agent application"""
 
     generic: GenericSettings | None = None
     """Settings for using Generic models in the fast-agent application"""
+
+    tensorzero: Optional[TensorZeroSettings] = None
+    """Settings for using TensorZero inference gateway"""
+
+    azure: AzureSettings | None = None
+    """Settings for using Azure OpenAI Service in the fast-agent application"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""

@@ -36,7 +36,7 @@ from mcp_agent.core.request_params import RequestParams
 
 # Core protocol interfaces
 from mcp_agent.mcp.interfaces import AgentProtocol, AugmentedLLMProtocol
-from mcp_agent.mcp.mcp_aggregator import MCPAggregator, MCPCompoundServer
+from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 __all__ = [
@@ -58,7 +58,6 @@ __all__ = [
     "Agent",
     "AgentConfig",
     "MCPAggregator",
-    "MCPCompoundServer",
     "PromptMessageMultipart",
     # FastAgent components
     "FastAgent",

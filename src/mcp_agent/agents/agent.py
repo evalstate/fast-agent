@@ -75,27 +75,11 @@ class Agent(BaseAgent):
         async def send_wrapper(message, agent_name):
             return await self.send(message)
 
-        # Define wrapper for apply_prompt function
-        async def apply_prompt_wrapper(prompt_name, args, agent_name):
-            # Just apply the prompt directly
-            return await self.apply_prompt(prompt_name, args)
-
-        # Define wrapper for list_prompts function
-        async def list_prompts_wrapper(agent_name):
-            # Always call list_prompts on this agent regardless of agent_name
-            return await self.list_prompts()
-
-        # Define wrapper for list_resources function
-        async def list_resources_wrapper(agent_name):
-            # Always call list_resources on this agent regardless of agent_name
-            return await self.list_resources()
-
         # Start the prompt loop with just this agent
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=agent_name_str,
             available_agents=[agent_name_str],  # Only this agent
-            apply_prompt_func=apply_prompt_wrapper,
-            list_prompts_func=list_prompts_wrapper,
+            prompt_provider=self,  # Pass self as the prompt provider since we implement the protocol
             default=default_prompt,
         )

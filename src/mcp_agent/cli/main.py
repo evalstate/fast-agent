@@ -4,7 +4,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from mcp_agent.cli.commands import check_config, quickstart, setup
+from mcp_agent.cli.commands import check_config, go, quickstart, setup
 from mcp_agent.cli.terminal import Application
 
 app = typer.Typer(
@@ -13,6 +13,7 @@ app = typer.Typer(
 )
 
 # Subcommands
+app.add_typer(go.app, name="go", help="Run an interactive agent directly from the command line")
 app.add_typer(setup.app, name="setup", help="Set up a new agent project")
 app.add_typer(check_config.app, name="check", help="Show or diagnose fast-agent configuration")
 app.add_typer(quickstart.app, name="bootstrap", help="Create example applications")
@@ -39,14 +40,15 @@ def show_welcome() -> None:
     table.add_column("Command", style="green")
     table.add_column("Description")
 
-    table.add_row("setup", "Create a new agent and configuration files")
+    table.add_row("[bold]go[/bold]", "Start an interactive session with an agent")
+    table.add_row("setup", "Create a new agent template and configuration files")
     table.add_row("check", "Show or diagnose fast-agent configuration")
     table.add_row("quickstart", "Create example applications (workflow, researcher, etc.)")
 
     console.print(table)
 
     console.print(
-        "\n[italic]get started with:[/italic] [cyan]fast-agent[/cyan] [green]setup[/green]"
+        "\n[italic]get started with:[/italic] [bold][cyan]fast-agent[/cyan][/bold] [green]setup[/green]"
     )
 
 

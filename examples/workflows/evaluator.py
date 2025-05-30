@@ -40,7 +40,7 @@ fast = FastAgent("Evaluator-Optimizer")
     Summarize your evaluation as a structured response with:
     - Overall quality rating.
     - Specific feedback and areas for improvement.""",
-    model="gpt-4o",
+    model="gpt-4.1",
 )
 # Define the evaluator-optimizer workflow
 @fast.evaluator_optimizer(

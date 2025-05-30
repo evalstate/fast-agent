@@ -231,6 +231,12 @@ def get_dependencies_groups(
         if agent_type == AgentType.PARALLEL.value:
             # Parallel agents depend on their fan-out and fan-in agents
             dependencies[name].update(agent_data.get("parallel_agents", []))
+            # Also add explicit fan_out dependencies if present
+            if "fan_out" in agent_data:
+                dependencies[name].update(agent_data["fan_out"])
+            # Add explicit fan_in dependency if present
+            if "fan_in" in agent_data and agent_data["fan_in"]:
+                dependencies[name].add(agent_data["fan_in"])
         elif agent_type == AgentType.CHAIN.value:
             # Chain agents depend on the agents in their sequence
             dependencies[name].update(agent_data.get("sequence", []))
@@ -241,7 +247,12 @@ def get_dependencies_groups(
             # Orchestrator agents depend on their child agents
             dependencies[name].update(agent_data.get("child_agents", []))
         elif agent_type == AgentType.EVALUATOR_OPTIMIZER.value:
-            # Evaluator-Optimizer agents depend on their evaluation and optimization agents
+            # Evaluator-Optimizer agents depend on their evaluator and generator agents
+            if "evaluator" in agent_data:
+                dependencies[name].add(agent_data["evaluator"])
+            if "generator" in agent_data:
+                dependencies[name].add(agent_data["generator"])
+            # For backward compatibility - also check eval_optimizer_agents if present
             dependencies[name].update(agent_data.get("eval_optimizer_agents", []))
 
     # Check for cycles if not allowed

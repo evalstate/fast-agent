@@ -26,3 +26,9 @@ mcp:
           "multi_sub.txt",
           "multipart.json",
         ]
+    prompt_sse:
+      transport: "sse"
+      url: "http://localhost:8723/sse"
+    prompt_http:
+      transport: "http"
+      url: "http://localhost:8724/mcp"

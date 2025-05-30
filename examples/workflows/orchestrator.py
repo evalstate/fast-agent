@@ -13,7 +13,7 @@ fast = FastAgent("Orchestrator-Workers")
 @fast.agent(
     "author",
     instruction="""You are to role play a poorly skilled writer, 
-    who makes frequent grammar, punctuations and spelling errors. You enjoy
+    who makes frequent grammar, punctuation and spelling errors. You enjoy
     writing short stories, but the narrative doesn't always make sense""",
     servers=["filesystem"],
 )
@@ -25,7 +25,7 @@ fast = FastAgent("Orchestrator-Workers")
             the closest match to a user's request, make the appropriate tool calls, 
             and return the URI and CONTENTS of the closest match.""",
     servers=["fetch", "filesystem"],
-    model="gpt-4o",
+    model="gpt-4.1",
 )
 @fast.agent(
     name="writer",
@@ -40,19 +40,17 @@ fast = FastAgent("Orchestrator-Workers")
             Identify any awkward phrasing or structural issues that could improve clarity. 
             Provide detailed feedback on corrections.""",
     servers=["fetch"],
-    model="gpt-4o",
+    model="gpt-4.1",
 )
 # Define the orchestrator to coordinate the other agents
 @fast.orchestrator(
-    name="orchestrate",
-    agents=["finder", "writer", "proofreader"],
-    plan_type="full",
+    name="orchestrate", agents=["finder", "writer", "proofreader"], plan_type="full", model="sonnet"
 )
 async def main() -> None:
     async with fast.run() as agent:
-        await agent.author(
-            "write a 250 word short story about kittens discovering a castle, and save it to short_story.md"
-        )
+        # await agent.author(
+        #     "write a 250 word short story about kittens discovering a castle, and save it to short_story.md"
+        # )
 
         # The orchestrator can be used just like any other agent
         task = """Load the student's short story from short_story.md, 

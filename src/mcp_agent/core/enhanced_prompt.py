@@ -289,14 +289,19 @@ async def get_enhanced_input(
                 # Return a dictionary with select_prompt action instead of a string
                 # This way it will match what the command handler expects
                 return {"select_prompt": True, "prompt_name": None}
-            elif cmd == "prompt" and len(cmd_parts) > 1:
-                # Direct prompt selection with name or number
-                prompt_arg = cmd_parts[1].strip()
-                # Check if it's a number (use as index) or a name (use directly)
-                if prompt_arg.isdigit():
-                    return {"select_prompt": True, "prompt_index": int(prompt_arg)}
+            elif cmd == "prompt":
+                # Handle /prompt with no arguments the same way as /prompts
+                if len(cmd_parts) > 1:
+                    # Direct prompt selection with name or number
+                    prompt_arg = cmd_parts[1].strip()
+                    # Check if it's a number (use as index) or a name (use directly)
+                    if prompt_arg.isdigit():
+                        return {"select_prompt": True, "prompt_index": int(prompt_arg)}
+                    else:
+                        return f"SELECT_PROMPT:{prompt_arg}"
                 else:
-                    return f"SELECT_PROMPT:{prompt_arg}"
+                    # If /prompt is used without arguments, treat it the same as /prompts
+                    return {"select_prompt": True, "prompt_name": None}
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":

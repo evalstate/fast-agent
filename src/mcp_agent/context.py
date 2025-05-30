@@ -4,11 +4,16 @@ A central context object to store global state that is shared across the applica
 
 import asyncio
 import concurrent.futures
+import uuid
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 from mcp import ServerSession
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
+from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
+from opentelemetry.instrumentation.mcp import McpInstrumentor
+from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -17,10 +22,6 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 from pydantic import BaseModel, ConfigDict
 
 from mcp_agent.config import Settings, get_settings
-from mcp_agent.executor.decorator_registry import (
-    DecoratorRegistry,
-    register_asyncio_decorators,
-)
 from mcp_agent.executor.executor import AsyncioExecutor, Executor
 from mcp_agent.executor.task_registry import ActivityRegistry
 from mcp_agent.logging.events import EventFilter
@@ -54,9 +55,8 @@ class Context(BaseModel):
     # Registries
     server_registry: Optional[ServerRegistry] = None
     task_registry: Optional[ActivityRegistry] = None
-    decorator_registry: Optional[DecoratorRegistry] = None
 
-    tracer: Optional[trace.Tracer] = None
+    tracer: trace.Tracer | None = None
 
     model_config = ConfigDict(
         extra="allow",
@@ -68,28 +68,27 @@ async def configure_otel(config: "Settings") -> None:
     """
     Configure OpenTelemetry based on the application config.
     """
-    if not config.otel.enabled:
-        return
-
-    # Check if a provider is already set to avoid re-initialization
-    if trace.get_tracer_provider().__class__.__name__ != "NoOpTracerProvider":
+    if not config.otel or not config.otel.enabled:
         return
 
     # Set up global textmap propagator first
     set_global_textmap(TraceContextTextMapPropagator())
 
     service_name = config.otel.service_name
-    service_instance_id = config.otel.service_instance_id
-    service_version = config.otel.service_version
+    from importlib.metadata import version
 
-    # Create resource identifying this service
+    try:
+        app_version = version("fast-agent-mcp")
+    except:  # noqa: E722
+        app_version = "unknown"
+
     resource = Resource.create(
         attributes={
             key: value
             for key, value in {
                 "service.name": service_name,
-                "service.instance.id": service_instance_id,
-                "service.version": service_version,
+                "service.instance.id": str(uuid.uuid4())[:6],
+                "service.version": app_version,
             }.items()
             if value is not None
         }
@@ -112,6 +111,10 @@ async def configure_otel(config: "Settings") -> None:
 
     # Set as global tracer provider
     trace.set_tracer_provider(tracer_provider)
+    AnthropicInstrumentor().instrument()
+    OpenAIInstrumentor().instrument()
+    GoogleGenAiSdkInstrumentor().instrument()
+    McpInstrumentor().instrument()
 
 
 async def configure_logger(config: "Settings") -> None:
@@ -142,18 +145,7 @@ async def configure_executor(config: "Settings"):
     """
     Configure the executor based on the application config.
     """
-    if config.execution_engine == "asyncio":
-        return AsyncioExecutor()
-    elif config.execution_engine == "temporal":
-        # Configure Temporal executor
-        from mcp_agent.executor.temporal import TemporalExecutor
-
-        executor = TemporalExecutor(config=config.temporal)
-        return executor
-    else:
-        # Default to asyncio executor
-        executor = AsyncioExecutor()
-        return executor
+    return AsyncioExecutor()
 
 
 async def initialize_context(
@@ -180,11 +172,9 @@ async def initialize_context(
     context.executor = await configure_executor(config)
     context.task_registry = ActivityRegistry()
 
-    context.decorator_registry = DecoratorRegistry()
-    register_asyncio_decorators(context.decorator_registry)
-
     # Store the tracer in context if needed
-    context.tracer = trace.get_tracer(config.otel.service_name)
+    if config.otel:
+        context.tracer = trace.get_tracer(config.otel.service_name)
 
     if store_globally:
         global _global_context
@@ -234,7 +224,7 @@ def get_current_context() -> Context:
 def get_current_config():
     """
     Get the current application config.
-    
+
     Returns the context config if available, otherwise falls back to global settings.
     """
     return get_current_context().config or get_settings()

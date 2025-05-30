@@ -35,7 +35,7 @@ def test_full_model_strings():
             "claude-3-haiku-20240307",
             None,
         ),
-        ("openai.gpt-4o", Provider.OPENAI, "gpt-4o", None),
+        ("openai.gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
         ("openai.o1.high", Provider.OPENAI, "o1", ReasoningEffort.HIGH),
     ]
 
@@ -61,9 +61,9 @@ def test_invalid_inputs():
 def test_llm_class_creation():
     """Test creation of LLM classes"""
     cases = [
-        ("gpt-4o", OpenAIAugmentedLLM),
+        ("gpt-4.1", OpenAIAugmentedLLM),
         ("claude-3-haiku-20240307", AnthropicAugmentedLLM),
-        ("openai.gpt-4o", OpenAIAugmentedLLM),
+        ("openai.gpt-4.1", OpenAIAugmentedLLM),
     ]
 
     for model_str, expected_class in cases:

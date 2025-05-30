@@ -1,9 +1,11 @@
-from typing import Any, List
+from typing import Any, List, Type
 
+from mcp_agent.core.exceptions import ModelConfigError
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.augmented_llm import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.provider_types import Provider
+from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
 
@@ -82,3 +84,21 @@ class PlaybackLLM(PassthroughLLM):
         )
 
         return response
+
+    async def structured(
+        self,
+        multipart_messages: List[PromptMessageMultipart],
+        model: Type[ModelT],
+        request_params: RequestParams | None = None,
+    ) -> tuple[ModelT | None, PromptMessageMultipart]:
+        """
+        Handle structured requests by returning the next assistant message.
+        """
+
+        if -1 == self._current_index:
+            raise ModelConfigError("Use generate() to load playback history")
+
+        return self._structured_from_multipart(
+            self._get_next_assistant_message(),
+            model,
+        )
