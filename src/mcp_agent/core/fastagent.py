@@ -94,7 +94,7 @@ class FastAgent:
                             (like FastAPI/Uvicorn) that handles its own arguments.
         """
         self.args = argparse.Namespace()  # Initialize args always
-        print("fastagent initialistaion happening!!!")
+        print("fastagent initial with version 0.3.0 with managed kafka support")
         # --- Wrap argument parsing logic ---
         if parse_cli_args:
             # Setup command line argument parsing

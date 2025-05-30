@@ -1,37 +1,32 @@
-## Overview
-This is agent orchestrator backend to create agents on fly, store all your MCP variables and get tasks done round the clock from these agents. 
-Visit [CommandHive Website](https://commandhive.xyz/)
-
-## ✅ Completed
-- [x] Ensure sampling as MCP feature is working
-- [x] Create Pub/Sub support using Redis
-- [x] Create Pub/Sub support using Kafka
-- [x] Create Pub/Sub support using MSK (Managed Kafka)
-- [x] Ensure tool calling is done with confirmation
-- [x] Check compatibility with Python 3.11
-- [x] Check compatibility with Python 3.12
-
-## ⏳ To Do Next
-- [ ] Integrate smart contract for tool calling
-- [ ] Each agent has its own wallet (defined in config)
-- [ ] Pub/Sub support for RabbitMQ
-- [ ] Pub/Sub support for Google Pub/Sub
-
-## Sample Agent 
-
-```
 import asyncio
 import json
 from typing import Dict, List
 import os
-from mcp_agent.core.fastagent import FastAgent
+from src.mcp_agent.core.fastagent import FastAgent
 from dotenv import load_dotenv
 load_dotenv()
 import redis.asyncio as aioredis
 
 '''
+Redis example:
  redis-cli PUBLISH agent:queen '{"type": "user", "content": "tell me price of polygon please", "channel_id": "agent:queen",
   "metadata": {"model": "claude-3-5-haiku-latest", "name": "default"}}'
+
+Kafka example (if using Kafka backend):
+ kafka-console-producer --broker-list localhost:9092 --topic mcp_agent_queen
+ {"type": "user", "content": "tell me price of polygon please", "channel_id": "agent:queen", "metadata": {"model": "claude-3-5-haiku-latest", "name": "default"}}
+
+MSK example (if using MSK backend):
+ python src/msk_producer.py  # Uses the configured MSK cluster
+ # The producer will send to topic: mcp_agent_queen
+
+To switch backends:
+- Change "backend": "redis" to "backend": "kafka" or "backend": "msk" in pubsub_config  
+- For Kafka: Install dependencies: pip install bee-agent[kafka]
+- For MSK: Install dependencies: pip install aiokafka aws-msk-iam-sasl-signer boto3
+- Set environment variables:
+  - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION (for MSK)
+  - MSK_BOOTSTRAP_SERVERS, MSK_TOPIC_NAME (optional, has defaults)
 '''
 
 subagents_config = [
@@ -68,6 +63,16 @@ sample_json_config = {
                     }
                 ]
             },
+            "google-maps":{
+                "command": "npx",
+                "args": [
+                    "-y",
+                    "@modelcontextprotocol/server-google-maps"
+                    ],
+                "env":{
+                    "GOOGLE_MAPS_API_KEY": "AIzaSyCkB37IJcttzInYSunk3IousaabMOXBO20"
+                }
+            }
             "brave": {
                 "name": "brave",
                 "description": "Brave search server",
@@ -90,14 +95,32 @@ sample_json_config = {
     },
     "pubsub_enabled": True,
     "pubsub_config": {
-        "use_redis": True,
+        "backend": "msk",  # Options: "memory", "redis", "kafka", "msk"
         "channel_name": "queen",
-        "redis": {
-            "host": "localhost",
-            "port": 6379,
-            "db": 0,
-            "channel_prefix": "agent:"
-        }
+        "msk": {
+            "bootstrap_servers": [
+                "b-3-public.commandhive.aewd11.c4.kafka.ap-south-1.amazonaws.com:9198",
+                "b-1-public.commandhive.aewd11.c4.kafka.ap-south-1.amazonaws.com:9198", 
+                "b-2-public.commandhive.aewd11.c4.kafka.ap-south-1.amazonaws.com:9198"
+            ],
+            "aws_region": "ap-south-1",
+            "topic_prefix": "mcp_agent_",
+            "security_protocol": "SASL_SSL",
+            "sasl_mechanism": "OAUTHBEARER",
+            "ssl_config": {
+                "check_hostname": False,
+                "verify_mode": "none"
+            },
+            "producer_config": {
+                "acks": "all",
+                "client_id": "mcp_agent_producer"
+            },
+            "consumer_config": {
+                "auto_offset_reset": "latest",
+                "enable_auto_commit": True,
+                "client_id": "mcp_agent_consumer"
+            }
+        },
     },
     "anthropic": {
         "api_key": os.environ.get("CLAUDE_API_KEY", "") 
@@ -231,36 +254,3 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
-
-```
-
-## Sample Listener
-```
-import redis
-import time
-
-def main():
-    # Connect to Redis (adjust host/port/db as needed)
-    r = redis.Redis(host='localhost', port=6379, db=0)
-
-    # Create a PubSub object and subscribe to the channel
-    pubsub = r.pubsub()
-    channel_name = 'agent:queen'
-    pubsub.subscribe(channel_name)
-    print(f"Subscribed to channel: {channel_name}")
-
-    # Loop forever, polling for new messages
-    while True:
-        message = pubsub.get_message()
-        if message:
-            # Print the raw message dict
-            print(message)
-        # Sleep briefly to avoid busy‑waiting
-        time.sleep(0.05)
-
-if __name__ == '__main__':
-    main()
-```
-
-## Disclaimer 
-This repo is cloned from [fast-agent](https://github.com/evalstate/fast-agent/)

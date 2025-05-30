@@ -15,8 +15,9 @@ from mcp_agent.mcp.pubsub import get_pubsub_manager, PubSubChannel
 
 class RedisLoggerListener(FilteredListener):
     """
-    Listener that forwards log events to a Redis PubSub channel.
-    This allows all logger.info calls to be published to Redis for 
+    Listener that forwards log events to a PubSub channel.
+    Supports Redis, Kafka, or in-memory backends.
+    This allows all logger.info calls to be published for 
     subscription by other services.
     """
 
@@ -24,29 +25,49 @@ class RedisLoggerListener(FilteredListener):
         self,
         channel_name: str,
         event_filter: Optional[EventFilter] = None,
-        use_redis: bool = True,
+        backend: str = "memory",
+        backend_config: Optional[Dict[str, Any]] = None,
+        use_redis: bool = False,
         redis_config: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
-        Initialize the Redis logger listener.
+        Initialize the logger listener.
         
         Args:
             channel_name: Name of the PubSub channel to publish events to
             event_filter: Optional filter to limit which events are published
-            use_redis: Whether to use Redis for pub/sub messaging
-            redis_config: Redis configuration dictionary (host, port, db, etc.)
+            backend: Backend type - "memory", "redis", or "kafka"
+            backend_config: Backend-specific configuration dictionary
+            use_redis: (Deprecated) Whether to use Redis for pub/sub messaging
+            redis_config: (Deprecated) Redis configuration dictionary
         """
         super().__init__(event_filter=event_filter)
         self.channel_name = channel_name
         self.serializer = JSONSerializer()
         
         # Initialize PubSub manager and channel
-        self.pubsub_manager = get_pubsub_manager(use_redis=use_redis, redis_config=redis_config)
+        self.pubsub_manager = get_pubsub_manager(
+            backend=backend, 
+            backend_config=backend_config,
+            use_redis=use_redis, 
+            redis_config=redis_config
+        )
         self.channel: Optional[PubSubChannel] = None
 
     async def start(self) -> None:
-        """Initialize the Redis PubSub channel."""
+        """Initialize the PubSub channel and verify MSK topic creation if using MSK backend."""
+        print(f"🔧 Starting logger listener for channel: {self.channel_name}")
         self.channel = self.pubsub_manager.get_or_create_channel(self.channel_name)
+        
+        # If using MSK backend, ensure the channel is properly started and topic is created
+        if hasattr(self.channel, 'start') and hasattr(self.channel, 'topic'):
+            try:
+                await self.channel.start()
+                print(f"✅ MSK topic verified/created: {self.channel.topic}")
+            except Exception as e:
+                print(f"⚠️  Failed to start MSK channel: {e}")
+                
+        print(f"✅ Logger listener channel ready: {self.channel_name}")
 
     async def stop(self) -> None:
         """Clean up resources if needed."""
@@ -75,5 +96,5 @@ class RedisLoggerListener(FilteredListener):
             "context": event.context.dict() if event.context else None,
         }
         
-        # Publish the event to the Redis PubSub channel
+        # Publish the event to the PubSub channel
         await self.channel.publish(event_data)

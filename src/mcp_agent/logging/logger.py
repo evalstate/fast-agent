@@ -19,7 +19,7 @@ from mcp_agent.logging.listeners import (
     LoggingListener,
     ProgressListener,
 )
-from mcp_agent.logging.redis_listener import RedisLoggerListener
+from mcp_agent.logging.pubsub_listener import RedisLoggerListener
 from mcp_agent.logging.transport import AsyncEventBus, EventTransport
 
 
@@ -232,29 +232,52 @@ class LoggingConfig:
                 ),
             )
             
-        # Add Redis PubSub listener if enabled and available
+        # Add PubSub listener (Redis/MSK/Kafka) if enabled and available
         pubsub_enabled = kwargs.get("pubsub_enabled", False)
-        print("pubsub_enabled")
-        print(pubsub_enabled)
-        print(RedisLoggerListener)
-        print(bus.listeners)
-        if pubsub_enabled and RedisLoggerListener is not None and "redis_pubsub" not in bus.listeners:
-            print(bus.listeners)
+        if pubsub_enabled and RedisLoggerListener is not None and "pubsub" not in bus.listeners:
             pubsub_config = kwargs.get("pubsub_config", {})
             channel_name = pubsub_config.get("channel_name", "logs")
-            use_redis = pubsub_config.get("use_redis", True)
-            redis_config = pubsub_config.get("redis", None)
             
-            print(pubsub_config)
-            bus.add_listener(
-                "redis_pubsub",
-                RedisLoggerListener(
+            # Determine backend type from configuration
+            backend = pubsub_config.get("backend", "memory")
+            backend_config = None
+            
+            if backend == "redis":
+                # Redis configuration
+                backend_config = pubsub_config.get("redis", None)
+            elif backend == "msk":
+                # MSK configuration - use the channel_name as-is since MSKPubSubChannel will add the prefix
+                backend_config = pubsub_config.get("msk", None)
+                if not backend_config:
+                    # Provide default MSK configuration
+                    backend_config = {
+                        'bootstrap_servers': ['localhost:9092'],
+                        'aws_region': 'ap-south-1'
+                    }
+            elif backend == "kafka":
+                # Kafka configuration
+                backend_config = pubsub_config.get("kafka", None)
+            
+            print(f"🚀 Configuring PubSub Logging System:")
+            print(f"   Backend: {backend}")
+            print(f"   Channel: {channel_name}")
+            print(f"   Config: {backend_config}")
+            
+            try:
+                listener = RedisLoggerListener(
                     channel_name=channel_name,
                     event_filter=event_filter,
-                    use_redis=use_redis,
-                    redis_config=redis_config,
-                ),
-            )
+                    backend=backend,
+                    backend_config=backend_config,
+                )
+                print("the listener dict!")
+                print(listener.__dict__)
+                bus.add_listener("pubsub", listener)
+                print(f"✅ PubSub logger listener created successfully")
+            except Exception as e:
+                print(f"❌ Failed to create PubSub logger listener: {e}")
+                import traceback
+                traceback.print_exc()
 
         await bus.start()
         cls._initialized = True

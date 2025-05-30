@@ -43,6 +43,10 @@ openai = [
 azure = [
     "azure-identity>=1.14.0"
 ]
+# For Kafka support, install with: pip install bee-agent[kafka]
+kafka = [
+    "aiokafka>=0.8.0",
+]
 dev = [
     "anthropic>=0.42.0",
     "pre-commit>=4.0.1",
