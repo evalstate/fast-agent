@@ -1,11 +1,7 @@
 import asyncio
 from typing import Any, List, Optional, Union
 
-from mcp.types import PromptMessage
-
-from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.augmented_llm import (
-    AugmentedLLM,
     MessageParamT,
     RequestParams,
 )
