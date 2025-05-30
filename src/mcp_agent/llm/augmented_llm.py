@@ -95,8 +95,10 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_USE_HISTORY = "use_history"
     PARAM_MAX_ITERATIONS = "max_iterations"
     PARAM_TEMPLATE_VARS = "template_vars"
+    PARAM_PROMPT_CACHING = "prompt_caching"
+
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
+    BASE_EXCLUDE_FIELDS = {PARAM_METADATA, PARAM_PROMPT_CACHING}
 
     """
     The basic building block of agentic systems is an LLM enhanced with augmentations
@@ -361,16 +363,28 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         # Start with base arguments
         arguments = base_args.copy()
 
-        # Use provided exclude_fields or fall back to base exclusions
-        exclude_fields = exclude_fields or self.BASE_EXCLUDE_FIELDS.copy()
+        # Combine base exclusions with provider-specific exclusions
+        final_exclude_fields = self.BASE_EXCLUDE_FIELDS.copy()
+        if exclude_fields:
+            final_exclude_fields.update(exclude_fields)
 
         # Add all fields from params that aren't explicitly excluded
-        params_dict = request_params.model_dump(exclude=exclude_fields)
+        # Ensure model_dump only includes set fields if that's the desired behavior,
+        # or adjust exclude_unset=True/False as needed.
+        # Default Pydantic v2 model_dump is exclude_unset=False
+        params_dict = request_params.model_dump(exclude=final_exclude_fields)
+
         for key, value in params_dict.items():
+            # Only add if not None and not already in base_args (base_args take precedence)
+            # or if None is a valid value for the provider, this logic might need adjustment.
             if value is not None and key not in arguments:
+                arguments[key] = value
+            elif value is not None and key in arguments and arguments[key] is None:
+                # Allow overriding a None in base_args with a set value from params
                 arguments[key] = value
 
         # Finally, add any metadata fields as a last layer of overrides
+        # This ensures metadata can override anything previously set if keys conflict.
         if request_params.metadata:
             arguments.update(request_params.metadata)
 

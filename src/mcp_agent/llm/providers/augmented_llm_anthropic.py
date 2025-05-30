@@ -63,6 +63,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         AugmentedLLM.PARAM_MAX_ITERATIONS,
         AugmentedLLM.PARAM_PARALLEL_TOOL_CALLS,
         AugmentedLLM.PARAM_TEMPLATE_VARS,
+        AugmentedLLM.PARAM_PROMPT_CACHING,
     }
 
     def __init__(self, *args, **kwargs) -> None:
@@ -117,7 +118,33 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         # if use_history is True
         messages.extend(self.history.get(include_completion_history=params.use_history))
 
-        messages.append(message_param)
+        messages.append(message_param)  # message_param is the current user turn
+
+        # If prompt caching is enabled, apply cache_control to the last content block
+        # of the current user message (which is now the last in 'messages').
+        # This modification affects the 'messages' list that will be used in the first API call within the loop.
+        if params.prompt_caching and messages:
+            last_message_in_prompt = messages[-1]  # This is a MessageParam (dict)
+            if (
+                isinstance(last_message_in_prompt, dict)
+                and "content" in last_message_in_prompt
+                and isinstance(last_message_in_prompt["content"], list)
+                and last_message_in_prompt["content"]
+            ):
+                last_content_block = last_message_in_prompt["content"][-1]
+                if isinstance(last_content_block, dict):  # Content blocks are dicts
+                    self.logger.debug(
+                        "Prompt caching enabled: Applying cache_control to the last content block of the current user message."
+                    )
+                    last_content_block["cache_control"] = {"type": "ephemeral"}
+                else:
+                    self.logger.warning(
+                        "Could not apply cache_control to current user message: Last content block is not a dictionary."
+                    )
+            else:
+                self.logger.warning(
+                    "Could not apply cache_control to current user message: It has no content, content is not a list, or message is not a dict."
+                )
 
         tool_list: ListToolsResult = await self.aggregator.list_tools()
         available_tools: List[ToolParam] = [
@@ -178,13 +205,13 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 # Convert other errors to text response
                 error_message = f"Error during generation: {error_details}"
                 response = Message(
-                    id="error",  # Required field
-                    model="error",  # Required field
+                    id="error",
+                    model="error",
                     role="assistant",
                     type="message",
                     content=[TextBlock(type="text", text=error_message)],
-                    stop_reason="end_turn",  # Must be one of the allowed values
-                    usage=Usage(input_tokens=0, output_tokens=0),  # Required field
+                    stop_reason="end_turn",
+                    usage=Usage(input_tokens=0, output_tokens=0),
                 )
 
             self.logger.debug(
@@ -194,7 +221,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
             response_as_message = self.convert_message_to_message_param(response)
             messages.append(response_as_message)
-            if response.content[0].type == "text":
+            if response.content and response.content[0].type == "text":
                 responses.append(TextContent(type="text", text=response.content[0].text))
 
             if response.stop_reason == "end_turn":
@@ -254,12 +281,13 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
                     # Process all tool calls and collect results
                     tool_results = []
-                    for i, content in enumerate(tool_uses):
-                        tool_name = content.name
-                        tool_args = content.input
-                        tool_use_id = content.id
+                    # Use a different loop variable for tool enumeration if 'i' is outer loop counter
+                    for tool_idx, content_block in enumerate(tool_uses):
+                        tool_name = content_block.name
+                        tool_args = content_block.input
+                        tool_use_id = content_block.id
 
-                        if i == 0:  # Only show message for first tool use
+                        if tool_idx == 0:  # Only show message for first tool use
                             await self.show_assistant_message(message_text, tool_name)
 
                         self.show_tool_call(available_tools, tool_name, tool_args)
@@ -284,11 +312,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         if params.use_history:
             # Get current prompt messages
             prompt_messages = self.history.get(include_completion_history=False)
-
-            # Calculate new conversation messages (excluding prompts)
             new_messages = messages[len(prompt_messages) :]
-
-            # Update conversation history
             self.history.set(new_messages)
 
         self._log_chat_finished(model=model)
