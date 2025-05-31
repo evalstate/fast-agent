@@ -10,14 +10,14 @@ REDIS_AVAILABLE = importlib.util.find_spec("redis") is not None
 
 # Check if Kafka is available
 KAFKA_AVAILABLE = importlib.util.find_spec("aiokafka") is not None
-print(f"IS KAFKA AVAILABLE??????????? {KAFKA_AVAILABLE}")
+# print(f"IS KAFKA AVAILABLE??????????? {KAFKA_AVAILABLE}")
 
 # Check if AWS MSK dependencies are available
 MSK_AVAILABLE = (KAFKA_AVAILABLE and 
                 importlib.util.find_spec("aws_msk_iam_sasl_signer") is not None and
                 importlib.util.find_spec("boto3") is not None)
 
-print(f"IS MSK AVAILABLE??????????? {MSK_AVAILABLE}")
+# print(f"IS MSK AVAILABLE??????????? {MSK_AVAILABLE}")
 
 class PubSubChannel:
     """
@@ -122,6 +122,7 @@ class RedisPubSubChannel(PubSubChannel):
         super().__init__(channel_id)
         self.redis_client = redis_client
         self.redis_channel = f"{redis_channel_prefix}{channel_id}"
+        # print(f"super channel streaming! {self.redis_channel}")
         self._pubsub = None
         self._listener_task = None
         
@@ -394,9 +395,9 @@ class MSKPubSubChannel(PubSubChannel):
         super().__init__(channel_id)
         self.topic = f"mcp_agent_{channel_id}"
         self.msk_config = msk_config or {}
-        print("topic name")
-        print(self.topic)
-        print(msk_config)
+        # print("topic name")
+        # print(self.topic)
+        # print(msk_config)
         # Default MSK configuration
         self.bootstrap_servers = self.msk_config.get('bootstrap_servers', ['localhost:9092'])
         self.aws_region = self.msk_config.get('aws_region', 'ap-south-1')
@@ -515,35 +516,35 @@ class MSKPubSubChannel(PubSubChannel):
             
             try:
                 await admin_client.create_topics([topic])
-                print(f"Created MSK topic: {self.topic}")
+                # print(f"Created MSK topic: {self.topic}")
                 return True
             except TopicAlreadyExistsError:
-                print(f"MSK topic already exists: {self.topic}")
+                # print(f"MSK topic already exists: {self.topic}")
                 return True
             except Exception as e:
-                print(f"Failed to create MSK topic {self.topic}: {e}")
+                # print(f"Failed to create MSK topic {self.topic}: {e}")
                 return False
                 
         except Exception as e:
-            print(f"Admin client error for topic {self.topic}: {e}")
+            # print(f"Admin client error for topic {self.topic}: {e}")
             return False
         finally:
             if admin_client:
                 try:
                     await admin_client.close()
                 except Exception as e:
-                    print(f"Error closing admin client: {e}")
+                    # print(f"Error closing admin client: {e}")
     
     async def _setup_msk_consumer(self) -> None:
         """Set up MSK consumer and start message listener."""
         if not MSK_AVAILABLE:
-            print(f"MSK not available for consumer setup on channel {self.channel_id}")
+            # print(f"MSK not available for consumer setup on channel {self.channel_id}")
             return
             
         try:
             from aiokafka import AIOKafkaConsumer
             
-            print(f"Setting up MSK consumer for topic: {self.topic}")
+            # print(f"Setting up MSK consumer for topic: {self.topic}")
             
             # Add MSK-specific configurations
             consumer_config = self.consumer_config.copy()
@@ -560,7 +561,7 @@ class MSKPubSubChannel(PubSubChannel):
             
             await self.consumer.start()
             self._is_consuming = True
-            print(f"MSK consumer started successfully for topic: {self.topic}")
+            # print(f"MSK consumer started successfully for topic: {self.topic}")
             
             # Start consumer loop
             async def consumer_loop():
@@ -570,33 +571,33 @@ class MSKPubSubChannel(PubSubChannel):
                         for topic_partition, messages in msg_batch.items():
                             for message in messages:
                                 try:
-                                    print(f"Received MSK message on topic {self.topic}: {message.value}")
+                                    # print(f"Received MSK message on topic {self.topic}: {message.value}")
                                     # Call PubSubChannel's publish method to notify local subscribers
                                     await PubSubChannel.publish(self, message.value)
                                 except Exception as e:
-                                    print(f"Error processing MSK message: {e}")
+                                    # print(f"Error processing MSK message: {e}")
                 except Exception as e:
-                    print(f"MSK consumer loop error: {e}")
+                    # print(f"MSK consumer loop error: {e}")
                     
             self._consumer_task = asyncio.create_task(consumer_loop())
             
         except ImportError as e:
-            print(f"MSK consumer import error for channel {self.channel_id}: {e}")
+            # print(f"MSK consumer import error for channel {self.channel_id}: {e}")
         except Exception as e:
-            print(f"MSK consumer setup error for channel {self.channel_id}: {e}")
+            # print(f"MSK consumer setup error for channel {self.channel_id}: {e}")
             import traceback
             traceback.print_exc()
     
     async def start(self) -> None:
         """Initialize MSK producer and consumer."""
         if not MSK_AVAILABLE:
-            print(f"MSK dependencies not available for channel {self.channel_id}")
+            # print(f"MSK dependencies not available for channel {self.channel_id}")
             return
             
         try:
             from aiokafka import AIOKafkaProducer
             
-            print(f"Starting MSK channel for topic: {self.topic}")
+            # print(f"Starting MSK channel for topic: {self.topic}")
             
             # Create topic first
             await self._create_topic_if_not_exists()
@@ -612,16 +613,16 @@ class MSKPubSubChannel(PubSubChannel):
             # Initialize producer
             self.producer = AIOKafkaProducer(**producer_config)
             await self.producer.start()
-            print(f"MSK producer started successfully for topic: {self.topic}")
+            # print(f"MSK producer started successfully for topic: {self.topic}")
             
             # Initialize consumer
             await self._setup_msk_consumer()
-            print(f"MSK channel startup completed for topic: {self.topic}")
+            # print(f"MSK channel startup completed for topic: {self.topic}")
             
         except ImportError as e:
-            print(f"MSK import error for channel {self.channel_id}: {e}")
+            # print(f"MSK import error for channel {self.channel_id}: {e}")
         except Exception as e:
-            print(f"MSK startup error for channel {self.channel_id}: {e}")
+            # print(f"MSK startup error for channel {self.channel_id}: {e}")
             import traceback
             traceback.print_exc()
     
@@ -670,17 +671,17 @@ class MSKPubSubChannel(PubSubChannel):
                     msk_message = str(message)
                 
                 record_metadata = await self.producer.send_and_wait(self.topic, msk_message)
-                print(f"Published message to MSK topic {self.topic} at partition {record_metadata.partition}, offset {record_metadata.offset}")
+                # print(f"Published message to MSK topic {self.topic} at partition {record_metadata.partition}, offset {record_metadata.offset}")
                 
             except Exception as e:
-                print(f"Failed to publish message to MSK topic {self.topic}: {e}")
+                # print(f"Failed to publish message to MSK topic {self.topic}: {e}")
                 import traceback
                 traceback.print_exc()
         else:
             if not self.producer:
-                print(f"MSK producer not available for topic {self.topic}")
+                # print(f"MSK producer not available for topic {self.topic}")
             if not MSK_AVAILABLE:
-                print(f"MSK not available for topic {self.topic}")
+                # print(f"MSK not available for topic {self.topic}")
 
 
 class PubSubManager:
@@ -745,11 +746,11 @@ class PubSubManager:
             self.kafka_config = self.backend_config
             
         elif self.use_msk:
-            print(f"msk is ????? {self.msk_config}")
+            # print(f"msk is ????? {self.msk_config}")
             self.msk_config = self.backend_config
             
-        log_message = f"Initialized PubSubManager with {self.backend} backend"
-        print(log_message)
+        # log_message = f"Initialized PubSubManager with {self.backend} backend"
+        # print(log_message)
 
     def get_or_create_channel(self, channel_id: str) -> Union[PubSubChannel, RedisPubSubChannel, KafkaPubSubChannel, MSKPubSubChannel]:
         """
@@ -763,6 +764,8 @@ class PubSubManager:
         """
         if channel_id not in self._channels:
             if self.use_redis and self.redis_client:
+                # print("channnel_id_redis")
+                # print(channel_id)
                 self._channels[channel_id] = RedisPubSubChannel(
                     channel_id, 
                     redis_client=self.redis_client,
@@ -775,7 +778,7 @@ class PubSubManager:
                 self._channels[channel_id] = channel
             elif self.use_msk:
                 channel = MSKPubSubChannel(channel_id, msk_config=self.msk_config)
-                print(f"use_msk!!!!!! Channel: {channel}")
+                # print(f"use_msk!!!!!! Channel: {channel}")
                 # Start the MSK channel asynchronously
                 asyncio.create_task(channel.start())
                 self._channels[channel_id] = channel
@@ -794,8 +797,8 @@ class PubSubManager:
         Returns:
             The requested PubSubChannel or None if it doesn't exist
         """
-        print("channels!")
-        print(self._channels)
+        # print("channels!")
+        # print(self._channels)
         return self._channels.get(channel_id)
 
     def remove_channel(self, channel_id: str) -> None:
@@ -844,9 +847,9 @@ def get_pubsub_manager(backend: str = "memory", backend_config: Optional[Dict[st
             backend = "redis"
             backend_config = redis_config
         
-        print(f"the backend from pubsub.py {backend}")
+        # print(f"the backend from pubsub.py {backend}")
         _pubsub_manager_instance = PubSubManager(backend=backend, backend_config=backend_config)
-        print('pubsub manager instance')
-        print(_pubsub_manager_instance.__dict__)
+        # print('pubsub manager instance')
+        # print(_pubsub_manager_instance.__dict__)
     
     return _pubsub_manager_instance

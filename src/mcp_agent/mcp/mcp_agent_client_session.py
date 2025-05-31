@@ -76,6 +76,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
     ) -> ReceiveResultT:
+        logger.info("send_request: request=", data=request.model_dump())
         logger.debug("send_request: request=", data=request.model_dump())
         try:
             result = await super().send_request(
