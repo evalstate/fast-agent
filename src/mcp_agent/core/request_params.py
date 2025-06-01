@@ -52,12 +52,3 @@ class RequestParams(CreateMessageRequestParams):
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
     """
-
-    prompt_caching: bool = Field(
-        default=False, description="Enable prompt caching for supported LLM providers."
-    )
-    """
-    Enable prompt caching if the underlying LLM provider supports it.
-    For Anthropic, this adds 'cache_control': {'type': 'ephemeral'} to relevant message parts.
-    Behavior for other providers will depend on their specific caching mechanisms.
-    """

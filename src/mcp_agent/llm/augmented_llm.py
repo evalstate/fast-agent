@@ -95,10 +95,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_USE_HISTORY = "use_history"
     PARAM_MAX_ITERATIONS = "max_iterations"
     PARAM_TEMPLATE_VARS = "template_vars"
-    PARAM_PROMPT_CACHING = "prompt_caching"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA, PARAM_PROMPT_CACHING}
+    BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
 
     """
     The basic building block of agentic systems is an LLM enhanced with augmentations

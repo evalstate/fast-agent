@@ -63,7 +63,6 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         AugmentedLLM.PARAM_MAX_ITERATIONS,
         AugmentedLLM.PARAM_PARALLEL_TOOL_CALLS,
         AugmentedLLM.PARAM_TEMPLATE_VARS,
-        AugmentedLLM.PARAM_PROMPT_CACHING,
     }
 
     def __init__(self, *args, **kwargs) -> None:
@@ -120,30 +119,64 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
         messages.append(message_param)  # message_param is the current user turn
 
-        # If prompt caching is enabled, apply cache_control to the last content block
-        # of the current user message (which is now the last in 'messages').
-        # This modification affects the 'messages' list that will be used in the first API call within the loop.
-        if params.prompt_caching and messages:
-            last_message_in_prompt = messages[-1]  # This is a MessageParam (dict)
+        # Prepare for caching based on provider-specific cache_mode
+        apply_cache_to_system_prompt = False
+        messages_to_cache_indices: List[int] = []
+
+        if self.context.config and self.context.config.anthropic:
+            cache_mode = self.context.config.anthropic.cache_mode
+            self.logger.debug(f"Anthropic cache_mode: {cache_mode}")
+
+            if cache_mode == "auto":
+                apply_cache_to_system_prompt = True  # Cache system prompt
+                if messages:  # If there are any messages
+                    messages_to_cache_indices.append(
+                        len(messages) - 1
+                    )  # Cache only the last message
+                self.logger.debug(
+                    f"Auto mode: Caching system prompt (if present) and last message at index: {messages_to_cache_indices}"
+                )
+            elif cache_mode == "prompt":
+                # Find the first user message in the fully constructed messages list
+                for idx, msg in enumerate(messages):
+                    if isinstance(msg, dict) and msg.get("role") == "user":
+                        messages_to_cache_indices.append(idx)
+                        self.logger.debug(
+                            f"Prompt mode: Caching first user message in constructed prompt at index: {idx}"
+                        )
+                        break
+            elif cache_mode == "off":
+                self.logger.debug("Anthropic cache_mode is 'off'. No caching will be applied.")
+            else:  # Should not happen due to Literal validation
+                self.logger.warning(
+                    f"Unknown Anthropic cache_mode: {cache_mode}. No caching will be applied."
+                )
+        else:
+            self.logger.debug("Anthropic settings not found. No caching will be applied.")
+
+        # Apply cache_control to selected messages
+        for msg_idx in messages_to_cache_indices:
+            message_to_cache = messages[msg_idx]
             if (
-                isinstance(last_message_in_prompt, dict)
-                and "content" in last_message_in_prompt
-                and isinstance(last_message_in_prompt["content"], list)
-                and last_message_in_prompt["content"]
+                isinstance(message_to_cache, dict)
+                and "content" in message_to_cache
+                and isinstance(message_to_cache["content"], list)
+                and message_to_cache["content"]
             ):
-                last_content_block = last_message_in_prompt["content"][-1]
-                if isinstance(last_content_block, dict):  # Content blocks are dicts
+                # Apply to the last content block of the message
+                last_content_block = message_to_cache["content"][-1]
+                if isinstance(last_content_block, dict):
                     self.logger.debug(
-                        "Prompt caching enabled: Applying cache_control to the last content block of the current user message."
+                        f"Applying cache_control to last content block of message at index {msg_idx}."
                     )
                     last_content_block["cache_control"] = {"type": "ephemeral"}
                 else:
                     self.logger.warning(
-                        "Could not apply cache_control to current user message: Last content block is not a dictionary."
+                        f"Could not apply cache_control to message at index {msg_idx}: Last content block is not a dictionary."
                     )
             else:
                 self.logger.warning(
-                    "Could not apply cache_control to current user message: It has no content, content is not a list, or message is not a dict."
+                    f"Could not apply cache_control to message at index {msg_idx}: Invalid message structure or no content."
                 )
 
         tool_list: ListToolsResult = await self.aggregator.list_tools()
@@ -170,6 +203,20 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 "stop_sequences": params.stopSequences,
                 "tools": available_tools,
             }
+
+            # Apply cache_control to system prompt for "auto" mode
+            if apply_cache_to_system_prompt and base_args["system"]:
+                if isinstance(base_args["system"], str):
+                    base_args["system"] = [
+                        {
+                            "type": "text",
+                            "text": base_args["system"],
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ]
+                    self.logger.debug(
+                        "Applying cache_control to system prompt by wrapping it in a list of content blocks."
+                    )
 
             if params.maxTokens is not None:
                 base_args["max_tokens"] = params.maxTokens
