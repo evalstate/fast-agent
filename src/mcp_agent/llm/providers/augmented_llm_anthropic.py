@@ -262,7 +262,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                         if i == 0:  # Only show message for first tool use
                             await self.show_assistant_message(message_text, tool_name)
 
-                        self.show_tool_call(available_tools, tool_name, tool_args)
+                        await self.show_tool_call(available_tools, tool_name, tool_args)
                         tool_call_request = CallToolRequest(
                             method="tools/call",
                             params=CallToolRequestParams(name=tool_name, arguments=tool_args),
