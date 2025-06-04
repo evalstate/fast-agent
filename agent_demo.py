@@ -33,7 +33,7 @@ sample_json_config = {
         "servers": {
             "twitter-mcp": {
                 "name": "Twitter",
-                "description" : "Post on Twitter, and get tweets, limited by rate. ",
+                "description" : "Post on Twitter, and get tweets, limited by rate of twitter's developer console.",
                 "command": "npx",
                 "args": ["-y", "@enescinar/twitter-mcp"],
                 "env": {
@@ -55,7 +55,7 @@ sample_json_config = {
             },
             "brave": {
                 "name": "brave",
-                "description": "Brave search server",
+                "description": "Brave search server, helps you look up internet search results, not very accurate at times. ",
                 "transport": "stdio",
                 "command": "npx",
                 "args": [

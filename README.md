@@ -1,25 +1,87 @@
+<div align="center">
+
+<h1>CommandHive Agent Orchestrator</h1>
+
+**Create agents on the fly, manage MCP variables, and execute tasks 24/7.**
+
+[![Visit Website](https://img.shields.io/badge/Website-CommandHive-blue?style=plastic\&logo=internet\&logoColor=white)](https://commandhive.xyz)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-CommandHive-green?style=plastic\&logo=github\&logoColor=white)](https://github.com/CommandHive)
+
+</div>
+
+## Latest updates
+
+| Date       | Update Description                                                         |
+| ---------- | -------------------------------------------------------------------------- |
+| 2025/06/03 | Released sample orchestrator and listener scripts                          |
+| 2025/05/27 | Added Pub/Sub support for MSK and confirmed tool calling with confirmation |
+| 2025/05/15 | Ensured sampling as MCP feature is working                                 |
+
+For a full changelog, see our [releases page](https://github.com/CommandHive/agent-orchestrator/releases).
+
+---
+
+## Why CommandHive?
+
+**🏆 Build flexible multi-agent orchestrations.** Spin up agents dynamically based on MCP configurations and orchestrate complex workflows without rigid architectures.
+
+**🔧 Seamlessly integrate with existing tools.** Use Redis, Kafka, and MSK for Pub/Sub messaging; connect to Model Context Protocol servers; and configure agents with custom instructions and models.
+
+**🚀 Production-ready controls.** Compatible with Python 3.11 and 3.12, supports logging, error handling, and run-time configuration via JSON.
+
+> \[!TIP]
+> Start quickly by exploring the sample agent and listener below to see how CommandHive manages agents and messaging.
+
+---
+
+## Installation
+
+To install via pip:
+
+```shell
+pip install commandhive-agent
+```
+
+Clone the repository:
+
+```shell
+git clone https://github.com/CommandHive/agent-orchestrator.git
+cd agent-orchestrator
+```
+
+---
+
 ## Overview
-This is agent orchestrator backend to create agents on fly, store all your MCP variables and get tasks done round the clock from these agents. 
-Visit [CommandHive Website](https://commandhive.xyz/)
+
+This is an agent orchestrator backend to create agents on the fly, store all your MCP variables, and get tasks done round the clock from these agents.
+Visit [CommandHive Website](https://commandhive.xyz).
+
+---
 
 ## ✅ Completed
-- [x] Ensure sampling as MCP feature is working
-- [x] Create Pub/Sub support using Redis
-- [x] Create Pub/Sub support using Kafka
-- [x] Create Pub/Sub support using MSK (Managed Kafka)
-- [x] Ensure tool calling is done with confirmation
-- [x] Check compatibility with Python 3.11
-- [x] Check compatibility with Python 3.12
+
+* [x] Ensure sampling as MCP feature is working
+* [x] Create Pub/Sub support using Redis
+* [x] Create Pub/Sub support using Kafka
+* [x] Create Pub/Sub support using MSK (Managed Kafka)
+* [x] Ensure tool calling is done with confirmation
+* [x] Check compatibility with Python 3.11
+* [x] Check compatibility with Python 3.12
+
+---
 
 ## ⏳ To Do Next
-- [ ] Integrate smart contract for tool calling
-- [ ] Each agent has its own wallet (defined in config)
-- [ ] Pub/Sub support for RabbitMQ
-- [ ] Pub/Sub support for Google Pub/Sub
 
-## Sample Agent 
+* [ ] Integrate smart contract for tool calling
+* [ ] Each agent has its own wallet (defined in config)
+* [ ] Pub/Sub support for RabbitMQ
+* [ ] Pub/Sub support for Google Pub/Sub
 
-```
+---
+
+## Sample Agent
+
+```python
 import asyncio
 import json
 from typing import Dict, List
@@ -63,8 +125,8 @@ sample_json_config = {
                     {
                         "name": "fetch",
                         "seek_confirm": True,
-                        "time_to_confirm": 120000,  
-                        "default": "reject" 
+                        "time_to_confirm": 120000,
+                        "default": "reject"
                     }
                 ]
             },
@@ -83,7 +145,7 @@ sample_json_config = {
             }
         }
     },
-    "default_model": "haiku",   
+    "default_model": "haiku",
     "logger": {
         "level": "info",
         "type": "console"
@@ -100,7 +162,7 @@ sample_json_config = {
         }
     },
     "anthropic": {
-        "api_key": os.environ.get("CLAUDE_API_KEY", "") 
+        "api_key": os.environ.get("CLAUDE_API_KEY", "")
     }
 }
 
@@ -175,7 +237,7 @@ async def main():
     )
     
     # Register agents and keep it running
-    async with fast.run() as agent:        
+    async with fast.run() as agent:
         try:
             # Subscribe to the input channel
             pubsub = redis_client.pubsub()
@@ -183,7 +245,7 @@ async def main():
             
             # Initial task for the orchestrator
             initial_task = """
-           Can you find the price of VANA token and if it is more than 50 percent of it;s lowest then give command to sell it off. tell me now sell it off or hold it. 
+           Can you find the price of VANA token and if it is more than 50 percent of its lowest then give command to sell it off. tell me now sell it off or hold it.
             """
             
             await agent.orchestrate(initial_task)
@@ -214,8 +276,8 @@ async def main():
                             # Try to process as plain text
                             response = await agent.orchestrate(data)
                             
-                    except Exception as e:
-                        import traceback
+                    except Exception:
+                        pass
                 
                 # Small delay to prevent CPU spike
                 await asyncio.sleep(0.05)
@@ -231,11 +293,13 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
-
 ```
+
+---
 
 ## Sample Listener
-```
+
+```python
 import redis
 import time
 
@@ -255,12 +319,15 @@ def main():
         if message:
             # Print the raw message dict
             print(message)
-        # Sleep briefly to avoid busy‑waiting
+        # Sleep briefly to avoid busy-waiting
         time.sleep(0.05)
 
 if __name__ == '__main__':
     main()
 ```
 
-## Disclaimer 
-This repo is cloned from [fast-agent](https://github.com/evalstate/fast-agent/)
+---
+
+## Disclaimer
+
+This repo is cloned from [fast-agent](https://github.com/evalstate/fast-agent/).

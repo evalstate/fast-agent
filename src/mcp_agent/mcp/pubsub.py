@@ -519,21 +519,21 @@ class MSKPubSubChannel(PubSubChannel):
                 # print(f"Created MSK topic: {self.topic}")
                 return True
             except TopicAlreadyExistsError:
-                # print(f"MSK topic already exists: {self.topic}")
+                print(f"MSK topic already exists: {self.topic}")
                 return True
             except Exception as e:
-                # print(f"Failed to create MSK topic {self.topic}: {e}")
+                print(f"Failed to create MSK topic {self.topic}: {e}")
                 return False
                 
         except Exception as e:
-            # print(f"Admin client error for topic {self.topic}: {e}")
+            print(f"Admin client error for topic {self.topic}: {e}")
             return False
         finally:
             if admin_client:
                 try:
                     await admin_client.close()
                 except Exception as e:
-                    # print(f"Error closing admin client: {e}")
+                    print(f"Error closing admin client: {e}")
     
     async def _setup_msk_consumer(self) -> None:
         """Set up MSK consumer and start message listener."""
@@ -575,16 +575,16 @@ class MSKPubSubChannel(PubSubChannel):
                                     # Call PubSubChannel's publish method to notify local subscribers
                                     await PubSubChannel.publish(self, message.value)
                                 except Exception as e:
-                                    # print(f"Error processing MSK message: {e}")
+                                    print(f"Error processing MSK message: {e}")
                 except Exception as e:
-                    # print(f"MSK consumer loop error: {e}")
+                    print(f"MSK consumer loop error: {e}")
                     
             self._consumer_task = asyncio.create_task(consumer_loop())
             
         except ImportError as e:
-            # print(f"MSK consumer import error for channel {self.channel_id}: {e}")
+            print(f"MSK consumer import error for channel {self.channel_id}: {e}")
         except Exception as e:
-            # print(f"MSK consumer setup error for channel {self.channel_id}: {e}")
+            print(f"MSK consumer setup error for channel {self.channel_id}: {e}")
             import traceback
             traceback.print_exc()
     
@@ -620,9 +620,9 @@ class MSKPubSubChannel(PubSubChannel):
             # print(f"MSK channel startup completed for topic: {self.topic}")
             
         except ImportError as e:
-            # print(f"MSK import error for channel {self.channel_id}: {e}")
+            print(f"MSK import error for channel {self.channel_id}: {e}")
         except Exception as e:
-            # print(f"MSK startup error for channel {self.channel_id}: {e}")
+            print(f"MSK startup error for channel {self.channel_id}: {e}")
             import traceback
             traceback.print_exc()
     
@@ -746,7 +746,6 @@ class PubSubManager:
             self.kafka_config = self.backend_config
             
         elif self.use_msk:
-            # print(f"msk is ????? {self.msk_config}")
             self.msk_config = self.backend_config
             
         # log_message = f"Initialized PubSubManager with {self.backend} backend"
@@ -764,8 +763,6 @@ class PubSubManager:
         """
         if channel_id not in self._channels:
             if self.use_redis and self.redis_client:
-                # print("channnel_id_redis")
-                # print(channel_id)
                 self._channels[channel_id] = RedisPubSubChannel(
                     channel_id, 
                     redis_client=self.redis_client,
@@ -778,8 +775,6 @@ class PubSubManager:
                 self._channels[channel_id] = channel
             elif self.use_msk:
                 channel = MSKPubSubChannel(channel_id, msk_config=self.msk_config)
-                # print(f"use_msk!!!!!! Channel: {channel}")
-                # Start the MSK channel asynchronously
                 asyncio.create_task(channel.start())
                 self._channels[channel_id] = channel
             else:
@@ -797,8 +792,6 @@ class PubSubManager:
         Returns:
             The requested PubSubChannel or None if it doesn't exist
         """
-        # print("channels!")
-        # print(self._channels)
         return self._channels.get(channel_id)
 
     def remove_channel(self, channel_id: str) -> None:
