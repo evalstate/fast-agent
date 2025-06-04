@@ -538,7 +538,7 @@ class MSKPubSubChannel(PubSubChannel):
     async def _setup_msk_consumer(self) -> None:
         """Set up MSK consumer and start message listener."""
         if not MSK_AVAILABLE:
-            # print(f"MSK not available for consumer setup on channel {self.channel_id}")
+            print(f"MSK not available for consumer setup on channel {self.channel_id}")
             return
             
         try:
@@ -591,7 +591,7 @@ class MSKPubSubChannel(PubSubChannel):
     async def start(self) -> None:
         """Initialize MSK producer and consumer."""
         if not MSK_AVAILABLE:
-            # print(f"MSK dependencies not available for channel {self.channel_id}")
+            print(f"MSK dependencies not available for channel {self.channel_id}")
             return
             
         try:
@@ -679,9 +679,9 @@ class MSKPubSubChannel(PubSubChannel):
                 traceback.print_exc()
         else:
             if not self.producer:
-                # print(f"MSK producer not available for topic {self.topic}")
+                print(f"MSK producer not available for topic {self.topic}")
             if not MSK_AVAILABLE:
-                # print(f"MSK not available for topic {self.topic}")
+                print(f"MSK not available for topic {self.topic}")
 
 
 class PubSubManager:
