@@ -74,9 +74,20 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
                 return None
 
         # Use the schema as a dict or as a type, as Gemini supports both
-        response_schema = _get_schema_type(model)
+        # response_schema = _get_schema_type(model) # Original line
         if schema is not None:
-            response_schema = schema
+            # Convert the Pydantic JSON schema to a Google Schema object
+            response_schema = self._converter.json_schema_to_google_schema(
+                json_schema_node=schema, root_schema=schema
+            )
+        else:
+            # Fallback or handle error if schema is None
+            # For now, we'll let it proceed, but Google API might error if response_schema is not set
+            # for structured output. Or, we could try to infer from the model type.
+            self.logger.warning(
+                "Pydantic model schema could not be generated. Trying to infer from model type."
+            )
+            response_schema = _get_schema_type(model)
 
         # Set config for structured output
         generate_content_config = self._converter.convert_request_params_to_google_config(
