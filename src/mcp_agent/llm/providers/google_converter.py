@@ -166,16 +166,17 @@ class GoogleConverter:
         fast_agent_parts: List[
             TextContent | ImageContent | EmbeddedResource | CallToolRequestParams
         ] = []
-        for part in content.parts:
-            if part.text:
-                fast_agent_parts.append(TextContent(type="text", text=part.text))
-            elif part.function_call:
-                fast_agent_parts.append(
-                    CallToolRequestParams(
-                        name=part.function_call.name,
-                        arguments=part.function_call.args,
+        if content.parts:
+            for part in content.parts:
+                if part.text:
+                    fast_agent_parts.append(TextContent(type="text", text=part.text))
+                elif part.function_call:
+                    fast_agent_parts.append(
+                        CallToolRequestParams(
+                            name=part.function_call.name,
+                            arguments=part.function_call.args,
+                        )
                     )
-                )
         return fast_agent_parts
 
     def convert_from_google_function_call(
