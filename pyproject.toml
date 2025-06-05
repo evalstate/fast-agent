@@ -1,6 +1,6 @@
 [project]
 name = "bee-agent"
-version = "0.5.1"
+version = "0.5.2"
 description = "QueenBee and WorkerBee for CommandHive.xyz"
 readme = "README.md"
 license = { file = "LICENSE" }

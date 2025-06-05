@@ -1,11 +1,13 @@
 <div align="center">
 
-<h1>CommandHive Agent Orchestrator</h1>
+<h1>CommandHive Agents: Queen and Worker Bees</h1>
 
 **Create agents on the fly, manage MCP variables, and execute tasks 24/7.**
 
 [![Visit Website](https://img.shields.io/badge/Website-CommandHive-blue?style=plastic\&logo=internet\&logoColor=white)](https://commandhive.xyz)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-CommandHive-green?style=plastic\&logo=github\&logoColor=white)](https://github.com/CommandHive)
+
+[![Watch Demo on YouTube](https://img.youtube.com/vi/306nzTWAZY8/0.jpg)](https://www.youtube.com/watch?v=306nzTWAZY8)
 
 </div>
 
@@ -39,43 +41,8 @@ For a full changelog, see our [releases page](https://github.com/CommandHive/age
 To install via pip:
 
 ```shell
-pip install commandhive-agent
+pip install bee-agent
 ```
-
-Clone the repository:
-
-```shell
-git clone https://github.com/CommandHive/agent-orchestrator.git
-cd agent-orchestrator
-```
-
----
-
-## Overview
-
-This is an agent orchestrator backend to create agents on the fly, store all your MCP variables, and get tasks done round the clock from these agents.
-Visit [CommandHive Website](https://commandhive.xyz).
-
----
-
-## ✅ Completed
-
-* [x] Ensure sampling as MCP feature is working
-* [x] Create Pub/Sub support using Redis
-* [x] Create Pub/Sub support using Kafka
-* [x] Create Pub/Sub support using MSK (Managed Kafka)
-* [x] Ensure tool calling is done with confirmation
-* [x] Check compatibility with Python 3.11
-* [x] Check compatibility with Python 3.12
-
----
-
-## ⏳ To Do Next
-
-* [ ] Integrate smart contract for tool calling
-* [ ] Each agent has its own wallet (defined in config)
-* [ ] Pub/Sub support for RabbitMQ
-* [ ] Pub/Sub support for Google Pub/Sub
 
 ---
 
@@ -325,6 +292,23 @@ def main():
 if __name__ == '__main__':
     main()
 ```
+## ✅ Completed
+
+- [x] Ensure sampling as MCP feature is working
+- [x] Create Pub/Sub support using Redis
+- [x] Create Pub/Sub support using Kafka
+- [x] Create Pub/Sub support using MSK (Managed Kafka)
+- [x] Ensure tool calling is done with confirmation
+- [x] Check compatibility with Python 3.11, Python 3.12
+
+---
+
+## ⏳ To Do Next
+
+* [ ] Integrate smart contract for tool calling
+* [ ] Each agent has its own wallet (defined in config)
+* [ ] Pub/Sub support for RabbitMQ
+* [ ] Pub/Sub support for Google Pub/Sub
 
 ---
 

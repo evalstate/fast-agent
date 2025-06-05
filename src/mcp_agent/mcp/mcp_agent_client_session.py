@@ -13,6 +13,7 @@ from mcp.shared.session import (
     SendNotificationT,
     SendRequestT,
     SendResultT,
+    ProgressFnT
 )
 from mcp.types import ErrorData, ListRootsResult, Root, ToolListChangedNotification
 from pydantic import FileUrl
