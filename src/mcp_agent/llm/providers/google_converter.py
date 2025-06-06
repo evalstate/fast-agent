@@ -166,6 +166,10 @@ class GoogleConverter:
         fast_agent_parts: List[
             TextContent | ImageContent | EmbeddedResource | CallToolRequestParams
         ] = []
+
+        if content is None or not hasattr(content, 'parts') or content.parts is None:
+                    return [] # Google API response 'content' object is None. Cannot extract parts.
+
         for part in content.parts:
             if part.text:
                 fast_agent_parts.append(TextContent(type="text", text=part.text))

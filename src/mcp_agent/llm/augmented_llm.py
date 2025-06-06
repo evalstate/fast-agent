@@ -1,3 +1,5 @@
+import asyncio
+import time
 from abc import abstractmethod
 from typing import (
     TYPE_CHECKING,
@@ -158,6 +160,8 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         # Initialize default parameters
         self.default_request_params = self._initialize_default_params(kwargs)
 
+        self._last_call_timestamp: float | None = 0.0
+
         # Apply model override if provided
         if model:
             self.default_request_params.model = model
@@ -170,6 +174,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
         self.type_converter = type_converter
         self.verb = kwargs.get("verb")
+
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -195,6 +200,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         # We never expect this for structured() calls - this is for interactive use - developers
         # can do this programatically
         # TODO -- create a "fast-agent" control role rather than magic strings
+        
+        final_params = self.get_request_params(request_params)
+        await self._apply_delay(final_params)
 
         if multipart_messages[-1].first_text().startswith("***SAVE_HISTORY"):
             parts: list[str] = multipart_messages[-1].first_text().split(" ", 1)
@@ -246,9 +254,12 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
         """Return a structured response from the LLM using the provided messages."""
 
+        final_params = self.get_request_params(request_params)
+        await self._apply_delay(final_params)
+
         self._precall(multipart_messages)
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
-            multipart_messages, model, request_params
+            multipart_messages, model, final_params
         )
 
         self._message_history.append(assistant_response)
@@ -336,6 +347,20 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
                 model=self.default_request_params.model,
                 chat_turn=self.chat_turn(),
             )
+
+    async def _apply_delay(self, request_params: RequestParams) -> None:
+        """Checks and applies a delay if configured in request_params."""
+        if request_params.delay_between_calls and self._last_call_timestamp > 0:
+            required_delay = request_params.delay_between_calls
+            time_since_last_call = time.monotonic() - self._last_call_timestamp
+
+            if time_since_last_call < required_delay:
+                wait_time = required_delay - time_since_last_call
+                self.logger.debug(f"Applying delay: waiting for {wait_time:.2f} seconds.")
+                await asyncio.sleep(wait_time)
+
+        # Always update the timestamp for the next call
+        self._last_call_timestamp = time.monotonic()
 
     def chat_turn(self) -> int:
         """Return the current chat turn number"""

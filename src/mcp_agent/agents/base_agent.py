@@ -106,6 +106,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         # Initialize the LLM to None (will be set by attach_llm)
         self._llm: Optional[AugmentedLLMProtocol] = None
 
+        self._last_call_timestamp: float | None = None
+
         # Map function names to tools
         self._function_tool_map: Dict[str, Any] = {}
 

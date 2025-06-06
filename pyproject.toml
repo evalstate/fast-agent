@@ -35,8 +35,7 @@ dependencies = [
     "google-genai",
     "opentelemetry-instrumentation-google-genai>=0.2b0",
     "tensorzero>=2025.4.7",
-    "google-genai",
-    "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "deprecated"
 ]
 
 [project.optional-dependencies]

@@ -52,3 +52,11 @@ class RequestParams(CreateMessageRequestParams):
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
     """
+
+    delay_between_calls: float | None = None
+    """
+    Optional delay between tool calls in seconds. This is useful for rate limiting as well as for working with tool calls that have delayed effects.
+
+    Example tool calls where this is helpful are tools with asynchronous effects, like sending emails or using a web browser. Web browser tools
+    may finish the tool calls already before all Ajax calls are finished, leading to problems if the LLM is too quick to continue processing.
+    """
