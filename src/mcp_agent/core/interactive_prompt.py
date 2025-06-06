@@ -14,6 +14,7 @@ Usage:
     )
 """
 
+import asyncio
 from typing import Awaitable, Callable, Dict, List, Mapping, Optional, Protocol, Union
 
 from mcp.types import Prompt, PromptMessage
@@ -38,12 +39,20 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageMultipart], str], Aw
 
 class PromptProvider(Protocol):
     """Protocol for objects that can provide prompt functionality."""
-    
-    async def list_prompts(self, server_name: Optional[str] = None, agent_name: Optional[str] = None) -> Mapping[str, List[Prompt]]:
+
+    async def list_prompts(
+        self, server_name: Optional[str] = None, agent_name: Optional[str] = None
+    ) -> Mapping[str, List[Prompt]]:
         """List available prompts."""
         ...
-    
-    async def apply_prompt(self, prompt_name: str, arguments: Optional[Dict[str, str]] = None, agent_name: Optional[str] = None, **kwargs) -> str:
+
+    async def apply_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, str]] = None,
+        agent_name: Optional[str] = None,
+        **kwargs,
+    ) -> str:
         """Apply a prompt."""
         ...
 
@@ -160,9 +169,7 @@ class InteractivePrompt:
                                 await self._list_prompts(prompt_provider, agent)
                         else:
                             # Use the name-based selection
-                            await self._select_prompt(
-                                prompt_provider, agent, prompt_name
-                            )
+                            await self._select_prompt(prompt_provider, agent, prompt_name)
                         continue
 
                 # Skip further processing if:
@@ -170,7 +177,11 @@ class InteractivePrompt:
                 # 2. The original input was a dictionary (special command like /prompt)
                 # 3. The command result itself is a dictionary (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
-                if command_result or isinstance(user_input, dict) or isinstance(command_result, dict):
+                if (
+                    command_result
+                    or isinstance(user_input, dict)
+                    or isinstance(command_result, dict)
+                ):
                     continue
 
                 if user_input.upper() == "STOP":
@@ -179,11 +190,45 @@ class InteractivePrompt:
                     continue
 
             # Send the message to the agent
-            result = await send_func(user_input, agent)
+            try:
+                result = await send_func(user_input, agent)
+            except KeyboardInterrupt:
+                rich_print("\n[yellow]Request cancelled by user (Ctrl+C).[/yellow]")
+                result = ""  # Ensure result has a benign value for the loop
+                # Attempt to stop progress display safely
+                try:
+                    # For rich.progress.Progress, 'progress_display.live.is_started' is a common check
+                    if hasattr(progress_display, "live") and progress_display.live.is_started:
+                        progress_display.stop()
+                    # Fallback for older rich or different progress setup
+                    elif hasattr(progress_display, "is_running") and progress_display.is_running:
+                        progress_display.stop()
+                    else:  # If unsure, try stopping directly if stop() is available
+                        if hasattr(progress_display, "stop"):
+                            progress_display.stop()
+                except Exception:
+                    pass  # Continue anyway, don't let progress display crash the cancel
+                continue
+            except asyncio.CancelledError:
+                rich_print("\n[yellow]Request task was cancelled.[/yellow]")
+                result = ""
+                try:
+                    if hasattr(progress_display, "live") and progress_display.live.is_started:
+                        progress_display.stop()
+                    elif hasattr(progress_display, "is_running") and progress_display.is_running:
+                        progress_display.stop()
+                    else:
+                        if hasattr(progress_display, "stop"):
+                            progress_display.stop()
+                except Exception:
+                    pass
+                continue
 
         return result
 
-    async def _get_all_prompts(self, prompt_provider: PromptProvider, agent_name: Optional[str] = None):
+    async def _get_all_prompts(
+        self, prompt_provider: PromptProvider, agent_name: Optional[str] = None
+    ):
         """
         Get a list of all available prompts.
 
@@ -196,8 +241,10 @@ class InteractivePrompt:
         """
         try:
             # Call list_prompts on the provider
-            prompt_servers = await prompt_provider.list_prompts(server_name=None, agent_name=agent_name)
-            
+            prompt_servers = await prompt_provider.list_prompts(
+                server_name=None, agent_name=agent_name
+            )
+
             all_prompts = []
 
             # Process the returned prompt servers
@@ -326,9 +373,11 @@ class InteractivePrompt:
         try:
             # Get all available prompts directly from the prompt provider
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
-            
+
             # Call list_prompts on the provider
-            prompt_servers = await prompt_provider.list_prompts(server_name=None, agent_name=agent_name)
+            prompt_servers = await prompt_provider.list_prompts(
+                server_name=None, agent_name=agent_name
+            )
 
             if not prompt_servers:
                 rich_print("[yellow]No prompts available for this agent[/yellow]")

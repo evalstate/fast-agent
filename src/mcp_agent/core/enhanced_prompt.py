@@ -320,10 +320,12 @@ async def get_enhanced_input(
         result = await session.prompt_async(HTML(prompt_text), default=default)
         return pre_process_input(result)
     except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        return "STOP"
+        # Handle Ctrl+C gracefully at the prompt
+        rich_print("\n[yellow]Input cancelled. Type a command or 'STOP' to exit session.[/yellow]")
+        return ""  # Return empty string to re-prompt
     except EOFError:
         # Handle Ctrl+D gracefully
+        rich_print("\n[yellow]EOF received. Type 'STOP' to exit session.[/yellow]")
         return "STOP"
     except Exception as e:
         # Log and gracefully handle other exceptions
