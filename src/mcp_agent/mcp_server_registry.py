@@ -27,6 +27,7 @@ from mcp_agent.config import (
     get_settings,
 )
 from mcp_agent.logging.logger import get_logger
+from mcp_agent.mcp.hf_auth import add_hf_auth_header
 from mcp_agent.mcp.logger_textio import get_stderr_handler
 from mcp_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
@@ -176,11 +177,14 @@ class ServerRegistry:
             if not config.url:
                 raise ValueError(f"URL is required for SSE transport: {server_name}")
 
+            # Apply HuggingFace authentication if appropriate
+            headers = add_hf_auth_header(config.url, config.headers)
+
             # Use sse_client to get the read and write streams
             async with _add_none_to_context(
                 sse_client(
                     config.url,
-                    config.headers,
+                    headers,
                     sse_read_timeout=config.read_transport_sse_timeout_seconds,
                 )
             ) as (read_stream, write_stream, _):
@@ -198,9 +202,12 @@ class ServerRegistry:
                         logger.debug(f"{server_name}: Closed session to server")
         elif config.transport == "http":
             if not config.url:
-                raise ValueError(f"URL is required for SSE transport: {server_name}")
+                raise ValueError(f"URL is required for HTTP transport: {server_name}")
 
-            async with streamablehttp_client(config.url, config.headers) as (
+            # Apply HuggingFace authentication if appropriate
+            headers = add_hf_auth_header(config.url, config.headers)
+
+            async with streamablehttp_client(config.url, headers) as (
                 read_stream,
                 write_stream,
                 _,

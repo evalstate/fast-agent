@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.2.28"
+version = "0.2.29"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.9.1",
+    "mcp==1.9.3",
     "opentelemetry-distro>=0.50b0",
     "opentelemetry-exporter-otlp-proto-http>=1.29.0",
     "pydantic-settings>=2.7.0",
@@ -29,14 +29,14 @@ dependencies = [
     "prompt-toolkit>=3.0.50",
     "aiohttp>=3.11.13",
     "a2a-types>=0.1.0",
-    "opentelemetry-instrumentation-openai>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-anthropic>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-mcp>=0.40.3; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-openai>=0.0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-mcp>=0.40.7; python_version >= '3.10' and python_version < '4.0'",
     "google-genai",
     "opentelemetry-instrumentation-google-genai>=0.2b0",
     "tensorzero>=2025.4.7",
-    "google-genai",
     "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "deprecated>=1.2.18",
 ]
 
 [project.optional-dependencies]

@@ -8,6 +8,8 @@ import re
 from typing import Dict, List, Literal, Tuple
 from urllib.parse import urlparse
 
+from mcp_agent.mcp.hf_auth import add_hf_auth_header
+
 
 def parse_server_url(
     url: str,
@@ -131,7 +133,11 @@ def parse_server_urls(
     result = []
     for url in url_list:
         server_name, transport_type, parsed_url = parse_server_url(url)
-        result.append((server_name, transport_type, parsed_url, headers))
+        
+        # Apply HuggingFace authentication if appropriate
+        final_headers = add_hf_auth_header(parsed_url, headers)
+        
+        result.append((server_name, transport_type, parsed_url, final_headers))
 
     return result
 
