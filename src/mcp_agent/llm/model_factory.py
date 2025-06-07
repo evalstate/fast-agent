@@ -12,6 +12,7 @@ from mcp_agent.llm.augmented_llm_slow import SlowLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_azure import AzureOpenAIAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_deepinfra import DeepInfraAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_native import GoogleNativeAugmentedLLM
@@ -20,7 +21,6 @@ from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
-
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
 
@@ -32,6 +32,7 @@ LLMClass = Union[
     Type[PlaybackLLM],
     Type[SlowLLM],
     Type[DeepSeekAugmentedLLM],
+    Type[DeepInfraAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
     Type[TensorZeroAugmentedLLM],
     Type[GoogleNativeAugmentedLLM],
@@ -136,6 +137,7 @@ class ModelFactory:
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
+        Provider.DEEPINFRA: DeepInfraAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes
