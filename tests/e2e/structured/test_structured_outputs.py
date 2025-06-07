@@ -24,6 +24,7 @@ class FormattedResponse(BaseModel):
     [
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
+        "deepseek-chat",
         "haiku",
         "sonnet",
         "gpt-4.1",
@@ -161,8 +162,8 @@ async def test_structured_output_with_response_format_overriden(fast_agent, mode
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4.1-mini", 
-        "haiku", 
+        "gpt-4.1-mini",
+        "haiku",
         "gemini2",
         "gemini25",
     ],

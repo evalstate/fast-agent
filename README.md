@@ -38,11 +38,13 @@ Start by installing the [uv package manager](https://docs.astral.sh/uv/) for Pyt
 
 ```bash
 uv pip install fast-agent-mcp          # install fast-agent!
-
-uv run fast-agent setup                # create an example agent and config files
+fast-agent go                          # start an interactive session
+fast-agent go https://hf.co/mcp        # with a remote MCP
+fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
+fast-agent setup                       # create an example agent and config files
 uv run agent.py                        # run your first agent
 uv run agent.py --model=o3-mini.low    # specify a model
-uv run fast-agent quickstart workflow  # create "building effective agents" examples
+fast-agent quickstart workflow  # create "building effective agents" examples
 ```
 
 Other quickstart examples include a Researcher Agent (with Evaluator-Optimizer workflow) and Data Analysis Agent (similar to the ChatGPT experience), demonstrating MCP Roots support.

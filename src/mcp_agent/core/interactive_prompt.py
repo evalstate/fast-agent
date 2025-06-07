@@ -400,7 +400,7 @@ class InteractivePrompt:
                 for prompt in prompts:
                     # Get basic prompt info
                     prompt_name = getattr(prompt, "name", "Unknown")
-                    description = getattr(prompt, "description", "No description")
+                    prompt_description = getattr(prompt, "description", "No description")
 
                     # Extract argument information
                     arg_names = []
@@ -436,7 +436,7 @@ class InteractivePrompt:
                             "server": server_name,
                             "name": prompt_name,
                             "namespaced_name": namespaced_name,
-                            "description": description,
+                            "description": prompt_description,
                             "arg_count": len(arg_names),
                             "arg_names": arg_names,
                             "required_args": required_args,
