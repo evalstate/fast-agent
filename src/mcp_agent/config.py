@@ -291,6 +291,9 @@ class Settings(BaseSettings):
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     """
+    
+    auto_sampling: bool = True
+    """Enable automatic sampling model selection if not explicitly configured"""
 
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""

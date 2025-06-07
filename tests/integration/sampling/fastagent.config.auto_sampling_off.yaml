@@ -1,10 +1,10 @@
 default_model: passthrough
+auto_sampling: false  # Disable auto-sampling
 
 # Logging and Console Configuration:
 logger:
   level: "error"
   type: "file"
-  # path: "/path/to/logfile.jsonl"
 
   # Switch the progress display on or off
   progress_display: true
@@ -21,14 +21,4 @@ mcp:
     sampling_test:
       command: "uv"
       args: ["run", "sampling_test_server.py"]
-      sampling:
-        model: "passthrough"
-    slow_sampling:
-      command: "uv"
-      args: ["run", "sampling_test_server.py"]
-      sampling:
-        model: "slow"
-    sampling_test_no_config:
-      command: "uv"
-      args: ["run", "sampling_test_server.py"]
-      # No explicit sampling configuration - relies on auto_sampling
+      # No explicit sampling configuration - should fail with auto_sampling=false

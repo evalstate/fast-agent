@@ -456,6 +456,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         self,
         prompt_name: str,
         arguments: Dict[str, str] | None = None,
+        agent_name: str | None = None,
         server_name: str | None = None,
     ) -> str:
         """
@@ -468,6 +469,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Args:
             prompt_name: The name of the prompt to apply
             arguments: Optional dictionary of string arguments to pass to the prompt template
+            agent_name: Optional agent name (ignored at this level, used by multi-agent apps)
             server_name: Optional name of the server to get the prompt from
 
         Returns:

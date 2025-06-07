@@ -215,13 +215,20 @@ class MCPAggregator(ContextDependent):
                 )
 
                 # Create a wrapper to capture the parameters for the client session
-                def session_factory(read_stream, write_stream, read_timeout):
+                def session_factory(read_stream, write_stream, read_timeout, **kwargs):
+                    # Get agent's model if this aggregator is part of an agent
+                    agent_model = None
+                    if hasattr(self, 'config') and self.config and hasattr(self.config, 'model'):
+                        agent_model = self.config.model
+                    
                     return MCPAgentClientSession(
                         read_stream,
                         write_stream,
                         read_timeout,
                         server_name=server_name,
+                        agent_model=agent_model,
                         tool_list_changed_callback=self._handle_tool_list_changed,
+                        **kwargs  # Pass through any additional kwargs like server_config
                     )
 
                 await self._persistent_connection_manager.get_server(
@@ -269,13 +276,20 @@ class MCPAggregator(ContextDependent):
                 prompts = await fetch_prompts(server_connection.session, server_name)
             else:
                 # Create a factory function for the client session
-                def create_session(read_stream, write_stream, read_timeout):
+                def create_session(read_stream, write_stream, read_timeout, **kwargs):
+                    # Get agent's model if this aggregator is part of an agent
+                    agent_model = None
+                    if hasattr(self, 'config') and self.config and hasattr(self.config, 'model'):
+                        agent_model = self.config.model
+                    
                     return MCPAgentClientSession(
                         read_stream,
                         write_stream,
                         read_timeout,
                         server_name=server_name,
+                        agent_model=agent_model,
                         tool_list_changed_callback=self._handle_tool_list_changed,
+                        **kwargs  # Pass through any additional kwargs like server_config
                     )
 
                 async with gen_client(
@@ -797,12 +811,13 @@ class MCPAggregator(ContextDependent):
             messages=[],
         )
 
-    async def list_prompts(self, server_name: str | None = None) -> Mapping[str, List[Prompt]]:
+    async def list_prompts(self, server_name: str | None = None, agent_name: str | None = None) -> Mapping[str, List[Prompt]]:
         """
         List available prompts from one or all servers.
 
         :param server_name: Optional server name to list prompts from. If not provided,
                            lists prompts from all servers.
+        :param agent_name: Optional agent name (ignored at this level, used by multi-agent apps)
         :return: Dictionary mapping server names to lists of Prompt objects
         """
         if not self.initialized:

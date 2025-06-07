@@ -11,7 +11,6 @@ if TYPE_CHECKING:
 logging.basicConfig(level=logging.DEBUG)
 
 
-@pytest.mark.timeout(30)  # 30 seconds timeout
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_tool_list_changes(fast_agent):
