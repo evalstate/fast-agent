@@ -113,6 +113,14 @@ class AnthropicSettings(BaseModel):
 
     base_url: str | None = None
 
+    cache_mode: Literal["off", "prompt", "auto"] = "off"
+    """
+    Controls how caching is applied for Anthropic models when prompt_caching is enabled globally.
+    - "off": No caching, even if global prompt_caching is true.
+    - "prompt": Caches the initial system/user prompt. Useful for large, static prompts.
+    - "auto": Caches the last user message. Default behavior if prompt_caching is true.
+    """
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -291,7 +299,7 @@ class Settings(BaseSettings):
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     """
-    
+
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
 
