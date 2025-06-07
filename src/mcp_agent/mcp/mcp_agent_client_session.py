@@ -7,15 +7,13 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from mcp import ClientSession, ServerNotification
+from mcp.shared.message import MessageMetadata
 from mcp.shared.session import (
     ProgressFnT,
     ReceiveResultT,
-    RequestId,
-    SendNotificationT,
     SendRequestT,
-    SendResultT,
 )
-from mcp.types import ErrorData, Implementation, ListRootsResult, Root, ToolListChangedNotification
+from mcp.types import Implementation, ListRootsResult, Root, ToolListChangedNotification
 from pydantic import FileUrl
 
 from mcp_agent.context_dependent import ContextDependent
@@ -76,12 +74,16 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         # Only register callbacks if the server_config has the relevant settings
         list_roots_cb = list_roots if (self.server_config and self.server_config.roots) else None
-        
+
         # Register sampling callback if either:
         # 1. Sampling is explicitly configured, OR
         # 2. Application-level auto_sampling is enabled
         sampling_cb = None
-        if self.server_config and hasattr(self.server_config, "sampling") and self.server_config.sampling:
+        if (
+            self.server_config
+            and hasattr(self.server_config, "sampling")
+            and self.server_config.sampling
+        ):
             # Explicit sampling configuration
             sampling_cb = sample
         elif self._should_enable_auto_sampling():
@@ -100,9 +102,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         """Check if auto_sampling is enabled at the application level."""
         try:
             from mcp_agent.context import get_current_context
+
             context = get_current_context()
             if context and context.config:
-                return getattr(context.config, 'auto_sampling', True)
+                return getattr(context.config, "auto_sampling", True)
         except Exception:
             pass
         return True  # Default to True if can't access config
@@ -112,6 +115,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         request: SendRequestT,
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
+        metadata: MessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
@@ -120,31 +124,17 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 request=request,
                 result_type=result_type,
                 request_read_timeout_seconds=request_read_timeout_seconds,
+                metadata=metadata,
                 progress_callback=progress_callback,
-                metadata=None,
             )
-            logger.debug("send_request: response=", data=result.model_dump())
+            logger.debug(
+                "send_request: response=",
+                data=result.model_dump() if result is not None else "no response returned",
+            )
             return result
         except Exception as e:
             logger.error(f"send_request failed: {str(e)}")
             raise
-
-    async def send_notification(self, notification: SendNotificationT) -> None:
-        logger.debug("send_notification:", data=notification.model_dump())
-        try:
-            return await super().send_notification(notification)
-        except Exception as e:
-            logger.error("send_notification failed", data=e)
-            raise
-
-    async def _send_response(
-        self, request_id: RequestId, response: SendResultT | ErrorData
-    ) -> None:
-        logger.debug(
-            f"send_response: request_id={request_id}, response=",
-            data=response.model_dump(),
-        )
-        return await super()._send_response(request_id, response)
 
     async def _received_notification(self, notification: ServerNotification) -> None:
         """
@@ -189,17 +179,3 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             await self._tool_list_changed_callback(server_name)
         except Exception as e:
             logger.error(f"Error in tool list changed callback: {e}")
-
-    async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
-    ) -> None:
-        """
-        Sends a progress notification for a request that is currently being
-        processed.
-        """
-        logger.debug(
-            "send_progress_notification: progress_token={progress_token}, progress={progress}, total={total}"
-        )
-        return await super().send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
-        )

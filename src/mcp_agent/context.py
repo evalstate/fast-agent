@@ -12,7 +12,8 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
 from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-from opentelemetry.instrumentation.mcp import McpInstrumentor
+
+# from opentelemetry.instrumentation.mcp import McpInstrumentor
 from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
@@ -114,7 +115,9 @@ async def configure_otel(config: "Settings") -> None:
     AnthropicInstrumentor().instrument()
     OpenAIInstrumentor().instrument()
     GoogleGenAiSdkInstrumentor().instrument()
-    McpInstrumentor().instrument()
+
+
+#    McpInstrumentor().instrument()
 
 
 async def configure_logger(config: "Settings") -> None:
@@ -198,7 +201,6 @@ _global_context: Context | None = None
 def get_current_context() -> Context:
     """
     Synchronous initializer/getter for global application context.
-    For async usage, use aget_current_context instead.
     """
     global _global_context
     if _global_context is None:
