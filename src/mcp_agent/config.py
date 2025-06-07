@@ -291,7 +291,7 @@ class Settings(BaseSettings):
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
     """
-    
+
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
 
@@ -321,6 +321,9 @@ class Settings(BaseSettings):
 
     azure: AzureSettings | None = None
     """Settings for using Azure OpenAI Service in the fast-agent application"""
+
+    aliyun: OpenAISettings | None = None
+    """Settings for using Aliyun OpenAI Service in the fast-agent application"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""
