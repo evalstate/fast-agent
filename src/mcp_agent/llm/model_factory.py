@@ -10,6 +10,7 @@ from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
 from mcp_agent.llm.augmented_llm_slow import SlowLLM
 from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.providers.augmented_llm_aliyun import AliyunAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_azure import AzureOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
@@ -103,6 +104,10 @@ class ModelFactory:
         "gemini-2.0-flash": Provider.GOOGLE,
         "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
         "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
+        "qwen-turbo": Provider.ALIYUN,
+        "qwen-plus": Provider.ALIYUN,
+        "qwen-max": Provider.ALIYUN,
+        "qwen-long": Provider.ALIYUN,
     }
 
     MODEL_ALIASES = {
@@ -136,6 +141,7 @@ class ModelFactory:
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
+        Provider.ALIYUN: AliyunAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes
