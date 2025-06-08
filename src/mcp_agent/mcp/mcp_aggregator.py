@@ -82,12 +82,13 @@ class MCPAggregator(ContextDependent):
                 await self.context._connection_manager.__aenter__()
             self._persistent_connection_manager = self.context._connection_manager
 
-        await self.load_servers()
         # Import the display component here to avoid circular imports
         from mcp_agent.ui.console_display import ConsoleDisplay
 
         # Initialize the display component
         self.display = ConsoleDisplay(config=self.context.config)
+
+        await self.load_servers()
 
         return self
 
