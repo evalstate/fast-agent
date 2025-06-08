@@ -1,4 +1,10 @@
-from typing import List, Tuple, Type
+from copy import copy
+from typing import List, Tuple, Type, cast
+
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionMessage,
+)
 
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.provider_types import Provider
@@ -77,3 +83,11 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
             multipart_messages, request_params
         )
         return self._structured_from_multipart(result, model)
+
+    @classmethod
+    def convert_message_to_message_param(cls, message: ChatCompletionMessage, **kwargs) -> ChatCompletionAssistantMessageParam:
+        """Convert a response object to an input parameter object to allow LLM calls to be chained."""
+        if hasattr(message, "reasoning_content"):
+            message = copy(message)
+            del message.reasoning_content
+        return cast("ChatCompletionAssistantMessageParam", message)
