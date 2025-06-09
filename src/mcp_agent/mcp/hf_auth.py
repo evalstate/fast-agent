@@ -22,7 +22,26 @@ def is_huggingface_url(url: str) -> bool:
             return False
         
         # Check for HuggingFace domains
-        return hostname in {"hf.co", "huggingface.co"}
+        if hostname in {"hf.co", "huggingface.co"}:
+            return True
+            
+        # Check for HuggingFace Spaces (*.hf.space)
+        # Use endswith to match subdomains like space-name.hf.space
+        # but ensure exact match to prevent spoofing like evil.hf.space.com
+        if hostname.endswith(".hf.space") and hostname.count(".") >= 2:
+            # Additional validation: ensure it's a valid HF Space domain
+            # Format should be: {space-name}.hf.space
+            parts = hostname.split(".")
+            if len(parts) == 3 and parts[-2:] == ["hf", "space"]:
+                space_name = parts[0]
+                # Validate space name: not empty, not just hyphens/dots, no spaces
+                return (len(space_name) > 0 and 
+                        space_name != "-" and 
+                        not space_name.startswith(".") and
+                        not space_name.endswith(".") and
+                        " " not in space_name)
+            
+        return False
     except Exception:
         return False
 

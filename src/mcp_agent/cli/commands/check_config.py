@@ -226,8 +226,17 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
 
                 # Determine transport type
                 if "url" in server_config:
-                    server_info["transport"] = "SSE"
-                    server_info["url"] = server_config.get("url", "")
+                    url = server_config.get("url", "")
+                    server_info["url"] = url
+                    
+                    # Use URL path to determine transport type
+                    try:
+                        from .url_parser import parse_server_url
+                        _, transport_type, _ = parse_server_url(url)
+                        server_info["transport"] = transport_type.upper()
+                    except Exception:
+                        # Fallback to HTTP if URL parsing fails
+                        server_info["transport"] = "HTTP"
 
                 # Get command and args
                 command = server_config.get("command", "")
