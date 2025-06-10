@@ -18,3 +18,5 @@ class Provider(Enum):
     OPENROUTER = "openrouter"
     TENSORZERO = "tensorzero"  # For TensorZero Gateway
     AZURE = "azure"  # Azure OpenAI Service
+    ALIYUN = "aliyun"  # Aliyun Bailian OpenAI Service
+    HUGGINGFACE = "huggingface"  # For HuggingFace MCP connections

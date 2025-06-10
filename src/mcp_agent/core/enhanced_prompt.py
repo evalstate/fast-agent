@@ -2,6 +2,11 @@
 Enhanced prompt functionality with advanced prompt_toolkit features.
 """
 
+import asyncio
+import os
+import shlex
+import subprocess
+import tempfile
 from importlib.metadata import version
 from typing import List, Optional
 
@@ -96,6 +101,85 @@ class AgentCompleter(Completer):
                     )
 
 
+# Helper function to open text in an external editor
+def get_text_from_editor(initial_text: str = "") -> str:
+    """
+    Opens the user\'s configured editor ($VISUAL or $EDITOR) to edit the initial_text.
+    Falls back to \'nano\' (Unix) or \'notepad\' (Windows) if neither is set.
+    Returns the edited text, or the original text if an error occurs.
+    """
+    editor_cmd_str = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+
+    if not editor_cmd_str:
+        if os.name == "nt":  # Windows
+            editor_cmd_str = "notepad"
+        else:  # Unix-like (Linux, macOS)
+            editor_cmd_str = "nano"  # A common, usually available, simple editor
+
+    # Use shlex.split to handle editors with arguments (e.g., "code --wait")
+    try:
+        editor_cmd_list = shlex.split(editor_cmd_str)
+        if not editor_cmd_list:  # Handle empty string from shlex.split
+            raise ValueError("Editor command string is empty or invalid.")
+    except ValueError as e:
+        rich_print(f"[red]Error: Invalid editor command string ('{editor_cmd_str}'): {e}[/red]")
+        return initial_text
+
+    # Create a temporary file for the editor to use.
+    # Using a suffix can help some editors with syntax highlighting or mode.
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+", delete=False, suffix=".txt", encoding="utf-8"
+        ) as tmp_file:
+            if initial_text:
+                tmp_file.write(initial_text)
+                tmp_file.flush()  # Ensure content is written to disk before editor opens it
+            temp_file_path = tmp_file.name
+    except Exception as e:
+        rich_print(f"[red]Error: Could not create temporary file for editor: {e}[/red]")
+        return initial_text
+
+    try:
+        # Construct the full command: editor_parts + [temp_file_path]
+        # e.g., [\'vim\', \'/tmp/somefile.txt\'] or [\'code\', \'--wait\', \'/tmp/somefile.txt\']
+        full_cmd = editor_cmd_list + [temp_file_path]
+
+        # Run the editor. This is a blocking call.
+        subprocess.run(full_cmd, check=True)
+
+        # Read the content back from the temporary file.
+        with open(temp_file_path, "r", encoding="utf-8") as f:
+            edited_text = f.read()
+
+    except FileNotFoundError:
+        rich_print(
+            f"[red]Error: Editor command '{editor_cmd_list[0]}' not found. "
+            f"Please set $VISUAL or $EDITOR correctly, or install '{editor_cmd_list[0]}'.[/red]"
+        )
+        return initial_text
+    except subprocess.CalledProcessError as e:
+        rich_print(
+            f"[red]Error: Editor '{editor_cmd_list[0]}' closed with an error (code {e.returncode}).[/red]"
+        )
+        return initial_text
+    except Exception as e:
+        rich_print(
+            f"[red]An unexpected error occurred while launching or using the editor: {e}[/red]"
+        )
+        return initial_text
+    finally:
+        # Always attempt to clean up the temporary file.
+        if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                rich_print(
+                    f"[yellow]Warning: Could not remove temporary file {temp_file_path}: {e}[/yellow]"
+                )
+
+    return edited_text.strip()  # Added strip() to remove trailing newlines often added by editors
+
+
 def create_keybindings(on_toggle_multiline=None, app=None):
     """Create custom key bindings."""
     kb = KeyBindings()
@@ -139,6 +223,27 @@ def create_keybindings(on_toggle_multiline=None, app=None):
     def _(event) -> None:
         """Ctrl+L: Clear the input buffer."""
         event.current_buffer.text = ""
+
+    @kb.add("c-e")
+    async def _(event) -> None:
+        """Ctrl+E: Edit current buffer in $EDITOR."""
+        current_text = event.app.current_buffer.text
+        try:
+            # Run the synchronous editor function in a thread
+            edited_text = await event.app.loop.run_in_executor(
+                None, get_text_from_editor, current_text
+            )
+            event.app.current_buffer.text = edited_text
+            # Optionally, move cursor to the end of the edited text
+            event.app.current_buffer.cursor_position = len(edited_text)
+        except asyncio.CancelledError:
+            rich_print("[yellow]Editor interaction cancelled.[/yellow]")
+        except Exception as e:
+            rich_print(f"[red]Error during editor interaction: {e}[/red]")
+        finally:
+            # Ensure the UI is updated
+            if event.app:
+                event.app.invalidate()
 
     return kb
 

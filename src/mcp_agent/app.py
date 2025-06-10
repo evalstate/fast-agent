@@ -119,7 +119,7 @@ class MCPApp:
         if self._initialized:
             return
 
-        self._context = await initialize_context(self._config_or_path)
+        self._context = await initialize_context(self._config_or_path, store_globally=True)
 
         # Set the properties that were passed in the constructor
         self._context.human_input_handler = self._human_input_callback
