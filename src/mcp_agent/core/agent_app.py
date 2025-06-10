@@ -69,7 +69,7 @@ class AgentApp:
         if message:
             return await self._agent(agent_name).send(message)
 
-        return await self.interactive(agent=agent_name, default_prompt=default_prompt)
+        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
 
     async def send(
         self,
@@ -96,6 +96,10 @@ class AgentApp:
             if agent_name not in self._agents:
                 raise ValueError(f"Agent '{agent_name}' not found")
             return self._agents[agent_name]
+
+        for agent in self._agents.values():
+            if agent.config.default:
+                return agent
 
         return next(iter(self._agents.values()))
 
@@ -226,9 +230,9 @@ class AgentApp:
         """
         Deprecated - use interactive() instead.
         """
-        return await self.interactive(agent=agent_name, default_prompt=default_prompt)
+        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
 
-    async def interactive(self, agent: str | None = None, default_prompt: str = "") -> str:
+    async def interactive(self, agent_name: str | None = None, default_prompt: str = "") -> str:
         """
         Interactive prompt for sending messages with advanced features.
 
@@ -241,14 +245,21 @@ class AgentApp:
         """
 
         # Get the default agent name if none specified
-        if agent:
+        if agent_name:
             # Validate that this agent exists
-            if agent not in self._agents:
-                raise ValueError(f"Agent '{agent}' not found")
-            target_name = agent
+            if agent_name not in self._agents:
+                raise ValueError(f"Agent '{agent_name}' not found")
+            target_name = agent_name
         else:
-            # Use the first agent's name as default
-            target_name = next(iter(self._agents.keys()))
+            target_name = None
+            for agent in self._agents.values():
+                if agent.config.default:
+                    target_name = agent.config.name
+                    break
+
+            if not target_name:
+                # Use the first agent's name as default
+                target_name = next(iter(self._agents.keys()))
 
         # Don't delegate to the agent's own prompt method - use our implementation
         # The agent's prompt method doesn't fully support switching between agents
