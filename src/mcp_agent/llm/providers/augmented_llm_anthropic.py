@@ -130,11 +130,12 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             if cache_mode == "auto":
                 apply_cache_to_system_prompt = True  # Cache system prompt
                 if messages:  # If there are any messages
-                    messages_to_cache_indices.append(
-                        len(messages) - 1
-                    )  # Cache only the last message
+                    # Cache the last 3 messages
+                    messages_to_cache_indices.extend(
+                        range(max(0, len(messages) - 3), len(messages))
+                    )
                 self.logger.debug(
-                    f"Auto mode: Caching system prompt (if present) and last message at index: {messages_to_cache_indices}"
+                    f"Auto mode: Caching system prompt (if present) and last three messages at indices: {messages_to_cache_indices}"
                 )
             elif cache_mode == "prompt":
                 # Find the first user message in the fully constructed messages list

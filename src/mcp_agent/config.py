@@ -118,7 +118,7 @@ class AnthropicSettings(BaseModel):
     Controls how caching is applied for Anthropic models when prompt_caching is enabled globally.
     - "off": No caching, even if global prompt_caching is true.
     - "prompt": Caches the initial system/user prompt. Useful for large, static prompts.
-    - "auto": Caches the last user message. Default behavior if prompt_caching is true.
+    - "auto": Caches the last three messages. Default behavior if prompt_caching is true.
     """
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
