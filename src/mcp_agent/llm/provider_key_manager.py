@@ -17,6 +17,7 @@ PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
     "google": "GOOGLE_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "generic": "GENERIC_API_KEY",
+    "huggingface": "HF_TOKEN",
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 

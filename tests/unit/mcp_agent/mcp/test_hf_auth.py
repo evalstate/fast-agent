@@ -73,6 +73,24 @@ class TestIsHuggingfaceUrl:
     def test_url_with_path_and_query(self):
         assert is_huggingface_url("https://hf.co/models/gpt2?revision=main") is True
 
+    def test_hf_space_valid(self):
+        assert is_huggingface_url("https://space-name.hf.space") is True
+
+    def test_hf_space_with_path(self):
+        assert is_huggingface_url("https://evalstate-parler-tts-expresso.hf.space/api/v1") is True
+
+    def test_hf_space_with_hyphens(self):
+        assert is_huggingface_url("https://my-awesome-space.hf.space") is True
+
+    def test_hf_space_with_numbers(self):
+        assert is_huggingface_url("https://space123.hf.space") is True
+
+    def test_hf_space_http(self):
+        assert is_huggingface_url("http://test-space.hf.space") is True
+
+    def test_hf_space_with_port(self):
+        assert is_huggingface_url("https://space.hf.space:8080/path") is True
+
 
 class TestGetHfTokenFromEnv:
     """Test HF_TOKEN environment variable retrieval."""
@@ -223,6 +241,60 @@ class TestAddHfAuthHeader:
             _restore_hf_token(original)
 
 
+class TestHfSpaceAntiSpoofing:
+    """Test comprehensive anti-spoofing measures for .hf.space domains."""
+
+    def test_hf_space_spoofing_attempts_blocked(self):
+        """Test that various spoofing attempts for .hf.space domains are blocked."""
+        spoofing_urls = [
+            "https://evil.hf.space.com",  # suffix spoofing
+            "https://malicious.hf.space.evil.com",  # domain insertion
+            "https://hf.space.malicious.com",  # prefix spoofing
+            "https://notreally.hf.space.attacker.net",  # complex spoofing
+            "https://hf.space",  # missing space name
+            "https://.hf.space",  # empty space name
+            "https://..hf.space",  # double dot
+            "https://sub.space.hf.space",  # too many subdomains
+            "https://api.space.hf.space",  # nested subdomains
+            "https://hf.space.really",  # hf.space as subdomain
+        ]
+        
+        for url in spoofing_urls:
+            assert is_huggingface_url(url) is False, f"URL should be rejected: {url}"
+
+    def test_hf_space_case_sensitivity(self):
+        """Test that case variations are handled correctly."""
+        # Note: urlparse normalizes hostnames to lowercase, so all these should work
+        # The validation is case-insensitive for the domain part
+        assert is_huggingface_url("https://SPACE.hf.space") is True
+        assert is_huggingface_url("https://space.HF.SPACE") is True
+        assert is_huggingface_url("https://space.Hf.Space") is True
+        assert is_huggingface_url("https://My-Space.hf.space") is True
+
+    def test_hf_space_empty_or_invalid_space_names(self):
+        """Test that invalid space names are rejected."""
+        invalid_names = [
+            "https://.hf.space",  # empty space name
+            "https://-.hf.space",  # just hyphen
+            "https://..hf.space",  # double dot
+            "https:// .hf.space",  # space character (will be URL encoded)
+        ]
+        
+        for url in invalid_names:
+            assert is_huggingface_url(url) is False, f"URL should be rejected: {url}"
+
+    def test_hf_space_path_injection_attempts(self):
+        """Test that path injection attempts don't bypass validation."""
+        injection_urls = [
+            "https://evil.com/space.hf.space",  # path-based spoofing
+            "https://attacker.net?redirect=space.hf.space",  # query param spoofing
+            "https://malicious.com#space.hf.space",  # fragment spoofing
+        ]
+        
+        for url in injection_urls:
+            assert is_huggingface_url(url) is False, f"URL should be rejected: {url}"
+
+
 class TestSecurityAndLeakagePrevention:
     """Test that HF_TOKEN is not leaked inappropriately."""
 
@@ -254,6 +326,45 @@ class TestSecurityAndLeakagePrevention:
                 # Should either be None or not contain HF token
                 if result:
                     assert "Authorization" not in result or "secret_token" not in result.get("Authorization", "")
+        finally:
+            _restore_hf_token(original)
+
+    def test_no_hf_token_for_hf_space_spoofing(self):
+        """Ensure HF_TOKEN is not added to .hf.space spoofing attempts."""
+        original = _set_hf_token("secret_token")
+        try:
+            spoofing_urls = [
+                "https://evil.hf.space.com",
+                "https://malicious.hf.space.evil.com", 
+                "https://hf.space.malicious.com",
+                "https://sub.space.hf.space",
+                "https://hf.space",
+                "https://.hf.space",
+            ]
+            
+            for url in spoofing_urls:
+                result = add_hf_auth_header(url, None)
+                # Should either be None or not contain HF token
+                if result:
+                    assert "Authorization" not in result or "secret_token" not in result.get("Authorization", ""), f"Token leaked to: {url}"
+        finally:
+            _restore_hf_token(original)
+
+    def test_hf_token_correctly_added_to_valid_hf_spaces(self):
+        """Ensure HF_TOKEN is correctly added to valid .hf.space URLs."""
+        original = _set_hf_token("test_token_123")
+        try:
+            valid_urls = [
+                "https://space-name.hf.space",
+                "https://my-awesome-space.hf.space/api",
+                "http://test123.hf.space:8080/path",
+                "https://evalstate-parler-tts-expresso.hf.space/v1/generate",
+            ]
+            
+            for url in valid_urls:
+                result = add_hf_auth_header(url, None)
+                assert result is not None, f"Should add auth to: {url}"
+                assert result["Authorization"] == "Bearer test_token_123", f"Incorrect auth for: {url}"
         finally:
             _restore_hf_token(original)
 
