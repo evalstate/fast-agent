@@ -6,7 +6,6 @@ from enum import Enum
 from typing import List
 
 from pydantic import BaseModel, Field, model_validator
-from pydantic_core.core_schema import CustomErrorSchema
 
 # Forward imports to avoid circular dependencies
 from mcp_agent.core.request_params import RequestParams

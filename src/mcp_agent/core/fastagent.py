@@ -23,10 +23,10 @@ from mcp_agent.core.direct_decorators import (
     agent as agent_decorator,
 )
 from mcp_agent.core.direct_decorators import (
-    custom as custom_decorator,
+    chain as chain_decorator,
 )
 from mcp_agent.core.direct_decorators import (
-    chain as chain_decorator,
+    custom as custom_decorator,
 )
 from mcp_agent.core.direct_decorators import (
     evaluator_optimizer as evaluator_optimizer_decorator,
