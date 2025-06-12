@@ -27,7 +27,7 @@ mcp:
       command: "uv"
       args: ["run", "sampling_resource_server.py"]
       sampling:
-        model: "gpt-4o-mini"
+        model: "gpt-4.1-mini"
 
       # command: "bash"
       # args: ["-c", "uv run sampling_resource_server.py | tee sampling_output.log"]

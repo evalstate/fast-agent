@@ -4,7 +4,6 @@
 #
 #
 
-execution_engine: asyncio
 logger:
   type: console
   level: error
@@ -53,14 +52,10 @@ mcp:
       args: ["mcp-server-fetch"]
     sequential:
       command: "npx"
-      args: ["-y","@modelcontextprotocol/server-sequential-thinking"]
-
+      args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]
 #    webmcp:
 #      command: "node"
 #      args: ["/home/ssmith/.webmcp/server.cjs"]
 #      env:
 #         WEBMCP_SERVER_TOKEN: 96e22896d8143fc1d61fec09208fc5ed
-
-
-
 

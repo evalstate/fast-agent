@@ -42,7 +42,7 @@ fast = FastAgent("PMO Job Description Generator")
     6. Emphasis on practical experience over formal requirements                                         
                                                                                                         
     Provide specific feedback for improvements.""",
-    model="gpt-4o",
+    model="gpt-4.1",
 )
 @fast.agent(
     name="file_handler",

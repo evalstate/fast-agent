@@ -11,6 +11,8 @@ from mcp.types import (
     TextResourceContents,
 )
 
+from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.providers import augmented_llm_openai
 from mcp_agent.llm.providers.multipart_converter_openai import (
     OpenAIConverter,
 )
@@ -36,9 +38,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertEqual(openai_msg["content"][0]["text"], self.sample_text)
+        self.assertEqual(openai_msg["content"], self.sample_text)
 
     def test_image_content_conversion(self):
         """Test conversion of ImageContent to OpenAI image block."""
@@ -263,10 +263,7 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
 
         # Assertions - user should have array content in OpenAI
         self.assertEqual(openai_msg["role"], "user")
-        self.assertIsInstance(openai_msg["content"], list)
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertEqual(openai_msg["content"][0]["text"], "User message")
+        self.assertEqual(openai_msg["content"], "User message")
 
     def test_convert_prompt_message_to_openai_user_image(self):
         """Test conversion of a PromptMessage with image content to OpenAI format."""
@@ -309,41 +306,6 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         self.assertEqual(openai_msg["content"][0]["type"], "text")
         self.assertIn("<fastagent:file", openai_msg["content"][0]["text"])
         self.assertIn("This is a text resource", openai_msg["content"][0]["text"])
-
-    def test_assistant_multiple_text_blocks(self):
-        """Test that multiple text blocks in assistant messages are concatenated."""
-        # Create multiple text blocks for assistant
-        text1 = TextContent(type="text", text="First part of the response.")
-        text2 = TextContent(type="text", text=" Second part of the response.")
-
-        multipart = PromptMessageMultipart(role="assistant", content=[text1, text2])
-
-        # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
-
-        # Assertions - all text should be concatenated for assistant messages
-        self.assertEqual(openai_msg["role"], "assistant")
-        self.assertEqual(
-            openai_msg["content"],
-            "First part of the response. Second part of the response.",
-        )
-
-    def test_assistant_message_with_only_images(self):
-        """Test assistant message with only image content (which should be ignored)."""
-        # Create an assistant message with only image content
-        image_content = ImageContent(
-            type="image",
-            data=base64.b64encode(b"fake_image_data").decode("utf-8"),
-            mimeType="image/jpeg",
-        )
-        multipart = PromptMessageMultipart(role="assistant", content=[image_content])
-
-        # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
-
-        # Assertions - should have empty content since OpenAI assistant can't have images
-        self.assertEqual(openai_msg["role"], "assistant")
-        self.assertEqual(openai_msg["content"], "")
 
     def test_empty_assistant_message(self):
         """Test conversion of empty assistant message."""
@@ -468,6 +430,15 @@ class TestOpenAIToolConverter(unittest.TestCase):
             tool_message[1][0]["content"][1]["file"]["file_data"],
             f"data:application/pdf;base64,{pdf_base64}",
         )
+
+    def test_empty_schema_behavior(self):
+        """Test adjustment of parameters for empty schema."""
+        inputSchema = {
+            "type": "object",
+        }
+        an_llm = augmented_llm_openai.OpenAIAugmentedLLM(Provider.OPENAI)
+        adjusted = an_llm.adjust_schema(inputSchema)
+        assert adjusted["properties"] == {}
 
 
 class TestTextConcatenation(unittest.TestCase):

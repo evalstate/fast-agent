@@ -12,6 +12,8 @@
 
 default_model: passthrough
 
+azure:
+
 # Logging and Console Configuration:
 logger:
   # level: "debug" | "info" | "warning" | "error"

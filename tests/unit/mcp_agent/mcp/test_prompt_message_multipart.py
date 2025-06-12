@@ -9,6 +9,7 @@ from mcp.types import (
     TextContent,
 )
 
+from mcp_agent.core.prompt import Prompt
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 
@@ -60,7 +61,9 @@ class TestPromptMessageMultipart:
     def test_from_prompt_messages_with_mixed_content_types(self):
         """Test converting messages with mixed content types (text and image)."""
         # Create a message with an image content
-        image_content = ImageContent(type="image", data="base64_encoded_image_data", mimeType="image/png")
+        image_content = ImageContent(
+            type="image", data="base64_encoded_image_data", mimeType="image/png"
+        )
 
         messages = [
             PromptMessage(
@@ -163,7 +166,7 @@ class TestPromptMessageMultipart:
         for i in range(len(messages)):
             assert result[i].role == messages[i].role
             assert result[i].content.text == messages[i].content.text
-            
+
     def test_from_get_prompt_result(self):
         """Test from_get_prompt_result method with error handling."""
         # Test with valid GetPromptResult
@@ -172,17 +175,34 @@ class TestPromptMessageMultipart:
             PromptMessage(role="assistant", content=TextContent(type="text", text="Hi there!")),
         ]
         result = GetPromptResult(messages=messages)
-        
+
         multiparts = PromptMessageMultipart.from_get_prompt_result(result)
         assert len(multiparts) == 2
         assert multiparts[0].role == "user"
         assert multiparts[1].role == "assistant"
-        
+
         # Test with None
         multiparts = PromptMessageMultipart.from_get_prompt_result(None)
         assert multiparts == []
-        
+
         # Test with empty result
         empty_result = GetPromptResult(messages=[])
         multiparts = PromptMessageMultipart.from_get_prompt_result(empty_result)
         assert multiparts == []
+
+    def test_getting_last_text_empty(self):
+        """Test from_get_prompt_result method with error handling."""
+        # Test with valid GetPromptResult
+        assert "<no text>" == Prompt.user().last_text()
+        assert "last" == Prompt.user("first", "last").last_text()
+
+    def test_convenience_add_text(self):
+        """Test from_get_prompt_result method with error handling."""
+        # Test with valid GetPromptResult
+        multipart = Prompt.user("hello", "world")
+        assert 2 == len(multipart.content)
+
+        multipart.add_text("foo")
+        assert 3 == len(multipart.content)
+        assert "foo" == multipart.last_text()
+        assert isinstance(multipart.content[2], TextContent)

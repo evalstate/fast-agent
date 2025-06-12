@@ -168,7 +168,7 @@ examples/mcp_root_test/test_data/*.png
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
-#.idea/
+.idea/
 uv.lock
 
 # File generated from promptify script (to create an LLM-friendly prompt for the repo)
@@ -182,6 +182,7 @@ fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/
 
+tests/integration/api/weather_location.txt
 tests/integration/prompt-state/simple.txt
 tests/integration/workflow/router/fastagent.jsonl
 tests/e2e/smoke/weather_location.txt
@@ -194,3 +195,7 @@ tests/e2e/workflow/weather_location.txt
 tests/integration/prompt-state/multipart.json
 tests/integration/prompt-state/history.json
 !tests/integration/api/fastagent.secrets.yaml
+fastagent.jsonl
+
+tests/e2e/smoke/base/weather_location.txt
+tests/integration/roots/fastagent.jsonl

@@ -110,6 +110,9 @@ async def test_router_invalid_agent_selection(fast_agent):
             result = await agent.router.send("This should fail with a clear error")
 
             # Verify error message
-            assert "Could not determine appropriate agent" in result
+            assert (
+                "A response was received, but the agent nonexistent_agent was not known to the Router"
+                in result
+            )
 
     await agent_function()

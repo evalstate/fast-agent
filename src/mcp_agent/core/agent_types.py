@@ -36,8 +36,8 @@ class AgentConfig(BaseModel):
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC
 
-    @model_validator(mode='after')
-    def ensure_default_request_params(self) -> 'AgentConfig':
+    @model_validator(mode="after")
+    def ensure_default_request_params(self) -> "AgentConfig":
         """Ensure default_request_params exists with proper history setting"""
         if self.default_request_params is None:
             self.default_request_params = RequestParams(

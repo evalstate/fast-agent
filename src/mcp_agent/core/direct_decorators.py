@@ -267,7 +267,7 @@ def orchestrator(
     use_history: bool = False,
     human_input: bool = False,
     plan_type: Literal["full", "iterative"] = "full",
-    max_iterations: int = 30,
+    plan_iterations: int = 5,
 ) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
     """
     Decorator to create and register an orchestrator agent with type-safe signature.
@@ -303,7 +303,7 @@ def orchestrator(
             human_input=human_input,
             child_agents=agents,
             plan_type=plan_type,
-            max_iterations=max_iterations,
+            plan_iterations=plan_iterations,
         ),
     )
 

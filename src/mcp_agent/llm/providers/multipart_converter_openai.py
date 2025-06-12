@@ -7,6 +7,7 @@ from mcp.types import (
     PromptMessage,
     TextContent,
 )
+from openai.types.chat import ChatCompletionMessageParam
 
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.helpers.content_helpers import (
@@ -23,7 +24,6 @@ from mcp_agent.mcp.mime_utils import (
     is_text_mime_type,
 )
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
 from mcp_agent.mcp.resource_utils import extract_title_from_uri
 
 _logger = get_logger("multipart_converter_openai")
@@ -54,7 +54,7 @@ class OpenAIConverter:
     @staticmethod
     def convert_to_openai(
         multipart_msg: PromptMessageMultipart, concatenate_text_blocks: bool = False
-    ) -> OpenAIMessage:
+    ) -> Dict[str, str | ContentBlock | List[ContentBlock]]:
         """
         Convert a PromptMessageMultipart message to OpenAI API format.
 
@@ -71,11 +71,9 @@ class OpenAIConverter:
         if not multipart_msg.content:
             return {"role": role, "content": ""}
 
-        # Assistant and system messages in OpenAI only support string content, not array of content blocks
-        if role == "assistant" or role == "system":
-            # Use MessageContent helper to get all text
-            content_text = MessageContent.join_text(multipart_msg, separator="")
-            return {"role": role, "content": content_text}
+        # single text block
+        if 1 == len(multipart_msg.content) and is_text_content(multipart_msg.content[0]):
+            return {"role": role, "content": get_text(multipart_msg.content[0])}
 
         # For user messages, convert each content block
         content_blocks: List[ContentBlock] = []
@@ -94,12 +92,6 @@ class OpenAIConverter:
                     if block:
                         content_blocks.append(block)
 
-                # Handle input_audio if implemented
-                elif hasattr(item, "type") and getattr(item, "type") == "input_audio":
-                    _logger.warning("Input audio content not supported in standard OpenAI types")
-                    fallback_text = "[Audio content not directly supported]"
-                    content_blocks.append({"type": "text", "text": fallback_text})
-
                 else:
                     _logger.warning(f"Unsupported content type: {type(item)}")
                     # Create a text block with information about the skipped content
@@ -112,16 +104,7 @@ class OpenAIConverter:
                 fallback_text = f"[Content conversion error: {str(e)}]"
                 content_blocks.append({"type": "text", "text": fallback_text})
 
-        # Special case: empty content list or only empty text blocks
         if not content_blocks:
-            return {"role": role, "content": ""}
-
-        # If we only have one text content and it's empty, return an empty string for content
-        if (
-            len(content_blocks) == 1
-            and content_blocks[0]["type"] == "text"
-            and not content_blocks[0]["text"]
-        ):
             return {"role": role, "content": ""}
 
         # If concatenate_text_blocks is True, combine adjacent text blocks
@@ -172,7 +155,7 @@ class OpenAIConverter:
     @staticmethod
     def convert_prompt_message_to_openai(
         message: PromptMessage, concatenate_text_blocks: bool = False
-    ) -> OpenAIMessage:
+    ) -> ChatCompletionMessageParam:
         """
         Convert a standard PromptMessage to OpenAI API format.
 
@@ -194,7 +177,7 @@ class OpenAIConverter:
         """Convert ImageContent to OpenAI image_url content block."""
         # Get image data using helper
         image_data = get_image_data(content)
-        
+
         # OpenAI requires image URLs or data URIs for images
         image_url = {"url": f"data:{content.mimeType};base64,{image_data}"}
 
@@ -256,8 +239,8 @@ class OpenAIConverter:
         if OpenAIConverter._is_supported_image_type(mime_type):
             if is_url and uri_str:
                 return {"type": "image_url", "image_url": {"url": uri_str}}
-            
-            # Try to get image data 
+
+            # Try to get image data
             image_data = get_image_data(resource)
             if image_data:
                 return {

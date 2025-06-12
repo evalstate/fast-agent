@@ -1,12 +1,11 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.2.16"
+version = "0.2.30"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "Shaun Smith", email = "fastagent@llmindset.co.uk"},
-    { name = "Sarmad Qadri", email = "sarmad@lastmileai.dev" }
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -16,7 +15,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.6.0",
+    "mcp==1.9.3",
     "opentelemetry-distro>=0.50b0",
     "opentelemetry-exporter-otlp-proto-http>=1.29.0",
     "pydantic-settings>=2.7.0",
@@ -24,21 +23,29 @@ dependencies = [
     "pyyaml>=6.0.2",
     "rich>=13.9.4",
     "typer>=0.15.1",
-    "numpy>=2.2.1",
-    "scikit-learn>=1.6.0",
     "anthropic>=0.49.0",
     "openai>=1.63.2",
+    "azure-identity>=1.14.0",
     "prompt-toolkit>=3.0.50",
     "aiohttp>=3.11.13",
     "a2a-types>=0.1.0",
+    "opentelemetry-instrumentation-openai>=0.0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-mcp>=0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "google-genai",
+    "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "tensorzero>=2025.4.7",
+    "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "deprecated>=1.2.18",
 ]
 
 [project.optional-dependencies]
-temporal = [
-    "temporalio>=1.8.0",
-]
 openai = [
     "openai>=1.58.1",
+]
+# For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
+azure = [
+    "azure-identity>=1.14.0"
 ]
 dev = [
     "anthropic>=0.42.0",
@@ -58,6 +65,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_agent"]
+
+[[tool.poetry.packages]]
+include = "mcp_agent"
+from = "src"
 
 [tool.hatch.build]
 include = [
@@ -103,6 +114,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.1",
     "pytest-cov>=6.1.1",
+    "ipdb>=0.13.13",
 ]
 
 [project.scripts]

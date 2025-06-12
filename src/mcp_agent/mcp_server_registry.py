@@ -18,6 +18,7 @@ from mcp.client.stdio import (
     StdioServerParameters,
     get_default_environment,
 )
+from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 
 from mcp_agent.config import (
     MCPServerAuthSettings,
@@ -26,8 +27,12 @@ from mcp_agent.config import (
     get_settings,
 )
 from mcp_agent.logging.logger import get_logger
+from mcp_agent.mcp.hf_auth import add_hf_auth_header
 from mcp_agent.mcp.logger_textio import get_stderr_handler
-from mcp_agent.mcp.mcp_connection_manager import MCPConnectionManager
+from mcp_agent.mcp.mcp_connection_manager import (
+    MCPConnectionManager,
+    _add_none_to_context,
+)
 
 logger = get_logger(__name__)
 
@@ -66,9 +71,15 @@ class ServerRegistry:
             config (Settings): The Settings object containing the server configurations.
             config_path (str): Path to the YAML configuration file.
         """
-        self.registry = (
-            self.load_registry_from_file(config_path) if config is None else config.mcp.servers
-        )
+        if config is None:
+            self.registry = self.load_registry_from_file(config_path)
+        elif config.mcp is not None and hasattr(config.mcp, 'servers') and config.mcp.servers is not None:
+            # Ensure config.mcp exists, has a 'servers' attribute, and it's not None
+            self.registry = config.mcp.servers
+        else:
+            # Default to an empty dictionary if config.mcp is None or has no 'servers'
+            self.registry = {}
+
         self.init_hooks: Dict[str, InitHookCallable] = {}
         self.connection_manager = MCPConnectionManager(self)
 
@@ -84,8 +95,13 @@ class ServerRegistry:
         Raises:
             ValueError: If the configuration is invalid.
         """
+        servers = {} 
 
-        servers = get_settings(config_path).mcp.servers or {}
+        settings = get_settings(config_path)
+        
+        if settings.mcp is not None and hasattr(settings.mcp, 'servers') and settings.mcp.servers is not None:
+            return settings.mcp.servers
+        
         return servers
 
     @asynccontextmanager
@@ -93,7 +109,12 @@ class ServerRegistry:
         self,
         server_name: str,
         client_session_factory: Callable[
-            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+                GetSessionIdCallback | None,
+            ],
             ClientSession,
         ] = ClientSession,
     ) -> AsyncGenerator[ClientSession, None]:
@@ -128,17 +149,22 @@ class ServerRegistry:
                 command=config.command,
                 args=config.args,
                 env={**get_default_environment(), **(config.env or {})},
+                cwd=config.cwd,
             )
 
             # Create a stderr handler that logs to our application logger
-            async with stdio_client(server_params, errlog=get_stderr_handler(server_name)) as (
+            async with _add_none_to_context(
+                stdio_client(server_params, errlog=get_stderr_handler(server_name))
+            ) as (
                 read_stream,
                 write_stream,
+                _,
             ):
                 session = client_session_factory(
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
+                    None,  # No callback for stdio
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using stdio transport.")
@@ -151,19 +177,49 @@ class ServerRegistry:
             if not config.url:
                 raise ValueError(f"URL is required for SSE transport: {server_name}")
 
+            # Apply HuggingFace authentication if appropriate
+            headers = add_hf_auth_header(config.url, config.headers)
+
             # Use sse_client to get the read and write streams
-            async with sse_client(
-                config.url,
-                config.headers,
-                sse_read_timeout=config.read_transport_sse_timeout_seconds,
-            ) as (read_stream, write_stream):
+            async with _add_none_to_context(
+                sse_client(
+                    config.url,
+                    headers,
+                    sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                )
+            ) as (read_stream, write_stream, _):
                 session = client_session_factory(
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
+                    None,  # No callback for stdio
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using SSE transport.")
+                    try:
+                        yield session
+                    finally:
+                        logger.debug(f"{server_name}: Closed session to server")
+        elif config.transport == "http":
+            if not config.url:
+                raise ValueError(f"URL is required for HTTP transport: {server_name}")
+
+            # Apply HuggingFace authentication if appropriate
+            headers = add_hf_auth_header(config.url, config.headers)
+
+            async with streamablehttp_client(config.url, headers) as (
+                read_stream,
+                write_stream,
+                _,
+            ):
+                session = client_session_factory(
+                    read_stream,
+                    write_stream,
+                    read_timeout_seconds,
+                    None,  # No callback for stdio
+                )
+                async with session:
+                    logger.info(f"{server_name}: Connected to server using HTTP transport.")
                     try:
                         yield session
                     finally:
@@ -178,7 +234,12 @@ class ServerRegistry:
         self,
         server_name: str,
         client_session_factory: Callable[
-            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
+            [
+                MemoryObjectReceiveStream,
+                MemoryObjectSendStream,
+                timedelta | None,
+                GetSessionIdCallback,
+            ],
             ClientSession,
         ] = ClientSession,
         init_hook: InitHookCallable = None,

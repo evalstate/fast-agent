@@ -33,7 +33,7 @@ Extract key insights that would be compelling for a social media campaign.
      - Extracted compelling insights suitable for social media promotion
     """,
     request_params=RequestParams(maxTokens=8192),
-    model="gpt-4o",
+    model="gpt-4.1",
 )
 @fast.evaluator_optimizer(
     "analysis_tool",
@@ -55,7 +55,7 @@ Extract key insights that would be compelling for a social media campaign.
     """,
     servers=["fetch", "brave"],  # Using the fetch MCP server for Brave search
     request_params=RequestParams(temperature=0.3),
-    model="gpt-4o",
+    model="gpt-4.1",
 )
 # Social media content generator
 @fast.agent(
