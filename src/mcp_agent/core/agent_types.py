@@ -15,6 +15,7 @@ class AgentType(Enum):
     """Enumeration of supported agent types."""
 
     BASIC = "agent"
+    CUSTOM = "custom"
     ORCHESTRATOR = "orchestrator"
     PARALLEL = "parallel"
     EVALUATOR_OPTIMIZER = "evaluator_optimizer"

@@ -1,5 +1,6 @@
 import pytest
 
+from mcp_agent.agents.base_agent import BaseAgent
 from mcp_agent.core.prompt import Prompt
 
 
@@ -208,5 +209,25 @@ async def test_specify_cwd_for_server(fast_agent):
         async with fast.run() as agent:
             await agent.agent1.apply_prompt("multi")
             assert "how may i" in await agent.agent1.send("cwd_test")
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_custom_agent(fast_agent):
+    """Test that the agent can process a multipart prompts using directory-specific config."""
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    class MyAgent(BaseAgent):
+        async def send(self, message):
+            return "it's a-me!...Mario! "
+
+    # Define the agent
+    @fast.custom(MyAgent, name="custom")
+    async def agent_function():
+        async with fast.run() as agent:
+            assert "it's a-me!...Mario! " == await agent.custom.send("hello")
 
     await agent_function()
