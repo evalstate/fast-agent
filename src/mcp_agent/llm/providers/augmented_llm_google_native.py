@@ -29,15 +29,6 @@ from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini-2.0-flash"
 
-# Suppress this warning for now
-# TODO: Find out where we're passing null
-# warnings.filterwarnings(
-#     "ignore",
-#     message="null is not a valid Type",
-#     category=UserWarning,
-#     module="google.genai._common",
-# )
-
 
 class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
     """
@@ -54,6 +45,32 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         Handles structured output for Gemini models using response_schema and response_mime_type.
         """
         import json
+
+        # Check if the last message is from assistant
+        if multipart_messages and multipart_messages[-1].role == "assistant":
+            last_message = multipart_messages[-1]
+
+            # Extract text content from the assistant message
+            assistant_text = last_message.first_text()
+
+            if assistant_text:
+                try:
+                    json_data = json.loads(assistant_text)
+                    validated_model = model.model_validate(json_data)
+
+                    # Update history with all messages including the assistant message
+                    self.history.extend(multipart_messages, is_prompt=False)
+
+                    # Return the validated model and the assistant message
+                    return validated_model, last_message
+
+                except (json.JSONDecodeError, Exception) as e:
+                    self.logger.warning(
+                        f"Failed to parse assistant message as structured response: {e}"
+                    )
+                    # Return None and the assistant message on failure
+                    self.history.extend(multipart_messages, is_prompt=False)
+                    return None, last_message
 
         # Prepare request params
         request_params = self.get_request_params(request_params)
