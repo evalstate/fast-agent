@@ -231,3 +231,24 @@ async def test_custom_agent(fast_agent):
             assert "it's a-me!...Mario! " == await agent.custom.send("hello")
 
     await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_setting_an_agent_as_default(fast_agent):
+    """Test that the agent can process a multipart prompts using directory-specific config."""
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    class MyAgent(BaseAgent):
+        async def send(self, message):
+            return "it's a-me!...Mario! "
+
+    @fast.agent(name="custom1")
+    @fast.custom(MyAgent, name="custom2", default=True)
+    @fast.agent(name="custom3")
+    async def agent_function():
+        async with fast.run() as agent:
+            assert "it's a-me!...Mario! " == await agent.send("hello")
+
+    await agent_function()

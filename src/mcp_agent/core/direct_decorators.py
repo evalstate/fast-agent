@@ -211,6 +211,7 @@ def agent(
         default=default,
     )
 
+
 def custom(
     self,
     cls,
@@ -223,6 +224,7 @@ def custom(
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    default: bool = False,
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -253,7 +255,9 @@ def custom(
         request_params=request_params,
         human_input=human_input,
         agent_class=cls,
+        default=default,
     )
+
 
 DEFAULT_INSTRUCTION_ORCHESTRATOR = """
 You are an expert planner. Given an objective task and a list of Agents
