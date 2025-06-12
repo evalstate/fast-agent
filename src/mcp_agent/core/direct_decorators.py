@@ -292,14 +292,14 @@ def orchestrator(
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
         plan_type: Planning approach - "full" or "iterative"
-        max_iterations: Maximum number of planning iterations
+        plan_iterations: Maximum number of planning iterations
         default: Whether to mark this as the default agent
 
     Returns:
         A decorator that registers the orchestrator with proper type annotations
     """
 
-    # Create final request params with max_iterations
+    # Create final request params with plan_iterations
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",

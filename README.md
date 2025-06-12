@@ -350,7 +350,7 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
   use_history=False,                     # orchestrator doesn't maintain chat history (no effect).
   human_input=False,                     # whether orchestrator can request human input
   plan_type="full",                      # planning approach: "full" or "iterative"
-  max_iterations=5,                      # maximum number of full plan attempts, or iterations
+  plan_iterations=5,                     # maximum number of full plan attempts, or iterations
 )
 ```
 
