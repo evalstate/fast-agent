@@ -4,7 +4,9 @@ for the application configuration.
 """
 
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Dict, List, Literal, Optional, Any
+import os
+import re
 
 from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -365,6 +367,36 @@ _settings: Settings | None = None
 def get_settings(config_path: str | None = None) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
+    def resolve_env_vars(config_item: Any) -> Any:
+        """Recursively resolve environment variables in config data."""
+        if isinstance(config_item, dict):
+            return {k: resolve_env_vars(v) for k, v in config_item.items()}
+        elif isinstance(config_item, list):
+            return [resolve_env_vars(i) for i in config_item]
+        elif isinstance(config_item, str):
+            # Regex to find ${ENV_VAR} or ${ENV_VAR:default_value}
+            pattern = re.compile(r"\\$\\{([^}]+)\\}")
+
+            def replace_match(match: re.Match) -> str:
+                var_name_with_default = match.group(1)
+                if ":" in var_name_with_default:
+                    var_name, default_value = var_name_with_default.split(":", 1)
+                    return os.getenv(var_name, default_value)
+                else:
+                    var_name = var_name_with_default
+                    env_value = os.getenv(var_name)
+                    if env_value is None:
+                        # Optionally, raise an error or return the placeholder if the env var is not set
+                        # For now, returning the placeholder to avoid breaking if not set and no default
+                        # print(f"Warning: Environment variable {var_name} not set and no default provided.")
+                        return match.group(0)
+                    return env_value
+
+            # Replace all occurrences
+            resolved_value = pattern.sub(replace_match, config_item)
+            return resolved_value
+        return config_item
+
     def deep_merge(base: dict, update: dict) -> dict:
         """Recursively merge two dictionaries, preserving nested structures."""
         merged = base.copy()
@@ -405,16 +437,19 @@ def get_settings(config_path: str | None = None) -> Settings:
             print(f"Warning: Specified config file does not exist: {config_file}")
         else:
             import yaml  # pylint: disable=C0415
+            from typing import Any  # Add this import
 
             # Load main config
             with open(config_file, "r", encoding="utf-8") as f:
                 yaml_settings = yaml.safe_load(f) or {}
-                merged_settings = yaml_settings
+                # Resolve environment variables in the loaded YAML settings
+                resolved_yaml_settings = resolve_env_vars(yaml_settings)
+                merged_settings = resolved_yaml_settings
             # Look for secrets files recursively up the directory tree
             # but stop after finding the first one
             current_dir = config_file.parent
             found_secrets = False
-            # Start with the absolute path of the config file's directory
+            # Start with the absolute path of the config file\'s directory
             current_dir = config_file.parent.resolve()
 
             while current_dir != current_dir.parent and not found_secrets:
@@ -425,7 +460,9 @@ def get_settings(config_path: str | None = None) -> Settings:
                     if secrets_file.exists():
                         with open(secrets_file, "r", encoding="utf-8") as f:
                             yaml_secrets = yaml.safe_load(f) or {}
-                            merged_settings = deep_merge(merged_settings, yaml_secrets)
+                            # Resolve environment variables in the loaded secrets YAML
+                            resolved_secrets_yaml = resolve_env_vars(yaml_secrets)
+                            merged_settings = deep_merge(merged_settings, resolved_secrets_yaml)
                             found_secrets = True
                             break
                 if not found_secrets:
