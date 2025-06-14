@@ -3,10 +3,10 @@ Reading settings from environment variables and providing a settings object
 for the application configuration.
 """
 
-from pathlib import Path
-from typing import Dict, List, Literal, Optional, Any
 import os
 import re
+from pathlib import Path
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -437,7 +437,6 @@ def get_settings(config_path: str | None = None) -> Settings:
             print(f"Warning: Specified config file does not exist: {config_file}")
         else:
             import yaml  # pylint: disable=C0415
-            from typing import Any  # Add this import
 
             # Load main config
             with open(config_file, "r", encoding="utf-8") as f:
