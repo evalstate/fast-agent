@@ -375,7 +375,7 @@ def get_settings(config_path: str | None = None) -> Settings:
             return [resolve_env_vars(i) for i in config_item]
         elif isinstance(config_item, str):
             # Regex to find ${ENV_VAR} or ${ENV_VAR:default_value}
-            pattern = re.compile(r"\\$\\{([^}]+)\\}")
+            pattern = re.compile(r"\$\{([^}]+)\}")
 
             def replace_match(match: re.Match) -> str:
                 var_name_with_default = match.group(1)
