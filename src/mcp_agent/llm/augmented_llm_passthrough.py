@@ -10,9 +10,9 @@ from mcp_agent.llm.augmented_llm import (
     RequestParams,
 )
 from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 
 CALL_TOOL_INDICATOR = "***CALL_TOOL"
 FIXED_RESPONSE_INDICATOR = "***FIXED_RESPONSE"
@@ -75,7 +75,7 @@ class PassthroughLLM(AugmentedLLM):
             self.usage_accumulator.add_turn(turn_usage)
             
             # Print raw usage for debugging
-            print(f"\n=== USAGE DEBUG (passthrough) ===")
+            print("\n=== USAGE DEBUG (passthrough) ===")
             print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
             print(f"Tool calls: {tool_calls}")
             print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
@@ -194,9 +194,9 @@ class PassthroughLLM(AugmentedLLM):
                 self.usage_accumulator.add_turn(turn_usage)
                 
                 # Print raw usage for debugging
-                print(f"\n=== USAGE DEBUG (passthrough - TOOL CALL) ===")
+                print("\n=== USAGE DEBUG (passthrough - TOOL CALL) ===")
                 print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
-                print(f"Tool calls: 1")
+                print("Tool calls: 1")
                 print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
                 if self.usage_accumulator.context_usage_percentage:
                     print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
@@ -237,7 +237,7 @@ class PassthroughLLM(AugmentedLLM):
             self.usage_accumulator.add_turn(turn_usage)
             
             # Print raw usage for debugging
-            print(f"\n=== USAGE DEBUG (passthrough) ===")
+            print("\n=== USAGE DEBUG (passthrough) ===")
             print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
             print(f"Tool calls: {tool_calls}")
             print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")

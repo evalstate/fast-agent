@@ -24,6 +24,7 @@ from mcp_agent.llm.provider_types import Provider
 
 # Import the new converter class
 from mcp_agent.llm.providers.google_converter import GoogleConverter
+from mcp_agent.llm.usage_tracking import TurnUsage
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 # Define default model and potentially other Google-specific defaults
@@ -220,6 +221,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
             parallel_tool_calls=True,  # Assume parallel tool calls are supported by default with native API
             max_iterations=20,
             use_history=True,
+            maxTokens=65536,  # Default max tokens for Google models
             # Include other relevant default parameters
         )
 
@@ -280,6 +282,41 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
                     config=generate_content_config,
                 )
                 self.logger.debug("Google generate_content response:", data=api_response)
+
+                # Track usage if response is valid and has usage data
+                if (
+                    hasattr(api_response, "usage_metadata")
+                    and api_response.usage_metadata
+                    and not isinstance(api_response, BaseException)
+                ):
+                    try:
+                        turn_usage = TurnUsage.from_google(
+                            api_response.usage_metadata, request_params.model
+                        )
+                        self.usage_accumulator.add_turn(turn_usage)
+
+                        # Print raw usage for debugging
+                        print(f"\n=== USAGE DEBUG ({request_params.model}) ===")
+                        print(f"Raw usage: {api_response.usage_metadata}")
+                        print(
+                            f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}"
+                        )
+                        print(f"Cache: hit={turn_usage.cache_usage.cache_hit_tokens}")
+                        print(f"Tool use: {turn_usage.tool_use_tokens}, Reasoning: {turn_usage.reasoning_tokens}")
+                        print(f"Effective input: {turn_usage.effective_input_tokens}")
+                        print(
+                            f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}"
+                        )
+                        print(f"Cumulative: tool_use={self.usage_accumulator.cumulative_tool_use_tokens}, reasoning={self.usage_accumulator.cumulative_reasoning_tokens}")
+                        if self.usage_accumulator.context_usage_percentage:
+                            print(
+                                f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}"
+                            )
+                        if self.usage_accumulator.cache_hit_rate:
+                            print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
+                        print("===========================\n")
+                    except Exception as e:
+                        self.logger.warning(f"Failed to track usage: {e}")
 
             except errors.APIError as e:
                 # Handle specific Google API errors

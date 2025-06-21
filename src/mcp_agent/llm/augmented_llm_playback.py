@@ -5,10 +5,10 @@ from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.augmented_llm import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
-from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 
 
 class PlaybackLLM(PassthroughLLM):
@@ -100,7 +100,7 @@ class PlaybackLLM(PassthroughLLM):
             self.usage_accumulator.add_turn(turn_usage)
             
             # Print raw usage for debugging
-            print(f"\n=== USAGE DEBUG (playback) ===")
+            print("\n=== USAGE DEBUG (playback) ===")
             print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
             print(f"Playback position: {self._current_index}/{len(self._messages)}")
             print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")

@@ -156,6 +156,10 @@ class TurnUsage(BaseModel):
     # Cache-specific metrics
     cache_usage: CacheUsage = Field(default_factory=CacheUsage)
 
+    # Provider-specific token types
+    tool_use_tokens: int = Field(default=0, description="Tokens used for tool calling prompts")
+    reasoning_tokens: int = Field(default=0, description="Tokens used for reasoning/thinking")
+
     # Raw usage data from provider (preserves all original data)
     raw_usage: ProviderUsage
 
@@ -225,6 +229,10 @@ class TurnUsage(BaseModel):
         candidates_tokens = getattr(usage, "candidates_token_count", 0) or 0
         total_tokens = getattr(usage, "total_token_count", 0) or 0
         cached_content_tokens = getattr(usage, "cached_content_token_count", 0) or 0
+        
+        # Extract additional Google-specific token types
+        tool_use_tokens = getattr(usage, "tool_use_prompt_token_count", 0) or 0
+        thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0
 
         # Google cache tokens are read hits (75% discount on Gemini 2.5)
         cache_usage = CacheUsage(cache_hit_tokens=cached_content_tokens)
@@ -236,6 +244,8 @@ class TurnUsage(BaseModel):
             output_tokens=candidates_tokens,
             total_tokens=total_tokens,
             cache_usage=cache_usage,
+            tool_use_tokens=tool_use_tokens,
+            reasoning_tokens=thinking_tokens,
             raw_usage=usage,  # Store the original Google usage object
         )
 
@@ -317,6 +327,18 @@ class UsageAccumulator(BaseModel):
 
     @computed_field
     @property
+    def cumulative_tool_use_tokens(self) -> int:
+        """Total tokens used for tool calling prompts across all turns"""
+        return sum(turn.tool_use_tokens for turn in self.turns)
+
+    @computed_field
+    @property
+    def cumulative_reasoning_tokens(self) -> int:
+        """Total tokens used for reasoning/thinking across all turns"""
+        return sum(turn.reasoning_tokens for turn in self.turns)
+
+    @computed_field
+    @property
     def cache_hit_rate(self) -> Optional[float]:
         """Percentage of input tokens served from cache"""
         if self.cumulative_input_tokens == 0:
@@ -374,6 +396,8 @@ class UsageAccumulator(BaseModel):
             "cumulative_input_tokens": self.cumulative_input_tokens,
             "cumulative_output_tokens": self.cumulative_output_tokens,
             "cumulative_billing_tokens": self.cumulative_billing_tokens,
+            "cumulative_tool_use_tokens": self.cumulative_tool_use_tokens,
+            "cumulative_reasoning_tokens": self.cumulative_reasoning_tokens,
             "current_context_tokens": self.current_context_tokens,
             "context_window_size": self.context_window_size,
             "context_usage_percentage": self.context_usage_percentage,

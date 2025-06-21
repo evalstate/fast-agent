@@ -8,7 +8,6 @@ from mcp_agent.llm.augmented_llm import (
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 
 
 class SlowLLM(PassthroughLLM):
@@ -40,7 +39,7 @@ class SlowLLM(PassthroughLLM):
             if hasattr(last_turn.raw_usage, 'delay_seconds'):
                 last_turn.raw_usage.delay_seconds = 3.0
                 # Print updated debug info
-                print(f"SlowLLM: Added 3.0s delay to turn usage")
+                print("SlowLLM: Added 3.0s delay to turn usage")
         
         return result
 
