@@ -41,12 +41,20 @@ AgentGetter = Callable[[str], Optional[object]]
 
 class PromptProvider(Protocol):
     """Protocol for objects that can provide prompt functionality."""
-    
-    async def list_prompts(self, server_name: Optional[str] = None, agent_name: Optional[str] = None) -> Mapping[str, List[Prompt]]:
+
+    async def list_prompts(
+        self, server_name: Optional[str] = None, agent_name: Optional[str] = None
+    ) -> Mapping[str, List[Prompt]]:
         """List available prompts."""
         ...
-    
-    async def apply_prompt(self, prompt_name: str, arguments: Optional[Dict[str, str]] = None, agent_name: Optional[str] = None, **kwargs) -> str:
+
+    async def apply_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, str]] = None,
+        agent_name: Optional[str] = None,
+        **kwargs,
+    ) -> str:
         """Apply a prompt."""
         ...
 
@@ -163,9 +171,11 @@ class InteractivePrompt:
                                 await self._list_prompts(prompt_provider, agent)
                         else:
                             # Use the name-based selection
-                            await self._select_prompt(
-                                prompt_provider, agent, prompt_name
-                            )
+                            await self._select_prompt(prompt_provider, agent, prompt_name)
+                        continue
+                    elif "show_usage" in command_result:
+                        # Handle usage display
+                        await self._show_usage(prompt_provider, agent)
                         continue
 
                 # Skip further processing if:
@@ -173,7 +183,11 @@ class InteractivePrompt:
                 # 2. The original input was a dictionary (special command like /prompt)
                 # 3. The command result itself is a dictionary (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
-                if command_result or isinstance(user_input, dict) or isinstance(command_result, dict):
+                if (
+                    command_result
+                    or isinstance(user_input, dict)
+                    or isinstance(command_result, dict)
+                ):
                     continue
 
                 if user_input.upper() == "STOP":
@@ -186,7 +200,9 @@ class InteractivePrompt:
 
         return result
 
-    async def _get_all_prompts(self, prompt_provider: PromptProvider, agent_name: Optional[str] = None):
+    async def _get_all_prompts(
+        self, prompt_provider: PromptProvider, agent_name: Optional[str] = None
+    ):
         """
         Get a list of all available prompts.
 
@@ -199,8 +215,10 @@ class InteractivePrompt:
         """
         try:
             # Call list_prompts on the provider
-            prompt_servers = await prompt_provider.list_prompts(server_name=None, agent_name=agent_name)
-            
+            prompt_servers = await prompt_provider.list_prompts(
+                server_name=None, agent_name=agent_name
+            )
+
             all_prompts = []
 
             # Process the returned prompt servers
@@ -329,9 +347,11 @@ class InteractivePrompt:
         try:
             # Get all available prompts directly from the prompt provider
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
-            
+
             # Call list_prompts on the provider
-            prompt_servers = await prompt_provider.list_prompts(server_name=None, agent_name=agent_name)
+            prompt_servers = await prompt_provider.list_prompts(
+                server_name=None, agent_name=agent_name
+            )
 
             if not prompt_servers:
                 rich_print("[yellow]No prompts available for this agent[/yellow]")
@@ -560,3 +580,139 @@ class InteractivePrompt:
 
             rich_print(f"[red]Error selecting or applying prompt: {e}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    async def _show_usage(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+        """
+        Show usage statistics for the current agent(s) in a colorful table format.
+
+        Args:
+            prompt_provider: Provider that has access to agents
+            agent_name: Name of the current agent
+        """
+        console = Console()
+
+        try:
+            # Collect all agents if we have access to multiple
+            agents_to_show = {}
+
+            if hasattr(prompt_provider, "_agents"):
+                # Multi-agent app - show all agents
+                agents_to_show = prompt_provider._agents
+            elif hasattr(prompt_provider, "agent"):
+                # Single agent
+                agent = prompt_provider.agent
+                if hasattr(agent, "name"):
+                    agents_to_show = {agent.name: agent}
+
+            # Collect usage data from all agents
+            usage_data = []
+            total_input = 0
+            total_output = 0
+            total_tokens = 0
+
+            for name, agent in agents_to_show.items():
+                if hasattr(agent, "usage_accumulator") and agent.usage_accumulator:
+                    summary = agent.usage_accumulator.get_summary()
+                    if summary["turn_count"] > 0:
+                        input_tokens = summary["cumulative_input_tokens"]
+                        output_tokens = summary["cumulative_output_tokens"]
+                        billing_tokens = summary["cumulative_billing_tokens"]
+                        turns = summary["turn_count"]
+
+                        # Get context percentage for this agent
+                        context_percentage = agent.usage_accumulator.context_usage_percentage
+
+                        # Get model name from LLM's default_request_params
+                        model = "unknown"
+                        if hasattr(agent, "_llm") and agent._llm:
+                            llm = agent._llm
+                            if (
+                                hasattr(llm, "default_request_params")
+                                and llm.default_request_params
+                                and hasattr(llm.default_request_params, "model")
+                            ):
+                                model = llm.default_request_params.model or "unknown"
+
+                        # Truncate model name to fit column
+                        if len(model) > 20:
+                            model = model[:17] + "..."
+
+                        usage_data.append(
+                            {
+                                "name": name,
+                                "model": model,
+                                "input": input_tokens,
+                                "output": output_tokens,
+                                "total": billing_tokens,
+                                "turns": turns,
+                                "context": context_percentage,
+                            }
+                        )
+
+                        total_input += input_tokens
+                        total_output += output_tokens
+                        total_tokens += billing_tokens
+
+            if not usage_data:
+                rich_print("[yellow]No usage data available[/yellow]")
+                return
+
+            # Display the table with minimal colors
+            console.print()
+            console.print("[dim]Usage Summary (Cumulative)[/dim]")
+
+            # Calculate dynamic agent column width (max 15)
+            max_agent_width = min(
+                15, max(len(data["name"]) for data in usage_data) if usage_data else 8
+            )
+            agent_width = max(max_agent_width, 5)  # Minimum of 5 for "Agent" header
+
+            # Print header in dim
+            console.print(
+                f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Context%':>9}  {'Model':<20}[/dim]"
+            )
+
+            # Print agent rows with subtle colors
+            for data in usage_data:
+                input_str = f"{data['input']:,}"
+                output_str = f"{data['output']:,}"
+                total_str = f"{data['total']:,}"
+                turns_str = str(data["turns"])
+                context_str = f"{data['context']:.1f}%" if data["context"] is not None else "-"
+
+                # Truncate agent name if needed
+                agent_name = data["name"]
+                if len(agent_name) > agent_width:
+                    agent_name = agent_name[: agent_width - 3] + "..."
+
+                console.print(
+                    f"{agent_name:<{agent_width}} "
+                    f"{input_str:>9} "
+                    f"{output_str:>9} "
+                    f"[bold]{total_str:>9}[/bold] "
+                    f"{turns_str:>6} "
+                    f"{context_str:>9}  "
+                    f"[dim]{data['model']:<20}[/dim]"
+                )
+
+            # Add total row if multiple agents
+            if len(usage_data) > 1:
+                console.print()
+                total_input_str = f"{total_input:,}"
+                total_output_str = f"{total_output:,}"
+                total_tokens_str = f"{total_tokens:,}"
+
+                console.print(
+                    f"[bold]{'TOTAL':<{agent_width}}[/bold] "
+                    f"[bold]{total_input_str:>9}[/bold] "
+                    f"[bold]{total_output_str:>9}[/bold] "
+                    f"[bold]{total_tokens_str:>9}[/bold] "
+                    f"{'':<6} "
+                    f"{'':<9}  "
+                    f"{'':<20}"
+                )
+
+            console.print()
+
+        except Exception as e:
+            rich_print(f"[red]Error showing usage: {e}[/red]")

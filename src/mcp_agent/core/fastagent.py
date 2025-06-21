@@ -504,10 +504,26 @@ class FastAgent:
 
                     # Get context percentage for this agent's last turn
                     context_percentage = agent.usage_accumulator.context_usage_percentage
-                    
+
+                    # Get model name from LLM's default_request_params
+                    model = "unknown"
+                    if hasattr(agent, "_llm") and agent._llm:
+                        llm = agent._llm
+                        if (
+                            hasattr(llm, "default_request_params")
+                            and llm.default_request_params
+                            and hasattr(llm.default_request_params, "model")
+                        ):
+                            model = llm.default_request_params.model or "unknown"
+
+                    # Truncate model name to fit column
+                    if len(model) > 20:
+                        model = model[:17] + "..."
+
                     usage_data.append(
                         {
                             "name": agent_name,
+                            "model": model,
                             "input": input_tokens,
                             "output": output_tokens,
                             "total": billing_tokens,
@@ -523,49 +539,62 @@ class FastAgent:
         if not usage_data:
             return
 
+        # Calculate dynamic agent column width (max 15)
+        max_agent_width = min(
+            15, max(len(data["name"]) for data in usage_data) if usage_data else 8
+        )
+        agent_width = max(max_agent_width, 5)  # Minimum of 5 for "Agent" header
+
         # Show minimal usage summary
         console = Console()
         console.print()
-        console.print("[dim]Usage Summary[/dim]")
-        
+        console.print("[dim]Usage Summary (Cumulative)[/dim]")
+
         # Print header with proper spacing
-        console.print(f"[dim]{'Agent':<20} {'Input':>12} {'Output':>12} {'Total':>12} {'Turns':>8} {'Context%':>10}[/dim]")
-        
-        # Print agent rows with proper alignment
+        console.print(
+            f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Context%':>9}  {'Model':<20}[/dim]"
+        )
+
+        # Print agent rows with minimal dim styling
         for data in usage_data:
-            # Format numbers without markup for alignment calculation
             input_str = f"{data['input']:,}"
             output_str = f"{data['output']:,}"
             total_str = f"{data['total']:,}"
-            turns_str = str(data['turns'])
-            context_str = f"{data['context']:.1f}%" if data['context'] is not None else "-"
-            
-            # Use Rich's columns feature for proper alignment
+            turns_str = str(data["turns"])
+            context_str = f"{data['context']:.1f}%" if data["context"] is not None else "-"
+
+            # Truncate agent name if needed
+            agent_name = data["name"]
+            if len(agent_name) > agent_width:
+                agent_name = agent_name[: agent_width - 3] + "..."
+
             console.print(
-                f"[dim cyan]{data['name']:<20}[/dim cyan] "
-                f"[dim green]{input_str:>12}[/dim green] "
-                f"[dim yellow]{output_str:>12}[/dim yellow] "
-                f"[dim red]{total_str:>12}[/dim red] "
-                f"[dim blue]{turns_str:>8}[/dim blue] "
-                f"[dim magenta]{context_str:>10}[/dim magenta]"
+                f"[dim]{agent_name:<{agent_width}} "
+                f"{input_str:>9} "
+                f"{output_str:>9} "
+                f"[bold]{total_str:>9}[/bold] "
+                f"{turns_str:>6} "
+                f"{context_str:>9}  "
+                f"{data['model']:<20}[/dim]"
             )
-        
+
         # Add total row only if multiple agents
         if len(usage_data) > 1:
             console.print()
             total_input_str = f"{total_input:,}"
             total_output_str = f"{total_output:,}"
             total_tokens_str = f"{total_tokens:,}"
-            
+
             console.print(
-                f"[bold dim]{'TOTAL':<20}[/bold dim] "
-                f"[bold dim green]{total_input_str:>12}[/bold dim green] "
-                f"[bold dim yellow]{total_output_str:>12}[/bold dim yellow] "
-                f"[bold dim red]{total_tokens_str:>12}[/bold dim red] "
-                f"[bold dim]{'':<8}[/bold dim] "
-                f"[bold dim]{'':<10}[/bold dim]"
+                f"[bold dim]{'TOTAL':<{agent_width}} "
+                f"{total_input_str:>9} "
+                f"{total_output_str:>9} "
+                f"[bold]{total_tokens_str:>9}[/bold] "
+                f"{'':<6} "
+                f"{'':<9}  "
+                f"{'':<20}[/bold dim]"
             )
-        
+
         console.print()
 
     async def start_server(
