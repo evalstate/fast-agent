@@ -15,6 +15,7 @@ from openai.types.completion_usage import CompletionUsage as OpenAIUsage
 from pydantic import BaseModel, Field, computed_field
 
 from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.model_database import ModelDatabase
 
 
 # Fast-agent specific usage type for synthetic providers
@@ -35,54 +36,9 @@ ProviderUsage = Union[AnthropicUsage, OpenAIUsage, GoogleUsage, FastAgentUsage]
 class ModelContextWindows:
     """Context window sizes and cache configurations for various models"""
 
-    # Context window sizes
-    WINDOWS: dict[str, int] = {
-        # OpenAI
-        "gpt-4o": 128000,
-        "gpt-4o-mini": 128000,
-        "gpt-4.1": 128000,
-        "gpt-4.1-mini": 128000,
-        "gpt-4.1-nano": 128000,
-        "o1-mini": 128000,
-        "o1": 200000,
-        "o1-preview": 128000,
-        "o3": 200000,
-        "o3-mini": 128000,
-        # Anthropic - Claude 3.5 Sonnet/Opus: min 1024 tokens, Claude 3 Haiku: min 2048 tokens
-        "claude-3-haiku-20240307": 200000,
-        "claude-3-5-haiku-20241022": 200000,
-        "claude-3-5-haiku-latest": 200000,
-        "claude-3-5-sonnet-20240620": 200000,
-        "claude-3-5-sonnet-20241022": 200000,
-        "claude-3-5-sonnet-latest": 200000,
-        "claude-3-7-sonnet-20250219": 200000,
-        "claude-3-7-sonnet-latest": 200000,
-        "claude-3-opus-20240229": 200000,
-        "claude-3-opus-latest": 200000,
-        "claude-opus-4-0": 200000,
-        "claude-opus-4-20250514": 200000,
-        "claude-sonnet-4-20250514": 200000,
-        "claude-sonnet-4-0": 200000,
-        # Google - Flash: min 1024 tokens, Pro: min 2048 tokens, explicit cache: min 32768 tokens
-        "gemini-2.0-flash": 1048576,
-        "gemini-2.5-flash-preview-05-20": 1048576,
-        "gemini-2.5-pro-preview-05-06": 2097152,
-        # DeepSeek
-        "deepseek-chat": 64000,
-        # Aliyun
-        "qwen-turbo": 32000,
-        "qwen-plus": 32000,
-        "qwen-max": 32000,
-        "qwen-long": 10000000,  # 10M context
-        # Fast-agent providers (no real limits, but setting reasonable defaults)
-        "passthrough": 1000000,  # 1M chars
-        "playback": 1000000,  # 1M chars
-        "slow": 1000000,  # 1M chars
-    }
-
     @classmethod
     def get_context_window(cls, model: str) -> Optional[int]:
-        return cls.WINDOWS.get(model)
+        return ModelDatabase.get_context_window(model)
 
 
 class CacheUsage(BaseModel):

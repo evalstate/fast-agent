@@ -58,8 +58,8 @@ class AgentCompleter(Completer):
             "prompts": "List and select MCP prompts",  # Changed description
             "prompt": "Apply a specific prompt by name (/prompt <name>)",  # New command
             "agents": "List available agents",
-            "clear": "Clear the screen",
             "usage": "Show current usage statistics",
+            "clear": "Clear the screen",
             "STOP": "Stop this prompting session and move to next workflow step",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             **(commands or {}),  # Allow custom commands to be passed in
@@ -598,7 +598,7 @@ async def handle_special_commands(command, agent_app=None):
         else:
             rich_print("[yellow]No agents available[/yellow]")
         return True
-    
+
     elif command == "SHOW_USAGE":
         # Return a dictionary to signal that usage should be shown
         return {"show_usage": True}

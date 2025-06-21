@@ -91,15 +91,14 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
-        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
 
-        return RequestParams(
-            model=chosen_model,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=20,
-            use_history=True,
-        )
+        # Override with OpenAI-specific settings
+        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        base_params.model = chosen_model
+
+        return base_params
 
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
@@ -168,23 +167,15 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             response = executor_result[0]
 
             # Track usage if response is valid and has usage data
-            if hasattr(response, 'usage') and response.usage and not isinstance(response, BaseException):
+            if (
+                hasattr(response, "usage")
+                and response.usage
+                and not isinstance(response, BaseException)
+            ):
                 try:
-                    turn_usage = TurnUsage.from_openai(response.usage, self.default_request_params.model)
+                    model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+                    turn_usage = TurnUsage.from_openai(response.usage, model_name)
                     self.usage_accumulator.add_turn(turn_usage)
-                    
-                    # Print raw usage for debugging
-                    print(f"\n=== USAGE DEBUG ({self.default_request_params.model}) ===")
-                    print(f"Raw usage: {response.usage}")
-                    print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
-                    print(f"Cache: hit={turn_usage.cache_usage.cache_hit_tokens}")
-                    print(f"Effective input: {turn_usage.effective_input_tokens}")
-                    print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
-                    if self.usage_accumulator.context_usage_percentage:
-                        print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
-                    if self.usage_accumulator.cache_hit_rate:
-                        print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
-                    print("===========================\n")
                 except Exception as e:
                     self.logger.warning(f"Failed to track usage: {e}")
 

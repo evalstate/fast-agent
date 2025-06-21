@@ -36,6 +36,7 @@ from mcp_agent.llm.sampling_format_converter import (
     ProviderFormatConverter,
 )
 from mcp_agent.llm.usage_tracking import UsageAccumulator
+from mcp_agent.llm.model_database import ModelDatabase
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.helpers.content_helpers import get_text
 from mcp_agent.mcp.interfaces import (
@@ -156,12 +157,11 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         # Initialize the display component
         self.display = ConsoleDisplay(config=self.context.config)
 
-        # Initialize default parameters
-        self.default_request_params = self._initialize_default_params(kwargs)
-
-        # Apply model override if provided
+        # Initialize default parameters, passing model info
+        model_kwargs = kwargs.copy()
         if model:
-            self.default_request_params.model = model
+            model_kwargs["model"] = model
+        self.default_request_params = self._initialize_default_params(model_kwargs)
 
         # Merge with provided params if any
         if self._init_request_params:
@@ -178,10 +178,16 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
         Should be overridden by provider implementations to set provider-specific defaults."""
+        # Get model-aware default max tokens
+        model = kwargs.get("model")
+        max_tokens = ModelDatabase.get_default_max_tokens(model)
+
         return RequestParams(
+            model=model,
+            maxTokens=max_tokens,
             systemPrompt=self.instruction,
             parallel_tool_calls=True,
-            max_iterations=10,
+            max_iterations=20,
             use_history=True,
         )
 
@@ -656,26 +662,3 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             and context window utilization.
         """
         return self.usage_accumulator.get_summary()
-
-    def print_usage_summary(self) -> None:
-        """
-        Print a formatted usage summary to the console for debugging.
-        """
-        summary = self.get_usage_summary()
-        print(f"\n=== USAGE SUMMARY ({self.name or 'unnamed'}) ===")
-        print(f"Model: {summary.get('model', 'unknown')}")
-        print(f"Total turns: {summary.get('turn_count', 0)}")
-        print(f"Cumulative billing tokens: {summary.get('cumulative_billing_tokens', 0)}")
-        print(f"  Input: {summary.get('cumulative_input_tokens', 0)}")
-        print(f"  Output: {summary.get('cumulative_output_tokens', 0)}")
-        print(f"Current context tokens: {summary.get('current_context_tokens', 0)}")
-
-        if summary.get("cache_hit_rate_percent"):
-            print(f"Cache hit rate: {summary['cache_hit_rate_percent']:.1f}%")
-
-        if summary.get("context_usage_percentage"):
-            print(
-                f"Context usage: {summary['context_usage_percentage']:.1f}% of {summary.get('context_window_size', 'unknown')}"
-            )
-
-        print("=====================================\n")

@@ -63,7 +63,7 @@ class PassthroughLLM(AugmentedLLM):
             input_content = str(message)
             output_content = result
             tool_calls = 1 if input_content.startswith("***CALL_TOOL") else 0
-            
+
             turn_usage = create_turn_usage_from_messages(
                 input_content=input_content,
                 output_content=output_content,
@@ -73,15 +73,6 @@ class PassthroughLLM(AugmentedLLM):
                 delay_seconds=0.0,
             )
             self.usage_accumulator.add_turn(turn_usage)
-            
-            # Print raw usage for debugging
-            print("\n=== USAGE DEBUG (passthrough) ===")
-            print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
-            print(f"Tool calls: {tool_calls}")
-            print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
-            if self.usage_accumulator.context_usage_percentage:
-                print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
-            print("===========================\n")
         except Exception as e:
             self.logger.warning(f"Failed to track usage: {e}")
 
@@ -177,12 +168,12 @@ class PassthroughLLM(AugmentedLLM):
         if self.is_tool_call(last_message):
             result = Prompt.assistant(await self.generate_str(last_message.first_text()))
             await self.show_assistant_message(result.first_text())
-            
+
             # Track usage for this tool call "turn"
             try:
                 input_content = "\n".join(message.all_text() for message in multipart_messages)
                 output_content = result.first_text()
-                
+
                 turn_usage = create_turn_usage_from_messages(
                     input_content=input_content,
                     output_content=output_content,
@@ -192,18 +183,10 @@ class PassthroughLLM(AugmentedLLM):
                     delay_seconds=0.0,
                 )
                 self.usage_accumulator.add_turn(turn_usage)
-                
-                # Print raw usage for debugging
-                print("\n=== USAGE DEBUG (passthrough - TOOL CALL) ===")
-                print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
-                print("Tool calls: 1")
-                print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
-                if self.usage_accumulator.context_usage_percentage:
-                    print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
-                print("===========================\n")
+
             except Exception as e:
                 self.logger.warning(f"Failed to track usage: {e}")
-            
+
             return result
 
         if last_message.first_text().startswith(FIXED_RESPONSE_INDICATOR):
@@ -225,7 +208,7 @@ class PassthroughLLM(AugmentedLLM):
             input_content = "\n".join(message.all_text() for message in multipart_messages)
             output_content = result.first_text()
             tool_calls = 1 if self.is_tool_call(last_message) else 0
-            
+
             turn_usage = create_turn_usage_from_messages(
                 input_content=input_content,
                 output_content=output_content,
@@ -235,15 +218,7 @@ class PassthroughLLM(AugmentedLLM):
                 delay_seconds=0.0,
             )
             self.usage_accumulator.add_turn(turn_usage)
-            
-            # Print raw usage for debugging
-            print("\n=== USAGE DEBUG (passthrough) ===")
-            print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
-            print(f"Tool calls: {tool_calls}")
-            print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
-            if self.usage_accumulator.context_usage_percentage:
-                print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
-            print("===========================\n")
+
         except Exception as e:
             self.logger.warning(f"Failed to track usage: {e}")
 

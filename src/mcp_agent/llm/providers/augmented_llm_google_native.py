@@ -295,33 +295,13 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
                         )
                         self.usage_accumulator.add_turn(turn_usage)
 
-                        # Print raw usage for debugging
-                        print(f"\n=== USAGE DEBUG ({request_params.model}) ===")
-                        print(f"Raw usage: {api_response.usage_metadata}")
-                        print(
-                            f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}"
-                        )
-                        print(f"Cache: hit={turn_usage.cache_usage.cache_hit_tokens}")
-                        print(f"Tool use: {turn_usage.tool_use_tokens}, Reasoning: {turn_usage.reasoning_tokens}")
-                        print(f"Effective input: {turn_usage.effective_input_tokens}")
-                        print(
-                            f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}"
-                        )
-                        print(f"Cumulative: tool_use={self.usage_accumulator.cumulative_tool_use_tokens}, reasoning={self.usage_accumulator.cumulative_reasoning_tokens}")
-                        if self.usage_accumulator.context_usage_percentage:
-                            print(
-                                f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}"
-                            )
-                        if self.usage_accumulator.cache_hit_rate:
-                            print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
-                        print("===========================\n")
                     except Exception as e:
                         self.logger.warning(f"Failed to track usage: {e}")
 
             except errors.APIError as e:
                 # Handle specific Google API errors
                 self.logger.error(f"Google API Error: {e.code} - {e.message}")
-                raise ProviderKeyError(f"Google API Error: {e.code}", e.message) from e
+                raise ProviderKeyError(f"Google API Error: {e.code}", e.message or "") from e
             except Exception as e:
                 self.logger.error(f"Error during Google generate_content call: {e}")
                 # Decide how to handle other exceptions - potentially re-raise or return an error message
