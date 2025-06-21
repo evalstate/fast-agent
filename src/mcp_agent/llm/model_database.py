@@ -28,6 +28,7 @@ class ModelDatabase:
 
     # Common parameter sets
     OPENAI_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp", "application/pdf"]
+    OPENAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     ANTHROPIC_MULTIMODAL = [
         "text/plain",
         "image/jpeg",
@@ -53,18 +54,28 @@ class ModelDatabase:
         context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
     )
 
-    ANTHROPIC_SONNET = ModelParameters(
-        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+    OPENAI_4_1_STANDARD = ModelParameters(
+        context_window=1047576, max_output_tokens=32768, tokenizes=OPENAI_MULTIMODAL
     )
 
-    ANTHROPIC_HAIKU = ModelParameters(
-        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+    OPENAI_O_SERIES = ModelParameters(
+        context_window=200000, max_output_tokens=100000, tokenizes=OPENAI_VISION
     )
 
-    ANTHROPIC_OPUS_3 = ModelParameters(
+    ANTHROPIC_LEGACY = ModelParameters(
         context_window=200000, max_output_tokens=4096, tokenizes=ANTHROPIC_MULTIMODAL
     )
 
+    ANTHROPIC_SONNET_35_CLASS = ModelParameters(
+        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+    )
+
+    # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
+    ANTHROPIC_CURRENT = ModelParameters(
+        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+    )
+
+    # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
     ANTHROPIC_OPUS_4 = ModelParameters(
         context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
     )
@@ -90,37 +101,38 @@ class ModelDatabase:
         # OpenAI Models
         "gpt-4o": OPENAI_STANDARD,
         "gpt-4o-mini": OPENAI_STANDARD,
-        "gpt-4.1": OPENAI_STANDARD,
-        "gpt-4.1-mini": OPENAI_STANDARD,
-        "gpt-4.1-nano": OPENAI_STANDARD,
+        "gpt-4.1": OPENAI_4_1_STANDARD,
+        "gpt-4.1-mini": OPENAI_4_1_STANDARD,
+        "gpt-4.1-nano": OPENAI_4_1_STANDARD,
         "o1-mini": ModelParameters(
             context_window=128000, max_output_tokens=65536, tokenizes=TEXT_ONLY
         ),
-        "o1": ModelParameters(context_window=200000, max_output_tokens=100000, tokenizes=TEXT_ONLY),
+        "o1": OPENAI_O_SERIES,
         "o1-preview": ModelParameters(
             context_window=128000, max_output_tokens=32768, tokenizes=TEXT_ONLY
         ),
         "o3": ModelParameters(context_window=200000, max_output_tokens=100000, tokenizes=TEXT_ONLY),
         "o3-mini": ModelParameters(
-            context_window=128000, max_output_tokens=65536, tokenizes=TEXT_ONLY
+            context_window=200000, max_output_tokens=100000, tokenizes=TEXT_ONLY
         ),
+        "o4-mini": OPENAI_O_SERIES,
         # Anthropic Models
         "claude-3-haiku-20240307": ModelParameters(
             context_window=200000, max_output_tokens=4096, tokenizes=ANTHROPIC_MULTIMODAL
         ),
-        "claude-3-5-haiku-20241022": ANTHROPIC_HAIKU,
-        "claude-3-5-haiku-latest": ANTHROPIC_HAIKU,
-        "claude-3-5-sonnet-20240620": ANTHROPIC_SONNET,
-        "claude-3-5-sonnet-20241022": ANTHROPIC_SONNET,
-        "claude-3-5-sonnet-latest": ANTHROPIC_SONNET,
-        "claude-3-7-sonnet-20250219": ANTHROPIC_SONNET,
-        "claude-3-7-sonnet-latest": ANTHROPIC_SONNET,
-        "claude-3-opus-20240229": ANTHROPIC_OPUS_3,
-        "claude-3-opus-latest": ANTHROPIC_OPUS_3,
+        "claude-3-5-haiku-20241022": ANTHROPIC_SONNET_35_CLASS,
+        "claude-3-5-haiku-latest": ANTHROPIC_SONNET_35_CLASS,
+        "claude-3-5-sonnet-20240620": ANTHROPIC_SONNET_35_CLASS,
+        "claude-3-5-sonnet-20241022": ANTHROPIC_SONNET_35_CLASS,
+        "claude-3-5-sonnet-latest": ANTHROPIC_SONNET_35_CLASS,
+        "claude-3-7-sonnet-20250219": ANTHROPIC_CURRENT,
+        "claude-3-7-sonnet-latest": ANTHROPIC_CURRENT,
+        "claude-3-opus-20240229": ANTHROPIC_LEGACY,
+        "claude-3-opus-latest": ANTHROPIC_LEGACY,
         "claude-opus-4-0": ANTHROPIC_OPUS_4,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4,
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET,
+        "claude-sonnet-4-20250514": ANTHROPIC_CURRENT,
+        "claude-sonnet-4-0": ANTHROPIC_CURRENT,
         # Google Models
         "gemini-2.0-flash": GEMINI_FLASH,
         "gemini-2.5-flash-preview-05-20": GEMINI_FLASH,
