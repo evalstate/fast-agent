@@ -33,6 +33,7 @@ from mcp_agent.llm.providers.sampling_converter_openai import (
 )
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from mcp_agent.llm.usage_tracking import TurnUsage
 
 _logger = get_logger(__name__)
 
@@ -165,6 +166,27 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             )
 
             response = executor_result[0]
+
+            # Track usage if response is valid and has usage data
+            if hasattr(response, 'usage') and response.usage and not isinstance(response, BaseException):
+                try:
+                    turn_usage = TurnUsage.from_openai(response.usage, self.default_request_params.model)
+                    self.usage_accumulator.add_turn(turn_usage)
+                    
+                    # Print raw usage for debugging
+                    print(f"\n=== USAGE DEBUG ({self.default_request_params.model}) ===")
+                    print(f"Raw usage: {response.usage}")
+                    print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
+                    print(f"Cache: hit={turn_usage.cache_usage.cache_hit_tokens}")
+                    print(f"Effective input: {turn_usage.effective_input_tokens}")
+                    print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
+                    if self.usage_accumulator.context_usage_percentage:
+                        print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
+                    if self.usage_accumulator.cache_hit_rate:
+                        print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
+                    print("===========================\n")
+                except Exception as e:
+                    self.logger.warning(f"Failed to track usage: {e}")
 
             self.logger.debug(
                 "OpenAI completion response:",

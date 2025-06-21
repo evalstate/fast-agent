@@ -115,3 +115,27 @@ async def test_generates_structured_exhaustion_behaves(llm):
     model, response = await llm.structured([Prompt.user("exhausted stack")], FormattedResponse)
     assert model is None
     assert "MESSAGES EXHAUSTED" in response.first_text()
+
+
+@pytest.mark.asyncio
+async def test_usage_tracking(llm):
+    """Test that PlaybackLLM correctly tracks usage"""
+    # Initially no usage
+    assert llm.usage_accumulator.turn_count == 0
+    assert llm.usage_accumulator.cumulative_billing_tokens == 0
+    
+    # Load messages and get initial response
+    response1 = await llm.generate([Prompt.user("test"), Prompt.assistant("response1")])
+    assert "HISTORY LOADED" in response1.first_text()
+    
+    # Should not have tracked usage for the "HISTORY LOADED" response yet
+    # (or it might track it, which is fine)
+    initial_count = llm.usage_accumulator.turn_count
+    
+    # Generate actual playback response
+    response2 = await llm.generate([Prompt.user("next message")])
+    
+    # Should have tracked at least one turn
+    assert llm.usage_accumulator.turn_count > initial_count
+    assert llm.usage_accumulator.cumulative_billing_tokens > 0
+    assert llm.usage_accumulator.current_context_tokens > 0

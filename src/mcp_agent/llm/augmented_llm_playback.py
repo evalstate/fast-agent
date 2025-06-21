@@ -8,6 +8,7 @@ from mcp_agent.llm.provider_types import Provider
 from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
+from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 
 
 class PlaybackLLM(PassthroughLLM):
@@ -82,6 +83,32 @@ class PlaybackLLM(PassthroughLLM):
         await self.show_assistant_message(
             message_text=MessageContent.get_first_text(response), title="ASSISTANT/PLAYBACK"
         )
+
+        # Track usage for this playback "turn"
+        try:
+            input_content = str(multipart_messages) if multipart_messages else ""
+            output_content = MessageContent.get_first_text(response)
+            
+            turn_usage = create_turn_usage_from_messages(
+                input_content=input_content,
+                output_content=output_content,
+                model="playback",
+                model_type="playback",
+                tool_calls=0,
+                delay_seconds=0.0,
+            )
+            self.usage_accumulator.add_turn(turn_usage)
+            
+            # Print raw usage for debugging
+            print(f"\n=== USAGE DEBUG (playback) ===")
+            print(f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}")
+            print(f"Playback position: {self._current_index}/{len(self._messages)}")
+            print(f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}")
+            if self.usage_accumulator.context_usage_percentage:
+                print(f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}")
+            print("===========================\n")
+        except Exception as e:
+            self.logger.warning(f"Failed to track usage: {e}")
 
         return response
 

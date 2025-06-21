@@ -8,6 +8,7 @@ from mcp_agent.llm.augmented_llm import (
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
 
 
 class SlowLLM(PassthroughLLM):
@@ -30,7 +31,18 @@ class SlowLLM(PassthroughLLM):
     ) -> str:
         """Sleep for 3 seconds then return the input message as a string."""
         await asyncio.sleep(3)
-        return await super().generate_str(message, request_params)
+        result = await super().generate_str(message, request_params)
+        
+        # Override the last turn to include the 3-second delay
+        if self.usage_accumulator.turns:
+            last_turn = self.usage_accumulator.turns[-1]
+            # Update the raw usage to include delay
+            if hasattr(last_turn.raw_usage, 'delay_seconds'):
+                last_turn.raw_usage.delay_seconds = 3.0
+                # Print updated debug info
+                print(f"SlowLLM: Added 3.0s delay to turn usage")
+        
+        return result
 
     async def _apply_prompt_provider_specific(
         self,
