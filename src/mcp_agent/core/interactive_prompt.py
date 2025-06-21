@@ -31,6 +31,7 @@ from mcp_agent.core.enhanced_prompt import (
 from mcp_agent.mcp.mcp_aggregator import SEP  # Import SEP once at the top
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.progress_display import progress_display
+from mcp_agent.core.usage_display import display_usage_report, collect_agents_from_provider
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageMultipart], str], Awaitable[str]]
@@ -589,130 +590,16 @@ class InteractivePrompt:
             prompt_provider: Provider that has access to agents
             agent_name: Name of the current agent
         """
-        console = Console()
-
         try:
-            # Collect all agents if we have access to multiple
-            agents_to_show = {}
-
-            if hasattr(prompt_provider, "_agents"):
-                # Multi-agent app - show all agents
-                agents_to_show = prompt_provider._agents
-            elif hasattr(prompt_provider, "agent"):
-                # Single agent
-                agent = prompt_provider.agent
-                if hasattr(agent, "name"):
-                    agents_to_show = {agent.name: agent}
-
-            # Collect usage data from all agents
-            usage_data = []
-            total_input = 0
-            total_output = 0
-            total_tokens = 0
-
-            for name, agent in agents_to_show.items():
-                if hasattr(agent, "usage_accumulator") and agent.usage_accumulator:
-                    summary = agent.usage_accumulator.get_summary()
-                    if summary["turn_count"] > 0:
-                        input_tokens = summary["cumulative_input_tokens"]
-                        output_tokens = summary["cumulative_output_tokens"]
-                        billing_tokens = summary["cumulative_billing_tokens"]
-                        turns = summary["turn_count"]
-
-                        # Get context percentage for this agent
-                        context_percentage = agent.usage_accumulator.context_usage_percentage
-
-                        # Get model name from LLM's default_request_params
-                        model = "unknown"
-                        if hasattr(agent, "_llm") and agent._llm:
-                            llm = agent._llm
-                            if (
-                                hasattr(llm, "default_request_params")
-                                and llm.default_request_params
-                                and hasattr(llm.default_request_params, "model")
-                            ):
-                                model = llm.default_request_params.model or "unknown"
-
-                        # Truncate model name to fit column
-                        if len(model) > 20:
-                            model = model[:17] + "..."
-
-                        usage_data.append(
-                            {
-                                "name": name,
-                                "model": model,
-                                "input": input_tokens,
-                                "output": output_tokens,
-                                "total": billing_tokens,
-                                "turns": turns,
-                                "context": context_percentage,
-                            }
-                        )
-
-                        total_input += input_tokens
-                        total_output += output_tokens
-                        total_tokens += billing_tokens
-
-            if not usage_data:
+            # Collect all agents from the prompt provider
+            agents_to_show = collect_agents_from_provider(prompt_provider, agent_name)
+            
+            if not agents_to_show:
                 rich_print("[yellow]No usage data available[/yellow]")
                 return
-
-            # Display the table with minimal colors
-            console.print()
-            console.print("[dim]Usage Summary (Cumulative)[/dim]")
-
-            # Calculate dynamic agent column width (max 15)
-            max_agent_width = min(
-                15, max(len(data["name"]) for data in usage_data) if usage_data else 8
-            )
-            agent_width = max(max_agent_width, 5)  # Minimum of 5 for "Agent" header
-
-            # Print header in dim
-            console.print(
-                f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Context%':>9}  {'Model':<20}[/dim]"
-            )
-
-            # Print agent rows with subtle colors
-            for data in usage_data:
-                input_str = f"{data['input']:,}"
-                output_str = f"{data['output']:,}"
-                total_str = f"{data['total']:,}"
-                turns_str = str(data["turns"])
-                context_str = f"{data['context']:.1f}%" if data["context"] is not None else "-"
-
-                # Truncate agent name if needed
-                agent_name = data["name"]
-                if len(agent_name) > agent_width:
-                    agent_name = agent_name[: agent_width - 3] + "..."
-
-                console.print(
-                    f"{agent_name:<{agent_width}} "
-                    f"{input_str:>9} "
-                    f"{output_str:>9} "
-                    f"[bold]{total_str:>9}[/bold] "
-                    f"{turns_str:>6} "
-                    f"{context_str:>9}  "
-                    f"[dim]{data['model']:<20}[/dim]"
-                )
-
-            # Add total row if multiple agents
-            if len(usage_data) > 1:
-                console.print()
-                total_input_str = f"{total_input:,}"
-                total_output_str = f"{total_output:,}"
-                total_tokens_str = f"{total_tokens:,}"
-
-                console.print(
-                    f"[bold]{'TOTAL':<{agent_width}}[/bold] "
-                    f"[bold]{total_input_str:>9}[/bold] "
-                    f"[bold]{total_output_str:>9}[/bold] "
-                    f"[bold]{total_tokens_str:>9}[/bold] "
-                    f"{'':<6} "
-                    f"{'':<9}  "
-                    f"{'':<20}"
-                )
-
-            console.print()
-
+                
+            # Use the shared display utility
+            display_usage_report(agents_to_show, show_if_progress_disabled=True)
+            
         except Exception as e:
             rich_print(f"[red]Error showing usage: {e}[/red]")

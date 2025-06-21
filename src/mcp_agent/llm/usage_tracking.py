@@ -80,47 +80,9 @@ class ModelContextWindows:
         "slow": 1000000,  # 1M chars
     }
 
-    # Cache minimum token requirements
-    CACHE_MINIMUMS: dict[str, int] = {
-        # Anthropic
-        "claude-3-haiku-20240307": 2048,
-        "claude-3-5-haiku-20241022": 2048,
-        "claude-3-5-haiku-latest": 2048,
-        "claude-3-5-sonnet-20240620": 1024,
-        "claude-3-5-sonnet-20241022": 1024,
-        "claude-3-5-sonnet-latest": 1024,
-        "claude-3-7-sonnet-20250219": 1024,
-        "claude-3-7-sonnet-latest": 1024,
-        "claude-3-opus-20240229": 1024,
-        "claude-3-opus-latest": 1024,
-        "claude-opus-4-0": 1024,
-        "claude-opus-4-20250514": 1024,
-        "claude-sonnet-4-20250514": 1024,
-        "claude-sonnet-4-0": 1024,
-        # OpenAI - automatic caching >1024 tokens, every 128 tokens after
-        "gpt-4o": 1024,
-        "gpt-4o-mini": 1024,
-        "gpt-4.1": 1024,
-        "gpt-4.1-mini": 1024,
-        "gpt-4.1-nano": 1024,
-        "o1-mini": 1024,
-        "o1": 1024,
-        "o1-preview": 1024,
-        "o3": 1024,
-        "o3-mini": 1024,
-        # Google - implicit caching minimums
-        "gemini-2.0-flash": 1024,
-        "gemini-2.5-flash-preview-05-20": 1024,
-        "gemini-2.5-pro-preview-05-06": 2048,
-    }
-
     @classmethod
     def get_context_window(cls, model: str) -> Optional[int]:
         return cls.WINDOWS.get(model)
-
-    @classmethod
-    def get_cache_minimum(cls, model: str) -> Optional[int]:
-        return cls.CACHE_MINIMUMS.get(model)
 
 
 class CacheUsage(BaseModel):
@@ -229,7 +191,7 @@ class TurnUsage(BaseModel):
         candidates_tokens = getattr(usage, "candidates_token_count", 0) or 0
         total_tokens = getattr(usage, "total_token_count", 0) or 0
         cached_content_tokens = getattr(usage, "cached_content_token_count", 0) or 0
-        
+
         # Extract additional Google-specific token types
         tool_use_tokens = getattr(usage, "tool_use_prompt_token_count", 0) or 0
         thinking_tokens = getattr(usage, "thoughts_token_count", 0) or 0

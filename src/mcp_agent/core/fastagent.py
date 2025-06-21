@@ -61,6 +61,7 @@ from mcp_agent.core.validation import (
 )
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
+from mcp_agent.core.usage_display import display_usage_report
 
 if TYPE_CHECKING:
     from mcp_agent.agents.agent import Agent
@@ -482,120 +483,7 @@ class FastAgent:
 
     def _print_usage_report(self, active_agents: dict) -> None:
         """Print a formatted table of token usage for all agents."""
-        # Check if progress display is enabled
-        settings = config.get_settings()
-        if not settings.logger.progress_display:
-            return
-
-        # Collect usage data from all agents
-        usage_data = []
-        total_input = 0
-        total_output = 0
-        total_tokens = 0
-
-        for agent_name, agent in active_agents.items():
-            if agent.usage_accumulator:
-                summary = agent.usage_accumulator.get_summary()
-                if summary["turn_count"] > 0:
-                    input_tokens = summary["cumulative_input_tokens"]
-                    output_tokens = summary["cumulative_output_tokens"]
-                    billing_tokens = summary["cumulative_billing_tokens"]
-                    turns = summary["turn_count"]
-
-                    # Get context percentage for this agent's last turn
-                    context_percentage = agent.usage_accumulator.context_usage_percentage
-
-                    # Get model name from LLM's default_request_params
-                    model = "unknown"
-                    if hasattr(agent, "_llm") and agent._llm:
-                        llm = agent._llm
-                        if (
-                            hasattr(llm, "default_request_params")
-                            and llm.default_request_params
-                            and hasattr(llm.default_request_params, "model")
-                        ):
-                            model = llm.default_request_params.model or "unknown"
-
-                    # Truncate model name to fit column
-                    if len(model) > 20:
-                        model = model[:17] + "..."
-
-                    usage_data.append(
-                        {
-                            "name": agent_name,
-                            "model": model,
-                            "input": input_tokens,
-                            "output": output_tokens,
-                            "total": billing_tokens,
-                            "turns": turns,
-                            "context": context_percentage,
-                        }
-                    )
-
-                    total_input += input_tokens
-                    total_output += output_tokens
-                    total_tokens += billing_tokens
-
-        if not usage_data:
-            return
-
-        # Calculate dynamic agent column width (max 15)
-        max_agent_width = min(
-            15, max(len(data["name"]) for data in usage_data) if usage_data else 8
-        )
-        agent_width = max(max_agent_width, 5)  # Minimum of 5 for "Agent" header
-
-        # Show minimal usage summary
-        console = Console()
-        console.print()
-        console.print("[dim]Usage Summary (Cumulative)[/dim]")
-
-        # Print header with proper spacing
-        console.print(
-            f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Context%':>9}  {'Model':<20}[/dim]"
-        )
-
-        # Print agent rows with minimal dim styling
-        for data in usage_data:
-            input_str = f"{data['input']:,}"
-            output_str = f"{data['output']:,}"
-            total_str = f"{data['total']:,}"
-            turns_str = str(data["turns"])
-            context_str = f"{data['context']:.1f}%" if data["context"] is not None else "-"
-
-            # Truncate agent name if needed
-            agent_name = data["name"]
-            if len(agent_name) > agent_width:
-                agent_name = agent_name[: agent_width - 3] + "..."
-
-            console.print(
-                f"[dim]{agent_name:<{agent_width}} "
-                f"{input_str:>9} "
-                f"{output_str:>9} "
-                f"[bold]{total_str:>9}[/bold] "
-                f"{turns_str:>6} "
-                f"{context_str:>9}  "
-                f"{data['model']:<20}[/dim]"
-            )
-
-        # Add total row only if multiple agents
-        if len(usage_data) > 1:
-            console.print()
-            total_input_str = f"{total_input:,}"
-            total_output_str = f"{total_output:,}"
-            total_tokens_str = f"{total_tokens:,}"
-
-            console.print(
-                f"[bold dim]{'TOTAL':<{agent_width}} "
-                f"{total_input_str:>9} "
-                f"{total_output_str:>9} "
-                f"[bold]{total_tokens_str:>9}[/bold] "
-                f"{'':<6} "
-                f"{'':<9}  "
-                f"{'':<20}[/bold dim]"
-            )
-
-        console.print()
+        display_usage_report(active_agents, show_if_progress_disabled=False, subdued_colors=True)
 
     async def start_server(
         self,

@@ -222,11 +222,6 @@ def test_model_context_windows():
     # Test unknown model
     assert ModelContextWindows.get_context_window("unknown-model") is None
 
-    # Test cache minimums
-    assert ModelContextWindows.get_cache_minimum("claude-sonnet-4-0") == 1024
-    assert ModelContextWindows.get_cache_minimum("gpt-4o") == 1024
-    assert ModelContextWindows.get_cache_minimum("gemini-2.5-pro-preview-05-06") == 2048
-
 
 def test_cache_hit_rate_calculation():
     """Test cache hit rate percentage calculation"""
