@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 
 import yaml
 from opentelemetry import trace
+from rich.console import Console
 
 from mcp_agent import config
 from mcp_agent.app import MCPApp
@@ -392,6 +393,10 @@ class FastAgent:
 
                     yield wrapper
 
+            except PromptExitError as e:
+                # User requested exit - not an error, show usage report
+                self._handle_error(e)
+                raise SystemExit(0)
             except (
                 ServerConfigError,
                 ProviderKeyError,
@@ -399,15 +404,18 @@ class FastAgent:
                 ServerInitializationError,
                 ModelConfigError,
                 CircularDependencyError,
-                PromptExitError,
             ) as e:
                 had_error = True
                 self._handle_error(e)
                 raise SystemExit(1)
 
             finally:
-                # Clean up any active agents
+                # Print usage report before cleanup (show for user exits too)
                 if active_agents and not had_error:
+                    self._print_usage_report(active_agents)
+
+                # Clean up any active agents (always cleanup, even on errors)
+                if active_agents:
                     for agent in active_agents.values():
                         try:
                             await agent.shutdown()
@@ -471,6 +479,94 @@ class FastAgent:
             )
         else:
             handle_error(e, error_type or "Error", "An unexpected error occurred.")
+
+    def _print_usage_report(self, active_agents: dict) -> None:
+        """Print a formatted table of token usage for all agents."""
+        # Check if progress display is enabled
+        settings = config.get_settings()
+        if not settings.logger.progress_display:
+            return
+
+        # Collect usage data from all agents
+        usage_data = []
+        total_input = 0
+        total_output = 0
+        total_tokens = 0
+
+        for agent_name, agent in active_agents.items():
+            if agent.usage_accumulator:
+                summary = agent.usage_accumulator.get_summary()
+                if summary["turn_count"] > 0:
+                    input_tokens = summary["cumulative_input_tokens"]
+                    output_tokens = summary["cumulative_output_tokens"]
+                    billing_tokens = summary["cumulative_billing_tokens"]
+                    turns = summary["turn_count"]
+
+                    # Get context percentage for this agent's last turn
+                    context_percentage = agent.usage_accumulator.context_usage_percentage
+                    
+                    usage_data.append(
+                        {
+                            "name": agent_name,
+                            "input": input_tokens,
+                            "output": output_tokens,
+                            "total": billing_tokens,
+                            "turns": turns,
+                            "context": context_percentage,
+                        }
+                    )
+
+                    total_input += input_tokens
+                    total_output += output_tokens
+                    total_tokens += billing_tokens
+
+        if not usage_data:
+            return
+
+        # Show minimal usage summary
+        console = Console()
+        console.print()
+        console.print("[dim]Usage Summary[/dim]")
+        
+        # Print header with proper spacing
+        console.print(f"[dim]{'Agent':<20} {'Input':>12} {'Output':>12} {'Total':>12} {'Turns':>8} {'Context%':>10}[/dim]")
+        
+        # Print agent rows with proper alignment
+        for data in usage_data:
+            # Format numbers without markup for alignment calculation
+            input_str = f"{data['input']:,}"
+            output_str = f"{data['output']:,}"
+            total_str = f"{data['total']:,}"
+            turns_str = str(data['turns'])
+            context_str = f"{data['context']:.1f}%" if data['context'] is not None else "-"
+            
+            # Use Rich's columns feature for proper alignment
+            console.print(
+                f"[dim cyan]{data['name']:<20}[/dim cyan] "
+                f"[dim green]{input_str:>12}[/dim green] "
+                f"[dim yellow]{output_str:>12}[/dim yellow] "
+                f"[dim red]{total_str:>12}[/dim red] "
+                f"[dim blue]{turns_str:>8}[/dim blue] "
+                f"[dim magenta]{context_str:>10}[/dim magenta]"
+            )
+        
+        # Add total row only if multiple agents
+        if len(usage_data) > 1:
+            console.print()
+            total_input_str = f"{total_input:,}"
+            total_output_str = f"{total_output:,}"
+            total_tokens_str = f"{total_tokens:,}"
+            
+            console.print(
+                f"[bold dim]{'TOTAL':<20}[/bold dim] "
+                f"[bold dim green]{total_input_str:>12}[/bold dim green] "
+                f"[bold dim yellow]{total_output_str:>12}[/bold dim yellow] "
+                f"[bold dim red]{total_tokens_str:>12}[/bold dim red] "
+                f"[bold dim]{'':<8}[/bold dim] "
+                f"[bold dim]{'':<10}[/bold dim]"
+            )
+        
+        console.print()
 
     async def start_server(
         self,

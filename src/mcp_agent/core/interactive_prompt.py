@@ -35,6 +35,9 @@ from mcp_agent.progress_display import progress_display
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageMultipart], str], Awaitable[str]]
 
+# Type alias for the agent getter function
+AgentGetter = Callable[[str], Optional[object]]
+
 
 class PromptProvider(Protocol):
     """Protocol for objects that can provide prompt functionality."""

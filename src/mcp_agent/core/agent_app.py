@@ -6,10 +6,12 @@ from typing import Dict, List, Optional, Union
 
 from deprecated import deprecated
 from mcp.types import PromptMessage
+from rich import print as rich_print
 
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.interactive_prompt import InteractivePrompt
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from mcp_agent.progress_display import progress_display
 
 
 class AgentApp:
@@ -272,7 +274,12 @@ class AgentApp:
 
         # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
-            return await self.send(message, agent_name)
+            result = await self.send(message, agent_name)
+            
+            # Show usage info after each turn if progress display is enabled
+            self._show_turn_usage(agent_name)
+            
+            return result
 
         # Start the prompt loop with the agent name (not the agent object)
         return await prompt.prompt_loop(
@@ -282,3 +289,36 @@ class AgentApp:
             prompt_provider=self,  # Pass self as the prompt provider
             default=default_prompt,
         )
+
+    def _show_turn_usage(self, agent_name: str) -> None:
+        """Show subtle usage information after each turn."""
+        agent = self._agents.get(agent_name)
+        if not agent or not agent.usage_accumulator:
+            return
+            
+        # Get the last turn's usage (if any)
+        turns = agent.usage_accumulator.turns
+        if not turns:
+            return
+            
+        last_turn = turns[-1]
+        input_tokens = last_turn.input_tokens
+        output_tokens = last_turn.output_tokens
+        
+        # Build cache indicators with bright colors
+        cache_indicators = ""
+        if last_turn.cache_usage.cache_write_tokens > 0:
+            cache_indicators += "[bright_yellow]^[/bright_yellow]"
+        if last_turn.cache_usage.cache_read_tokens > 0 or last_turn.cache_usage.cache_hit_tokens > 0:
+            cache_indicators += "[bright_green]*[/bright_green]"
+            
+        # Build context percentage - get from accumulator, not individual turn
+        context_info = ""
+        context_percentage = agent.usage_accumulator.context_usage_percentage
+        if context_percentage is not None:
+            context_info = f" ({context_percentage:.1f}%)"
+            
+        # Show subtle usage line - pause progress display to ensure visibility
+        with progress_display.paused():
+            cache_suffix = f" {cache_indicators}" if cache_indicators else ""
+            rich_print(f"[dim]Last turn: {input_tokens:,} Input, {output_tokens:,} Output{context_info}[/dim]{cache_suffix}")
