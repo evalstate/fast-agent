@@ -24,6 +24,9 @@ from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
+from mcp_agent.logging.logger import get_logger
+
+logger = get_logger(__name__)
 
 # Type alias for LLM classes
 LLMClass = Union[
@@ -206,6 +209,8 @@ class ModelFactory:
                 f"TensorZero provider requires a function name after the provider "
                 f"(e.g., tensorzero.my-function), got: {model_string}"
             )
+        
+        logger.debug(f"ModelConfig will be created: {model_name_str} with provider {provider}")
 
         return ModelConfig(
             provider=provider, model_name=model_name_str, reasoning_effort=reasoning_effort

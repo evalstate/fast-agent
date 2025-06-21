@@ -88,6 +88,8 @@ def _decorator_impl(
     servers: List[str] = [],
     model: Optional[str] = None,
     use_history: bool = True,
+    max_context_length_per_message: int = 100_000,
+    max_context_length_total: int = 1_000_000,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
@@ -103,6 +105,8 @@ def _decorator_impl(
         servers: List of server names the agent should connect to
         model: Model specification string
         use_history: Whether to maintain conversation history
+        max_context_length_per_message: Maximum context length per message
+        max_context_length_total: Maximum total context length for the agent
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
         default: Whether to mark this as the default agent
@@ -133,6 +137,8 @@ def _decorator_impl(
             servers=servers,
             model=model,
             use_history=use_history,
+            max_context_length_per_message=max_context_length_per_message,
+            max_context_length_total=max_context_length_total,
             human_input=human_input,
             default=default,
         )
@@ -175,6 +181,8 @@ def agent(
     servers: List[str] = [],
     model: Optional[str] = None,
     use_history: bool = True,
+    max_context_length_per_message: int = 100_000,
+    max_context_length_total: int = 1_000_000,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
@@ -189,6 +197,8 @@ def agent(
         servers: List of server names the agent should connect to
         model: Model specification string
         use_history: Whether to maintain conversation history
+        max_context_length_per_message: Maximum context length per message
+        max_context_length_total: Maximum total context length for the agent
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
         default: Whether to mark this as the default agent
@@ -206,6 +216,8 @@ def agent(
         servers=servers,
         model=model,
         use_history=use_history,
+        max_context_length_per_message=max_context_length_per_message,
+        max_context_length_total=max_context_length_total,
         request_params=request_params,
         human_input=human_input,
         default=default,
@@ -222,6 +234,8 @@ def custom(
     servers: List[str] = [],
     model: Optional[str] = None,
     use_history: bool = True,
+    max_context_length_per_message: int = 100_000,
+    max_context_length_total: int = 1_000_000,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
@@ -236,6 +250,8 @@ def custom(
         servers: List of server names the agent should connect to
         model: Model specification string
         use_history: Whether to maintain conversation history
+        max_context_length_per_message: Maximum context length per message
+        max_context_length_total: Maximum total context length for the agent
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
 
@@ -252,6 +268,8 @@ def custom(
         servers=servers,
         model=model,
         use_history=use_history,
+        max_context_length_per_message=max_context_length_per_message,
+        max_context_length_total=max_context_length_total,
         request_params=request_params,
         human_input=human_input,
         agent_class=cls,

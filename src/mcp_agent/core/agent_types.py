@@ -31,6 +31,8 @@ class AgentConfig(BaseModel):
     servers: List[str] = Field(default_factory=list)
     model: str | None = None
     use_history: bool = True
+    max_context_length_per_message: int = 100_000,
+    max_context_length_total: int = 1_000_000,
     default_request_params: RequestParams | None = None
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC

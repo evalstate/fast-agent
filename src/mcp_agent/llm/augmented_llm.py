@@ -94,6 +94,8 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_METADATA = "metadata"
     PARAM_USE_HISTORY = "use_history"
     PARAM_MAX_ITERATIONS = "max_iterations"
+    PARAM_MAX_CONTEXT_LENGTH_TOTAL = "max_context_length_total"
+    PARAM_MAX_CONTEXT_LENGTH_PER_MESSAGE = "max_context_length_per_message"
     PARAM_TEMPLATE_VARS = "template_vars"
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
@@ -642,3 +644,93 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
         assert self.provider
         return ProviderKeyManager.get_api_key(self.provider.value, self.context.config)
+
+    def _truncate_message_history(self) -> None:
+        """
+        Truncates the agent's message history to ensure it does not exceed the maximum context length.
+        This method is multimodal-aware and only calculates length based on text content.
+        """
+
+        self.logger.debug(f"""[_truncate_message_history] 
+
+        Truncating message history for {self.name} LLM.
+
+        """)
+
+        attributes = vars(self)
+        print(attributes)
+        print("\n--- Attributes and Values from augmented_llm_google_native---")
+        for key, value in attributes.items():
+
+            if "secret" in key or "key" in key or "password" in key or "token" in key or "env" in key:
+                # Mask sensitive information
+                value = "******"
+            if "max_context_length" in key:
+                value = f"{value} <-----------------------------------------------------------------"  # Format large numbers with commas
+            print(f"{key}: {value}")
+
+        # Pull out the configurable limits for clarity
+        max_len_per_message = self.default_request_params.max_context_length_per_message
+        max_total_len = self.default_request_params.max_context_length_total
+
+        if not self._message_history:
+            self.logger.debug("[_truncate_message_history] Message history is empty, nothing to truncate.")
+            return
+
+        if not max_total_len and not max_len_per_message:
+            self.logger.debug("[_truncate_message_history] No truncation limits set, skipping truncation.")
+            return
+
+        # Step 1: Truncate individual message content pieces
+        if max_len_per_message is not None:
+            self.logger.debug(
+                f"[_truncate_message_history] Truncating individual message content pieces to max length {max_len_per_message}."
+            )
+            for message in self._message_history:
+                for i, content_piece in enumerate(message.content):
+                    # *** FIX: Only attempt to truncate if it's TextContent ***
+                    if isinstance(content_piece, TextContent) and content_piece.text:
+                        if len(content_piece.text) > max_len_per_message:
+                            original_length = len(content_piece.text)
+                            truncated_text = content_piece.text[:max_len_per_message]
+                            
+                            # Re-assign the modified content piece
+                            message.content[i] = TextContent(type="text", text=truncated_text)
+                            
+                            self.logger.debug(
+                                f"[_truncate_message_history] Truncated content piece: original_length={original_length}, "
+                                f"truncated_length={len(truncated_text)}"
+                            )
+
+        # Step 2: Remove oldest messages if total context length is exceeded
+        if max_total_len is not None:
+            self.logger.debug(
+                f"[_truncate_message_history] Checking total context length against max limit {max_total_len}."
+            )
+            # Loop until the history is under the total length limit
+            while self._message_history:
+                current_total_length = 0
+                # Calculate total text length safely
+                for message in self._message_history:
+                    for content_piece in message.content:
+                        # *** FIX: Only add length if it's TextContent ***
+                        if isinstance(content_piece, TextContent) and content_piece.text:
+                            current_total_length += len(content_piece.text)
+
+                # If we are within the limit, we're done
+                if current_total_length <= max_total_len:
+                    self.logger.info(
+                        f"[_truncate_message_history] Total history truncation complete: final_length={current_total_length}, "
+                        f"final_message_count={len(self._message_history)}"
+                    )
+                    break
+                
+                # If over the limit, remove the oldest message and re-check
+                else:
+                    self.logger.debug(
+                        f"[_truncate_message_history] Total context length ({current_total_length}) > max ({max_total_len}). "
+                        f"Removing oldest message. History size: {len(self._message_history)}"
+                    )
+                    self._message_history.pop(0)
+            else: # This else belongs to the while loop, executes if history becomes empty
+                self.logger.info("History became empty during total length truncation.")

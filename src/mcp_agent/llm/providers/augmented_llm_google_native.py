@@ -252,6 +252,14 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         initial_history_length = len(conversation_history)
 
         for i in range(request_params.max_iterations):
+
+            self.logger.debug(f"[self._truncate_message_history]: Iteration {i + 1} of {request_params.max_iterations}")
+
+
+            conversation_history = self._truncate_message_history(
+                conversation_history
+            )
+
             # 1. Get available tools
             aggregator_response = await self.aggregator.list_tools()
             available_tools = self._converter.convert_to_google_tools(
@@ -474,3 +482,97 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         """
         # Currently a pass-through, can add Google-specific logic if needed
         return result
+
+    def _truncate_message_history(
+        self, conversation_history: List[types.Content]
+    ) -> List[types.Content]:
+        """
+        Override the base class method to handle Google-specific message history truncation.
+
+        This method operates on the native google.genai.types.Content format.
+        """
+
+        self.logger.debug(
+            f"[_truncate_message_history] Starting truncation with {len(conversation_history)} messages."
+        )
+
+        if not conversation_history:
+            self.logger.debug("conversation_history is empty, nothing to truncate.")
+            return conversation_history
+
+        # Due to the immutability of Content/Part objects, it's safer to build a new list.
+        truncated_history = list(conversation_history)
+
+        # Step 1: Truncate individual message parts
+
+        attributes = vars(self)
+        print(attributes)
+        print("\n--- Attributes and Values from augmented_llm_google_native---")
+        for key, value in attributes.items():
+
+            if "secret" in key or "key" in key or "password" in key or "token" in key or "env" in key:
+                value = "******"
+            if "secret" in str(value) or "key" in str(value) or "password" in str(value) or "token" in str(value) or "env" in str(value):
+                value = "******"
+            if "max_context_length" in key:
+                value = f"{value} <-----------------------------------------------------------------"  # Format large numbers with commas
+            print(f"{key}: {value}")
+
+        if self.max_context_length_per_message is not None:
+            self.logger.debug(
+                f"[_truncate_message_history] Truncating individual message parts to max length: {self.max_context_length_per_message}, {len(truncated_history)} messages"
+            )
+
+            # Create a new list to hold the potentially modified messages
+            temp_history = []
+            for message in truncated_history:
+                new_parts = []
+                for part in message.parts:
+                    # Check if the part has text to truncate
+                    if hasattr(part, "text") and part.text:
+                        if len(part.text) > self.max_context_length_per_message:
+                            truncated_text = part.text[: self.max_context_length_per_message]
+                            # Create a new Part with the truncated text
+                            new_parts.append(types.Part(text=truncated_text))
+                            self.logger.debug(
+                                f"Truncated part: original_length={len(part.text)}, "
+                                f"truncated_length={len(truncated_text)}"
+                            )
+                        else:
+                            new_parts.append(part) # Keep the original part
+                    else:
+                        new_parts.append(part) # Keep non-text parts as they are
+
+                # Create a new Content object with the new parts and original role
+                temp_history.append(types.Content(parts=new_parts, role=message.role))
+            truncated_history = temp_history
+
+
+        # Step 2: Remove oldest messages if total context length is exceeded
+        if self.max_context_length_total is not None:
+            self.logger.debug(
+                f"[_truncate_message_history] Truncating total context length to max: {self.max_context_length_total}, {len(truncated_history)} messages"
+            )
+            # Loop until the total length is acceptable
+            while True:
+                current_total_length = sum(
+                    len(part.text)
+                    for message in truncated_history
+                    for part in message.parts
+                    if hasattr(part, "text") and part.text
+                )
+
+                if current_total_length > self.max_context_length_total and truncated_history:
+                    self.logger.debug(
+                        f"Total context length ({current_total_length}) > max ({self.max_context_length_total}). "
+                        f"Removing oldest message. History size: {len(truncated_history)}"
+                    )
+                    truncated_history.pop(0)  # Remove the oldest message
+                else:
+                    self.logger.info(
+                        f"Total history truncation complete: final_length={current_total_length}, "
+                        f"final_message_count={len(truncated_history)}"
+                    )
+                    break
+
+        return truncated_history
