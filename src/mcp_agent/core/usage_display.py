@@ -8,10 +8,12 @@ from typing import Any, Dict, Optional
 from rich.console import Console
 
 
-def display_usage_report(agents: Dict[str, Any], show_if_progress_disabled: bool = False, subdued_colors: bool = False) -> None:
+def display_usage_report(
+    agents: Dict[str, Any], show_if_progress_disabled: bool = False, subdued_colors: bool = False
+) -> None:
     """
     Display a formatted table of token usage for all agents.
-    
+
     Args:
         agents: Dictionary of agent name -> agent object
         show_if_progress_disabled: If True, show even when progress display is disabled
@@ -21,6 +23,7 @@ def display_usage_report(agents: Dict[str, Any], show_if_progress_disabled: bool
     if not show_if_progress_disabled:
         try:
             from mcp_agent import config
+
             settings = config.get_settings()
             if not settings.logger.progress_display:
                 return
@@ -35,7 +38,7 @@ def display_usage_report(agents: Dict[str, Any], show_if_progress_disabled: bool
     total_tokens = 0
 
     for agent_name, agent in agents.items():
-        if hasattr(agent, 'usage_accumulator') and agent.usage_accumulator:
+        if agent.usage_accumulator:
             summary = agent.usage_accumulator.get_summary()
             if summary["turn_count"] > 0:
                 input_tokens = summary["cumulative_input_tokens"]
@@ -81,9 +84,7 @@ def display_usage_report(agents: Dict[str, Any], show_if_progress_disabled: bool
         return
 
     # Calculate dynamic agent column width (max 15)
-    max_agent_width = min(
-        15, max(len(data["name"]) for data in usage_data) if usage_data else 8
-    )
+    max_agent_width = min(15, max(len(data["name"]) for data in usage_data) if usage_data else 8)
     agent_width = max(max_agent_width, 5)  # Minimum of 5 for "Agent" header
 
     # Display the table
@@ -165,14 +166,16 @@ def display_usage_report(agents: Dict[str, Any], show_if_progress_disabled: bool
     console.print()
 
 
-def collect_agents_from_provider(prompt_provider: Any, agent_name: Optional[str] = None) -> Dict[str, Any]:
+def collect_agents_from_provider(
+    prompt_provider: Any, agent_name: Optional[str] = None
+) -> Dict[str, Any]:
     """
     Collect agents from a prompt provider for usage display.
-    
+
     Args:
         prompt_provider: Provider that has access to agents
         agent_name: Name of the current agent (for context)
-        
+
     Returns:
         Dictionary of agent name -> agent object
     """
