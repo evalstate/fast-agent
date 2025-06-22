@@ -28,6 +28,7 @@ from mcp_agent.core.enhanced_prompt import (
     get_selection_input,
     handle_special_commands,
 )
+from mcp_agent.core.usage_display import collect_agents_from_provider, display_usage_report
 from mcp_agent.mcp.mcp_aggregator import SEP  # Import SEP once at the top
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.progress_display import progress_display
@@ -35,15 +36,26 @@ from mcp_agent.progress_display import progress_display
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageMultipart], str], Awaitable[str]]
 
+# Type alias for the agent getter function
+AgentGetter = Callable[[str], Optional[object]]
+
 
 class PromptProvider(Protocol):
     """Protocol for objects that can provide prompt functionality."""
-    
-    async def list_prompts(self, server_name: Optional[str] = None, agent_name: Optional[str] = None) -> Mapping[str, List[Prompt]]:
+
+    async def list_prompts(
+        self, server_name: Optional[str] = None, agent_name: Optional[str] = None
+    ) -> Mapping[str, List[Prompt]]:
         """List available prompts."""
         ...
-    
-    async def apply_prompt(self, prompt_name: str, arguments: Optional[Dict[str, str]] = None, agent_name: Optional[str] = None, **kwargs) -> str:
+
+    async def apply_prompt(
+        self,
+        prompt_name: str,
+        arguments: Optional[Dict[str, str]] = None,
+        agent_name: Optional[str] = None,
+        **kwargs,
+    ) -> str:
         """Apply a prompt."""
         ...
 
@@ -160,9 +172,11 @@ class InteractivePrompt:
                                 await self._list_prompts(prompt_provider, agent)
                         else:
                             # Use the name-based selection
-                            await self._select_prompt(
-                                prompt_provider, agent, prompt_name
-                            )
+                            await self._select_prompt(prompt_provider, agent, prompt_name)
+                        continue
+                    elif "show_usage" in command_result:
+                        # Handle usage display
+                        await self._show_usage(prompt_provider, agent)
                         continue
 
                 # Skip further processing if:
@@ -170,7 +184,11 @@ class InteractivePrompt:
                 # 2. The original input was a dictionary (special command like /prompt)
                 # 3. The command result itself is a dictionary (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
-                if command_result or isinstance(user_input, dict) or isinstance(command_result, dict):
+                if (
+                    command_result
+                    or isinstance(user_input, dict)
+                    or isinstance(command_result, dict)
+                ):
                     continue
 
                 if user_input.upper() == "STOP":
@@ -183,7 +201,9 @@ class InteractivePrompt:
 
         return result
 
-    async def _get_all_prompts(self, prompt_provider: PromptProvider, agent_name: Optional[str] = None):
+    async def _get_all_prompts(
+        self, prompt_provider: PromptProvider, agent_name: Optional[str] = None
+    ):
         """
         Get a list of all available prompts.
 
@@ -196,8 +216,10 @@ class InteractivePrompt:
         """
         try:
             # Call list_prompts on the provider
-            prompt_servers = await prompt_provider.list_prompts(server_name=None, agent_name=agent_name)
-            
+            prompt_servers = await prompt_provider.list_prompts(
+                server_name=None, agent_name=agent_name
+            )
+
             all_prompts = []
 
             # Process the returned prompt servers
@@ -326,9 +348,11 @@ class InteractivePrompt:
         try:
             # Get all available prompts directly from the prompt provider
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
-            
+
             # Call list_prompts on the provider
-            prompt_servers = await prompt_provider.list_prompts(server_name=None, agent_name=agent_name)
+            prompt_servers = await prompt_provider.list_prompts(
+                server_name=None, agent_name=agent_name
+            )
 
             if not prompt_servers:
                 rich_print("[yellow]No prompts available for this agent[/yellow]")
@@ -557,3 +581,25 @@ class InteractivePrompt:
 
             rich_print(f"[red]Error selecting or applying prompt: {e}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    async def _show_usage(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+        """
+        Show usage statistics for the current agent(s) in a colorful table format.
+
+        Args:
+            prompt_provider: Provider that has access to agents
+            agent_name: Name of the current agent
+        """
+        try:
+            # Collect all agents from the prompt provider
+            agents_to_show = collect_agents_from_provider(prompt_provider, agent_name)
+            
+            if not agents_to_show:
+                rich_print("[yellow]No usage data available[/yellow]")
+                return
+                
+            # Use the shared display utility
+            display_usage_report(agents_to_show, show_if_progress_disabled=True)
+            
+        except Exception as e:
+            rich_print(f"[red]Error showing usage: {e}[/red]")

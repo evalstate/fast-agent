@@ -58,6 +58,7 @@ class AgentCompleter(Completer):
             "prompts": "List and select MCP prompts",  # Changed description
             "prompt": "Apply a specific prompt by name (/prompt <name>)",  # New command
             "agents": "List available agents",
+            "usage": "Show current usage statistics",
             "clear": "Clear the screen",
             "STOP": "Stop this prompting session and move to next workflow step",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -67,6 +68,7 @@ class AgentCompleter(Completer):
             self.commands.pop("agents")
             self.commands.pop("prompts")  # Remove prompts command in human input mode
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
+            self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
     def get_completions(self, document, complete_event):
@@ -390,6 +392,8 @@ async def get_enhanced_input(
                 return "CLEAR"
             elif cmd == "agents":
                 return "LIST_AGENTS"
+            elif cmd == "usage":
+                return "SHOW_USAGE"
             elif cmd == "prompts":
                 # Return a dictionary with select_prompt action instead of a string
                 # This way it will match what the command handler expects
@@ -566,6 +570,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /agents        - List available agents")
         rich_print("  /prompts       - List and select MCP prompts")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
+        rich_print("  /usage         - Show current usage statistics")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
@@ -593,6 +598,10 @@ async def handle_special_commands(command, agent_app=None):
         else:
             rich_print("[yellow]No agents available[/yellow]")
         return True
+
+    elif command == "SHOW_USAGE":
+        # Return a dictionary to signal that usage should be shown
+        return {"show_usage": True}
 
     elif command == "SELECT_PROMPT" or (
         isinstance(command, str) and command.startswith("SELECT_PROMPT:")

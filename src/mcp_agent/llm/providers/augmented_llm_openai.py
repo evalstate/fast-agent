@@ -31,6 +31,7 @@ from mcp_agent.llm.providers.multipart_converter_openai import OpenAIConverter, 
 from mcp_agent.llm.providers.sampling_converter_openai import (
     OpenAISamplingConverter,
 )
+from mcp_agent.llm.usage_tracking import TurnUsage
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -90,15 +91,14 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
-        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
 
-        return RequestParams(
-            model=chosen_model,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=20,
-            use_history=True,
-        )
+        # Override with OpenAI-specific settings
+        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        base_params.model = chosen_model
+
+        return base_params
 
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
@@ -165,6 +165,19 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             )
 
             response = executor_result[0]
+
+            # Track usage if response is valid and has usage data
+            if (
+                hasattr(response, "usage")
+                and response.usage
+                and not isinstance(response, BaseException)
+            ):
+                try:
+                    model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+                    turn_usage = TurnUsage.from_openai(response.usage, model_name)
+                    self.usage_accumulator.add_turn(turn_usage)
+                except Exception as e:
+                    self.logger.warning(f"Failed to track usage: {e}")
 
             self.logger.debug(
                 "OpenAI completion response:",

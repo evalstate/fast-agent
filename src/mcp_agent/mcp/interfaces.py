@@ -5,6 +5,7 @@ This module defines protocols (interfaces) that can be used to break circular de
 
 from datetime import timedelta
 from typing import (
+    TYPE_CHECKING,
     Any,
     AsyncContextManager,
     Callable,
@@ -30,6 +31,9 @@ from pydantic import BaseModel
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+
+if TYPE_CHECKING:
+    from mcp_agent.llm.usage_tracking import UsageAccumulator
 
 
 @runtime_checkable
@@ -131,6 +135,8 @@ class AugmentedLLMProtocol(Protocol):
             List of PromptMessageMultipart objects representing the conversation history
         """
         ...
+
+    usage_accumulator: "UsageAccumulator"
 
 
 class AgentProtocol(AugmentedLLMProtocol, Protocol):

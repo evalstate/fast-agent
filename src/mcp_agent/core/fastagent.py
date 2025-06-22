@@ -26,6 +26,9 @@ from mcp_agent.core.direct_decorators import (
     chain as chain_decorator,
 )
 from mcp_agent.core.direct_decorators import (
+    custom as custom_decorator,
+)
+from mcp_agent.core.direct_decorators import (
     evaluator_optimizer as evaluator_optimizer_decorator,
 )
 from mcp_agent.core.direct_decorators import (
@@ -51,6 +54,7 @@ from mcp_agent.core.exceptions import (
     ServerConfigError,
     ServerInitializationError,
 )
+from mcp_agent.core.usage_display import display_usage_report
 from mcp_agent.core.validation import (
     validate_server_references,
     validate_workflow_references,
@@ -221,6 +225,7 @@ class FastAgent:
 
     # Decorator methods with type-safe implementations
     agent = agent_decorator
+    custom = custom_decorator
     orchestrator = orchestrator_decorator
     router = router_decorator
     chain = chain_decorator
@@ -388,6 +393,10 @@ class FastAgent:
 
                     yield wrapper
 
+            except PromptExitError as e:
+                # User requested exit - not an error, show usage report
+                self._handle_error(e)
+                raise SystemExit(0)
             except (
                 ServerConfigError,
                 ProviderKeyError,
@@ -395,15 +404,18 @@ class FastAgent:
                 ServerInitializationError,
                 ModelConfigError,
                 CircularDependencyError,
-                PromptExitError,
             ) as e:
                 had_error = True
                 self._handle_error(e)
                 raise SystemExit(1)
 
             finally:
-                # Clean up any active agents
+                # Print usage report before cleanup (show for user exits too)
                 if active_agents and not had_error:
+                    self._print_usage_report(active_agents)
+
+                # Clean up any active agents (always cleanup, even on errors)
+                if active_agents:
                     for agent in active_agents.values():
                         try:
                             await agent.shutdown()
@@ -467,6 +479,10 @@ class FastAgent:
             )
         else:
             handle_error(e, error_type or "Error", "An unexpected error occurred.")
+
+    def _print_usage_report(self, active_agents: dict) -> None:
+        """Print a formatted table of token usage for all agents."""
+        display_usage_report(active_agents, show_if_progress_disabled=False, subdued_colors=True)
 
     async def start_server(
         self,

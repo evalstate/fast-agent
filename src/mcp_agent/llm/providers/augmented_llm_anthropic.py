@@ -10,6 +10,7 @@ from mcp_agent.llm.providers.multipart_converter_anthropic import (
 from mcp_agent.llm.providers.sampling_converter_anthropic import (
     AnthropicSamplingConverter,
 )
+from mcp_agent.llm.usage_tracking import TurnUsage
 from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -75,14 +76,14 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
-        return RequestParams(
-            model=kwargs.get("model", DEFAULT_ANTHROPIC_MODEL),
-            maxTokens=4096,  # default haiku3
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=20,
-            use_history=True,
-        )
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
+        
+        # Override with Anthropic-specific settings
+        chosen_model = kwargs.get("model", DEFAULT_ANTHROPIC_MODEL)
+        base_params.model = chosen_model
+        
+        return base_params
 
     def _base_url(self) -> str | None:
         assert self.context.config
@@ -232,6 +233,41 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             executor_result = await self.executor.execute(anthropic.messages.create, **arguments)
 
             response = executor_result[0]
+
+            # Track usage if response is valid and has usage data
+            if (
+                hasattr(response, "usage")
+                and response.usage
+                and not isinstance(response, BaseException)
+            ):
+                try:
+                    turn_usage = TurnUsage.from_anthropic(
+                        response.usage, model or DEFAULT_ANTHROPIC_MODEL
+                    )
+                    self.usage_accumulator.add_turn(turn_usage)
+
+                    # # Print raw usage for debugging
+                    # print(f"\n=== USAGE DEBUG ({model}) ===")
+                    # print(f"Raw usage: {response.usage}")
+                    # print(
+                    #     f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}"
+                    # )
+                    # print(
+                    #     f"Cache: read={turn_usage.cache_usage.cache_read_tokens}, write={turn_usage.cache_usage.cache_write_tokens}"
+                    # )
+                    # print(f"Effective input: {turn_usage.effective_input_tokens}")
+                    # print(
+                    #     f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}"
+                    # )
+                    # if self.usage_accumulator.context_usage_percentage:
+                    #     print(
+                    #         f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}"
+                    #     )
+                    # if self.usage_accumulator.cache_hit_rate:
+                    #     print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
+                    # print("===========================\n")
+                except Exception as e:
+                    self.logger.warning(f"Failed to track usage: {e}")
 
             if isinstance(response, AuthenticationError):
                 raise ProviderKeyError(

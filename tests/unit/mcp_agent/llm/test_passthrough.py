@@ -104,3 +104,50 @@ async def test_generates_structured():
         model.thinking
         == "The user wants to have a conversation about guitars, which are a broad..."
     )
+
+
+@pytest.mark.asyncio
+async def test_usage_tracking():
+    """Test that PassthroughLLM correctly tracks usage"""
+    llm: AugmentedLLMProtocol = PassthroughLLM()
+
+    # Initially no usage
+    assert llm.usage_accumulator.turn_count == 0
+    assert llm.usage_accumulator.cumulative_billing_tokens == 0
+
+    # Generate a response
+    await llm.generate(multipart_messages=[Prompt.user("test message")])
+
+    # Should have tracked one turn
+    assert llm.usage_accumulator.turn_count == 1
+    assert llm.usage_accumulator.cumulative_billing_tokens > 0
+    assert llm.usage_accumulator.current_context_tokens > 0
+
+    # Generate another response
+    await llm.generate(multipart_messages=[Prompt.user("second message")])
+
+    # Should have tracked two turns with cumulative totals
+    assert llm.usage_accumulator.turn_count == 2
+    assert llm.usage_accumulator.cumulative_billing_tokens > 0
+
+
+@pytest.mark.asyncio
+async def test_tool_call_usage_tracking():
+    """Test that PassthroughLLM correctly tracks tool call usage"""
+    llm: AugmentedLLMProtocol = PassthroughLLM()
+    
+    # Initially no usage
+    assert llm.usage_accumulator.turn_count == 0
+    
+    # Make a tool call
+    await llm.generate(multipart_messages=[Prompt.user(f"{CALL_TOOL_INDICATOR} some_tool {{}}")])
+    
+    # Should have tracked the tool call turn
+    assert llm.usage_accumulator.turn_count == 1
+    assert llm.usage_accumulator.cumulative_billing_tokens > 0
+    assert llm.usage_accumulator.current_context_tokens > 0
+    
+    # Check that the usage was tracked with tool call data
+    last_turn = llm.usage_accumulator.turns[-1]
+    assert last_turn.raw_usage.tool_calls == 1
+    assert last_turn.raw_usage.model_type == "passthrough"

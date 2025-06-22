@@ -58,6 +58,7 @@ LLM = TypeVar("LLM", bound=AugmentedLLMProtocol)
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 if TYPE_CHECKING:
     from mcp_agent.context import Context
+    from mcp_agent.llm.usage_tracking import UsageAccumulator
 
 
 DEFAULT_CAPABILITIES = AgentCapabilities(
@@ -698,3 +699,15 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         if self._llm:
             return self._llm.message_history
         return []
+
+    @property
+    def usage_accumulator(self) -> Optional["UsageAccumulator"]:
+        """
+        Return the usage accumulator for tracking token usage across turns.
+        
+        Returns:
+            UsageAccumulator object if LLM is attached, None otherwise
+        """
+        if self._llm:
+            return self._llm.usage_accumulator
+        return None
