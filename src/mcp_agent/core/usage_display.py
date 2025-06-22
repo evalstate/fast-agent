@@ -35,7 +35,7 @@ def display_usage_report(agents: Dict[str, Any], show_if_progress_disabled: bool
     total_tokens = 0
 
     for agent_name, agent in agents.items():
-        if hasattr(agent, 'usage_accumulator') and agent.usage_accumulator:
+        if agent.usage_accumulator:
             summary = agent.usage_accumulator.get_summary()
             if summary["turn_count"] > 0:
                 input_tokens = summary["cumulative_input_tokens"]

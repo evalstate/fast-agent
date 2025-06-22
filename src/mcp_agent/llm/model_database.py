@@ -222,7 +222,6 @@ class ModelDatabase:
     @classmethod
     def get_default_max_tokens(cls, model: str) -> int:
         """Get default max_tokens for RequestParams based on model"""
-        print(f"Getting default max tokens for model: {model}")
         if not model:
             return 2048  # Fallback when no model specified
 
