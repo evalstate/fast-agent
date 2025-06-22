@@ -3,7 +3,8 @@ Utility module for displaying usage statistics in a consistent format.
 Consolidates the usage display logic that was duplicated between fastagent.py and interactive_prompt.py.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, Optional
+
 from rich.console import Console
 
 

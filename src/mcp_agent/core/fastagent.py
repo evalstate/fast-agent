@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 
 import yaml
 from opentelemetry import trace
-from rich.console import Console
 
 from mcp_agent import config
 from mcp_agent.app import MCPApp
@@ -55,13 +54,13 @@ from mcp_agent.core.exceptions import (
     ServerConfigError,
     ServerInitializationError,
 )
+from mcp_agent.core.usage_display import display_usage_report
 from mcp_agent.core.validation import (
     validate_server_references,
     validate_workflow_references,
 )
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
-from mcp_agent.core.usage_display import display_usage_report
 
 if TYPE_CHECKING:
     from mcp_agent.agents.agent import Agent

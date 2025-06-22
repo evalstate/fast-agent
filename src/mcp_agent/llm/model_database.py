@@ -148,8 +148,10 @@ class ModelDatabase:
         "gpt-4.1-2025-04-14": OPENAI_4_1_SERIES,
         "gpt-4.1-mini-2025-04-14": OPENAI_4_1_SERIES,
         "gpt-4.1-nano-2025-04-14": OPENAI_4_1_SERIES,
+        "gpt-4o": OPENAI_4O_SERIES,
         "gpt-4o-2024-11-20": OPENAI_4O_SERIES,
         "gpt-4o-mini-2024-07-18": OPENAI_4O_SERIES,
+        "o1": OPENAI_O_SERIES,
         "o1-2024-12-17": OPENAI_O_SERIES,
         "o3": OPENAI_O3_SERIES,
         "o3-pro": ModelParameters(

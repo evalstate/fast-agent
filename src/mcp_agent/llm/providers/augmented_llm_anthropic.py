@@ -4,7 +4,6 @@ from mcp.types import EmbeddedResource, ImageContent, TextContent
 
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.provider_types import Provider
-from mcp_agent.llm.model_database import ModelDatabase
 from mcp_agent.llm.providers.multipart_converter_anthropic import (
     AnthropicConverter,
 )

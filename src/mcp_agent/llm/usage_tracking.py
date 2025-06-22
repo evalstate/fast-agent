@@ -14,8 +14,8 @@ from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsa
 from openai.types.completion_usage import CompletionUsage as OpenAIUsage
 from pydantic import BaseModel, Field, computed_field
 
-from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.model_database import ModelDatabase
+from mcp_agent.llm.provider_types import Provider
 
 
 # Fast-agent specific usage type for synthetic providers

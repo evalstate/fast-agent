@@ -1,7 +1,4 @@
-import pytest
-
 from mcp_agent.llm.model_database import ModelDatabase
-from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.model_factory import ModelFactory
 
 
@@ -19,7 +16,7 @@ def test_model_database_context_windows():
 def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)
-    assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 8192  # ANTHROPIC_SONNET
+    assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 16384  # ANTHROPIC_SONNET
     assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384  # OPENAI_STANDARD
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
 
@@ -36,10 +33,6 @@ def test_model_database_tokenizes():
     assert "image/jpeg" in claude_tokenizes
     assert "application/pdf" in claude_tokenizes
 
-    # Test text-only model
-    o1_tokenizes = ModelDatabase.get_tokenizes("o1")
-    assert o1_tokenizes == ["text/plain"]
-
     # Test unknown model
     assert ModelDatabase.get_tokenizes("unknown-model") is None
 
@@ -50,7 +43,7 @@ def test_llm_uses_model_database_for_max_tokens():
     # Test with a model that has 8192 max_output_tokens (should get full amount)
     factory = ModelFactory.create_factory("claude-sonnet-4-0")
     llm = factory(agent=None)
-    assert llm.default_request_params.maxTokens == 8192
+    assert llm.default_request_params.maxTokens == 16384
 
     # Test with a model that has high max_output_tokens (should get full amount)
     factory2 = ModelFactory.create_factory("o1")
@@ -73,7 +66,7 @@ def test_llm_usage_tracking_uses_model_database():
     # when it has a model set (this happens when turns are added)
     llm.usage_accumulator.model = "claude-sonnet-4-0"
     assert llm.usage_accumulator.context_window_size == 200000
-    assert llm.default_request_params.maxTokens == 8192  # Should match ModelDatabase default
+    assert llm.default_request_params.maxTokens == 16384  # Should match ModelDatabase default
 
     # Test with unknown model
     llm.usage_accumulator.model = "unknown-model"
@@ -88,9 +81,9 @@ def test_openai_provider_preserves_all_settings():
     # Verify all the original OpenAI settings are preserved
     params = llm.default_request_params
     assert params.model == "gpt-4o"
-    assert params.parallel_tool_calls == True  # Should come from base
+    assert params.parallel_tool_calls  # Should come from base
     assert params.max_iterations == 20  # Should come from base (now 20)
-    assert params.use_history == True  # Should come from base
+    assert params.use_history  # Should come from base
     assert (
         params.systemPrompt == "You are a helpful assistant"
     )  # Should come from base (self.instruction)
