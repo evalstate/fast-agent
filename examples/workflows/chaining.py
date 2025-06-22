@@ -26,7 +26,7 @@ async def main() -> None:
     async with fast.run() as agent:
         # using chain workflow
         await agent.post_writer.send("https://llmindset.co.uk")
-        await agent.interactive()
+
 
 # alternative syntax for above is result = agent["post_writer"].send(message)
 # alternative syntax for above is result = agent["post_writer"].prompt()
