@@ -174,6 +174,31 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 else:
                     self.logger.debug(f"System prompt is not a string: {type(base_args['system'])}")
 
+            # Apply conversation caching using walking algorithm if in auto mode
+            if cache_mode == "auto" and self.history.should_apply_conversation_cache():
+                cache_updates = self.history.get_conversation_cache_updates()
+                
+                # Remove cache control from old positions
+                if cache_updates['remove']:
+                    self.history.remove_cache_control_from_messages(messages, cache_updates['remove'])
+                    self.logger.debug(f"Removed conversation cache_control from positions {cache_updates['remove']}")
+                
+                # Add cache control to new positions
+                if cache_updates['add']:
+                    applied_count = self.history.add_cache_control_to_messages(messages, cache_updates['add'])
+                    if applied_count > 0:
+                        self.history.apply_conversation_cache_updates(cache_updates)
+                        self.logger.debug(f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)")
+                        
+                        # Verify we don't exceed Anthropic's 4 cache block limit
+                        total_cache_blocks = applied_count
+                        if cache_mode != "off" and base_args["system"]:
+                            total_cache_blocks += 1  # tools+system cache block
+                        if total_cache_blocks > 4:
+                            self.logger.warning(f"Total cache blocks ({total_cache_blocks}) exceeds Anthropic limit of 4")
+                    else:
+                        self.logger.debug(f"Failed to apply conversation cache_control to positions {cache_updates['add']}")
+
             if params.maxTokens is not None:
                 base_args["max_tokens"] = params.maxTokens
 

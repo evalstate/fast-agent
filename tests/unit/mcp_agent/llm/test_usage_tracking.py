@@ -35,15 +35,16 @@ def test_anthropic_usage_calculation():
     assert turn.input_tokens == 1000
     assert turn.output_tokens == 500
     assert turn.total_tokens == 1500
-    assert turn.current_context_tokens == 1500
+    # Current context includes cache tokens: input(1000) + cache_read(300) + cache_write(200) + output(500) = 2000
+    assert turn.current_context_tokens == 2000
 
     # Cache calculations
     assert turn.cache_usage.cache_write_tokens == 200  # creation
     assert turn.cache_usage.cache_read_tokens == 300  # read
     assert turn.cache_usage.cache_hit_tokens == 0  # not used for anthropic
 
-    # Effective tokens (input minus cache reads)
-    assert turn.effective_input_tokens == 700  # 1000 - 300
+    # Effective tokens: For Anthropic, input_tokens already excludes cache
+    assert turn.effective_input_tokens == 1000  # input_tokens (cache already excluded by Anthropic)
 
     # Provider and raw data
     assert turn.provider == Provider.ANTHROPIC
@@ -247,10 +248,14 @@ def test_cache_hit_rate_calculation():
     openai_turn = TurnUsage.from_openai(openai_usage, "gpt-4o")
     accumulator.add_turn(openai_turn)
 
-    # Total input: 1000 + 800 = 1800
-    # Total cache: 300 (anthropic) + 200 (openai) = 500
-    # Hit rate: 500/1800 = 27.78%
-    assert abs(accumulator.cache_hit_rate - 27.777777777777775) < 0.0001
+    # With our updated algorithm:
+    # Anthropic cumulative_input: 1000 + 300 (cache read) = 1300
+    # OpenAI cumulative_input: 800 (already includes cache)
+    # Total cumulative_input: 1300 + 800 = 2100
+    # Total cache: 300 (anthropic read) + 200 (openai hit) = 500
+    # Hit rate: 500 / (2100 + 500) * 100 = 500/2600 = 19.23%
+    expected_hit_rate = 500 / (2100 + 500) * 100
+    assert abs(accumulator.cache_hit_rate - expected_hit_rate) < 0.01
 
     # Test with no input tokens
     empty_accumulator = UsageAccumulator()
@@ -282,7 +287,8 @@ def test_provider_cache_differences():
     assert anthropic_turn.cache_usage.cache_write_tokens == 100  # creation
     assert anthropic_turn.cache_usage.cache_read_tokens == 200  # read
     assert anthropic_turn.cache_usage.cache_hit_tokens == 0  # not used
-    assert anthropic_turn.effective_input_tokens == 800  # 1000 - 200
+    # For Anthropic: input_tokens already excludes cached content, so effective_input = input_tokens
+    assert anthropic_turn.effective_input_tokens == 1000  # input_tokens (already excludes cache)
 
     # OpenAI cache structure
     assert openai_turn.cache_usage.cache_write_tokens == 0  # not used
