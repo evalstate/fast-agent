@@ -22,7 +22,7 @@ worker_bees = [
     {
         "name": "reporter",
         "instruction": "You are an agent that takes the raw pricing data provided by the finder agent and produces a concise, human-readable summary highlighting current prices, 24-hour changes, and key market insights. You need to post them on twitter and notion page.  ",
-        "servers": ["twitter-mcp", "notion-api"],  
+        "servers": [],  
         "model": "haiku3"
     }
 ]
@@ -31,28 +31,28 @@ worker_bees = [
 sample_json_config = {
     "mcp": {
         "servers": {
-            "twitter-mcp": {
-                "name": "Twitter",
-                "description" : "Post on Twitter, and get tweets, limited by rate of twitter's developer console.",
-                "command": "npx",
-                "args": ["-y", "@enescinar/twitter-mcp"],
-                "env": {
-                    "API_KEY": os.getenv("TWITTER_API_KEY"),
-                    "API_SECRET_KEY": os.getenv("TWITTER_API_SECRET_KEY"),
-                    "ACCESS_TOKEN": os.getenv("TWITTER_ACCESS_TOKEN"),
-                    "ACCESS_TOKEN_SECRET": os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
-                }
-            },
-            "notion-api": {
-                    "name": "Notion",
-                    "description": "Create pages in Notion and fetch notion content!",
-                    "command": "/Users/vaibhavgeek/hackathons/notion-api-mcp/.venv/bin/python",
-                    "args": ["-m", "notion_api_mcp"],
-                    "env": {
-                        "NOTION_API_KEY": os.getenv("NOTION_API_KEY"),
-                        "NOTION_PARENT_PAGE_ID": os.getenv("NOTION_PARENT_PAGE_ID")
-                    }
-            },
+            # "twitter-mcp": {
+            #     "name": "Twitter",
+            #     "description" : "Post on Twitter, and get tweets, limited by rate of twitter's developer console.",
+            #     "command": "npx",
+            #     "args": ["-y", "@enescinar/twitter-mcp"],
+            #     "env": {
+            #         "API_KEY": os.getenv("TWITTER_API_KEY"),
+            #         "API_SECRET_KEY": os.getenv("TWITTER_API_SECRET_KEY"),
+            #         "ACCESS_TOKEN": os.getenv("TWITTER_ACCESS_TOKEN"),
+            #         "ACCESS_TOKEN_SECRET": os.getenv("TWITTER_ACCESS_TOKEN_SECRET")
+            #     }
+            # },
+            # "notion-api": {
+            #         "name": "Notion",
+            #         "description": "Create pages in Notion and fetch notion content!",
+            #         "command": "/Users/vaibhavgeek/hackathons/notion-api-mcp/.venv/bin/python",
+            #         "args": ["-m", "notion_api_mcp"],
+            #         "env": {
+            #             "NOTION_API_KEY": os.getenv("NOTION_API_KEY"),
+            #             "NOTION_PARENT_PAGE_ID": os.getenv("NOTION_PARENT_PAGE_ID")
+            #         }
+            # },
             "brave": {
                 "name": "brave",
                 "description": "Brave search server, helps you look up internet search results, not very accurate at times. ",
@@ -86,7 +86,7 @@ sample_json_config = {
         }
     },
     "anthropic": {
-        "api_key": os.getenv("ANTHROPIC_API_KEY")
+        "api_key": os.getenv("CLAUDE_API_KEY")
     },
     "azure": {
         "api_key": os.getenv("AZURE_API_KEY"),
