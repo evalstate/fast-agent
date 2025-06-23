@@ -302,7 +302,7 @@ class AgentApp:
             return
             
         last_turn = turns[-1]
-        input_tokens = last_turn.input_tokens
+        input_tokens = last_turn.display_input_tokens
         output_tokens = last_turn.output_tokens
         
         # Build cache indicators with bright colors

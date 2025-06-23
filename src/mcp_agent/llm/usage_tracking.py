@@ -84,19 +84,32 @@ class TurnUsage(BaseModel):
     @computed_field
     @property
     def current_context_tokens(self) -> int:
-        """Current context size after this turn (input + output)"""
-        return self.input_tokens + self.output_tokens
+        """Current context size after this turn (total input including cache + output)"""
+        # For Anthropic: input_tokens + cache_read_tokens represents total input context
+        total_input = self.input_tokens + self.cache_usage.cache_read_tokens + self.cache_usage.cache_write_tokens
+        return total_input + self.output_tokens
 
     @computed_field
     @property
     def effective_input_tokens(self) -> int:
-        """Input tokens excluding cache reads (tokens actually processed)"""
-        return max(
-            0,
-            self.input_tokens
-            - self.cache_usage.cache_read_tokens
-            - self.cache_usage.cache_hit_tokens,
-        )
+        """Input tokens actually processed (new tokens, not from cache)"""
+        # For Anthropic: input_tokens already excludes cached content
+        # For other providers: subtract cache hits from input_tokens
+        if self.provider == Provider.ANTHROPIC:
+            return self.input_tokens
+        else:
+            return max(0, self.input_tokens - self.cache_usage.cache_hit_tokens)
+
+    @computed_field
+    @property
+    def display_input_tokens(self) -> int:
+        """Input tokens to display for 'Last turn' (total submitted tokens)"""
+        # For Anthropic: input_tokens excludes cache, so add cache tokens
+        if self.provider == Provider.ANTHROPIC:
+            return self.input_tokens + self.cache_usage.cache_read_tokens + self.cache_usage.cache_write_tokens
+        else:
+            # For OpenAI/Google: input_tokens already includes cached tokens
+            return self.input_tokens
 
     @classmethod
     def from_anthropic(cls, usage: AnthropicUsage, model: str) -> "TurnUsage":
@@ -204,8 +217,11 @@ class UsageAccumulator(BaseModel):
     @computed_field
     @property
     def cumulative_input_tokens(self) -> int:
-        """Total input tokens charged across all turns"""
-        return sum(turn.input_tokens for turn in self.turns)
+        """Total input tokens charged across all turns (including cache tokens)"""
+        return sum(
+            turn.input_tokens + turn.cache_usage.cache_read_tokens + turn.cache_usage.cache_write_tokens
+            for turn in self.turns
+        )
 
     @computed_field
     @property
@@ -216,8 +232,8 @@ class UsageAccumulator(BaseModel):
     @computed_field
     @property
     def cumulative_billing_tokens(self) -> int:
-        """Total tokens charged across all turns"""
-        return sum(turn.total_tokens for turn in self.turns)
+        """Total tokens charged across all turns (including cache tokens)"""
+        return self.cumulative_input_tokens + self.cumulative_output_tokens
 
     @computed_field
     @property
@@ -258,12 +274,12 @@ class UsageAccumulator(BaseModel):
     @computed_field
     @property
     def cache_hit_rate(self) -> Optional[float]:
-        """Percentage of input tokens served from cache"""
+        """Percentage of total input context served from cache"""
         cache_tokens = self.cumulative_cache_read_tokens + self.cumulative_cache_hit_tokens
-        total_tokens_processed = self.cumulative_input_tokens + cache_tokens
-        if total_tokens_processed == 0:
+        total_input_context = self.cumulative_input_tokens + cache_tokens
+        if total_input_context == 0:
             return None
-        return (cache_tokens / total_tokens_processed) * 100
+        return (cache_tokens / total_input_context) * 100
 
     @computed_field
     @property
