@@ -88,7 +88,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
     def _base_url(self) -> str | None:
         assert self.context.config
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
-    
+
     def _get_cache_mode(self) -> str:
         """Get the cache mode configuration."""
         cache_mode = "auto"  # Default to auto
@@ -149,7 +149,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
         for i in range(params.max_iterations):
             self._log_chat_progress(self.chat_turn(), model=model)
-            
+
             # Create base arguments dictionary
             base_args = {
                 "model": model,
@@ -170,7 +170,9 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                             "cache_control": {"type": "ephemeral"},
                         }
                     ]
-                    self.logger.debug("Applied cache_control to system prompt (caches tools+system in one block)")
+                    self.logger.debug(
+                        "Applied cache_control to system prompt (caches tools+system in one block)"
+                    )
                 else:
                     self.logger.debug(f"System prompt is not a string: {type(base_args['system'])}")
 
@@ -388,13 +390,13 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             multipart_messages[:-1] if last_message.role == "user" else multipart_messages
         )
         converted = []
-        
+
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()
-        
+
         for msg in messages_to_add:
             anthropic_msg = AnthropicConverter.convert_to_anthropic(msg)
-            
+
             # Apply caching to template messages if cache_mode is "prompt" or "auto"
             if is_template and cache_mode in ["prompt", "auto"] and anthropic_msg.get("content"):
                 content_list = anthropic_msg["content"]
@@ -403,8 +405,10 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                     last_block = content_list[-1]
                     if isinstance(last_block, dict):
                         last_block["cache_control"] = {"type": "ephemeral"}
-                        self.logger.debug(f"Applied cache_control to template message with role {anthropic_msg.get('role')}")
-            
+                        self.logger.debug(
+                            f"Applied cache_control to template message with role {anthropic_msg.get('role')}"
+                        )
+
             converted.append(anthropic_msg)
 
         self.history.extend(converted, is_prompt=is_template)
