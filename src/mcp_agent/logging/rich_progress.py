@@ -101,9 +101,16 @@ class RichProgressDisplay:
             task_id = self._taskmap[task_name]
 
         # Ensure no None values in the update
+        # For streaming, use custom description immediately to avoid flashing
+        if event.action == ProgressAction.STREAMING and event.streaming_tokens:
+            formatted_tokens = f"↓ {event.streaming_tokens.strip()}".ljust(15)
+            description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
+        else:
+            description = f"[{self._get_action_style(event.action)}]{event.action.value:<15}"
+            
         self._progress.update(
             task_id,
-            description=f"[{self._get_action_style(event.action)}]{event.action.value:<15}",
+            description=description,
             target=event.target or task_name,  # Use task_name as fallback for target
             details=event.details or "",
             task_name=task_name,
@@ -135,13 +142,5 @@ class RichProgressDisplay:
             for task in self._progress.tasks:
                 if task.id != task_id:
                     task.visible = False
-        elif event.action == ProgressAction.STREAMING:
-            # For streaming, update the description with down arrow and token count in action position
-            if event.streaming_tokens:
-                # Ensure consistent width: "↓ " (2 chars) + token count padded to fit in 15 total chars
-                formatted_tokens = f"↓ {event.streaming_tokens.strip()}".ljust(15)
-                custom_description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
-                self._progress.update(task_id, description=custom_description)
-        elif event.action not in [ProgressAction.CHATTING, ProgressAction.STREAMING]:
-            # Don't reset CHATTING or STREAMING tasks as they need to show details
+        else:
             self._progress.reset(task_id)
