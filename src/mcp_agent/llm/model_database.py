@@ -109,11 +109,11 @@ class ModelDatabase:
 
     # TODO update to 32000
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
-        context_window=200000, max_output_tokens=16384, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000, max_output_tokens=32000, tokenizes=ANTHROPIC_MULTIMODAL
     )
     # TODO update to 64000
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
-        context_window=200000, max_output_tokens=16384, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000, max_output_tokens=64000, tokenizes=ANTHROPIC_MULTIMODAL
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(

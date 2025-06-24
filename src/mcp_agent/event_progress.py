@@ -15,6 +15,7 @@ class ProgressAction(str, Enum):
     LOADED = "Loaded"
     INITIALIZED = "Initialized"
     CHATTING = "Chatting"
+    STREAMING = "Streaming"  # Special action for real-time streaming updates
     ROUTING = "Routing"
     PLANNING = "Planning"
     READY = "Ready"
@@ -33,12 +34,22 @@ class ProgressEvent(BaseModel):
     target: str
     details: Optional[str] = None
     agent_name: Optional[str] = None
+    streaming_tokens: Optional[str] = None  # Special field for streaming token count
 
     def __str__(self) -> str:
         """Format the progress event for display."""
-        base = f"{self.action.ljust(11)}. {self.target}"
-        if self.details:
-            base += f" - {self.details}"
+        # Special handling for streaming - show token count in action position
+        if self.action == ProgressAction.STREAMING and self.streaming_tokens:
+            # For streaming, show just the token count instead of "Streaming"
+            action_display = self.streaming_tokens.ljust(11)
+            base = f"{action_display}. {self.target}"
+            if self.details:
+                base += f" - {self.details}"
+        else:
+            base = f"{self.action.ljust(11)}. {self.target}"
+            if self.details:
+                base += f" - {self.details}"
+        
         if self.agent_name:
             base = f"[{self.agent_name}] {base}"
         return base
@@ -78,7 +89,8 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
 
     elif "augmented_llm" in namespace:
         model = event_data.get("model", "")
-
+        
+        # For all augmented_llm events, put model info in details column
         details = f"{model}"
         chat_turn = event_data.get("chat_turn")
         if chat_turn is not None:
@@ -87,9 +99,15 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
         if not target:
             target = event_data.get("target", "unknown")
 
+    # Extract streaming token count for STREAMING actions
+    streaming_tokens = None
+    if progress_action == ProgressAction.STREAMING:
+        streaming_tokens = event_data.get("details", "")
+    
     return ProgressEvent(
         action=ProgressAction(progress_action),
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
+        streaming_tokens=streaming_tokens,
     )

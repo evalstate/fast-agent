@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, List, Tuple, Type
 from mcp.types import EmbeddedResource, ImageContent, TextContent
 
 from mcp_agent.core.prompt import Prompt
+from mcp_agent.event_progress import ProgressAction
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.multipart_converter_anthropic import (
     AnthropicConverter,
@@ -18,7 +19,8 @@ if TYPE_CHECKING:
     from mcp import ListToolsResult
 
 
-from anthropic import Anthropic, AuthenticationError
+from anthropic import AsyncAnthropic, AuthenticationError
+from anthropic.lib.streaming import AsyncMessageStream
 from anthropic.types import (
     Message,
     MessageParam,
@@ -96,6 +98,63 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
 
+    async def _process_stream(self, stream: AsyncMessageStream, model: str) -> Message:
+        """Process the streaming response and display real-time token usage."""
+        # Track estimated output tokens by counting text chunks
+        estimated_tokens = 0
+
+        # Process the raw event stream to get token counts
+        async for event in stream:
+            # Count tokens in real-time from content_block_delta events
+            if (
+                event.type == "content_block_delta"
+                and hasattr(event, "delta")
+                and event.delta.type == "text_delta"
+            ):
+                # Rough estimate: 1 token per 4 characters (OpenAI's typical ratio)
+                text_length = len(event.delta.text)
+                estimated_tokens += max(1, text_length // 4)
+
+                # Update progress on every token for real-time display
+                token_str = str(estimated_tokens).rjust(5)
+                #                print(f"DEBUG: Streaming tokens: {token_str}")
+                self._emit_streaming_progress(model, token_str)
+
+            # Also check for final message_delta events with actual usage info
+            elif (
+                event.type == "message_delta"
+                and hasattr(event, "usage")
+                and event.usage.output_tokens
+            ):
+                actual_tokens = event.usage.output_tokens
+                token_str = str(actual_tokens).rjust(5)
+                #               print(f"DEBUG: Final actual tokens: {token_str}")
+                self._emit_streaming_progress(model, token_str)
+
+        # Get the final message with complete usage data
+        message = await stream.get_final_message()
+
+        # Log final usage information
+        if hasattr(message, "usage") and message.usage:
+            self.logger.info(
+                f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
+            )
+
+        return message
+
+    def _emit_streaming_progress(self, model: str, token_str: str) -> None:
+        """Emit a streaming progress event that goes directly to progress display."""
+        data = {
+            "progress_action": ProgressAction.STREAMING,
+            "model": model,
+            "agent_name": self.name,
+            "chat_turn": self.chat_turn(),
+            "details": token_str.strip(),  # Token count goes in details for STREAMING action
+        }
+        #        print(f"DEBUG: Emitting streaming progress event with data: {data}")
+        # Use a special logger level or namespace to avoid polluting regular logs
+        self.logger.info("Streaming progress", data=data)
+
     async def _anthropic_completion(
         self,
         message_param,
@@ -112,7 +171,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             base_url = base_url.rstrip("/v1")
 
         try:
-            anthropic = Anthropic(api_key=api_key, base_url=base_url)
+            anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
             messages: List[MessageParam] = []
             params = self.get_request_params(request_params)
         except AuthenticationError as e:
@@ -179,27 +238,39 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             # Apply conversation caching using walking algorithm if in auto mode
             if cache_mode == "auto" and self.history.should_apply_conversation_cache():
                 cache_updates = self.history.get_conversation_cache_updates()
-                
+
                 # Remove cache control from old positions
-                if cache_updates['remove']:
-                    self.history.remove_cache_control_from_messages(messages, cache_updates['remove'])
-                    self.logger.debug(f"Removed conversation cache_control from positions {cache_updates['remove']}")
-                
+                if cache_updates["remove"]:
+                    self.history.remove_cache_control_from_messages(
+                        messages, cache_updates["remove"]
+                    )
+                    self.logger.debug(
+                        f"Removed conversation cache_control from positions {cache_updates['remove']}"
+                    )
+
                 # Add cache control to new positions
-                if cache_updates['add']:
-                    applied_count = self.history.add_cache_control_to_messages(messages, cache_updates['add'])
+                if cache_updates["add"]:
+                    applied_count = self.history.add_cache_control_to_messages(
+                        messages, cache_updates["add"]
+                    )
                     if applied_count > 0:
                         self.history.apply_conversation_cache_updates(cache_updates)
-                        self.logger.debug(f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)")
-                        
+                        self.logger.debug(
+                            f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)"
+                        )
+
                         # Verify we don't exceed Anthropic's 4 cache block limit
                         total_cache_blocks = applied_count
                         if cache_mode != "off" and base_args["system"]:
                             total_cache_blocks += 1  # tools+system cache block
                         if total_cache_blocks > 4:
-                            self.logger.warning(f"Total cache blocks ({total_cache_blocks}) exceeds Anthropic limit of 4")
+                            self.logger.warning(
+                                f"Total cache blocks ({total_cache_blocks}) exceeds Anthropic limit of 4"
+                            )
                     else:
-                        self.logger.debug(f"Failed to apply conversation cache_control to positions {cache_updates['add']}")
+                        self.logger.debug(
+                            f"Failed to apply conversation cache_control to positions {cache_updates['add']}"
+                        )
 
             if params.maxTokens is not None:
                 base_args["max_tokens"] = params.maxTokens
@@ -211,9 +282,10 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
             self.logger.debug(f"{arguments}")
 
-            executor_result = await self.executor.execute(anthropic.messages.create, **arguments)
-
-            response = executor_result[0]
+            # Use streaming API with helper
+            async with anthropic.messages.stream(**arguments) as stream:
+                # Process the stream
+                response = await self._process_stream(stream, model)
 
             # Track usage if response is valid and has usage data
             if (
@@ -226,27 +298,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                         response.usage, model or DEFAULT_ANTHROPIC_MODEL
                     )
                     self.usage_accumulator.add_turn(turn_usage)
-
-                    # Print raw usage for debugging
-                    print(f"\n=== USAGE DEBUG ({model}) ===")
-                    print(f"Raw usage: {response.usage}")
-                    print(
-                        f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}"
-                    )
-                    print(
-                        f"Cache: read={turn_usage.cache_usage.cache_read_tokens}, write={turn_usage.cache_usage.cache_write_tokens}"
-                    )
-                    print(f"Effective input: {turn_usage.effective_input_tokens}")
-                    print(
-                        f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}"
-                    )
-                    if self.usage_accumulator.context_usage_percentage:
-                        print(
-                            f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}"
-                        )
-                    if self.usage_accumulator.cache_hit_rate:
-                        print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
-                    print("===========================\n")
+                #                    self._show_usage(response.usage, turn_usage)
                 except Exception as e:
                     self.logger.warning(f"Failed to track usage: {e}")
 
@@ -468,6 +520,28 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             multipart_messages, request_params
         )
         return self._structured_from_multipart(result, model)
+
+    def _show_usage(self, raw_usage: Usage, turn_usage: TurnUsage) -> None:
+        # Print raw usage for debugging
+        print(f"\n=== USAGE DEBUG ({turn_usage.model}) ===")
+        print(f"Raw usage: {raw_usage}")
+        print(
+            f"Turn usage: input={turn_usage.input_tokens}, output={turn_usage.output_tokens}, current_context={turn_usage.current_context_tokens}"
+        )
+        print(
+            f"Cache: read={turn_usage.cache_usage.cache_read_tokens}, write={turn_usage.cache_usage.cache_write_tokens}"
+        )
+        print(f"Effective input: {turn_usage.effective_input_tokens}")
+        print(
+            f"Accumulator: total_turns={self.usage_accumulator.turn_count}, cumulative_billing={self.usage_accumulator.cumulative_billing_tokens}, current_context={self.usage_accumulator.current_context_tokens}"
+        )
+        if self.usage_accumulator.context_usage_percentage:
+            print(
+                f"Context usage: {self.usage_accumulator.context_usage_percentage:.1f}% of {self.usage_accumulator.context_window_size}"
+            )
+        if self.usage_accumulator.cache_hit_rate:
+            print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
+        print("===========================\n")
 
     @classmethod
     def convert_message_to_message_param(cls, message: Message, **kwargs) -> MessageParam:

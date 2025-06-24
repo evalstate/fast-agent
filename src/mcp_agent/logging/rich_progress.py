@@ -73,6 +73,7 @@ class RichProgressDisplay:
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
             ProgressAction.CHATTING: "bold blue",
+            ProgressAction.STREAMING: "bold blue",  # Same color as chatting
             ProgressAction.ROUTING: "bold blue",
             ProgressAction.PLANNING: "bold blue",
             ProgressAction.READY: "dim green",
@@ -134,5 +135,13 @@ class RichProgressDisplay:
             for task in self._progress.tasks:
                 if task.id != task_id:
                     task.visible = False
-        else:
+        elif event.action == ProgressAction.STREAMING:
+            # For streaming, update the description with down arrow and token count in action position
+            if event.streaming_tokens:
+                # Ensure consistent width: "↓ " (2 chars) + token count padded to fit in 15 total chars
+                formatted_tokens = f"↓ {event.streaming_tokens.strip()}".ljust(15)
+                custom_description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
+                self._progress.update(task_id, description=custom_description)
+        elif event.action not in [ProgressAction.CHATTING, ProgressAction.STREAMING]:
+            # Don't reset CHATTING or STREAMING tasks as they need to show details
             self._progress.reset(task_id)
