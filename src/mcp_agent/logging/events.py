@@ -117,3 +117,27 @@ class SamplingFilter(EventFilter):
         if not super().matches(event):
             return False
         return random.random() < self.sample_rate
+
+
+class StreamingExclusionFilter(EventFilter):
+    """
+    Event filter that excludes streaming progress events from logs.
+    This prevents token count updates from flooding the logs when info level is enabled.
+    """
+
+    def matches(self, event: Event) -> bool:
+        # First check if it passes the base filter
+        if not super().matches(event):
+            return False
+        
+        # Exclude events with "Streaming progress" message
+        if event.message == "Streaming progress":
+            return False
+        
+        # Also check for events with progress_action = STREAMING in data
+        if event.data and isinstance(event.data.get("data"), dict):
+            event_data = event.data["data"]
+            if event_data.get("progress_action") == "Streaming":
+                return False
+        
+        return True

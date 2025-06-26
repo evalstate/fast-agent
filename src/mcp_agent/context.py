@@ -25,7 +25,7 @@ from pydantic import BaseModel, ConfigDict
 from mcp_agent.config import Settings, get_settings
 from mcp_agent.executor.executor import AsyncioExecutor, Executor
 from mcp_agent.executor.task_registry import ActivityRegistry
-from mcp_agent.logging.events import EventFilter
+from mcp_agent.logging.events import EventFilter, StreamingExclusionFilter
 from mcp_agent.logging.logger import LoggingConfig, get_logger
 from mcp_agent.logging.transport import create_transport
 from mcp_agent.mcp_server_registry import ServerRegistry
@@ -124,7 +124,8 @@ async def configure_logger(config: "Settings") -> None:
     """
     Configure logging and tracing based on the application config.
     """
-    event_filter: EventFilter = EventFilter(min_level=config.logger.level)
+    # Use StreamingExclusionFilter to prevent streaming events from flooding logs
+    event_filter: EventFilter = StreamingExclusionFilter(min_level=config.logger.level)
     logger.info(f"Configuring logger with level: {config.logger.level}")
     transport = create_transport(settings=config.logger, event_filter=event_filter)
     await LoggingConfig.configure(
