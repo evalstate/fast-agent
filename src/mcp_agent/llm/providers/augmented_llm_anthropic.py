@@ -309,7 +309,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 ) from response
             elif isinstance(response, BaseException):
                 error_details = str(response)
-                self.logger.error(f"Error: {error_details}", data=executor_result)
+                self.logger.error(f"Error: {error_details}", data=BaseException)
 
                 # Try to extract more useful information for API errors
                 if hasattr(response, "status_code") and hasattr(response, "response"):

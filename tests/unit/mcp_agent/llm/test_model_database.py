@@ -16,7 +16,7 @@ def test_model_database_context_windows():
 def test_model_database_max_tokens():
     """Test that ModelDatabase returns expected max tokens"""
     # Test known models with different max_output_tokens (no cap)
-    assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 16384  # ANTHROPIC_SONNET
+    assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 64000  # ANTHROPIC_SONNET
     assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384  # OPENAI_STANDARD
     assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
 
@@ -43,7 +43,7 @@ def test_llm_uses_model_database_for_max_tokens():
     # Test with a model that has 8192 max_output_tokens (should get full amount)
     factory = ModelFactory.create_factory("claude-sonnet-4-0")
     llm = factory(agent=None)
-    assert llm.default_request_params.maxTokens == 16384
+    assert llm.default_request_params.maxTokens == 64000
 
     # Test with a model that has high max_output_tokens (should get full amount)
     factory2 = ModelFactory.create_factory("o1")
@@ -66,7 +66,7 @@ def test_llm_usage_tracking_uses_model_database():
     # when it has a model set (this happens when turns are added)
     llm.usage_accumulator.model = "claude-sonnet-4-0"
     assert llm.usage_accumulator.context_window_size == 200000
-    assert llm.default_request_params.maxTokens == 16384  # Should match ModelDatabase default
+    assert llm.default_request_params.maxTokens == 64000  # Should match ModelDatabase default
 
     # Test with unknown model
     llm.usage_accumulator.model = "unknown-model"
