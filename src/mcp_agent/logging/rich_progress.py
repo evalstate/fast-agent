@@ -73,6 +73,7 @@ class RichProgressDisplay:
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
             ProgressAction.CHATTING: "bold blue",
+            ProgressAction.STREAMING: "bold blue",  # Same color as chatting
             ProgressAction.ROUTING: "bold blue",
             ProgressAction.PLANNING: "bold blue",
             ProgressAction.READY: "dim green",
@@ -100,9 +101,16 @@ class RichProgressDisplay:
             task_id = self._taskmap[task_name]
 
         # Ensure no None values in the update
+        # For streaming, use custom description immediately to avoid flashing
+        if event.action == ProgressAction.STREAMING and event.streaming_tokens:
+            formatted_tokens = f"↓ {event.streaming_tokens.strip()}".ljust(15)
+            description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
+        else:
+            description = f"[{self._get_action_style(event.action)}]{event.action.value:<15}"
+            
         self._progress.update(
             task_id,
-            description=f"[{self._get_action_style(event.action)}]{event.action.value:<15}",
+            description=description,
             target=event.target or task_name,  # Use task_name as fallback for target
             details=event.details or "",
             task_name=task_name,

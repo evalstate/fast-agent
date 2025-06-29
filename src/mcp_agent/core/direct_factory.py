@@ -153,6 +153,21 @@ async def create_agents_by_type(
                 await agent.attach_llm(llm_factory, request_params=config.default_request_params)
                 result_agents[name] = agent
 
+            elif agent_type == AgentType.CUSTOM:
+                # Get the class to instantiate
+                cls = agent_data["agent_class"]
+                # Create the custom agent
+                agent = cls(
+                    config=config,
+                    context=app_instance.context,
+                )
+                await agent.initialize()
+
+                # Attach LLM to the agent
+                llm_factory = model_factory_func(model=config.model)
+                await agent.attach_llm(llm_factory, request_params=config.default_request_params)
+                result_agents[name] = agent
+
             elif agent_type == AgentType.ORCHESTRATOR:
                 # Get base params configured with model settings
                 base_params = (
@@ -351,6 +366,21 @@ async def create_agents_in_dependency_order(
                     if agents_dict[name]["type"] == AgentType.BASIC.value
                 },
                 AgentType.BASIC,
+                active_agents,
+                model_factory_func,
+            )
+            active_agents.update(basic_agents)
+
+        # Create custom agents first
+        if AgentType.CUSTOM.value in [agents_dict[name]["type"] for name in group]:
+            basic_agents = await create_agents_by_type(
+                app_instance,
+                {
+                    name: agents_dict[name]
+                    for name in group
+                    if agents_dict[name]["type"] == AgentType.CUSTOM.value
+                },
+                AgentType.CUSTOM,
                 active_agents,
                 model_factory_func,
             )

@@ -4,22 +4,21 @@ It adds logging and supports sampling requests.
 """
 
 from datetime import timedelta
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from mcp import ClientSession, ServerNotification
+from mcp.shared.message import MessageMetadata
 from mcp.shared.session import (
+    ProgressFnT,
     ReceiveResultT,
-    RequestId,
-    SendNotificationT,
     SendRequestT,
-    SendResultT,
-    ProgressFnT
 )
-from mcp.types import ErrorData, ListRootsResult, Root, ToolListChangedNotification
+from mcp.types import Implementation, ListRootsResult, Root, ToolListChangedNotification
 from pydantic import FileUrl
 
 from mcp_agent.context_dependent import ContextDependent
 from mcp_agent.logging.logger import get_logger
+from mcp_agent.mcp.helpers.server_config_helpers import get_server_config
 from mcp_agent.mcp.sampling import sample
 
 if TYPE_CHECKING:
@@ -31,24 +30,20 @@ logger = get_logger(__name__)
 async def list_roots(ctx: ClientSession) -> ListRootsResult:
     """List roots callback that will be called by the MCP library."""
 
-    roots = []
-    if (
-        hasattr(ctx, "session")
-        and hasattr(ctx.session, "server_config")
-        and ctx.session.server_config
-        and hasattr(ctx.session.server_config, "roots")
-        and ctx.session.server_config.roots
-    ):
-        roots = [
-            Root(
-                uri=FileUrl(
-                    root.server_uri_alias or root.uri,
-                ),
-                name=root.name,
-            )
-            for root in ctx.session.server_config.roots
-        ]
-    return ListRootsResult(roots=roots or [])
+    if server_config := get_server_config(ctx):
+        if server_config.roots:
+            roots = [
+                Root(
+                    uri=FileUrl(
+                        root.server_uri_alias or root.uri,
+                    ),
+                    name=root.name,
+                )
+                for root in server_config.roots
+            ]
+            return ListRootsResult(roots=roots)
+
+    return ListRootsResult(roots=[])
 
 
 class MCPAgentClientSession(ClientSession, ContextDependent):
@@ -64,18 +59,63 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     def __init__(self, *args, **kwargs) -> None:
         # Extract server_name if provided in kwargs
+        from importlib.metadata import version
+
+        version = version("fast-agent-mcp") or "dev"
+        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
+
         self.session_server_name = kwargs.pop("server_name", None)
         # Extract the notification callbacks if provided
         self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
+        # Extract server_config if provided
+        self.server_config: MCPServerSettings | None = kwargs.pop("server_config", None)
+        # Extract agent_model if provided (for auto_sampling fallback)
+        self.agent_model: str | None = kwargs.pop("agent_model", None)
 
-        super().__init__(*args, **kwargs, list_roots_callback=list_roots, sampling_callback=sample)
-        self.server_config: Optional[MCPServerSettings] = None
+        # Only register callbacks if the server_config has the relevant settings
+        list_roots_cb = list_roots if (self.server_config and self.server_config.roots) else None
+
+        # Register sampling callback if either:
+        # 1. Sampling is explicitly configured, OR
+        # 2. Application-level auto_sampling is enabled
+        sampling_cb = None
+        if (
+            self.server_config
+            and hasattr(self.server_config, "sampling")
+            and self.server_config.sampling
+        ):
+            # Explicit sampling configuration
+            sampling_cb = sample
+        elif self._should_enable_auto_sampling():
+            # Auto-sampling enabled at application level
+            sampling_cb = sample
+
+        super().__init__(
+            *args,
+            **kwargs,
+            list_roots_callback=list_roots_cb,
+            sampling_callback=sampling_cb,
+            client_info=fast_agent,
+        )
+
+    def _should_enable_auto_sampling(self) -> bool:
+        """Check if auto_sampling is enabled at the application level."""
+        try:
+            from mcp_agent.context import get_current_context
+
+            context = get_current_context()
+            if context and context.config:
+                return getattr(context.config, "auto_sampling", True)
+        except Exception:
+            pass
+        return True  # Default to True if can't access config
 
     async def send_request(
         self,
         request: SendRequestT,
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
+        metadata: MessageMetadata | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
@@ -84,31 +124,17 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 request=request,
                 result_type=result_type,
                 request_read_timeout_seconds=request_read_timeout_seconds,
+                metadata=metadata,
                 progress_callback=progress_callback,
-                metadata=None,
             )
-            logger.debug("send_request: response=", data=result.model_dump())
+            logger.debug(
+                "send_request: response=",
+                data=result.model_dump() if result is not None else "no response returned",
+            )
             return result
         except Exception as e:
             logger.error(f"send_request failed: {str(e)}")
             raise
-
-    async def send_notification(self, notification: SendNotificationT) -> None:
-        logger.debug("send_notification:", data=notification.model_dump())
-        try:
-            return await super().send_notification(notification)
-        except Exception as e:
-            logger.error("send_notification failed", data=e)
-            raise
-
-    async def _send_response(
-        self, request_id: RequestId, response: SendResultT | ErrorData
-    ) -> None:
-        logger.debug(
-            f"send_response: request_id={request_id}, response=",
-            data=response.model_dump(),
-        )
-        return await super()._send_response(request_id, response)
 
     async def _received_notification(self, notification: ServerNotification) -> None:
         """
@@ -133,7 +159,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     )
                     # Use asyncio.create_task to prevent blocking the notification handler
                     import asyncio
-                    asyncio.create_task(self._handle_tool_list_change_callback(self.session_server_name))
+
+                    asyncio.create_task(
+                        self._handle_tool_list_change_callback(self.session_server_name)
+                    )
                 else:
                     logger.debug(
                         f"Tool list changed for server '{self.session_server_name}' but no callback registered"
@@ -150,17 +179,3 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             await self._tool_list_changed_callback(server_name)
         except Exception as e:
             logger.error(f"Error in tool list changed callback: {e}")
-
-    async def send_progress_notification(
-        self, progress_token: str | int, progress: float, total: float | None = None
-    ) -> None:
-        """
-        Sends a progress notification for a request that is currently being
-        processed.
-        """
-        logger.debug(
-            "send_progress_notification: progress_token={progress_token}, progress={progress}, total={total}"
-        )
-        return await super().send_progress_notification(
-            progress_token=progress_token, progress=progress, total=total
-        )

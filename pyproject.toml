@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp>=1.8.0",
+    "mcp==1.10.1",
     "opentelemetry-distro>=0.50b0",
     "opentelemetry-exporter-otlp-proto-http>=1.29.0",
     "pydantic-settings>=2.7.0",
@@ -23,16 +23,21 @@ dependencies = [
     "pyyaml>=6.0.2",
     "rich>=13.9.4",
     "typer>=0.15.1",
-    "anthropic>=0.49.0",
-    "openai>=1.63.2",
+    "anthropic>=0.55.0",
+    "openai>=1.93.0",
     "azure-identity>=1.14.0",
     "prompt-toolkit>=3.0.50",
     "aiohttp>=3.11.13",
     "a2a-types>=0.1.0",
-    "opentelemetry-instrumentation-openai>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-anthropic>=0.39.3; python_version >= '3.10' and python_version < '4.0'",
-    "tensorzero>=2025.4.7",
-    "opentelemetry-instrumentation-mcp>=0.40.3; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-openai>=0.0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-mcp>=0.40.7; python_version >= '3.10' and python_version < '4.0'",
+    "google-genai",
+    "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "tensorzero>=2025.6.3",
+    "opentelemetry-instrumentation-google-genai>=0.2b0",
+    "deprecated>=1.2.18",
+    "a2a-sdk>=0.2.9",
 ]
 
 [project.optional-dependencies]
@@ -42,10 +47,6 @@ openai = [
 # For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
 azure = [
     "azure-identity>=1.14.0"
-]
-# For Kafka support, install with: pip install bee-agent[kafka]
-kafka = [
-    "aiokafka>=0.8.0",
 ]
 dev = [
     "anthropic>=0.42.0",
@@ -119,6 +120,7 @@ dev = [
 
 [project.scripts]
 fast-agent = "mcp_agent.cli.__main__:app"
+fast-agent-mcp = "mcp_agent.cli.__main__:app"
 fastagent = "mcp_agent.cli.__main__:app"
 silsila = "mcp_agent.cli.__main__:app"
 prompt-server = "mcp_agent.mcp.prompts.__main__:main"

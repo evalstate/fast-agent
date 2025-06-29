@@ -1,0 +1,1 @@
+{"level":"ERROR","timestamp":"2025-03-29T21:56:17.079227","namespace":"mcp_agent.mcp.mcp_connection_manager","message":"roots_test: Lifecycle task encountered an error: generator didn't stop after athrow()","data":{"exc_info":true,"data":{"progress_action":"Error","server_name":"roots_test"}}}

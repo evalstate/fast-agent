@@ -24,12 +24,14 @@ class FormattedResponse(BaseModel):
     [
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
+        "deepseek-chat",
         "haiku",
         "sonnet",
         "gpt-4.1",
         "gpt-4.1-mini",
         "o3-mini.low",
         "openrouter.google/gemini-2.0-flash-001",
+        "gemini25",
     ],
 )
 async def test_structured_output_with_automatic_format_for_model(fast_agent, model_name):
@@ -62,6 +64,7 @@ async def test_structured_output_with_automatic_format_for_model(fast_agent, mod
     "model_name",
     [
         "gpt-4.1-mini",
+        "gemini25",
     ],
 )
 async def test_structured_output_parses_assistant_message_if_last(fast_agent, model_name):
@@ -125,7 +128,8 @@ response_format = {
         # "haiku", -- anthropic do not support structured outputs this way
         "gpt-4.1-mini",
         "openrouter.google/gemini-2.0-flash-001",
-        "google.gemini-2.0-flash",
+        "gemini2",
+        "gemini25",
     ],
 )
 async def test_structured_output_with_response_format_overriden(fast_agent, model_name):
@@ -157,7 +161,12 @@ async def test_structured_output_with_response_format_overriden(fast_agent, mode
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    ["gpt-4.1-mini", "haiku", "google.gemini-2.0-flash"],
+    [
+        "gpt-4.1-mini",
+        "haiku",
+        "gemini2",
+        "gemini25",
+    ],
 )
 async def test_history_management_with_structured(fast_agent, model_name):
     """Test that the agent can generate structured response with response_format_specified."""

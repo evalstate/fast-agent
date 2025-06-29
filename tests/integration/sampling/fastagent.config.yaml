@@ -23,3 +23,12 @@ mcp:
       args: ["run", "sampling_test_server.py"]
       sampling:
         model: "passthrough"
+    slow_sampling:
+      command: "uv"
+      args: ["run", "sampling_test_server.py"]
+      sampling:
+        model: "slow"
+    sampling_test_no_config:
+      command: "uv"
+      args: ["run", "sampling_test_server.py"]
+      # No explicit sampling configuration - relies on auto_sampling

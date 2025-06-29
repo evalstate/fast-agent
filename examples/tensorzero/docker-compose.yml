@@ -1,0 +1,104 @@
+# This is a simplified example for learning purposes. Do not use this in production.
+# For production-ready deployments, see: https://www.tensorzero.com/docs/gateway/deployment
+
+# Top-level volumes definition
+volumes:
+  minio_data: {}
+
+services:
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12-alpine
+    environment:
+      CLICKHOUSE_USER: chuser
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      CLICKHOUSE_PASSWORD: chpassword
+    ports:
+      - "8123:8123"
+    healthcheck:
+      test: wget --spider --tries 1 http://chuser:chpassword@clickhouse:8123/ping
+      start_period: 30s
+      start_interval: 1s
+      timeout: 1s
+
+  gateway:
+    image: tensorzero/gateway
+    volumes:
+      - ./tensorzero_config:/app/config:ro
+    env_file:
+      - ./.env
+    command: --config-file /app/config/tensorzero.toml
+    environment: # WARNING: Insecure default credentials for local testing ONLY. Don't send this to production.
+      TENSORZERO_CLICKHOUSE_URL: http://chuser:chpassword@clickhouse:8123/tensorzero
+      S3_ACCESS_KEY_ID: user
+      S3_SECRET_ACCESS_KEY: password
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      mcp-server:
+        condition: service_healthy
+
+  gateway-ui:
+    image: tensorzero/ui
+    volumes:
+      - ./tensorzero_config:/app/config:ro
+    env_file:
+      - ./.env
+    command: --config-file /app/config/tensorzero.toml
+    environment:
+      TENSORZERO_CLICKHOUSE_URL: http://chuser:chpassword@clickhouse:8123/tensorzero
+      TENSORZERO_GATEWAY_URL: http://gateway:3000
+      S3_ACCESS_KEY_ID: user
+      S3_SECRET_ACCESS_KEY: password
+    ports:
+      - "4000:4000"
+    depends_on:
+      clickhouse:
+        condition: service_healthy
+
+  mcp-server:
+    build:
+      context: ../..
+      dockerfile: examples/tensorzero/mcp_server/Dockerfile
+    volumes:
+      - ./mcp_server:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      minio:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "wget",
+          "--spider",
+          "--tries=1",
+          "http://localhost:8000/t0-example-server/sse",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  minio:
+    image: minio/minio:latest
+    ports:
+      - "9000:9000" # API port
+      - "9001:9001" # Console port
+    volumes:
+      - minio_data:/data
+    environment: # WARNING: Insecure default credentials for local testing ONLY.
+      MINIO_ROOT_USER: user
+      MINIO_ROOT_PASSWORD: password
+    command: server /data --console-address :9001
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3

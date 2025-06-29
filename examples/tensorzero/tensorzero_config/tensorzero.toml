@@ -1,0 +1,35 @@
+[functions.test_chat]
+type = "chat"
+system_schema = "./system_schema.json"
+
+[functions.test_chat.variants.gpt_4o_mini]
+type = "chat_completion"
+model = "openai::gpt-4o-mini"
+weight = 0.5
+system_template = "./system_template.minijinja"
+
+[functions.test_chat.variants.claude_3_5_haiku]
+type = "chat_completion"
+model = "anthropic::claude-3-5-haiku-20241022"
+weight = 0.5
+system_template = "./system_template.minijinja"
+
+[functions.simple_chat]
+type = "chat"
+
+[functions.simple_chat.variants.gpt_4o_mini]
+type = "chat_completion"
+model = "openai::gpt-4o-mini"
+weight = 0.5
+
+[functions.simple_chat.variants.claude_3_5_haiku]
+type = "chat_completion"
+model = "anthropic::claude-3-5-haiku-20241022"
+weight = 0.5
+
+# Object Storage Configuration for MinIO, simulating AWS S3 bucket
+[object_storage]
+type = "s3_compatible"
+endpoint = "http://minio:9000"
+bucket_name = "tensorzero"
+allow_http = true

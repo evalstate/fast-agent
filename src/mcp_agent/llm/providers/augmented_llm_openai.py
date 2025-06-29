@@ -8,7 +8,8 @@ from mcp.types import (
     ImageContent,
     TextContent,
 )
-from openai import AuthenticationError, OpenAI
+from openai import AsyncOpenAI, AuthenticationError
+from openai.lib.streaming.chat import ChatCompletionStreamState
 
 # from openai.types.beta.chat import
 from openai.types.chat import (
@@ -22,6 +23,7 @@ from rich.text import Text
 
 from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.prompt import Prompt
+from mcp_agent.event_progress import ProgressAction
 from mcp_agent.llm.augmented_llm import (
     AugmentedLLM,
     RequestParams,
@@ -31,6 +33,7 @@ from mcp_agent.llm.providers.multipart_converter_openai import OpenAIConverter, 
 from mcp_agent.llm.providers.sampling_converter_openai import (
     OpenAISamplingConverter,
 )
+from mcp_agent.llm.usage_tracking import TurnUsage
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -90,28 +93,151 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenAI-specific default parameters"""
-        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
 
-        return RequestParams(
-            model=chosen_model,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=20,
-            use_history=True,
-        )
+        # Override with OpenAI-specific settings
+        chosen_model = kwargs.get("model", DEFAULT_OPENAI_MODEL)
+        base_params.model = chosen_model
+
+        return base_params
 
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
 
-    def _openai_client(self) -> OpenAI:
+    def _openai_client(self) -> AsyncOpenAI:
         try:
-            return OpenAI(api_key=self._api_key(), base_url=self._base_url())
+            return AsyncOpenAI(api_key=self._api_key(), base_url=self._base_url())
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",
                 "The configured OpenAI API key was rejected.\n"
                 "Please check that your API key is valid and not expired.",
             ) from e
+
+    async def _process_stream(self, stream, model: str):
+        """Process the streaming response and display real-time token usage."""
+        # Track estimated output tokens by counting text chunks
+        estimated_tokens = 0
+
+        # For non-OpenAI providers (like Ollama), ChatCompletionStreamState might not work correctly
+        # Fall back to manual accumulation if needed
+        # TODO -- consider this and whether to subclass instead
+        if self.provider in [Provider.GENERIC, Provider.OPENROUTER]:
+            return await self._process_stream_manual(stream, model)
+
+        # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
+        state = ChatCompletionStreamState()
+
+        # Process the stream chunks
+        async for chunk in stream:
+            # Handle chunk accumulation
+            state.handle_chunk(chunk)
+
+            # Count tokens in real-time from content deltas
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                # Use base class method for token estimation and progress emission
+                estimated_tokens = self._update_streaming_progress(content, model, estimated_tokens)
+
+        # Get the final completion with usage data
+        final_completion = state.get_final_completion()
+
+        # Log final usage information
+        if hasattr(final_completion, "usage") and final_completion.usage:
+            actual_tokens = final_completion.usage.completion_tokens
+            # Emit final progress with actual token count
+            token_str = str(actual_tokens).rjust(5)
+            data = {
+                "progress_action": ProgressAction.STREAMING,
+                "model": model,
+                "agent_name": self.name,
+                "chat_turn": self.chat_turn(),
+                "details": token_str.strip(),
+            }
+            self.logger.info("Streaming progress", data=data)
+
+            self.logger.info(
+                f"Streaming complete - Model: {model}, Input tokens: {final_completion.usage.prompt_tokens}, Output tokens: {final_completion.usage.completion_tokens}"
+            )
+
+        return final_completion
+
+    async def _process_stream_manual(self, stream, model: str):
+        """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
+        # Track estimated output tokens by counting text chunks
+        estimated_tokens = 0
+
+        # Manual accumulation of response data
+        accumulated_content = ""
+        role = "assistant"
+        tool_calls = []
+        function_call = None
+        finish_reason = None
+        usage_data = None
+
+        # Process the stream chunks manually
+        async for chunk in stream:
+            # Count tokens in real-time from content deltas
+            if chunk.choices and chunk.choices[0].delta.content:
+                content = chunk.choices[0].delta.content
+                accumulated_content += content
+                # Use base class method for token estimation and progress emission
+                estimated_tokens = self._update_streaming_progress(content, model, estimated_tokens)
+
+            # Extract other fields from the chunk
+            if chunk.choices:
+                choice = chunk.choices[0]
+                if choice.delta.role:
+                    role = choice.delta.role
+                if choice.delta.tool_calls:
+                    tool_calls.extend(choice.delta.tool_calls)
+                if choice.delta.function_call:
+                    function_call = choice.delta.function_call
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+
+            # Extract usage data if available
+            if hasattr(chunk, "usage") and chunk.usage:
+                usage_data = chunk.usage
+
+        # Create a ChatCompletionMessage manually
+        message = ChatCompletionMessage(
+            content=accumulated_content,
+            role=role,
+            tool_calls=tool_calls if tool_calls else None,
+            function_call=function_call,
+            refusal=None,
+            annotations=None,
+            audio=None,
+        )
+
+        from types import SimpleNamespace
+
+        final_completion = SimpleNamespace()
+        final_completion.choices = [SimpleNamespace()]
+        final_completion.choices[0].message = message
+        final_completion.choices[0].finish_reason = finish_reason
+        final_completion.usage = usage_data
+
+        # Log final usage information
+        if usage_data:
+            actual_tokens = getattr(usage_data, "completion_tokens", estimated_tokens)
+            token_str = str(actual_tokens).rjust(5)
+            data = {
+                "progress_action": ProgressAction.STREAMING,
+                "model": model,
+                "agent_name": self.name,
+                "chat_turn": self.chat_turn(),
+                "details": token_str.strip(),
+            }
+            self.logger.info("Streaming progress", data=data)
+
+            self.logger.info(
+                f"Streaming complete - Model: {model}, Input tokens: {getattr(usage_data, 'prompt_tokens', 0)}, Output tokens: {actual_tokens}"
+            )
+
+        return final_completion
 
     async def _openai_completion(
         self,
@@ -151,7 +277,10 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         ]
 
         if not available_tools:
-            available_tools = None  # deepseek does not allow empty array
+            if self.provider == Provider.DEEPSEEK:
+                available_tools = None  # deepseek does not allow empty array
+            else:
+                available_tools = []
 
         # we do NOT send "stop sequences" as this causes errors with mutlimodal processing
         for i in range(request_params.max_iterations):
@@ -160,11 +289,23 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
             self._log_chat_progress(self.chat_turn(), model=self.default_request_params.model)
 
-            executor_result = await self.executor.execute(
-                self._openai_client().chat.completions.create, **arguments
-            )
+            # Use basic streaming API
+            stream = await self._openai_client().chat.completions.create(**arguments)
+            # Process the stream
+            response = await self._process_stream(stream, self.default_request_params.model)
 
-            response = executor_result[0]
+            # Track usage if response is valid and has usage data
+            if (
+                hasattr(response, "usage")
+                and response.usage
+                and not isinstance(response, BaseException)
+            ):
+                try:
+                    model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+                    turn_usage = TurnUsage.from_openai(response.usage, model_name)
+                    self.usage_accumulator.add_turn(turn_usage)
+                except Exception as e:
+                    self.logger.warning(f"Failed to track usage: {e}")
 
             self.logger.debug(
                 "OpenAI completion response:",
@@ -191,10 +332,11 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             if message.content:
                 responses.append(TextContent(type="text", text=message.content))
 
-            converted_message = self.convert_message_to_message_param(message)
-            messages.append(converted_message)
+            # ParsedChatCompletionMessage is compatible with ChatCompletionMessage
+            # since it inherits from it, so we can use it directly
+            messages.append(message)
 
-            message_text = converted_message.content
+            message_text = message.content
             if choice.finish_reason in ["tool_calls", "function_call"] and message.tool_calls:
                 if message_text:
                     await self.show_assistant_message(
@@ -334,6 +476,8 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             "model": self.default_request_params.model,
             "messages": messages,
             "tools": tools,
+            "stream": True,  # Enable basic streaming
+            "stream_options": {"include_usage": True},  # Required for usage data in streaming
         }
 
         if self._reasoning:

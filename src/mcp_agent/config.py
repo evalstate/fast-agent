@@ -3,8 +3,10 @@ Reading settings from environment variables and providing a settings object
 for the application configuration.
 """
 
+import os
+import re
 from pathlib import Path
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -243,6 +245,15 @@ class TensorZeroSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class HuggingFaceSettings(BaseModel):
+    """
+    Settings for HuggingFace authentication (used for MCP connections).
+    """
+
+    api_key: Optional[str] = None
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class LoggerSettings(BaseModel):
     """
     Logger settings for the fast-agent application.
@@ -346,6 +357,12 @@ class Settings(BaseSettings):
 
     azure: AzureSettings | None = None
     """Settings for using Azure OpenAI Service in the fast-agent application"""
+
+    aliyun: OpenAISettings | None = None
+    """Settings for using Aliyun OpenAI Service in the fast-agent application"""
+
+    huggingface: HuggingFaceSettings | None = None
+    """Settings for HuggingFace authentication (used for MCP connections)"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""

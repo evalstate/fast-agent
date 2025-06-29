@@ -1,0 +1,61 @@
+#
+# Please edit this configuration file to match your environment (on Windows).
+# Examples in comments below - check/change the paths.
+#
+#
+
+logger:
+  type: console
+  level: error
+  truncate_tools: true
+
+mcp:
+  servers:
+    brave:
+      # On windows replace the command and args line to use `node` and the absolute path to the server.
+      # Use `npm i -g @modelcontextprotocol/server-brave-search` to install the server globally.
+      # Use `npm -g root` to find the global node_modules path.`
+      # command: "node"
+      # args: ["c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"]
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-brave-search"]
+      env:
+        # You can also place your BRAVE_API_KEY in the fastagent.secrets.yaml file.
+        BRAVE_API_KEY: <your_brave_api_key>
+    filesystem:
+      # On windows update the command and arguments to use `node` and the absolute path to the server.
+      # Use `npm i -g @modelcontextprotocol/server-filesystem` to install the server globally.
+      # Use `npm -g root` to find the global node_modules path.`
+      # command: "node"
+      # args: ["c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js","./agent_folder"]
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "./agent_folder/"]
+    interpreter:
+      command: "docker"
+      args: [
+          "run",
+          "-i",
+          "--rm",
+          "--pull=always",
+          "-v",
+          "./agent_folder:/mnt/data/",
+          # Docker needs the absolute path on Windows (e.g. "x:/fastagent/agent_folder:/mnt/data/")
+          # "./agent_folder:/mnt/data/",
+          "ghcr.io/evalstate/mcp-py-repl:latest",
+        ]
+      roots:
+        - uri: "file://./agent_folder/"
+          name: "agent_folder"
+          server_uri_alias: "file:///mnt/data/"
+    fetch:
+      command: "uvx"
+      args: ["mcp-server-fetch"]
+    sequential:
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-sequential-thinking"]
+#    webmcp:
+#      command: "node"
+#      args: ["/home/ssmith/.webmcp/server.cjs"]
+#      env:
+#         WEBMCP_SERVER_TOKEN: 96e22896d8143fc1d61fec09208fc5ed
+

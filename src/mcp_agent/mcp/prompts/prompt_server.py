@@ -229,7 +229,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
             # Create a function with properly typed parameters
             async def template_handler_with_vars(**kwargs):
                 # Extract template variables from kwargs
-                context = {var: kwargs.get(var) for var in template_vars if var in kwargs}
+                context = {
+                    var: kwargs.get(var) for var in template_vars if var in kwargs
+                }
 
                 # Check for missing variables
                 missing_vars = [var for var in template_vars if var not in context]
@@ -247,7 +249,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
 
             # Create a Prompt directly
             arguments = [
-                PromptArgument(name=var, description=f"Template variable: {var}", required=True)
+                PromptArgument(
+                    name=var, description=f"Template variable: {var}", required=True
+                )
                 for var in template_vars
             ]
 
@@ -299,7 +303,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
                             )
                         )
 
-                        logger.info(f"Registered resource: {resource_id} ({resource_file})")
+                        logger.info(
+                            f"Registered resource: {resource_id} ({resource_file})"
+                        )
     except Exception as e:
         logger.error(f"Error registering prompt {file_path}: {e}", exc_info=True)
 
@@ -307,7 +313,9 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="FastMCP Prompt Server")
-    parser.add_argument("prompt_files", nargs="+", type=str, help="Prompt files to serve")
+    parser.add_argument(
+        "prompt_files", nargs="+", type=str, help="Prompt files to serve"
+    )
     parser.add_argument(
         "--user-delimiter",
         type=str,

@@ -34,6 +34,9 @@ mcp:
     prompts:
       command: "prompt-server"
       args: ["playback.md"]
+    prompts2:
+      command: "prompt-server"
+      args: ["prompt.txt"]
     std_io:
       command: "uv"
       args: ["run", "integration_agent.py", "--server", "--transport", "stdio"]

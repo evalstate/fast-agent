@@ -1,0 +1,41 @@
+default_model: sonnet
+
+# on windows, adjust the mount point to be the full path e.g. x:/temp/data-analysis/mount-point:/mnt/data/
+
+mcp:
+  servers:
+    interpreter:
+      command: "docker"
+      args:
+        [
+          "run",
+          "-i",
+          "--rm",
+          "--pull=always",
+          "-v",
+          "./mount-point:/mnt/data/",
+          "ghcr.io/evalstate/mcp-py-repl:latest",
+        ]
+      roots:
+        - uri: "file://./mount-point/"
+          name: "test_data"
+          server_uri_alias: "file:///mnt/data/"
+    filesystem:
+      # On windows update the command and arguments to use `node` and the absolute path to the server.
+      # Use `npm i -g @modelcontextprotocol/server-filesystem` to install the server globally.
+      # Use `npm -g root` to find the global node_modules path.`
+      # command: "node"
+      # args: ["c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-filesystem/dist/index.js","."]
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-filesystem", "./mount-point/"]
+    fetch:
+      command: "uvx"
+      args: ["mcp-server-fetch"]
+    brave:
+      # On windows replace the command and args line to use `node` and the absolute path to the server.
+      # Use `npm i -g @modelcontextprotocol/server-brave-search` to install the server globally.
+      # Use `npm -g root` to find the global node_modules path.`
+      # command: "node"
+      # args: ["c:/Program Files/nodejs/node_modules/@modelcontextprotocol/server-brave-search/dist/index.js"]
+      command: "npx"
+      args: ["-y", "@modelcontextprotocol/server-brave-search"]

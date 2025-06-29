@@ -81,6 +81,7 @@ async def test_openai_client_with_default_azure_credential(monkeypatch):
             )
 
     monkeypatch.setattr(azure_mod, "AzureOpenAI", DummyAzureOpenAI)
+    monkeypatch.setattr(azure_mod, "AsyncAzureOpenAI", DummyAzureOpenAI)
 
     class DACfg:
         def __init__(self):

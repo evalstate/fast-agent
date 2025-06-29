@@ -283,7 +283,6 @@ class ConsoleDisplay:
             subtitle=display_server_list,
             subtitle_align="left",
         )
-
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
         

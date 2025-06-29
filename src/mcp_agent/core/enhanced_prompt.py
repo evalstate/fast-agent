@@ -2,6 +2,11 @@
 Enhanced prompt functionality with advanced prompt_toolkit features.
 """
 
+import asyncio
+import os
+import shlex
+import subprocess
+import tempfile
 from importlib.metadata import version
 from typing import List, Optional
 
@@ -35,6 +40,59 @@ in_multiline_mode = False
 # Track whether help text has been shown globally
 help_message_shown = False
 
+# Track which agents have shown their info
+_agent_info_shown = set()
+
+
+async def _display_agent_info_helper(agent_name: str, agent_provider: object) -> None:
+    """Helper function to display agent information."""
+    # Only show once per agent
+    if agent_name in _agent_info_shown:
+        return
+
+    try:
+        # Get agent info
+        if hasattr(agent_provider, "_agent"):
+            # This is an AgentApp - get the specific agent
+            agent = agent_provider._agent(agent_name)
+        else:
+            # This is a single agent
+            agent = agent_provider
+
+        # Get counts
+        servers = await agent.list_servers()
+        server_count = len(servers) if servers else 0
+
+        tools_result = await agent.list_tools()
+        tool_count = (
+            len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
+        )
+
+        prompts_dict = await agent.list_prompts()
+        prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
+
+        # Display with proper pluralization and subdued formatting
+        if server_count == 0:
+            rich_print(
+                f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]: No MCP Servers attached[/dim]"
+            )
+        else:
+            # Pluralization helpers
+            server_word = "Server" if server_count == 1 else "Servers"
+            tool_word = "tool" if tool_count == 1 else "tools"
+            prompt_word = "prompt" if prompt_count == 1 else "prompts"
+
+            rich_print(
+                f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
+            )
+
+        # Mark as shown
+        _agent_info_shown.add(agent_name)
+
+    except Exception:
+        # Silently ignore errors to not disrupt the user experience
+        pass
+
 
 class AgentCompleter(Completer):
     """Provide completion for agent names and common commands."""
@@ -49,10 +107,11 @@ class AgentCompleter(Completer):
         self.agents = agents
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "help": "Show available commands",
-            "prompts": "List and select MCP prompts",  # Changed description
-            "prompt": "Apply a specific prompt by name (/prompt <name>)",  # New command
+            "tools": "List and call MCP tools",
+            "prompt": "List and select MCP prompts, or apply specific prompt (/prompt <name>)",
             "agents": "List available agents",
+            "usage": "Show current usage statistics",
+            "help": "Show available commands",
             "clear": "Clear the screen",
             "STOP": "Stop this prompting session and move to next workflow step",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -60,8 +119,9 @@ class AgentCompleter(Completer):
         }
         if is_human_input:
             self.commands.pop("agents")
-            self.commands.pop("prompts")  # Remove prompts command in human input mode
             self.commands.pop("prompt", None)  # Remove prompt command in human input mode
+            self.commands.pop("tools", None)  # Remove tools command in human input mode
+            self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
     def get_completions(self, document, complete_event):
@@ -94,6 +154,85 @@ class AgentCompleter(Completer):
                         display=agent,
                         display_meta=agent_type,
                     )
+
+
+# Helper function to open text in an external editor
+def get_text_from_editor(initial_text: str = "") -> str:
+    """
+    Opens the user\'s configured editor ($VISUAL or $EDITOR) to edit the initial_text.
+    Falls back to \'nano\' (Unix) or \'notepad\' (Windows) if neither is set.
+    Returns the edited text, or the original text if an error occurs.
+    """
+    editor_cmd_str = os.environ.get("VISUAL") or os.environ.get("EDITOR")
+
+    if not editor_cmd_str:
+        if os.name == "nt":  # Windows
+            editor_cmd_str = "notepad"
+        else:  # Unix-like (Linux, macOS)
+            editor_cmd_str = "nano"  # A common, usually available, simple editor
+
+    # Use shlex.split to handle editors with arguments (e.g., "code --wait")
+    try:
+        editor_cmd_list = shlex.split(editor_cmd_str)
+        if not editor_cmd_list:  # Handle empty string from shlex.split
+            raise ValueError("Editor command string is empty or invalid.")
+    except ValueError as e:
+        rich_print(f"[red]Error: Invalid editor command string ('{editor_cmd_str}'): {e}[/red]")
+        return initial_text
+
+    # Create a temporary file for the editor to use.
+    # Using a suffix can help some editors with syntax highlighting or mode.
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w+", delete=False, suffix=".txt", encoding="utf-8"
+        ) as tmp_file:
+            if initial_text:
+                tmp_file.write(initial_text)
+                tmp_file.flush()  # Ensure content is written to disk before editor opens it
+            temp_file_path = tmp_file.name
+    except Exception as e:
+        rich_print(f"[red]Error: Could not create temporary file for editor: {e}[/red]")
+        return initial_text
+
+    try:
+        # Construct the full command: editor_parts + [temp_file_path]
+        # e.g., [\'vim\', \'/tmp/somefile.txt\'] or [\'code\', \'--wait\', \'/tmp/somefile.txt\']
+        full_cmd = editor_cmd_list + [temp_file_path]
+
+        # Run the editor. This is a blocking call.
+        subprocess.run(full_cmd, check=True)
+
+        # Read the content back from the temporary file.
+        with open(temp_file_path, "r", encoding="utf-8") as f:
+            edited_text = f.read()
+
+    except FileNotFoundError:
+        rich_print(
+            f"[red]Error: Editor command '{editor_cmd_list[0]}' not found. "
+            f"Please set $VISUAL or $EDITOR correctly, or install '{editor_cmd_list[0]}'.[/red]"
+        )
+        return initial_text
+    except subprocess.CalledProcessError as e:
+        rich_print(
+            f"[red]Error: Editor '{editor_cmd_list[0]}' closed with an error (code {e.returncode}).[/red]"
+        )
+        return initial_text
+    except Exception as e:
+        rich_print(
+            f"[red]An unexpected error occurred while launching or using the editor: {e}[/red]"
+        )
+        return initial_text
+    finally:
+        # Always attempt to clean up the temporary file.
+        if "temp_file_path" in locals() and os.path.exists(temp_file_path):
+            try:
+                os.remove(temp_file_path)
+            except Exception as e:
+                rich_print(
+                    f"[yellow]Warning: Could not remove temporary file {temp_file_path}: {e}[/yellow]"
+                )
+
+    return edited_text.strip()  # Added strip() to remove trailing newlines often added by editors
 
 
 def create_keybindings(on_toggle_multiline=None, app=None):
@@ -140,6 +279,27 @@ def create_keybindings(on_toggle_multiline=None, app=None):
         """Ctrl+L: Clear the input buffer."""
         event.current_buffer.text = ""
 
+    @kb.add("c-e")
+    async def _(event) -> None:
+        """Ctrl+E: Edit current buffer in $EDITOR."""
+        current_text = event.app.current_buffer.text
+        try:
+            # Run the synchronous editor function in a thread
+            edited_text = await event.app.loop.run_in_executor(
+                None, get_text_from_editor, current_text
+            )
+            event.app.current_buffer.text = edited_text
+            # Optionally, move cursor to the end of the edited text
+            event.app.current_buffer.cursor_position = len(edited_text)
+        except asyncio.CancelledError:
+            rich_print("[yellow]Editor interaction cancelled.[/yellow]")
+        except Exception as e:
+            rich_print(f"[red]Error during editor interaction: {e}[/red]")
+        finally:
+            # Ensure the UI is updated
+            if event.app:
+                event.app.invalidate()
+
     return kb
 
 
@@ -153,6 +313,7 @@ async def get_enhanced_input(
     agent_types: dict[str, AgentType] = None,
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
+    agent_provider: object = None,
 ) -> str:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -167,6 +328,7 @@ async def get_enhanced_input(
         agent_types: Dictionary mapping agent names to their types for display
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
+        agent_provider: Optional agent provider for displaying agent info
 
     Returns:
         User input string
@@ -193,14 +355,15 @@ async def get_enhanced_input(
         if in_multiline_mode:
             mode_style = "ansired"  # More noticeable for multiline mode
             mode_text = "MULTILINE"
-            toggle_text = "Normal Editing"
+            toggle_text = "Normal"
         else:
             mode_style = "ansigreen"
             mode_text = "NORMAL"
-            toggle_text = "Multiline Editing"
+            toggle_text = "Multiline"
 
         shortcuts = [
             ("Ctrl+T", toggle_text),
+            ("Ctrl+E", "External"),
             ("Ctrl+L", "Clear"),
             ("↑/↓", "History"),
         ]
@@ -266,8 +429,13 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Type /help for commands, @agent to switch agent. Ctrl+T toggles multiline mode.[/dim]"
+                "[dim]Type /help for commands, @agent to switch agent. Ctrl+T toggles multiline mode.[/dim]\n"
             )
+
+            # Display agent info right after help text if agent_provider is available
+            if agent_provider and not is_human_input:
+                await _display_agent_info_helper(agent_name, agent_provider)
+
         rich_print()
         help_message_shown = True
 
@@ -285,12 +453,10 @@ async def get_enhanced_input(
                 return "CLEAR"
             elif cmd == "agents":
                 return "LIST_AGENTS"
-            elif cmd == "prompts":
-                # Return a dictionary with select_prompt action instead of a string
-                # This way it will match what the command handler expects
-                return {"select_prompt": True, "prompt_name": None}
+            elif cmd == "usage":
+                return "SHOW_USAGE"
             elif cmd == "prompt":
-                # Handle /prompt with no arguments the same way as /prompts
+                # Handle /prompt with no arguments as interactive mode
                 if len(cmd_parts) > 1:
                     # Direct prompt selection with name or number
                     prompt_arg = cmd_parts[1].strip()
@@ -300,8 +466,11 @@ async def get_enhanced_input(
                     else:
                         return f"SELECT_PROMPT:{prompt_arg}"
                 else:
-                    # If /prompt is used without arguments, treat it the same as /prompts
+                    # If /prompt is used without arguments, show interactive selection
                     return {"select_prompt": True, "prompt_name": None}
+            elif cmd == "tools":
+                # Return a dictionary with list_tools action
+                return {"list_tools": True}
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":
@@ -461,6 +630,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /agents        - List available agents")
         rich_print("  /prompts       - List and select MCP prompts")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
+        rich_print("  /usage         - Show current usage statistics")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
@@ -488,6 +658,10 @@ async def handle_special_commands(command, agent_app=None):
         else:
             rich_print("[yellow]No agents available[/yellow]")
         return True
+
+    elif command == "SHOW_USAGE":
+        # Return a dictionary to signal that usage should be shown
+        return {"show_usage": True}
 
     elif command == "SELECT_PROMPT" or (
         isinstance(command, str) and command.startswith("SELECT_PROMPT:")

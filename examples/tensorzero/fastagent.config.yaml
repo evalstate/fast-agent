@@ -1,0 +1,18 @@
+default_model: haiku
+
+tensorzero:
+  base_url: http://localhost:3000
+
+logger:
+  level: "info"
+  progress_display: true
+  show_chat: true
+  show_tools: true
+  truncate_tools: true
+
+mcp:
+  servers:
+    tester:
+      transport: "sse"
+      url: "http://localhost:8000/t0-example-server/sse"
+      read_transport_sse_timeout_seconds: 300

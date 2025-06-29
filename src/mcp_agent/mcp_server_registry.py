@@ -27,6 +27,7 @@ from mcp_agent.config import (
     get_settings,
 )
 from mcp_agent.logging.logger import get_logger
+from mcp_agent.mcp.hf_auth import add_hf_auth_header
 from mcp_agent.mcp.logger_textio import get_stderr_handler
 from mcp_agent.mcp.mcp_connection_manager import (
     MCPConnectionManager,
@@ -70,6 +71,9 @@ class ServerRegistry:
     ) -> None:
         """
         Initialize the ServerRegistry with a configuration.
+    def __init__(self, config: Settings | None = None, config_path: str | None = None) -> None:
+        """
+        Initialize the ServerRegistry with a configuration file.
 
         Args:
             config (Settings): The Settings object containing the server configurations.
@@ -112,6 +116,19 @@ class ServerRegistry:
                 logger.warning(f"Error creating server settings for {server_name}: {e}")
                 
         return server_registry
+
+        """
+        if config is None:
+            self.registry = self.load_registry_from_file(config_path)
+        elif config.mcp is not None and hasattr(config.mcp, 'servers') and config.mcp.servers is not None:
+            # Ensure config.mcp exists, has a 'servers' attribute, and it's not None
+            self.registry = config.mcp.servers
+        else:
+            # Default to an empty dictionary if config.mcp is None or has no 'servers'
+            self.registry = {}
+
+        self.init_hooks: Dict[str, InitHookCallable] = {}
+        self.connection_manager = MCPConnectionManager(self)
 
     def load_registry_from_file(
         self, config_path: str | None = None
@@ -227,6 +244,12 @@ class ServerRegistry:
                 raise ValueError(f"URL is required for SSE transport: {server_name}")
 
             async with streamablehttp_client(config.url, config.headers) as (
+                raise ValueError(f"URL is required for HTTP transport: {server_name}")
+
+            # Apply HuggingFace authentication if appropriate
+            headers = add_hf_auth_header(config.url, config.headers)
+
+            async with streamablehttp_client(config.url, headers) as (
                 read_stream,
                 write_stream,
                 _,

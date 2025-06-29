@@ -20,7 +20,7 @@ from typing import (
     Union,
 )
 
-from a2a_types.types import AgentCapabilities, AgentCard, AgentSkill
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
     EmbeddedResource,
@@ -58,6 +58,7 @@ LLM = TypeVar("LLM", bound=AugmentedLLMProtocol)
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 if TYPE_CHECKING:
     from mcp_agent.context import Context
+    from mcp_agent.llm.usage_tracking import UsageAccumulator
 
 
 DEFAULT_CAPABILITIES = AgentCapabilities(
@@ -456,6 +457,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         self,
         prompt_name: str,
         arguments: Dict[str, str] | None = None,
+        agent_name: str | None = None,
         server_name: str | None = None,
     ) -> str:
         """
@@ -468,6 +470,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Args:
             prompt_name: The name of the prompt to apply
             arguments: Optional dictionary of string arguments to pass to the prompt template
+            agent_name: Optional agent name (ignored at this level, used by multi-agent apps)
             server_name: Optional name of the server to get the prompt from
 
         Returns:
@@ -696,3 +699,15 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         if self._llm:
             return self._llm.message_history
         return []
+
+    @property
+    def usage_accumulator(self) -> Optional["UsageAccumulator"]:
+        """
+        Return the usage accumulator for tracking token usage across turns.
+
+        Returns:
+            UsageAccumulator object if LLM is attached, None otherwise
+        """
+        if self._llm:
+            return self._llm.usage_accumulator
+        return None

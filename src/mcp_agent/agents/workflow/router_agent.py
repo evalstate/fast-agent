@@ -21,7 +21,7 @@ from mcp_agent.mcp.interfaces import AugmentedLLMProtocol, ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 if TYPE_CHECKING:
-    from a2a_types.types import AgentCard
+    from a2a.types import AgentCard
 
     from mcp_agent.context import Context
 

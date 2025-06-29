@@ -82,7 +82,6 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
 
     elif "augmented_llm" in namespace:
         model = event_data.get("model", "")
-
         details = f"{model}"
         chat_turn = event_data.get("chat_turn")
         if chat_turn is not None:
@@ -96,4 +95,5 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
+        streaming_tokens=streaming_tokens,
     )
