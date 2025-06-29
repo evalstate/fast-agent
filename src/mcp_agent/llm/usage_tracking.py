@@ -85,8 +85,12 @@ class TurnUsage(BaseModel):
     @property
     def current_context_tokens(self) -> int:
         """Current context size after this turn (total input including cache + output)"""
-        # For Anthropic: input_tokens + cache_read_tokens represents total input context
-        total_input = self.input_tokens + self.cache_usage.cache_read_tokens + self.cache_usage.cache_write_tokens
+        if self.provider == Provider.ANTHROPIC:
+            # For Anthropic, input_tokens excludes cache, so we add cache tokens back in.
+            total_input = self.input_tokens + self.cache_usage.cache_read_tokens + self.cache_usage.cache_write_tokens
+        else:
+            # For others input_tokens is already the total context.
+            total_input = self.input_tokens
         return total_input + self.output_tokens
 
     @computed_field

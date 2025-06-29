@@ -160,6 +160,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         # AugmentedLLM.PARAM_PARALLEL_TOOL_CALLS, # Handled by tool_config in config
         AugmentedLLM.PARAM_USE_HISTORY,  # Handled by AugmentedLLM base / this class's logic
         AugmentedLLM.PARAM_MAX_ITERATIONS,  # Handled by this class's loop
+        AugmentedLLM.PARAM_MAX_CONTEXT_LENGTH_TOTAL,  # Handled by this class's truncation logic
         # Add any other OpenAI-specific params not applicable to google.genai
     }.union(AugmentedLLM.BASE_EXCLUDE_FIELDS)
 

@@ -64,6 +64,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         AugmentedLLM.PARAM_METADATA,
         AugmentedLLM.PARAM_USE_HISTORY,
         AugmentedLLM.PARAM_MAX_ITERATIONS,
+        AugmentedLLM.PARAM_MAX_CONTEXT_LENGTH_TOTAL,
         AugmentedLLM.PARAM_PARALLEL_TOOL_CALLS,
         AugmentedLLM.PARAM_TEMPLATE_VARS,
     }

@@ -39,6 +39,12 @@ class RequestParams(CreateMessageRequestParams):
     The maximum number of tool calls allowed in a conversation turn
     """
 
+    max_context_length_total: int | None = None
+    """
+    Maximum total context length (in tokens) before automatic truncation/summarization occurs.
+    When set, the agent will summarize and truncate conversation history when this limit is exceeded.
+    """
+
     parallel_tool_calls: bool = True
     """
     Whether to allow simultaneous tool calls
