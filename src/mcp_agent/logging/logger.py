@@ -258,26 +258,26 @@ class LoggingConfig:
                 # Kafka configuration
                 backend_config = pubsub_config.get("kafka", None)
             
-            print(f"🚀 Configuring PubSub Logging System:")
-            print(f"   Backend: {backend}")
-            print(f"   Channel: {channel_name}")
-            print(f"   Config: {backend_config}")
+            # print(f"🚀 Configuring PubSub Logging System:")
+            # print(f"   Backend: {backend}")
+            # print(f"   Channel: {channel_name}")
+            # print(f"   Config: {backend_config}")
             
-            try:
-                listener = RedisLoggerListener(
-                    channel_name=channel_name,
-                    event_filter=event_filter,
-                    backend=backend,
-                    backend_config=backend_config,
-                )
-                print("the listener dict!")
-                print(listener.__dict__)
-                bus.add_listener("pubsub", listener)
-                print(f"✅ PubSub logger listener created successfully")
-            except Exception as e:
-                print(f"❌ Failed to create PubSub logger listener: {e}")
-                import traceback
-                traceback.print_exc()
+            # try:
+            #     listener = RedisLoggerListener(
+            #         channel_name=channel_name,
+            #         event_filter=event_filter,
+            #         backend=backend,
+            #         backend_config=backend_config,
+            #     )
+            #     print("the listener dict!")
+            #     print(listener.__dict__)
+            #     bus.add_listener("pubsub", listener)
+            #     print(f"✅ PubSub logger listener created successfully")
+            # except Exception as e:
+            #     print(f"❌ Failed to create PubSub logger listener: {e}")
+            #     import traceback
+            #     traceback.print_exc()
 
         await bus.start()
         cls._initialized = True

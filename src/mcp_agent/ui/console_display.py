@@ -1,4 +1,5 @@
 from typing import Optional, Union
+import time
 
 from mcp.types import CallToolResult
 from rich.panel import Panel
@@ -7,6 +8,7 @@ from rich.text import Text
 from mcp_agent import console
 from mcp_agent.mcp.common import SEP
 from mcp_agent.mcp.mcp_aggregator import MCPAggregator
+from mcp_agent.mcp.pubsub import get_pubsub_manager, PubSubChannel
 
 # Constants
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
@@ -27,13 +29,41 @@ class ConsoleDisplay:
         """
         self.config = config
         self._markup = config.logger.enable_markup if config else True
+        
+        # PubSub setup
+        self.pubsub_channel: Optional[PubSubChannel] = None
+        print(f"Pubsub Channel:{self.pubsub_channel}")
+        print(f"Config current: {self.config}")
 
-    def show_tool_result(self, result: CallToolResult) -> None:
+        if config and hasattr(config, 'pubsub_config'):
+            pubsub_config = getattr(config, 'pubsub_config', {})
+            print(f"what is pubsub config? {pubsub_config}")
+            channel_name = pubsub_config.get('channel_name', 'console_display')
+            print(f"what is pubsub channel name? {channel_name}")
+
+            backend = pubsub_config.get('backend', 'memory')
+            print(f"what is backend? {backend}")
+
+            backend_config = None
+            
+            if backend == 'redis':
+                backend_config = pubsub_config.get('redis', None)
+            elif backend == 'msk':
+                print("THIS IS CORRECT ANSWER")
+                backend_config = pubsub_config.get('msk', None)
+            elif backend == 'kafka':
+                backend_config = pubsub_config.get('kafka', None)
+            
+            self.pubsub_manager = get_pubsub_manager(backend=backend, backend_config=backend_config)
+            self.pubsub_channel = self.pubsub_manager.get_or_create_channel(channel_name)
+
+    async def show_tool_result(self, result: CallToolResult) -> None:
         """Display a tool result in a formatted panel."""
         if not self.config or not self.config.logger.show_tools:
             return
 
         style = "red" if result.isError else "magenta"
+        print("THIS SHOULD SHOW UP")
 
         panel = Panel(
             Text(str(result.content), overflow="..."),
@@ -50,8 +80,22 @@ class ConsoleDisplay:
 
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            print("THIS SHOULD SHOW UP")
+            print(result.content)
 
-    def show_oai_tool_result(self, result) -> None:
+            message_data = {
+                "type": "tool_result",
+                "content": str(result.content),
+                "is_error": result.isError,
+                "style": style,
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)
+
+    async def show_oai_tool_result(self, result) -> None:
         """Display an OpenAI tool result in a formatted panel."""
         if not self.config or not self.config.logger.show_tools:
             return
@@ -71,8 +115,20 @@ class ConsoleDisplay:
 
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            print("THIS SHOULD SHOW UP")
+            print(result.content)
+            message_data = {
+                "type": "oai_tool_result",
+                "content": str(result),
+                "style": "magenta",
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)
 
-    def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
+    async def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
         """Display a tool call in a formatted panel."""
         if not self.config or not self.config.logger.show_tools:
             return
@@ -96,6 +152,19 @@ class ConsoleDisplay:
 
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            print("THIS SHOULD SHOW UP")
+            print(result.content)
+            message_data = {
+                "type": "tool_call",
+                "tool_name": tool_name,
+                "tool_args": tool_args,
+                "available_tools": [str(tool) for tool in available_tools],
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)
 
     async def show_tool_update(self, aggregator: MCPAggregator | None, updated_server: str) -> None:
         """Show a tool update for a server"""
@@ -122,6 +191,20 @@ class ConsoleDisplay:
         console.console.print("\n")
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            server_list = []
+            if aggregator:
+                server_list = await aggregator.list_servers()
+            
+            message_data = {
+                "type": "tool_update",
+                "updated_server": updated_server,
+                "server_list": server_list,
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)
 
     def _format_tool_list(self, available_tools, selected_tool_name):
         """Format the list of available tools, highlighting the selected one."""
@@ -200,10 +283,28 @@ class ConsoleDisplay:
             subtitle=display_server_list,
             subtitle_align="left",
         )
+
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            server_list = []
+            if aggregator:
+                server_list = await aggregator.list_servers()
+            
+            message_data = {
+                "type": "assistant_message",
+                "message": str(message_text),
+                "title": title,
+                "name": name,
+                "highlight_tool": highlight_namespaced_tool,
+                "server_list": server_list,
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)
 
-    def show_user_message(
+    async def show_user_message(
         self, message, model: Optional[str], chat_turn: int, name: Optional[str] = None
     ) -> None:
         """Display a user message in a formatted panel."""
@@ -226,6 +327,18 @@ class ConsoleDisplay:
         )
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            message_data = {
+                "type": "user_message",
+                "message": str(message),
+                "model": model,
+                "chat_turn": chat_turn,
+                "name": name,
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)
 
     async def show_prompt_loaded(
         self,
@@ -300,3 +413,21 @@ class ConsoleDisplay:
 
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
+        
+        # Publish to pubsub if channel is available
+        if self.pubsub_channel:
+            server_list = []
+            if aggregator:
+                server_list = await aggregator.list_servers()
+            
+            message_data = {
+                "type": "prompt_loaded",
+                "prompt_name": prompt_name,
+                "description": description,
+                "message_count": message_count,
+                "agent_name": agent_name,
+                "arguments": arguments,
+                "server_list": server_list,
+                "timestamp": time.time()
+            }
+            await self.pubsub_channel.publish(message_data)

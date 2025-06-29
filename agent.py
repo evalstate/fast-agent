@@ -1,94 +1,99 @@
+
 import asyncio
 import json
-from typing import Dict, List
 import os
-from src.mcp_agent.core.fastagent import FastAgent
+import ssl
+import logging
+from mcp_agent.core.fastagent import FastAgent
 from dotenv import load_dotenv
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from aiokafka.abc import AbstractTokenProvider
+from aws_msk_iam_sasl_signer import MSKAuthTokenProvider
+
+# Load environment variables
 load_dotenv()
-import redis.asyncio as aioredis
 
-'''
-Redis example:
- redis-cli PUBLISH agent:queen '{"type": "user", "content": "tell me price of polygon please", "channel_id": "agent:queen",
-  "metadata": {"model": "claude-3-5-haiku-latest", "name": "default"}}'
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-Kafka example (if using Kafka backend):
- kafka-console-producer --broker-list localhost:9092 --topic mcp_agent_queen
- {"type": "user", "content": "tell me price of polygon please", "channel_id": "agent:queen", "metadata": {"model": "claude-3-5-haiku-latest", "name": "default"}}
+# MSK Configuration
+BOOTSTRAP_SERVERS = ['b-3-public.commandhive.aewd11.c4.kafka.ap-south-1.amazonaws.com:9198','b-1-public.commandhive.aewd11.c4.kafka.ap-south-1.amazonaws.com:9198', 'b-2-public.commandhive.aewd11.c4.kafka.ap-south-1.amazonaws.com:9198']
+TOPIC_NAME = 'mcp_agent_queen'
+AWS_REGION = os.environ.get('AWS_REGION', 'ap-south-1')
+CONSUMER_GROUP = 'mcp_agent_consumer'
 
-MSK example (if using MSK backend):
- python src/msk_producer.py  # Uses the configured MSK cluster
- # The producer will send to topic: mcp_agent_queen
+def create_ssl_context():
+    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+    ctx.options |= ssl.OP_NO_SSLv2 | ssl.OP_NO_SSLv3
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+    ctx.load_default_certs()
+    return ctx
 
-To switch backends:
-- Change "backend": "redis" to "backend": "kafka" or "backend": "msk" in pubsub_config  
-- For Kafka: Install dependencies: pip install bee-agent[kafka]
-- For MSK: Install dependencies: pip install aiokafka aws-msk-iam-sasl-signer boto3
-- Set environment variables:
-  - AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION (for MSK)
-  - MSK_BOOTSTRAP_SERVERS, MSK_TOPIC_NAME (optional, has defaults)
-'''
+class AWSTokenProvider(AbstractTokenProvider):
+    def __init__(self, region=AWS_REGION):
+        self.region = region
 
-subagents_config = [
-    {
-        "name": "finder",
-        "instruction": "You are an agent with access to the internet; you need to search about the latest prices of Bitcoin and other major cryptocurrencies and report back.",
-        "servers": ["fetch", "brave"],
-        "model": "haiku"
-    },
-    {
-        "name": "reporter",
-        "instruction": "You are an agent that takes the raw pricing data provided by the finder agent and produces a concise, human-readable summary highlighting current prices, 24-hour changes, and key market insights.",
-        "servers": [],  
-        "model": "haiku"
-    }
-]
+    async def token(self):
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self._generate_token)
 
-# Sample JSON config for MCP
-sample_json_config = {
+    def _generate_token(self):
+        token, _ = MSKAuthTokenProvider.generate_auth_token(self.region)
+        return token
+
+async def create_consumer():
+    tp = AWSTokenProvider()
+    consumer = AIOKafkaConsumer(
+        TOPIC_NAME,
+        bootstrap_servers=BOOTSTRAP_SERVERS,
+        group_id=CONSUMER_GROUP,
+        security_protocol='SASL_SSL',
+        ssl_context=create_ssl_context(),
+        sasl_mechanism='OAUTHBEARER',
+        sasl_oauth_token_provider=tp,
+        value_deserializer=lambda m: json.loads(m.decode('utf-8')) if m else None,
+        auto_offset_reset='latest',
+        enable_auto_commit=True,
+        client_id='mcp_agent_consumer',
+    )
+    await consumer.start()
+    logger.info(f"Connected to MSK topic '{TOPIC_NAME}'")
+    return consumer
+
+async def create_producer():
+    tp = AWSTokenProvider()
+    producer = AIOKafkaProducer(
+        bootstrap_servers=BOOTSTRAP_SERVERS,
+        security_protocol='SASL_SSL',
+        ssl_context=create_ssl_context(),
+        sasl_mechanism='OAUTHBEARER',
+        sasl_oauth_token_provider=tp,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8'),
+        acks='all',
+        client_id='mcp_agent_producer'
+    )
+    await producer.start()
+    return producer
+
+# Load environment variables
+load_dotenv()
+
+# Simple JSON config for MCP
+simple_config = {
     "mcp": {
         "servers": {
             "fetch": {
                 "name": "fetch",
-                "description": "A server for fetching links",
+                "description": "A server for fetching web content",
                 "transport": "stdio",
                 "command": "uvx",
-                "args": ["mcp-server-fetch"],
-                "tool_calls": [
-                    {
-                        "name": "fetch",
-                        "seek_confirm": True,
-                        "time_to_confirm": 120000,  
-                        "default": "reject" 
-                    }
-                ]
-            },
-            "google-maps":{
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@modelcontextprotocol/server-google-maps"
-                    ],
-                "env":{
-                    "GOOGLE_MAPS_API_KEY": "AIzaSyCkB37IJcttzInYSunk3IousaabMOXBO20"
-                }
-            }
-            "brave": {
-                "name": "brave",
-                "description": "Brave search server",
-                "transport": "stdio",
-                "command": "npx",
-                "args": [
-                    "-y",
-                    "@modelcontextprotocol/server-brave-search"
-                ],
-                "env": {
-                    "BRAVE_API_KEY": "BSANIwUPPxwC9wchogL5I6UNkWGffh3"
-                }
+                "args": ["mcp-server-fetch"]
             }
         }
     },
-    "default_model": "haiku",   
+    "default_model": "claude-3-7-sonnet-latest",   
     "logger": {
         "level": "info",
         "type": "console"
@@ -129,128 +134,89 @@ sample_json_config = {
 
 # Create FastAgent instance
 fast = FastAgent(
-    name="queen",  # Changed name to match channel name used in publishing
-    json_config=sample_json_config,
-    parse_cli_args=False
+    name="simple_queen",
+    json_config=simple_config,
+    parse_cli_args=True  # Enable CLI argument parsing for model selection
 )
 
-# Dynamically create agents from JSON configuration using a for loop
-def create_agents_from_config(config_list: List[Dict]) -> List[str]:
-    """
-    Create agents dynamically from JSON configuration.
-    Returns a list of agent names for use in the orchestrator.
-    """
-    agent_names = []
+@fast.agent(
+    name="assistant",
+    instruction="""You are a helpful AI assistant. You can:
+    - Answer questions on any topic
+    - Help with problem-solving
+    - Fetch web content when needed using the fetch server
+    - Have natural conversations
     
-    for agent_config in config_list:
-        name = agent_config.get("name")
-        instruction = agent_config.get("instruction", "")
-        servers = agent_config.get("servers", [])
-        model = agent_config.get("model", None)
-        
-        if not name:
-            continue
-            
-        # Create agent decorator kwargs
-        agent_kwargs = {
-            "name": name,
-            "instruction": instruction,
-            "servers": servers
-        }
-        
-        # Add model if specified
-        if model:
-            agent_kwargs["model"] = model
-            
-        # Create the agent using the decorator
-        @fast.agent(**agent_kwargs)
-        def agent_function():
-            """Dynamically created agent function"""
-            pass
-            
-        agent_names.append(name)
-    
-    return agent_names
-
-# Create agents from configuration
-created_agent_names = create_agents_from_config(subagents_config)
-
-# Create orchestrator with the dynamically created agents
-@fast.orchestrator(
-    name="orchestrate", 
-    agents=created_agent_names,  # Use the list of created agent names
-    plan_type="full",
-    model="haiku"
+    Be friendly, helpful, and engaging in your responses.""",
+    servers=["fetch"],  # Give access to web fetching capability
+    model="claude-3-7-sonnet-latest"  # Default model, can be overridden with --model flag
 )
-async def orchestrate_task():
-    """Orchestrator function"""
-    pass
-
 async def main():
-    """Test initializing FastAgent with JSON config in interactive mode."""
+    """MCP Agent that listens to MSK pub/sub messages"""
     
-    # Create Redis client
-    redis_client = aioredis.Redis(
-        host="localhost",
-        port=6379,
-        db=0,
-        decode_responses=True
-    )
+    # Create Kafka consumer and producer
+    consumer = await create_consumer()
+    producer = await create_producer()
     
-    # Register agents and keep it running
-    async with fast.run() as agent:        
+    async with fast.run() as agent:
+        logger.info("🤖 MCP Agent is ready and listening for messages!")
+        logger.info("Listening on MSK topic: %s", TOPIC_NAME)
+        logger.info("Send messages using the producer script to interact with the agent")
+        logger.info("-" * 50)
+        
         try:
-            # Subscribe to the input channel
-            pubsub = redis_client.pubsub()
-            await pubsub.subscribe("agent:queen")
-            
-            # Initial task for the orchestrator
-            initial_task = """
-           Can you find the price of VANA token and if it is more than 50 percent of it;s lowest then give command to sell it off. tell me now sell it off or hold it. 
-            """
-            
-            await agent.orchestrate(initial_task)
-            
-            # Keep running and listen for Redis messages
-            while True:
-                # Process Redis messages directly
-                message = await pubsub.get_message(ignore_subscribe_messages=True)
-                if message and message.get('type') == 'message':
-                    try:
-                        # Process the message data
-                        data = message.get('data')
-                        if isinstance(data, bytes):
-                            data = data.decode('utf-8')
-                        
-                        # Try to parse JSON
+            # Listen for messages from MSK
+            async for message in consumer:
+                try:
+                    if not message.value:
+                        continue
+                    
+                    logger.info("Received message: %s", message.value)
+                    
+                    # Extract user content from message
+                    user_content = None
+                    if isinstance(message.value, dict):
+                        if message.value.get('type') == 'user_message' and 'content' in message.value:
+                            user_content = message.value['content']
+                        elif message.value.get('type') == 'user' and 'content' in message.value:
+                            user_content = message.value['content']
+                    elif isinstance(message.value, str):
+                        # Try to parse as JSON first
                         try:
-                            data_obj = json.loads(data)
-                            
-                            # If this is a user message, extract content and send to orchestrator
-                            if data_obj.get('type') == 'user' and 'content' in data_obj:
-                                user_input = data_obj['content']
-                                
-                                # Send to orchestrator instead of individual agent
-                                response = await agent.orchestrate(user_input)
-                                
+                            data_obj = json.loads(message.value)
+                            if data_obj.get('type') in ['user_message', 'user'] and 'content' in data_obj:
+                                user_content = data_obj['content']
+                            else:
+                                user_content = message.value
                         except json.JSONDecodeError:
-                            # Try to process as plain text
-                            response = await agent.orchestrate(data)
-                            
-                    except Exception as e:
-                        import traceback
-                
-                # Small delay to prevent CPU spike
-                await asyncio.sleep(0.05)
-                
+                            user_content = message.value
+                    
+                    if user_content:
+                        logger.info("👤 User: %s", user_content)
+                        
+                        # Send to agent and get response
+                        response = await agent.assistant(user_content)
+                        logger.info("🤖 Assistant: %s", response)
+                        
+                        
+                    
+                except Exception as e:
+                    logger.error("Error processing message: %s", e)
+                    import traceback
+                    traceback.print_exc()
+                    
+        except KeyboardInterrupt:
+            logger.info("Received interrupt signal, shutting down...")
+        except Exception as e:
+            logger.error("Fatal error: %s", e)
         finally:
-            # Clean up Redis connection
-            if 'pubsub' in locals():
-                await pubsub.unsubscribe("agent:queen")
-            await redis_client.close()
+            await consumer.stop()
+            await producer.stop()
+            logger.info("Consumer and producer stopped.")
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
+        logger.info("👋 Goodbye!")
         pass
