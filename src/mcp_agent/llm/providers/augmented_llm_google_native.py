@@ -242,8 +242,10 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
                 self.history.get(include_completion_history=True)
             )
         else:
-            # If not using history, start with an empty list
-            conversation_history = []
+            # If not using history, convert the last message to google.genai format
+            conversation_history = self._converter.convert_to_google_content(
+                self.history.get(include_completion_history=True)[-1:]
+            )
 
         self.logger.debug(f"Google completion requested with messages: {conversation_history}")
         self._log_chat_progress(
