@@ -544,6 +544,11 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
+        self._audio = True
+        if self._audio:
+            base_args["modalities"] = ["text", "audio"]
+            base_args["audio"] = {"voice": "alloy", "format": "wav"}
+
         arguments: Dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )

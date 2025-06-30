@@ -29,6 +29,7 @@ class ModelDatabase:
     # Common parameter sets
     OPENAI_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp", "application/pdf"]
     OPENAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    OPENAI_AUDIO = ["audio/wav", "audio/mp3"]
     ANTHROPIC_MULTIMODAL = [
         "text/plain",
         "image/jpeg",
@@ -60,6 +61,10 @@ class ModelDatabase:
 
     OPENAI_O_SERIES = ModelParameters(
         context_window=200000, max_output_tokens=100000, tokenizes=OPENAI_VISION
+    )
+
+    OPENAI_GPT4O_AUDIO_PREVIEW = ModelParameters(
+        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_AUDIO
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
@@ -151,6 +156,10 @@ class ModelDatabase:
         "gpt-4o": OPENAI_4O_SERIES,
         "gpt-4o-2024-11-20": OPENAI_4O_SERIES,
         "gpt-4o-mini-2024-07-18": OPENAI_4O_SERIES,
+        "gpt-4o-audio-preview": OPENAI_GPT4O_AUDIO_PREVIEW,
+        "gpt-4o-audio-preview-2025-06-03": OPENAI_GPT4O_AUDIO_PREVIEW,
+        "gpt-4o-audio-preview-2024-12-17": OPENAI_GPT4O_AUDIO_PREVIEW,
+        "gpt-4o-audio-preview-2024-10-01": OPENAI_GPT4O_AUDIO_PREVIEW,
         "o1": OPENAI_O_SERIES,
         "o1-2024-12-17": OPENAI_O_SERIES,
         "o3": OPENAI_O3_SERIES,

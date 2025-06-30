@@ -68,8 +68,7 @@ class ModelFactory:
     }
 
     """
-    TODO -- add context window size information for display/management
-    TODO -- add audio supporting got-4o-audio-preview
+    TODO -- add audio supporting gpt-4o-audio-preview
     TODO -- bring model parameter configuration here
     Mapping of model names to their default providers
     """
@@ -78,6 +77,7 @@ class ModelFactory:
         "playback": Provider.FAST_AGENT,
         "slow": Provider.FAST_AGENT,
         "gpt-4o": Provider.OPENAI,
+        "gpt-4o-audio-preview": Provider.OPENAI,
         "gpt-4o-mini": Provider.OPENAI,
         "gpt-4.1": Provider.OPENAI,
         "gpt-4.1-mini": Provider.OPENAI,
