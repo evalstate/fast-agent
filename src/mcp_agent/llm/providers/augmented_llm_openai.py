@@ -123,7 +123,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         # For non-OpenAI providers (like Ollama), ChatCompletionStreamState might not work correctly
         # Fall back to manual accumulation if needed
         # TODO -- consider this and whether to subclass instead
-        if self.provider in [Provider.GENERIC, Provider.OPENROUTER]:
+        if self.provider in [Provider.GENERIC, Provider.OPENROUTER, Provider.GOOGLE_OAI]:
             return await self._process_stream_manual(stream, model)
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
