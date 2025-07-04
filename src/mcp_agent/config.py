@@ -26,6 +26,15 @@ class MCPSamplingSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MCPElicitationSettings(BaseModel):
+    enabled: bool = False
+    """Enable or disable elicitation for this server"""
+    #    auto_cancel: bool = True
+    """Automatically cancel elicitation requests"""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class MCPRootSettings(BaseModel):
     """Represents a root directory configuration for an MCP server."""
 
@@ -94,6 +103,9 @@ class MCPServerSettings(BaseModel):
 
     sampling: MCPSamplingSettings | None = None
     """Sampling settings for this Client/Server pair"""
+
+    elicitation: MCPElicitationSettings | None = None
+    """Elicitation settings for this Client/Server pair"""
 
     cwd: str | None = None
     """Working directory for the executed server command."""

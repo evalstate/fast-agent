@@ -217,10 +217,17 @@ class MCPAggregator(ContextDependent):
 
                 # Create a wrapper to capture the parameters for the client session
                 def session_factory(read_stream, write_stream, read_timeout, **kwargs):
-                    # Get agent's model if this aggregator is part of an agent
-                    agent_model = None
-                    if hasattr(self, 'config') and self.config and hasattr(self.config, 'model'):
+                    # Get agent's model and name if this aggregator is part of an agent
+                    agent_model: str | None = None
+                    agent_name: str | None = None
+                    
+                    # Check if this aggregator is part of an Agent (which has config)
+                    # Import here to avoid circular dependency
+                    from mcp_agent.agents.base_agent import BaseAgent
+                    
+                    if isinstance(self, BaseAgent):
                         agent_model = self.config.model
+                        agent_name = self.config.name
                     
                     return MCPAgentClientSession(
                         read_stream,
@@ -228,6 +235,7 @@ class MCPAggregator(ContextDependent):
                         read_timeout,
                         server_name=server_name,
                         agent_model=agent_model,
+                        agent_name=agent_name,
                         tool_list_changed_callback=self._handle_tool_list_changed,
                         **kwargs  # Pass through any additional kwargs like server_config
                     )
@@ -278,10 +286,17 @@ class MCPAggregator(ContextDependent):
             else:
                 # Create a factory function for the client session
                 def create_session(read_stream, write_stream, read_timeout, **kwargs):
-                    # Get agent's model if this aggregator is part of an agent
-                    agent_model = None
-                    if hasattr(self, 'config') and self.config and hasattr(self.config, 'model'):
+                    # Get agent's model and name if this aggregator is part of an agent
+                    agent_model: str | None = None
+                    agent_name: str | None = None
+                    
+                    # Check if this aggregator is part of an Agent (which has config)
+                    # Import here to avoid circular dependency
+                    from mcp_agent.agents.base_agent import BaseAgent
+                    
+                    if isinstance(self, BaseAgent):
                         agent_model = self.config.model
+                        agent_name = self.config.name
                     
                     return MCPAgentClientSession(
                         read_stream,
@@ -289,6 +304,7 @@ class MCPAggregator(ContextDependent):
                         read_timeout,
                         server_name=server_name,
                         agent_model=agent_model,
+                        agent_name=agent_name,
                         tool_list_changed_callback=self._handle_tool_list_changed,
                         **kwargs  # Pass through any additional kwargs like server_config
                     )
@@ -940,11 +956,21 @@ class MCPAggregator(ContextDependent):
                 if self.connection_persistence:
                     # Create a factory function that will include our parameters
                     def create_session(read_stream, write_stream, read_timeout):
+                        # Get agent name if available
+                        agent_name: str | None = None
+                        
+                        # Import here to avoid circular dependency
+                        from mcp_agent.agents.base_agent import BaseAgent
+                        
+                        if isinstance(self, BaseAgent):
+                            agent_name = self.config.name
+                        
                         return MCPAgentClientSession(
                             read_stream,
                             write_stream,
                             read_timeout,
                             server_name=server_name,
+                            agent_name=agent_name,
                             tool_list_changed_callback=self._handle_tool_list_changed,
                         )
 
@@ -956,11 +982,21 @@ class MCPAggregator(ContextDependent):
                 else:
                     # Create a factory function for the client session
                     def create_session(read_stream, write_stream, read_timeout):
+                        # Get agent name if available
+                        agent_name: str | None = None
+                        
+                        # Import here to avoid circular dependency
+                        from mcp_agent.agents.base_agent import BaseAgent
+                        
+                        if isinstance(self, BaseAgent):
+                            agent_name = self.config.name
+                        
                         return MCPAgentClientSession(
                             read_stream,
                             write_stream,
                             read_timeout,
                             server_name=server_name,
+                            agent_name=agent_name,
                             tool_list_changed_callback=self._handle_tool_list_changed,
                         )
 

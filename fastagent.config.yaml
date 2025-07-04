@@ -40,3 +40,15 @@ mcp:
     hf:
       transport: "http"
       url: "https://hf.co/mcp"
+    playwright:
+       command: "npx"
+       args: ["@playwright/mcp@latest"]
+    elicitation_test:
+      command: "python"
+      args: ["tests/integration/elicitation/elicitation_test_server.py"]
+    elicitation_test_advanced:
+      command: "python"
+      args: ["tests/integration/elicitation/elicitation_test_server_advanced.py"]
+    elicit_advanced:
+      command: "python"
+      args: ["tests/integration/elicitation/elicitation_test_server_advanced.py"]
