@@ -17,7 +17,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version: "3.12"
 
       - name: Install the project
         run: |
@@ -41,7 +41,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version: "3.12"
 
       - name: Install the project
         run: |
@@ -65,7 +65,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version: "3.12"
 
       - name: Install the project
         run: |
@@ -92,7 +92,7 @@ jobs:
       - name: "Set up Python"
         uses: actions/setup-python@v5
         with:
-          python-version-file: ".python-version"
+          python-version: "3.12"
 
       - name: Run package install test
         run: bash scripts/test_package_install.sh
