@@ -27,10 +27,8 @@ class MCPSamplingSettings(BaseModel):
 
 
 class MCPElicitationSettings(BaseModel):
-    enabled: bool = False
-    """Enable or disable elicitation for this server"""
-    #    auto_cancel: bool = True
-    """Automatically cancel elicitation requests"""
+    mode: Literal["forms", "auto_cancel", "none"] = "none"
+    """Elicitation mode: 'forms' (default UI), 'auto_cancel' (auto-decline), 'none' (no capability)"""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

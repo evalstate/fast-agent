@@ -263,11 +263,11 @@ class ElicitationForm:
                 [
                     (
                         "class:bottom-toolbar.text",
-                        " <TAB> or ↑↓→← to change fields. <ENTER> to submit (or <Ctrl+J> in multiline). <ESC> to cancel. ",
+                        " <TAB> or ↑↓→← to navigate. <ENTER> submit (<Ctrl+J> in multiline). <ESC> to cancel. ",
                     ),
                     (
                         "class:bottom-toolbar.text",
-                        "<Cancel All> Cancel further elicitations from this Server.",
+                        "<Cancel All> Auto-Cancel further elicitations from this Server.",
                     ),
                 ]
             )
@@ -466,8 +466,13 @@ class ElicitationForm:
         focused = get_app().layout.current_control
 
         # Find which field this control belongs to
+        # Only Buffer widgets can be multiline, so only check those
         for field_name, widget in self.field_widgets.items():
-            if isinstance(widget, Buffer) and widget == focused.buffer:
+            if (
+                isinstance(widget, Buffer)
+                and hasattr(focused, "buffer")
+                and widget == focused.buffer
+            ):
                 return field_name in self.multiline_fields
         return False
 

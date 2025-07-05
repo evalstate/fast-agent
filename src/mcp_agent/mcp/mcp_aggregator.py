@@ -220,6 +220,7 @@ class MCPAggregator(ContextDependent):
                     # Get agent's model and name if this aggregator is part of an agent
                     agent_model: str | None = None
                     agent_name: str | None = None
+                    elicitation_handler = None
                     
                     # Check if this aggregator is part of an Agent (which has config)
                     # Import here to avoid circular dependency
@@ -228,6 +229,13 @@ class MCPAggregator(ContextDependent):
                     if isinstance(self, BaseAgent):
                         agent_model = self.config.model
                         agent_name = self.config.name
+                        
+                        # Resolve elicitation handler using factory
+                        from mcp_agent.mcp.elicitation_factory import resolve_elicitation_handler
+                        elicitation_handler = resolve_elicitation_handler(
+                            self.config, 
+                            self.context.config if self.context else None
+                        )
                     
                     return MCPAgentClientSession(
                         read_stream,
@@ -237,6 +245,7 @@ class MCPAggregator(ContextDependent):
                         agent_model=agent_model,
                         agent_name=agent_name,
                         tool_list_changed_callback=self._handle_tool_list_changed,
+                        elicitation_handler=elicitation_handler,
                         **kwargs  # Pass through any additional kwargs like server_config
                     )
 
@@ -289,6 +298,7 @@ class MCPAggregator(ContextDependent):
                     # Get agent's model and name if this aggregator is part of an agent
                     agent_model: str | None = None
                     agent_name: str | None = None
+                    elicitation_handler = None
                     
                     # Check if this aggregator is part of an Agent (which has config)
                     # Import here to avoid circular dependency
@@ -297,6 +307,13 @@ class MCPAggregator(ContextDependent):
                     if isinstance(self, BaseAgent):
                         agent_model = self.config.model
                         agent_name = self.config.name
+                        
+                        # Resolve elicitation handler using factory
+                        from mcp_agent.mcp.elicitation_factory import resolve_elicitation_handler
+                        elicitation_handler = resolve_elicitation_handler(
+                            self.config, 
+                            self.context.config if self.context else None
+                        )
                     
                     return MCPAgentClientSession(
                         read_stream,
@@ -306,6 +323,7 @@ class MCPAggregator(ContextDependent):
                         agent_model=agent_model,
                         agent_name=agent_name,
                         tool_list_changed_callback=self._handle_tool_list_changed,
+                        elicitation_handler=elicitation_handler,
                         **kwargs  # Pass through any additional kwargs like server_config
                     )
 

@@ -43,6 +43,40 @@ mcp:
     playwright:
        command: "npx"
        args: ["@playwright/mcp@latest"]
+    # Elicitation test servers for different modes
+    elicitation_forms_mode:
+      command: "uv"
+      args: ["run", "tests/integration/elicitation/elicitation_test_server_advanced.py"]
+      transport: "stdio"
+      cwd: "."
+      elicitation:
+        mode: "forms"
+    
+    elicitation_auto_cancel_mode:
+      command: "uv"
+      args: ["run", "tests/integration/elicitation/elicitation_test_server_advanced.py"]
+      transport: "stdio"
+      cwd: "."
+      elicitation:
+        mode: "auto_cancel"
+    
+    elicitation_none_mode:
+      command: "uv"
+      args: ["run", "tests/integration/elicitation/elicitation_test_server_advanced.py"]
+      transport: "stdio"
+      cwd: "."
+      elicitation:
+        mode: "none"
+    
+    elicitation_custom_handler:
+      command: "uv"
+      args: ["run", "tests/integration/elicitation/elicitation_test_server_advanced.py"]
+      transport: "stdio"
+      cwd: "."
+      elicitation:
+        mode: "forms"  # Will be overridden by custom handler
+    
+    # Legacy server names for backward compatibility
     elicitation_test:
       command: "python"
       args: ["tests/integration/elicitation/elicitation_test_server.py"]

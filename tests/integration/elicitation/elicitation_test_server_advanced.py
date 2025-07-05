@@ -29,6 +29,55 @@ logger = logging.getLogger("elicitation_server_advanced")
 # Create MCP server
 mcp = FastMCP("MCP Advanced Elicitation Server", log_level="DEBUG")
 
+@mcp.resource(uri="elicitation://client-capabilities")
+async def client_capabilities_resource() -> ReadResourceResult:
+    """Expose the client capabilities received during initialization."""
+    
+    ctx = mcp.get_context()
+    
+    if not ctx.session.client_params:
+        text = "No client initialization params available"
+    else:
+        client_capabilities = ctx.session.client_params.capabilities
+        
+        # Check if elicitation capability is present
+        has_elicitation = hasattr(client_capabilities, 'elicitation') and client_capabilities.elicitation is not None
+        has_sampling = hasattr(client_capabilities, 'sampling') and client_capabilities.sampling is not None
+        has_roots = hasattr(client_capabilities, 'roots') and client_capabilities.roots is not None
+        
+        capabilities_list = []
+        if has_elicitation:
+            capabilities_list.append("✓ Elicitation")
+        else:
+            capabilities_list.append("✗ Elicitation")
+            
+        if has_sampling:
+            capabilities_list.append("✓ Sampling")
+        else:
+            capabilities_list.append("✗ Sampling")
+            
+        if has_roots:
+            capabilities_list.append("✓ Roots")
+        else:
+            capabilities_list.append("✗ Roots")
+        
+        text = "Client Capabilities:\n" + "\n".join(capabilities_list)
+        
+        # Add client info for debugging
+        client_info = ctx.session.client_params.clientInfo
+        text += f"\n\nClient Info: {client_info.name} v{client_info.version}"
+        text += f"\nProtocol Version: {ctx.session.client_params.protocolVersion}"
+    
+    return ReadResourceResult(
+        contents=[
+            TextResourceContents(
+                mimeType="text/plain",
+                uri=AnyUrl("elicitation://client-capabilities"),
+                text=text
+            )
+        ]
+    )
+
 
 @mcp.resource(uri="elicitation://simple-rating")
 async def simple_rating() -> ReadResourceResult:
