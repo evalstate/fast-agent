@@ -63,12 +63,7 @@ dev = [
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/mcp_agent"]
-
-[[tool.poetry.packages]]
-include = "mcp_agent"
-from = "src"
+[tool.hatch.build.hooks.custom]
 
 [tool.hatch.build]
 include = [
@@ -77,19 +72,13 @@ include = [
     "src/mcp_agent/**/*.yml",
     "src/mcp_agent/**/*.csv",
     "src/mcp_agent/**/*.txt",    
-    "src/mcp_agent/**/*.example",    
-    "examples/**/*.py",
-    "examples/**/*.yaml",
-    "examples/**/*.yml",
-    "examples/**/*.txt",
-    "examples/**/*.csv",
-    "examples/**/*.md",
-    "examples/**/*.css",
-    "examples/**/mount-point/*.csv",
-    "examples/workflows/short_story.txt",
-    "examples/mcp/**/*.py",
-    "examples/mcp/**/*.yaml",
-    "examples/mcp/**/*.example",
+    "src/mcp_agent/**/*.example",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_agent"]
+artifacts = [
+    "src/mcp_agent/resources/examples/**/*",
 ]
 
 [tool.pytest.ini_options]

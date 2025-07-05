@@ -78,3 +78,21 @@ jobs:
           source .venv/bin/activate
           python -m pytest tests/unit -v
           python -m pytest tests/integration -v
+
+  package-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+
+      - name: Run package install test
+        run: bash scripts/test_package_install.sh
