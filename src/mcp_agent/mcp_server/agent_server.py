@@ -68,18 +68,29 @@ class AgentMCPServer:
         )
         async def send_message(message: str, ctx: MCPContext) -> str:
             """Send a message to the agent and return its response."""
-            # Get the agent's context
+            from mcp_agent.agents.workflow.chain_agent import ChainAgent
+
+            # For chain agents, handle execution without SSE aggregation
+            if isinstance(agent, ChainAgent):
+                response = await agent.send(message)
+
+                if hasattr(response, "all_text"):
+                    return response.all_text()
+                elif isinstance(response, dict):
+                    import json
+
+                    return json.dumps(response)
+                return str(response)
+
+            # Non-chain agents use normal flow
             agent_context = getattr(agent, "context", None)
 
-            # Define the function to execute
             async def execute_send():
                 return await agent.send(message)
 
-            # Execute with bridged context
             if agent_context and ctx:
-                return await self.with_bridged_context(agent_context, ctx, execute_send)
-            else:
-                return await execute_send()
+              return await self.with_bridged_context(agent_context, ctx, execute_send)
+            return await execute_send()
 
         # Register a history prompt for this agent
         @self.mcp_server.prompt(
@@ -368,7 +379,14 @@ class AgentMCPServer:
             except Exception as e:
                 logger.error(f"Error during ASGI lifespan shutdown: {e}")
 
-    async def with_bridged_context(self, agent_context, mcp_context, func, *args, **kwargs):
+    async def with_bridged_context(
+        self,
+        agent_context,
+        mcp_context,
+        func,
+        *args,
+        **kwargs,
+    ):
         """
         Execute a function with bridged context between MCP and agent
 
@@ -397,6 +415,9 @@ class AgentMCPServer:
         if hasattr(agent_context, "progress_reporter"):
             agent_context.progress_reporter = bridged_progress
 
+        if aggregator is not None:
+            agent_context.response_aggregator = aggregator
+
         try:
             # Call the function
             return await func(*args, **kwargs)
@@ -408,6 +429,8 @@ class AgentMCPServer:
             # Remove MCP context reference
             if hasattr(agent_context, "mcp_context"):
                 delattr(agent_context, "mcp_context")
+            if aggregator is not None and hasattr(agent_context, "response_aggregator"):
+                delattr(agent_context, "response_aggregator")
 
     async def _cleanup_stdio(self):
         """Minimal cleanup for STDIO transport to avoid keeping process alive."""
