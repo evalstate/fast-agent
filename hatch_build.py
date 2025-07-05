@@ -12,6 +12,12 @@ class CustomBuildHook(BuildHookInterface):
 
     def initialize(self, version: str, build_data: Dict[str, Any]) -> None:
         """Copy examples from root to resources structure."""
+        # Clear existing resources/examples directory for clean build
+        resources_examples_dir = Path(self.root) / "src/mcp_agent/resources/examples"
+        if resources_examples_dir.exists():
+            shutil.rmtree(resources_examples_dir)
+            print("Fast-agent build: Cleared existing resources/examples directory")
+
         # Define source to target mappings
         example_mappings = {
             # examples/workflows -> src/mcp_agent/resources/examples/workflows
@@ -33,10 +39,6 @@ class CustomBuildHook(BuildHookInterface):
             if source_dir.exists():
                 # Ensure target directory exists
                 target_dir.parent.mkdir(parents=True, exist_ok=True)
-
-                # Remove existing target if it exists
-                if target_dir.exists():
-                    shutil.rmtree(target_dir)
 
                 # Copy the entire directory tree
                 shutil.copytree(source_dir, target_dir)

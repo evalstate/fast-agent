@@ -486,7 +486,7 @@ class FastAgent:
 
     async def start_server(
         self,
-        transport: str = "sse",
+        transport: str = "http",
         host: str = "0.0.0.0",
         port: int = 8000,
         server_name: Optional[str] = None,

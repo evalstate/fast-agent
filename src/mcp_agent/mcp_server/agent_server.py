@@ -65,6 +65,8 @@ class AgentMCPServer:
         @self.mcp_server.tool(
             name=f"{agent_name}_send",
             description=f"Send a message to the {agent_name} agent",
+            structured_output=False,
+            # MCP 1.10.1 turns every tool in to a structured output
         )
         async def send_message(message: str, ctx: MCPContext) -> str:
             """Send a message to the agent and return its response."""
