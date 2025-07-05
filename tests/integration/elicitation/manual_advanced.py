@@ -1,6 +1,7 @@
 import asyncio
 
 from mcp_agent.core.fastagent import FastAgent
+from mcp_agent.mcp.helpers.content_helpers import get_resource_text
 
 # Create the application with specified model
 fast = FastAgent("fast-agent elicitation example")
@@ -10,7 +11,7 @@ fast = FastAgent("fast-agent elicitation example")
 @fast.agent(
     "elicit-advanced",
     servers=[
-        "resource_forms",
+        "elicitation_forms_mode",
     ],
 )
 async def main():
@@ -18,16 +19,16 @@ async def main():
     async with fast.run() as agent:
         await agent.send("Hello, World!")
         result = await agent.get_resource("elicitation://user-profile")
-        await agent.send(result.contents[0].text)
+        await agent.send(get_resource_text(result) or "<no result>")
 
         result = await agent.get_resource("elicitation://preferences")
-        await agent.send(result.contents[0].text)
-        
+        await agent.send(get_resource_text(result) or "<no result>")
+
         result = await agent.get_resource("elicitation://simple-rating")
-        await agent.send(result.contents[0].text)
-        
+        await agent.send(get_resource_text(result) or "<no result>")
+
         result = await agent.get_resource("elicitation://feedback")
-        await agent.send(result.contents[0].text)
+        await agent.send(get_resource_text(result) or "<no result>")
 
 
 if __name__ == "__main__":

@@ -73,7 +73,11 @@ class ServerRegistry:
         """
         if config is None:
             self.registry = self.load_registry_from_file(config_path)
-        elif config.mcp is not None and hasattr(config.mcp, 'servers') and config.mcp.servers is not None:
+        elif (
+            config.mcp is not None
+            and hasattr(config.mcp, "servers")
+            and config.mcp.servers is not None
+        ):
             # Ensure config.mcp exists, has a 'servers' attribute, and it's not None
             self.registry = config.mcp.servers
         else:
@@ -95,13 +99,17 @@ class ServerRegistry:
         Raises:
             ValueError: If the configuration is invalid.
         """
-        servers = {} 
+        servers = {}
 
         settings = get_settings(config_path)
-        
-        if settings.mcp is not None and hasattr(settings.mcp, 'servers') and settings.mcp.servers is not None:
+
+        if (
+            settings.mcp is not None
+            and hasattr(settings.mcp, "servers")
+            and settings.mcp.servers is not None
+        ):
             return settings.mcp.servers
-        
+
         return servers
 
     @asynccontextmanager
@@ -164,7 +172,7 @@ class ServerRegistry:
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
-                    None,  # No callback for stdio
+                    server_config=config,
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using stdio transport.")
@@ -192,7 +200,7 @@ class ServerRegistry:
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
-                    None,  # No callback for stdio
+                    server_config=config,
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using SSE transport.")
@@ -216,7 +224,7 @@ class ServerRegistry:
                     read_stream,
                     write_stream,
                     read_timeout_seconds,
-                    None,  # No callback for stdio
+                    server_config=config,
                 )
                 async with session:
                     logger.info(f"{server_name}: Connected to server using HTTP transport.")

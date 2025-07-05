@@ -51,7 +51,6 @@ async def list_roots(ctx: ClientSession) -> ListRootsResult:
     return ListRootsResult(roots=[])
 
 
-
 class MCPAgentClientSession(ClientSession, ContextDependent):
     """
     MCP Agent framework acts as a client to the servers providing tools/resources/prompts for the agent workloads.
@@ -100,9 +99,38 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             # Auto-sampling enabled at application level
             sampling_cb = sample
 
-        # Use custom elicitation handler if provided, otherwise use default forms handler
-        from mcp_agent.mcp.elicitation_handlers import forms_elicitation_handler
-        elicitation_handler = custom_elicitation_handler or forms_elicitation_handler
+        # Use custom elicitation handler if provided, otherwise resolve using factory
+        if custom_elicitation_handler is not None:
+            elicitation_handler = custom_elicitation_handler
+        else:
+            # Try to resolve using factory
+            elicitation_handler = None
+            try:
+                from mcp_agent.context import get_current_context
+                from mcp_agent.core.agent_types import AgentConfig
+                from mcp_agent.mcp.elicitation_factory import resolve_elicitation_handler
+
+                context = get_current_context()
+                if context and context.config:
+                    # Create a minimal agent config for the factory
+                    agent_config = AgentConfig(
+                        name=self.agent_name or "unknown",
+                        model=self.agent_model or "unknown",
+                        elicitation_handler=None,  # No decorator-level handler since we're in the else block
+                    )
+                    elicitation_handler = resolve_elicitation_handler(
+                        agent_config, context.config, self.server_config
+                    )
+            except Exception:
+                # If factory resolution fails, we'll use default fallback
+                pass
+
+            # Fallback to forms handler only if factory resolution wasn't attempted
+            # If factory was attempted and returned None, respect that (means no elicitation capability)
+            if elicitation_handler is None and not self.server_config:
+                from mcp_agent.mcp.elicitation_handlers import forms_elicitation_handler
+
+                elicitation_handler = forms_elicitation_handler
 
         super().__init__(
             *args,

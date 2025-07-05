@@ -11,6 +11,7 @@ from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
+    ReadResourceResult,
     TextContent,
     TextResourceContents,
 )
@@ -114,3 +115,29 @@ def is_resource_content(content: Union[TextContent, ImageContent, EmbeddedResour
         True if the content is EmbeddedResource, False otherwise
     """
     return isinstance(content, EmbeddedResource)
+
+
+def get_resource_text(result: ReadResourceResult, index: int = 0) -> Optional[str]:
+    """
+    Extract text content from a ReadResourceResult at the specified index.
+
+    Args:
+        result: A ReadResourceResult from an MCP resource read operation
+        index: Index of the content item to extract text from (default: 0)
+
+    Returns:
+        The text content as a string or None if not available or not text content
+
+    Raises:
+        IndexError: If the index is out of bounds for the contents list
+    """
+    if index >= len(result.contents):
+        raise IndexError(
+            f"Index {index} out of bounds for contents list of length {len(result.contents)}"
+        )
+
+    content = result.contents[index]
+    if isinstance(content, TextResourceContents):
+        return content.text
+
+    return None

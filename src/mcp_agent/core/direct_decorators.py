@@ -342,7 +342,9 @@ def router(
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
-    elicitation_handler: Optional[ElicitationFnT] = None,
+    elicitation_handler: Optional[
+        ElicitationFnT
+    ] = None,  ## exclude from docs, decide whether allowable
 ) -> Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]:
     """
     Decorator to create and register a router agent with type-safe signature.
