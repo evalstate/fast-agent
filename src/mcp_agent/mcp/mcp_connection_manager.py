@@ -166,10 +166,7 @@ class ServerConnection:
         )
 
         session = self._client_session_factory(
-            read_stream, 
-            send_stream, 
-            read_timeout,
-            server_config=self.server_config
+            read_stream, send_stream, read_timeout, server_config=self.server_config
         )
 
         self.session = session
@@ -220,19 +217,34 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
 
         if "ExceptionGroup" in type(exc).__name__ and hasattr(exc, "exceptions"):
             # Handle ExceptionGroup better by extracting the actual errors
-            error_messages = []
-            for subexc in exc.exceptions:
-                if isinstance(subexc, HTTPStatusError):
-                    # Special handling for HTTP errors to make them more user-friendly
-                    error_messages.append(
-                        f"HTTP Error: {subexc.response.status_code} {subexc.response.reason_phrase} for URL: {subexc.request.url}"
-                    )
-                else:
-                    error_messages.append(f"Error: {type(subexc).__name__}: {subexc}")
-                if hasattr(subexc, "__cause__") and subexc.__cause__:
-                    error_messages.append(
-                        f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}"
-                    )
+            def extract_errors(exception_group):
+                """Recursively extract meaningful errors from ExceptionGroups"""
+                messages = []
+                for subexc in exception_group.exceptions:
+                    if "ExceptionGroup" in type(subexc).__name__ and hasattr(subexc, "exceptions"):
+                        # Recursively handle nested ExceptionGroups
+                        messages.extend(extract_errors(subexc))
+                    elif isinstance(subexc, HTTPStatusError):
+                        # Special handling for HTTP errors to make them more user-friendly
+                        messages.append(
+                            f"HTTP Error: {subexc.response.status_code} {subexc.response.reason_phrase} for URL: {subexc.request.url}"
+                        )
+                    else:
+                        # Show the exception type and message, plus the root cause if available
+                        error_msg = f"{type(subexc).__name__}: {subexc}"
+                        messages.append(error_msg)
+
+                        # If there's a root cause, show that too as it's often the most informative
+                        if hasattr(subexc, "__cause__") and subexc.__cause__:
+                            messages.append(
+                                f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}"
+                            )
+                return messages
+
+            error_messages = extract_errors(exc)
+            # If we didn't extract any meaningful errors, fall back to the original exception
+            if not error_messages:
+                error_messages = [f"{type(exc).__name__}: {exc}"]
             server_conn._error_message = error_messages
         else:
             # For regular exceptions, keep the traceback but format it more cleanly
