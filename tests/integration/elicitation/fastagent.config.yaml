@@ -3,7 +3,7 @@ default_model: passthrough
 # Logging and Console Configuration:
 logger:
   level: "error"
-  type: "file"
+  type: "console"
   # path: "/path/to/logfile.jsonl"
 
   # Switch the progress display on or off
@@ -23,7 +23,7 @@ mcp:
       args: ["run", "elicitation_test_server.py"]
       elicitation:
         auto_cancel: true
-    elicit_advanced:
+    resource_forms:
       command: "uv"
       args: ["run", "elicitation_test_server_advanced.py"]
       elicitation:

@@ -61,23 +61,25 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
     Elicit a response from the user using enhanced input handler.
     """
     logger.info(f"Eliciting response for params: {params}")
-    
+
     # Get server config for additional context
     server_config = get_server_config(ctx)
     server_name = server_config.name if server_config else "Unknown Server"
-    server_info = {"command": server_config.command} if server_config and server_config.command else None
-    
+    server_info = (
+        {"command": server_config.command} if server_config and server_config.command else None
+    )
+
     # Get agent name - try multiple sources in order of preference
     agent_name: str | None = None
-    
+
     # 1. Check if we have an MCPAgentClientSession in the context
     if hasattr(ctx, "session") and isinstance(ctx.session, MCPAgentClientSession):
         agent_name = ctx.session.agent_name
-    
+
     # 2. If no agent name yet, use a sensible default
     if not agent_name:
         agent_name = "Unknown Agent"
-    
+
     # Create human input request
     request = HumanInputRequest(
         prompt=params.message,
@@ -88,9 +90,9 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
             "server_name": server_name,
             "elicitation": True,
             "requested_schema": params.requestedSchema,
-        }
+        },
     )
-    
+
     try:
         # Call the enhanced elicitation handler
         response = await elicitation_input_callback(
@@ -99,11 +101,10 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
             server_name=server_name,
             server_info=server_info,
         )
-        
+
         # Check for special action responses
         response_data = response.response.strip()
-        action_metadata = response.metadata.get("action") if response.metadata else None
-        
+
         # Handle special responses
         if response_data == "__DECLINED__":
             return ElicitResult(action="decline")
@@ -114,7 +115,7 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
             logger.warning(f"User requested to disable elicitation for server: {server_name}")
             # For now, just cancel - in a full implementation, this would update server config
             return ElicitResult(action="cancel")
-        
+
         # Parse response based on schema if provided
         if params.requestedSchema:
             # Check if the response is already JSON (from our form)
@@ -136,7 +137,7 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
                     field_name = list(properties.keys())[0]
                     field_def = properties[field_name]
                     field_type = field_def.get("type")
-                    
+
                     if field_type == "boolean":
                         # Parse boolean values
                         if response_data.lower() in ["yes", "y", "true", "1"]:
@@ -149,7 +150,11 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
                         content = {field_name: response_data}
                     elif field_type in ["number", "integer"]:
                         try:
-                            value = int(response_data) if field_type == "integer" else float(response_data)
+                            value = (
+                                int(response_data)
+                                if field_type == "integer"
+                                else float(response_data)
+                            )
                             content = {field_name: value}
                         except ValueError:
                             return ElicitResult(action="decline")
@@ -163,12 +168,9 @@ async def elicit(ctx: ClientSession, params: ElicitRequestParams) -> ElicitResul
         else:
             # No schema, just return the raw response
             content = {"response": response_data}
-        
+
         # Return the response wrapped in ElicitResult with accept action
-        return ElicitResult(
-            action="accept",
-            content=content
-        )
+        return ElicitResult(action="accept", content=content)
     except (KeyboardInterrupt, EOFError, TimeoutError):
         # User cancelled or timeout
         return ElicitResult(action="cancel")

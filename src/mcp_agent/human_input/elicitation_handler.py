@@ -1,12 +1,12 @@
 from typing import Any, Dict, Optional
 
+from mcp_agent.human_input.elicitation_form import (
+    show_simple_elicitation_form,
+)
 from mcp_agent.human_input.elicitation_forms import (
     ELICITATION_STYLE,
 )
 from mcp_agent.human_input.elicitation_state import elicitation_state
-from mcp_agent.human_input.simple_elicitation_form import (
-    show_simple_elicitation_form,
-)
 from mcp_agent.human_input.types import (
     HumanInputRequest,
     HumanInputResponse,
@@ -68,7 +68,7 @@ async def elicitation_input_callback(
                 from prompt_toolkit.shortcuts import input_dialog
 
                 response = await input_dialog(
-                    title=f"Input Requested",
+                    title="Input Requested",
                     text=f"Agent: {effective_agent_name}\nServer: {effective_server_name}\n\n{request.prompt}",
                     style=ELICITATION_STYLE,
                 ).run_async()

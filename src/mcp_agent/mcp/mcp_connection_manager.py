@@ -309,7 +309,7 @@ class MCPConnectionManager(ContextDependent):
             self._tg = self._task_group
             logger.info(f"Auto-created task group for server: {server_name}")
 
-        config = self.server_registry.registry.get(server_name)
+        config = self.server_registry.get_server_config(server_name)
         if not config:
             raise ValueError(f"Server '{server_name}' not found in registry.")
 

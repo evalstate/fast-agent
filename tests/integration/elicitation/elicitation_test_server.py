@@ -13,7 +13,7 @@ from mcp.server.elicitation import (
     CancelledElicitation,
     DeclinedElicitation,
 )
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 from mcp.types import TextResourceContents
 from pydantic import AnyUrl, BaseModel, Field
 

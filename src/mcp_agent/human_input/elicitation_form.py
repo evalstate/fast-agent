@@ -5,10 +5,11 @@ from typing import Any, Dict, Optional
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
-from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout import HSplit, Layout, ScrollablePane, VSplit, Window
 from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
 from prompt_toolkit.validation import ValidationError, Validator
 from prompt_toolkit.widgets import (
@@ -83,7 +84,7 @@ class SimpleStringValidator(Validator):
             )
 
 
-class SimpleElicitationForm:
+class ElicitationForm:
     """Simplified elicitation form with all fields visible."""
 
     def __init__(
@@ -100,6 +101,7 @@ class SimpleElicitationForm:
 
         # Field storage
         self.field_widgets = {}
+        self.multiline_fields = set()  # Track which fields are multiline
 
         # Result
         self.result = None
@@ -190,10 +192,19 @@ class SimpleElicitationForm:
             ]
         )
 
+        # Wrap content in ScrollablePane to handle oversized forms
+        scrollable_content = ScrollablePane(
+            content=padded_content,
+            show_scrollbar=False,  # Only show when content exceeds available space
+            display_arrows=False,  # Only show when content exceeds available space
+            keep_cursor_visible=True,
+            keep_focused_window_visible=True,
+        )
+
         # Dialog - formatted title with better styling and text
         dialog = Dialog(
             title=FormattedText([("class:title", "Elicitation Request")]),
-            body=padded_content,
+            body=scrollable_content,
             with_background=True,  # Re-enable background for proper layout
         )
 
@@ -231,8 +242,15 @@ class SimpleElicitationForm:
             focus_previous(event)
             event.app.invalidate()  # Force refresh for focus highlighting
 
-        @kb.add("c-m")  # Ctrl+Enter
+        # Create filter for non-multiline fields
+        not_in_multiline = Condition(lambda: not self._is_in_multiline_field())
+
+        @kb.add("c-m", filter=not_in_multiline)  # Enter to submit only when not in multiline
         def submit(event):
+            self._accept()
+
+        @kb.add("c-j")  # Ctrl+J as alternative submit for multiline fields
+        def submit_alt(event):
             self._accept()
 
         @kb.add("escape")
@@ -245,7 +263,7 @@ class SimpleElicitationForm:
                 [
                     (
                         "class:bottom-toolbar.text",
-                        " <TAB> or ↑↓→← to change fields. <ESC> to cancel. ",
+                        " <TAB> or ↑↓→← to change fields. <ENTER> to submit (or <Ctrl+J> in multiline). <ESC> to cancel. ",
                     ),
                     (
                         "class:bottom-toolbar.text",
@@ -295,6 +313,28 @@ class SimpleElicitationForm:
         self.app.invalidate()  # Ensure layout is built
         set_initial_focus()
 
+    def _extract_string_constraints(self, field_def: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract string constraints from field definition, handling anyOf schemas."""
+        constraints = {}
+
+        # Check direct constraints
+        if field_def.get("minLength") is not None:
+            constraints["minLength"] = field_def["minLength"]
+        if field_def.get("maxLength") is not None:
+            constraints["maxLength"] = field_def["maxLength"]
+
+        # Check anyOf constraints (for Optional fields)
+        if "anyOf" in field_def:
+            for variant in field_def["anyOf"]:
+                if variant.get("type") == "string":
+                    if variant.get("minLength") is not None:
+                        constraints["minLength"] = variant["minLength"]
+                    if variant.get("maxLength") is not None:
+                        constraints["maxLength"] = variant["maxLength"]
+                    break
+
+        return constraints
+
     def _create_field(self, field_name: str, field_def: Dict[str, Any]):
         """Create a field widget."""
 
@@ -313,10 +353,11 @@ class SimpleElicitationForm:
         # Add validation hints
         hints = []
         if field_type == "string":
-            if field_def.get("minLength"):
-                hints.append(f"min {field_def['minLength']} chars")
-            if field_def.get("maxLength"):
-                hints.append(f"max {field_def['maxLength']} chars")
+            constraints = self._extract_string_constraints(field_def)
+            if constraints.get("minLength"):
+                hints.append(f"min {constraints['minLength']} chars")
+            if constraints.get("maxLength"):
+                hints.append(f"max {constraints['maxLength']} chars")
         elif field_type in ["number", "integer"]:
             if field_def.get("minimum") is not None:
                 hints.append(f"min {field_def['minimum']}")
@@ -338,7 +379,7 @@ class SimpleElicitationForm:
             checkbox.checked = default
             self.field_widgets[field_name] = checkbox
 
-            return HSplit([label, checkbox])
+            return HSplit([label, Frame(checkbox)])
 
         elif field_type == "string" and "enum" in field_def:
             enum_values = field_def["enum"]
@@ -361,14 +402,35 @@ class SimpleElicitationForm:
                     maximum=field_def.get("maximum"),
                 )
             elif field_type == "string":
+                constraints = self._extract_string_constraints(field_def)
                 validator = SimpleStringValidator(
-                    min_length=field_def.get("minLength"),
-                    max_length=field_def.get("maxLength"),
+                    min_length=constraints.get("minLength"),
+                    max_length=constraints.get("maxLength"),
                 )
+            else:
+                constraints = {}
+
+            # Determine if field should be multiline based on max_length
+            if field_type == "string":
+                max_length = constraints.get("maxLength")
+            else:
+                max_length = None
+            if max_length and max_length > 100:
+                # Use multiline for longer fields
+                multiline = True
+                self.multiline_fields.add(field_name)  # Track multiline fields
+                if max_length <= 300:
+                    height = 3
+                else:
+                    height = 5
+            else:
+                # Single line for shorter fields
+                multiline = False
+                height = 1
 
             buffer = Buffer(
                 validator=validator,
-                multiline=False,
+                multiline=multiline,
                 validate_while_typing=True,  # Enable real-time validation
                 complete_while_typing=False,  # Disable completion for cleaner experience
                 enable_history_search=False,  # Disable history for cleaner experience
@@ -390,11 +452,24 @@ class SimpleElicitationForm:
 
             text_input = Window(
                 BufferControl(buffer=buffer),
-                height=1,
+                height=height,
                 style=get_field_style,  # Use dynamic style function
+                wrap_lines=True if multiline else False,  # Enable word wrap for multiline
             )
 
             return HSplit([label, Frame(text_input)])
+
+    def _is_in_multiline_field(self) -> bool:
+        """Check if currently focused field is a multiline field."""
+        from prompt_toolkit.application.current import get_app
+
+        focused = get_app().layout.current_control
+
+        # Find which field this control belongs to
+        for field_name, widget in self.field_widgets.items():
+            if isinstance(widget, Buffer) and widget == focused.buffer:
+                return field_name in self.multiline_fields
+        return False
 
     def _validate_form(self) -> tuple[bool, Optional[str]]:
         """Validate the entire form."""
@@ -521,5 +596,5 @@ async def show_simple_elicitation_form(
     schema: ElicitRequestedSchema, message: str, agent_name: str, server_name: str
 ) -> tuple[str, Optional[Dict[str, Any]]]:
     """Show the simplified elicitation form."""
-    form = SimpleElicitationForm(schema, message, agent_name, server_name)
+    form = ElicitationForm(schema, message, agent_name, server_name)
     return await form.run_async()

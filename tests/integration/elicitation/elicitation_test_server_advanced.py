@@ -4,6 +4,7 @@ Advanced test server for comprehensive elicitation functionality
 
 import logging
 import sys
+from typing import Optional
 
 from mcp import (
     ReadResourceResult,
@@ -13,10 +14,9 @@ from mcp.server.elicitation import (
     CancelledElicitation,
     DeclinedElicitation,
 )
-from mcp.server.fastmcp import Context, FastMCP
+from mcp.server.fastmcp import FastMCP
 from mcp.types import TextResourceContents
 from pydantic import AnyUrl, BaseModel, Field
-from typing import Optional, List
 
 # Configure detailed logging
 logging.basicConfig(
@@ -110,22 +110,21 @@ async def user_profile() -> ReadResourceResult:
 async def preferences() -> ReadResourceResult:
     """Enum-based preference selection"""
     
-    from enum import Enum
-    
-    class Theme(str, Enum):
-        LIGHT = "light"
-        DARK = "dark"
-        AUTO = "auto"
-        
-    class Language(str, Enum):
-        EN = "en"
-        ES = "es"
-        FR = "fr"
-        DE = "de"
-        
     class Preferences(BaseModel):
-        theme: Theme = Field(description="Choose your preferred theme")
-        language: Language = Field(description="Select your language")
+        theme: str = Field(
+            description="Choose your preferred theme",
+            json_schema_extra={
+                "enum": ["light", "dark", "auto"],
+                "enumNames": ["Light Theme", "Dark Theme", "Auto Theme"]
+            }
+        )
+        language: str = Field(
+            description="Select your language",
+            json_schema_extra={
+                "enum": ["en", "es", "fr", "de"],
+                "enumNames": ["English", "Spanish", "French", "German"]
+            }
+        )
         notifications: bool = Field(True, description="Enable notifications?")
         
     result = await mcp.get_context().elicit(
@@ -135,7 +134,7 @@ async def preferences() -> ReadResourceResult:
     
     match result:
         case AcceptedElicitation(data=data):
-            response = f"Preferences set: Theme={data.theme.value}, Language={data.language.value}, Notifications={data.notifications}"
+            response = f"Preferences set: Theme={data.theme}, Language={data.language}, Notifications={data.notifications}"
         case DeclinedElicitation():
             response = "Preferences declined"
         case CancelledElicitation():
