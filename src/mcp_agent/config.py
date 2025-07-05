@@ -28,7 +28,7 @@ class MCPSamplingSettings(BaseModel):
 
 class MCPElicitationSettings(BaseModel):
     mode: Literal["forms", "auto_cancel", "none"] = "none"
-    """Elicitation mode: 'forms' (default UI), 'auto_cancel' (auto-decline), 'none' (no capability)"""
+    """Elicitation mode: 'forms' (default UI), 'auto_cancel', 'none' (no capability)"""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

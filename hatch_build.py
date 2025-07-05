@@ -28,6 +28,7 @@ class CustomBuildHook(BuildHookInterface):
             "examples/data-analysis": "src/mcp_agent/resources/examples/data-analysis",
             # examples/mcp/state-transfer -> src/mcp_agent/resources/examples/mcp/state-transfer
             "examples/mcp/state-transfer": "src/mcp_agent/resources/examples/mcp/state-transfer",
+            "examples/mcp/elicitations": "src/mcp_agent/resources/examples/mcp/elicitations",
         }
 
         print("Fast-agent build: Copying examples to resources...")

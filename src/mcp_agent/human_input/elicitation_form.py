@@ -150,7 +150,9 @@ class ElicitationForm:
 
         # Status line for error display (disabled ValidationToolbar to avoid confusion)
         self.status_control = FormattedTextControl(text="")
-        status_line = Window(self.status_control, height=1)
+        self.status_line = Window(
+            self.status_control, height=1
+        )  # Store reference for later clearing
 
         # Buttons - ensure they accept focus
         submit_btn = Button("Accept", handler=self._accept)
@@ -174,7 +176,7 @@ class ElicitationForm:
         )
 
         # Main layout
-        form_fields.extend([status_line, buttons])
+        form_fields.extend([self.status_line, buttons])
         content = HSplit(form_fields)
 
         # Add padding around content using HSplit and VSplit with empty windows
@@ -259,6 +261,10 @@ class ElicitationForm:
 
         # Create a root layout with the dialog and bottom toolbar
         def get_toolbar():
+            # When clearing, return empty to hide the toolbar completely
+            if hasattr(self, "_toolbar_hidden") and self._toolbar_hidden:
+                return FormattedText([])
+
             return FormattedText(
                 [
                     (
@@ -272,13 +278,23 @@ class ElicitationForm:
                 ]
             )
 
+        # Store toolbar function reference for later control
+        self._get_toolbar = get_toolbar
+        self._dialog = dialog
+
+        # Create toolbar window that we can reference later
+        self._toolbar_window = Window(
+            FormattedTextControl(get_toolbar), height=1, style="class:bottom-toolbar"
+        )
+
         # Add toolbar to the layout
         root_layout = HSplit(
             [
                 dialog,  # The main dialog
-                Window(FormattedTextControl(get_toolbar), height=1, style="class:bottom-toolbar"),
+                self._toolbar_window,
             ]
         )
+        self._root_layout = root_layout
 
         # Application with toolbar and validation - ensure our styles override defaults
         self.app = Application(
@@ -564,6 +580,7 @@ class ElicitationForm:
         try:
             self.result = self._get_form_data()
             self.action = "accept"
+            self._clear_status_bar()
             self.app.exit()
         except Exception as e:
             # Use styled error message
@@ -574,18 +591,40 @@ class ElicitationForm:
     def _cancel(self):
         """Handle cancel."""
         self.action = "cancel"
+        self._clear_status_bar()
         self.app.exit()
 
     def _decline(self):
         """Handle decline."""
         self.action = "decline"
+        self._clear_status_bar()
         self.app.exit()
 
     def _cancel_all(self):
         """Handle cancel all - cancels and disables future elicitations."""
         elicitation_state.disable_server(self.server_name)
         self.action = "disable"
+        self._clear_status_bar()
         self.app.exit()
+
+    def _clear_status_bar(self):
+        """Hide the status bar by removing it from the layout."""
+        # Create completely clean layout - just empty space with application background
+        from prompt_toolkit.layout import HSplit, Window
+        from prompt_toolkit.layout.controls import FormattedTextControl
+
+        # Create a simple empty window with application background
+        empty_window = Window(
+            FormattedTextControl(FormattedText([("class:application", "")])), height=1
+        )
+
+        # Replace entire layout with just the empty window
+        new_layout = HSplit([empty_window])
+
+        # Update the app's layout
+        if hasattr(self, "app") and self.app:
+            self.app.layout.container = new_layout
+            self.app.invalidate()
 
     async def run_async(self) -> tuple[str, Optional[Dict[str, Any]]]:
         """Run the form and return result."""
@@ -594,6 +633,7 @@ class ElicitationForm:
         except Exception as e:
             print(f"Form error: {e}")
             self.action = "cancel"
+            self._clear_status_bar()
         return self.action, self.result
 
 
