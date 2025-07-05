@@ -1,24 +1,24 @@
 """Simplified, robust elicitation form dialog."""
 
 from typing import Any, Dict, Optional
+
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
-from prompt_toolkit.layout import Layout, HSplit, VSplit, Window
-from prompt_toolkit.layout.controls import FormattedTextControl, BufferControl
-from prompt_toolkit.widgets import (
-    Label,
-    Button,
-    RadioList,
-    Checkbox,
-    Frame,
-    Dialog,
-    ValidationToolbar,
-)
+from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
-from prompt_toolkit.formatted_text import HTML, FormattedText
-from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.validation import Validator, ValidationError
+from prompt_toolkit.layout import HSplit, Layout, VSplit, Window
+from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+from prompt_toolkit.validation import ValidationError, Validator
+from prompt_toolkit.widgets import (
+    Button,
+    Checkbox,
+    Dialog,
+    Frame,
+    Label,
+    RadioList,
+)
 
 from mcp_agent.human_input.elicitation_forms import ELICITATION_STYLE
 from mcp_agent.human_input.elicitation_state import elicitation_state
@@ -111,12 +111,12 @@ class SimpleElicitationForm:
     def _build_form(self):
         """Build the form layout."""
 
-        # Fast-agent provided data (Agent and Server)
+        # Fast-agent provided data (Agent and MCP Server) - aligned labels
         fastagent_info = FormattedText(
             [
-                ("class:label", "Agent: "),
+                ("class:label", "Agent:      "),
                 ("class:agent-name", self.agent_name),
-                ("class:label", "\nServer: "),
+                ("class:label", "\nMCP Server: "),
                 ("class:server-name", self.server_name),
             ]
         )
@@ -132,18 +132,11 @@ class SimpleElicitationForm:
             height=len(self.message.split("\n")),
         )
 
-        # Separator between MCP server content and form fields
-        separator = Window(
-            FormattedTextControl(FormattedText([("class:separator", "─" * 50)])), height=1
-        )
-
-        # Create form fields - correct order now
+        # Create form fields - removed useless horizontal divider
         form_fields = [
             fastagent_header,  # Fast-agent info
             Window(height=1),  # Spacing
             mcp_header,  # MCP server message
-            Window(height=1),  # Spacing
-            separator,  # Separator AFTER MCP content
             Window(height=1),  # Spacing
         ]
 
@@ -178,7 +171,7 @@ class SimpleElicitationForm:
             ]
         )
 
-        # Main layout 
+        # Main layout
         form_fields.extend([status_line, buttons])
         content = HSplit(form_fields)
 
@@ -197,23 +190,44 @@ class SimpleElicitationForm:
             ]
         )
 
-        # Dialog
+        # Dialog - formatted title with better styling and text
         dialog = Dialog(
-            title="Elicitation Form",
+            title=FormattedText([("class:title", "Elicitation Request")]),
             body=padded_content,
-            with_background=True,
+            with_background=True,  # Re-enable background for proper layout
         )
 
         # Key bindings
         kb = KeyBindings()
-        
+
         @kb.add("tab")
         def focus_next_with_refresh(event):
             focus_next(event)
             event.app.invalidate()  # Force refresh for focus highlighting
-            
+
         @kb.add("s-tab")
         def focus_previous_with_refresh(event):
+            focus_previous(event)
+            event.app.invalidate()  # Force refresh for focus highlighting
+
+        # Arrow key navigation - let radio lists handle up/down first
+        @kb.add("down")
+        def focus_next_arrow(event):
+            focus_next(event)
+            event.app.invalidate()  # Force refresh for focus highlighting
+
+        @kb.add("up")
+        def focus_previous_arrow(event):
+            focus_previous(event)
+            event.app.invalidate()  # Force refresh for focus highlighting
+
+        @kb.add("right", eager=True)
+        def focus_next_right(event):
+            focus_next(event)
+            event.app.invalidate()  # Force refresh for focus highlighting
+
+        @kb.add("left", eager=True)
+        def focus_previous_left(event):
             focus_previous(event)
             event.app.invalidate()  # Force refresh for focus highlighting
 
@@ -229,10 +243,13 @@ class SimpleElicitationForm:
         def get_toolbar():
             return FormattedText(
                 [
-                    ("class:bottom-toolbar.text", " <TAB> to change fields. "),
                     (
                         "class:bottom-toolbar.text",
-                        "<Cancel All> Cancel all further elicitations from this MCP Server.",
+                        " <TAB> or ↑↓→← to change fields. <ESC> to cancel. ",
+                    ),
+                    (
+                        "class:bottom-toolbar.text",
+                        "<Cancel All> Cancel further elicitations from this Server.",
                     ),
                 ]
             )
@@ -249,7 +266,7 @@ class SimpleElicitationForm:
         self.app = Application(
             layout=Layout(root_layout),
             key_bindings=kb,
-            full_screen=False,
+            full_screen=False,  # Back to windowed mode for better integration
             mouse_support=False,
             style=ELICITATION_STYLE,
             include_default_pygments_style=False,  # Use only our custom style
@@ -265,13 +282,13 @@ class SimpleElicitationForm:
                     if widget:
                         first_field = widget
                         break
-                
+
                 if first_field:
                     self.app.layout.focus(first_field)
                 else:
                     # Fallback to first button if no fields
                     self.app.layout.focus(submit_btn)
-            except:
+            except Exception:
                 pass  # If focus fails, continue without it
 
         # Schedule focus setting for after layout is ready
@@ -358,15 +375,19 @@ class SimpleElicitationForm:
             )
             self.field_widgets[field_name] = buffer
 
-            # Create dynamic style function for focus highlighting
+            # Create dynamic style function for focus highlighting and validation errors
             def get_field_style():
-                """Dynamic style that changes based on focus."""
+                """Dynamic style that changes based on focus and validation state."""
                 from prompt_toolkit.application.current import get_app
-                if get_app().layout.has_focus(buffer):
+
+                # Check if buffer has validation errors
+                if buffer.validation_error:
+                    return "class:input-field.error"
+                elif get_app().layout.has_focus(buffer):
                     return "class:input-field.focused"
                 else:
                     return "class:input-field"
-            
+
             text_input = Window(
                 BufferControl(buffer=buffer),
                 height=1,
@@ -378,6 +399,19 @@ class SimpleElicitationForm:
     def _validate_form(self) -> tuple[bool, Optional[str]]:
         """Validate the entire form."""
 
+        # First, check all fields for validation errors from their validators
+        for field_name, field_def in self.properties.items():
+            widget = self.field_widgets.get(field_name)
+            if widget is None:
+                continue
+
+            # Check for validation errors from validators
+            if isinstance(widget, Buffer):
+                if widget.validation_error:
+                    title = field_def.get("title", field_name)
+                    return False, f"'{title}': {widget.validation_error.message}"
+
+        # Then check if required fields are empty
         for field_name in self.required_fields:
             widget = self.field_widgets.get(field_name)
             if widget is None:
@@ -410,9 +444,17 @@ class SimpleElicitationForm:
                 value = widget.text.strip()
                 if value:
                     if field_type == "integer":
-                        data[field_name] = int(value)
+                        try:
+                            data[field_name] = int(value)
+                        except ValueError:
+                            # This should not happen due to validation, but be safe
+                            raise ValueError(f"Invalid integer value for {field_name}: {value}")
                     elif field_type == "number":
-                        data[field_name] = float(value)
+                        try:
+                            data[field_name] = float(value)
+                        except ValueError:
+                            # This should not happen due to validation, but be safe
+                            raise ValueError(f"Invalid number value for {field_name}: {value}")
                     else:
                         data[field_name] = value
                 elif field_name not in self.required_fields:

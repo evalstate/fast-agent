@@ -16,21 +16,17 @@ fast = FastAgent("FastAgent Advanced Elicitation Example")
 async def main():
     # use the --model command line switch or agent arguments to change model
     async with fast.run() as agent:
-#        print("\n=== Testing Simple Rating ===")
-#        result = await agent.get_resource("elicitation://simple-rating")
-#        print(f"Result: {result}")
-        
-        print("\n=== Testing User Profile ===")
+        #        print("\n=== Testing Simple Rating ===")
+        #        result = await agent.get_resource("elicitation://simple-rating")
+        #        print(f"Result: {result}")
+        await agent.send("Hello, World!")
         result = await agent.get_resource("elicitation://user-profile")
-        print(f"Result: {result}")
-        
-        print("\n=== Testing Preferences ===")
-        result = await agent.get_resource("elicitation://preferences")
-        print(f"Result: {result}")
-        
-        print("\n=== Testing Feedback ===")
-        result = await agent.get_resource("elicitation://feedback")
-        print(f"Result: {result}")
+        await agent.send(result.contents[0].text)
+
+
+# result = await agent.get_resource("elicitation://preferences")
+
+# result = await agent.get_resource("elicitation://feedback")
 
 
 if __name__ == "__main__":
