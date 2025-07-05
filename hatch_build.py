@@ -45,3 +45,19 @@ class CustomBuildHook(BuildHookInterface):
                 print(f"  Warning: Source directory not found: {source_path}")
 
         print("Fast-agent build: Example copying completed.")
+
+        # Ensure the copied files are included in the build
+        if "artifacts" not in build_data:
+            build_data["artifacts"] = []
+
+        # Add all copied files as artifacts
+        for target_path in example_mappings.values():
+            target_dir = Path(self.root) / target_path
+            if target_dir.exists():
+                # Add all files in the target directory recursively
+                for file_path in target_dir.rglob("*"):
+                    if file_path.is_file():
+                        relative_path = str(file_path.relative_to(Path(self.root)))
+                        if relative_path not in build_data["artifacts"]:
+                            build_data["artifacts"].append(relative_path)
+                            print(f"  Added artifact: {relative_path}")
