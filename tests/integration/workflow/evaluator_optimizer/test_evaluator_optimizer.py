@@ -21,7 +21,7 @@ class EvaluationResult(BaseModel):
     )
 
 
-class TestOutput(BaseModel):
+class OutputModel(BaseModel):
     """Simple model for testing structured output."""
 
     result: str
@@ -266,8 +266,8 @@ async def test_structured_output(fast_agent):
                 [Prompt.user(f"{FIXED_RESPONSE_INDICATOR} {eval_json}")]
             )
 
-            # Structured output - setup generator to return valid TestOutput JSON
-            # For structured call, we need proper JSON that can parse into TestOutput
+            # Structured output - setup generator to return valid OutputModel JSON
+            # For structured call, we need proper JSON that can parse into OutputModel
             test_output = {"result": "Optimized output", "score": 95}
             test_output_json = json.dumps(test_output)
 
@@ -279,7 +279,7 @@ async def test_structured_output(fast_agent):
             # Try to get structured output - this will use the generator's structured method
             try:
                 result, _ = await agent.optimizer_struct.structured(
-                    [Prompt.user("Write something structured")], TestOutput
+                    [Prompt.user("Write something structured")], OutputModel
                 )
 
                 # If successful, verify the result
