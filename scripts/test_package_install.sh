@@ -1,5 +1,7 @@
 #!/bin/bash
-
+# Clean and recreate dist folder
+rm -rf dist
+mkdir -p dist
 # Build the package
 uv build
 
