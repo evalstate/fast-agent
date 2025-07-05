@@ -23,5 +23,5 @@ logger:
 mcp:
   servers:
     agent_one:
-      transport: sse
-      url: http://localhost:8001/sse
+      transport: http
+      url: http://localhost:8001/mcp
