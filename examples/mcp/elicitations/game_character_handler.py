@@ -14,6 +14,7 @@ from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
 from rich.console import Console
 from rich.progress import BarColumn, Progress, TextColumn
+from rich.prompt import Confirm
 from rich.table import Table
 
 from mcp_agent.logging.logger import get_logger
@@ -188,11 +189,37 @@ async def game_character_elicitation_handler(
 
         # Epic character summary with theatrical flair
         console.print("\n" + "=" * 70)
-        console.print("[bold cyan]📜 Your Legend Begins! 📜[/bold cyan]")
+        console.print("[bold cyan]📜 Your Character Has Been Rolled! 📜[/bold cyan]")
         console.print("=" * 70)
 
-        # Add some flourish based on the character's total power
+        # Show character summary
         total_stats = sum(content.get(stat, 10) for stat in stat_names if stat in content)
+
+        # Create a simple table
+        stats_table = Table(show_header=False, box=None)
+        stats_table.add_column("Label", style="cyan", width=15)
+        stats_table.add_column("Value", style="bold white")
+
+        if "character_name" in content:
+            stats_table.add_row("Name:", content["character_name"])
+        if "character_class" in content:
+            class_idx = class_enum.index(content["character_class"])
+            stats_table.add_row("Class:", class_names[class_idx])
+
+        stats_table.add_row("", "")  # Empty row for spacing
+
+        # Add stats
+        for stat in stat_names:
+            if stat in content:
+                stat_label = f"{stat.capitalize()}:"
+                stats_table.add_row(stat_label, str(content[stat]))
+
+        stats_table.add_row("", "")
+        stats_table.add_row("Total Power:", str(total_stats))
+
+        console.print(stats_table)
+
+        # Power message
         if total_stats > 60:
             console.print("✨ [bold gold1]The realm trembles before your might![/bold gold1] ✨")
         elif total_stats > 50:
@@ -202,9 +229,27 @@ async def game_character_elicitation_handler(
         else:
             console.print("🗡️ [bold white]Adventure awaits the worthy![/bold white] 🗡️")
 
-        console.print()
+        # Ask for confirmation
+        console.print("\n[bold yellow]Do you accept this character?[/bold yellow]")
+        console.print("[dim]Press Enter to accept, 'n' to decline, or Ctrl+C to cancel[/dim]\n")
 
-        return ElicitResult(action="accept", content=content)
+        try:
+            accepted = Confirm.ask("Accept character?", default=True)
+
+            if accepted:
+                console.print(
+                    "\n[bold green]✅ Character accepted! Your adventure begins![/bold green]"
+                )
+                return ElicitResult(action="accept", content=content)
+            else:
+                console.print(
+                    "\n[yellow]❌ Character declined. The fates will roll again...[/yellow]"
+                )
+                return ElicitResult(action="decline")
+        except KeyboardInterrupt:
+            console.print("\n[red]❌ Character creation cancelled![/red]")
+            return ElicitResult(action="cancel")
+
     else:
         # No schema, return a fun message
         content = {"response": "⚔️ Ready for adventure! ⚔️"}

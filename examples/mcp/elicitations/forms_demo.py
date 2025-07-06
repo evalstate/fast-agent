@@ -3,22 +3,19 @@ Quick Start: Elicitation Forms Demo
 
 This example demonstrates the elicitation forms feature of fast-agent.
 
-Read Resource requests are sent to the MCP Server, which creates an Elicitation
-Request which creates a form for the user to fill out. This is then returned to the MCP
-Server which sends the content back as Resource Content.
-
+When Read Resource requests are sent to the MCP Server, it generates an Elicitation
+which creates a form for the user to fill out.
+The results are returned to the demo program which prints out the results in a rich format.
 """
 
 import asyncio
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
 
 from mcp_agent.core.fastagent import FastAgent
 from mcp_agent.mcp.helpers.content_helpers import get_resource_text
 
-# Create the application with quiet mode enabled for cleaner demo output
 fast = FastAgent("Elicitation Forms Demo", quiet=True)
 console = Console()
 
@@ -30,87 +27,84 @@ console = Console()
     ],
 )
 async def main():
-    """Run the forms demo with rich output."""
+    """Run the improved forms demo showcasing all elicitation features."""
     async with fast.run() as agent:
         console.print("\n[bold cyan]Welcome to the Elicitation Forms Demo![/bold cyan]\n")
         console.print("This demo shows how to collect structured data using MCP Elicitations.")
         console.print("We'll present several forms and display the results collected for each.\n")
 
-        # Example 1: User Profile
-        console.print("[bold yellow]Example 1: User Profile Form[/bold yellow]")
-        result = await agent.get_resource("elicitation://user-profile")
+        # Example 1: Event Registration
+        console.print("[bold yellow]Example 1: Event Registration Form[/bold yellow]")
+        console.print(
+            "[dim]Demonstrates: string validation, email format, URL format, date format[/dim]"
+        )
+        result = await agent.get_resource("elicitation://event-registration")
 
         if result_text := get_resource_text(result):
             panel = Panel(
-                result_text, title="Profile Data Received", border_style="green", expand=False
+                result_text,
+                title="🎫 Registration Confirmation",
+                border_style="green",
+                expand=False,
             )
             console.print(panel)
         else:
-            console.print("[red]No profile data received[/red]")
+            console.print("[red]No registration data received[/red]")
 
         console.print("\n" + "─" * 50 + "\n")
 
-        # Example 2: Preferences
-        console.print("[bold yellow]Example 2: User Preferences[/bold yellow]")
-        result = await agent.get_resource("elicitation://preferences")
+        # Example 2: Product Review
+        console.print("[bold yellow]Example 2: Product Review Form[/bold yellow]")
+        console.print(
+            "[dim]Demonstrates: number validation (range), radio selection, multiline text[/dim]"
+        )
+        result = await agent.get_resource("elicitation://product-review")
 
         if result_text := get_resource_text(result):
-            # Parse the result to show in a table
-            table = Table(title="User Preferences", show_header=True, header_style="bold magenta")
-            table.add_column("Setting", style="cyan")
-            table.add_column("Value", style="green")
-
-            # Simple parsing of the result text
-            for line in result_text.split("\n"):
-                if ":" in line and "Preferences set" in line:
-                    prefs = line.split(": ", 1)[1]
-                    for pref in prefs.split(", "):
-                        if "=" in pref:
-                            key, value = pref.split("=", 1)
-                            table.add_row(key, value)
-
-            if table.row_count > 0:
-                console.print(table)
-            else:
-                console.print(Panel(result_text, border_style="green"))
-
-        console.print("\n" + "─" * 50 + "\n")
-
-        # Example 3: Simple Rating
-        console.print("[bold yellow]Example 3: Quick Rating[/bold yellow]")
-        result = await agent.get_resource("elicitation://simple-rating")
-
-        if result_text := get_resource_text(result):
-            # Create a visual representation of the rating
-            if "liked" in result_text:
-                rating_display = "⭐⭐⭐⭐⭐ Thank you for the positive feedback!"
-                style = "green"
-            elif "did not like" in result_text:
-                rating_display = "⭐ We'll work on improving!"
-                style = "yellow"
-            else:
-                rating_display = result_text
-                style = "blue"
-
-            console.print(
-                Panel(rating_display, title="Rating Result", border_style=style, expand=False)
+            review_panel = Panel(
+                result_text, title="🛍️ Product Review", border_style="cyan", expand=False
             )
+            console.print(review_panel)
 
         console.print("\n" + "─" * 50 + "\n")
 
-        # Example 4: Detailed Feedback
-        console.print("[bold yellow]Example 4: Detailed Feedback Form[/bold yellow]")
-        result = await agent.get_resource("elicitation://feedback")
+        # Example 3: Account Settings
+        console.print("[bold yellow]Example 3: Account Settings Form[/bold yellow]")
+        console.print(
+            "[dim]Demonstrates: boolean selections, radio selection, number validation[/dim]"
+        )
+        result = await agent.get_resource("elicitation://account-settings")
 
         if result_text := get_resource_text(result):
-            feedback_panel = Panel(
-                result_text, title="📝 Feedback Summary", border_style="cyan", expand=False
+            settings_panel = Panel(
+                result_text, title="⚙️ Account Settings", border_style="blue", expand=False
             )
-            console.print(feedback_panel)
+            console.print(settings_panel)
+
+        console.print("\n" + "─" * 50 + "\n")
+
+        # Example 4: Service Appointment
+        console.print("[bold yellow]Example 4: Service Appointment Booking[/bold yellow]")
+        console.print(
+            "[dim]Demonstrates: string validation, radio selection, boolean, datetime format[/dim]"
+        )
+        result = await agent.get_resource("elicitation://service-appointment")
+
+        if result_text := get_resource_text(result):
+            appointment_panel = Panel(
+                result_text, title="🔧 Appointment Confirmed", border_style="magenta", expand=False
+            )
+            console.print(appointment_panel)
 
         console.print("\n[bold green]✅ Demo Complete![/bold green]")
-        console.print("\nThis demo showed how elicitation forms can collect structured data")
-        console.print("and present results in an attractive, user-friendly format.")
+        console.print("\n[bold cyan]Features Demonstrated:[/bold cyan]")
+        console.print("• [green]String validation[/green] (min/max length)")
+        console.print("• [green]Number validation[/green] (range constraints)")
+        console.print("• [green]Radio selections[/green] (enum dropdowns)")
+        console.print("• [green]Boolean selections[/green] (checkboxes)")
+        console.print("• [green]Format validation[/green] (email, URL, date, datetime)")
+        console.print("• [green]Multiline text[/green] (expandable text areas)")
+        console.print("\nThese forms demonstrate natural, user-friendly data collection patterns!")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 """Simplified, robust elicitation form dialog."""
 
+from datetime import date, datetime
 from typing import Any, Dict, Optional
 
 from mcp.types import ElicitRequestedSchema
@@ -20,6 +21,8 @@ from prompt_toolkit.widgets import (
     Label,
     RadioList,
 )
+from pydantic import AnyUrl, EmailStr
+from pydantic import ValidationError as PydanticValidationError
 
 from mcp_agent.human_input.elicitation_forms import ELICITATION_STYLE
 from mcp_agent.human_input.elicitation_state import elicitation_state
@@ -82,6 +85,56 @@ class SimpleStringValidator(Validator):
                 message=f"Too long by {len(text) - self.max_length} chars",
                 cursor_position=self.max_length,
             )
+
+
+class FormatValidator(Validator):
+    """Format-specific validator using Pydantic validators."""
+
+    def __init__(self, format_type: str):
+        self.format_type = format_type
+
+    def validate(self, document):
+        text = document.text.strip()
+        if not text:
+            return  # Empty is OK for optional fields
+
+        try:
+            if self.format_type == "email":
+                # Use Pydantic model validation for email
+                from pydantic import BaseModel
+
+                class EmailModel(BaseModel):
+                    email: EmailStr
+
+                EmailModel(email=text)
+            elif self.format_type == "uri":
+                # Use Pydantic model validation for URI
+                from pydantic import BaseModel
+
+                class UriModel(BaseModel):
+                    uri: AnyUrl
+
+                UriModel(uri=text)
+            elif self.format_type == "date":
+                # Validate ISO date format (YYYY-MM-DD)
+                date.fromisoformat(text)
+            elif self.format_type == "date-time":
+                # Validate ISO datetime format
+                datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except (PydanticValidationError, ValueError):
+            # Extract readable error message
+            if self.format_type == "email":
+                message = "Invalid email format"
+            elif self.format_type == "uri":
+                message = "Invalid URI format"
+            elif self.format_type == "date":
+                message = "Invalid date (use YYYY-MM-DD)"
+            elif self.format_type == "date-time":
+                message = "Invalid datetime (use ISO 8601)"
+            else:
+                message = f"Invalid {self.format_type} format"
+
+            raise ValidationError(message=message, cursor_position=len(text))
 
 
 class ElicitationForm:
@@ -216,33 +269,27 @@ class ElicitationForm:
         @kb.add("tab")
         def focus_next_with_refresh(event):
             focus_next(event)
-            event.app.invalidate()  # Force refresh for focus highlighting
 
         @kb.add("s-tab")
         def focus_previous_with_refresh(event):
             focus_previous(event)
-            event.app.invalidate()  # Force refresh for focus highlighting
 
         # Arrow key navigation - let radio lists handle up/down first
         @kb.add("down")
         def focus_next_arrow(event):
             focus_next(event)
-            event.app.invalidate()  # Force refresh for focus highlighting
 
         @kb.add("up")
         def focus_previous_arrow(event):
             focus_previous(event)
-            event.app.invalidate()  # Force refresh for focus highlighting
 
         @kb.add("right", eager=True)
         def focus_next_right(event):
             focus_next(event)
-            event.app.invalidate()  # Force refresh for focus highlighting
 
         @kb.add("left", eager=True)
         def focus_previous_left(event):
             focus_previous(event)
-            event.app.invalidate()  # Force refresh for focus highlighting
 
         # Create filter for non-multiline fields
         not_in_multiline = Condition(lambda: not self._is_in_multiline_field())
@@ -366,14 +413,32 @@ class ElicitationForm:
         if description:
             label_text += f" - {description}"
 
-        # Add validation hints
+        # Add validation hints (simple ones stay on same line)
         hints = []
+        format_hint = None
+
         if field_type == "string":
             constraints = self._extract_string_constraints(field_def)
             if constraints.get("minLength"):
                 hints.append(f"min {constraints['minLength']} chars")
             if constraints.get("maxLength"):
                 hints.append(f"max {constraints['maxLength']} chars")
+
+            # Handle format hints separately (these go on next line)
+            format_type = field_def.get("format")
+            if format_type:
+                format_info = {
+                    "email": ("Email", "user@example.com"),
+                    "uri": ("URI", "https://example.com"),
+                    "date": ("Date", "YYYY-MM-DD"),
+                    "date-time": ("Date Time", "YYYY-MM-DD HH:MM:SS"),
+                }
+                if format_type in format_info:
+                    friendly_name, example = format_info[format_type]
+                    format_hint = f"{friendly_name}: {example}"
+                else:
+                    format_hint = format_type
+
         elif field_type in ["number", "integer"]:
             if field_def.get("minimum") is not None:
                 hints.append(f"min {field_def['minimum']}")
@@ -383,10 +448,16 @@ class ElicitationForm:
             enum_names = field_def.get("enumNames", field_def["enum"])
             hints.append(f"choose from: {', '.join(enum_names)}")
 
+        # Add simple hints to main label line
         if hints:
             label_text += f" ({', '.join(hints)})"
 
-        label = Label(text=label_text)
+        # Create multiline label if we have format hints
+        if format_hint:
+            label_lines = [label_text, f"  → {format_hint}"]
+            label = Label(text="\n".join(label_lines))
+        else:
+            label = Label(text=label_text)
 
         # Create input widget based on type
         if field_type == "boolean":
@@ -419,10 +490,17 @@ class ElicitationForm:
                 )
             elif field_type == "string":
                 constraints = self._extract_string_constraints(field_def)
-                validator = SimpleStringValidator(
-                    min_length=constraints.get("minLength"),
-                    max_length=constraints.get("maxLength"),
-                )
+                format_type = field_def.get("format")
+
+                if format_type in ["email", "uri", "date", "date-time"]:
+                    # Use format validator for specific formats
+                    validator = FormatValidator(format_type)
+                else:
+                    # Use string length validator for regular strings
+                    validator = SimpleStringValidator(
+                        min_length=constraints.get("minLength"),
+                        max_length=constraints.get("maxLength"),
+                    )
             else:
                 constraints = {}
 

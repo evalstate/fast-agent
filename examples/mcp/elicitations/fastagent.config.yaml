@@ -3,7 +3,7 @@
 #
 # Can be overriden with a command line switch --model=<model>, or within the Agent decorator.
 # Check here for current details: https://fast-agent.ai/models/
-# default_model: "haiku"
+default_model: "passthrough"
 
 # Logging and Console Configuration
 logger:
@@ -13,9 +13,23 @@ logger:
 # MCP Server Configuration
 mcp:
   servers:
-    # Main elicitation server with forms mode (for passthrough examples)
+    # Forms demo server - interactive form examples
     elicitation_forms_server:
       command: "uv"
       args: ["run", "elicitation_forms_server.py"]
       elicitation:
-        mode: "forms" # Can be "none", "auto_cancel" or "forms" (default: "forms").
+        mode: "forms" # Shows forms to users (default)
+
+    # Account creation server - for CALL_TOOL demos
+    elicitation_account_server:
+      command: "uv"
+      args: ["run", "elicitation_account_server.py"]
+      elicitation:
+        mode: "forms"
+
+    # Game character server - for custom handler demos
+    elicitation_game_server:
+      command: "uv"
+      args: ["run", "elicitation_game_server.py"]
+      elicitation:
+        mode: "forms"

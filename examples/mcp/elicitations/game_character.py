@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Demonstration of Custom Elicitation Handler
 
@@ -22,7 +23,7 @@ console = Console()
 
 @fast.agent(
     "character-creator",
-    servers=["elicitation_forms_server"],
+    servers=["elicitation_game_server"],
     # Register our handler from game_character_handler.py
     elicitation_handler=game_character_elicitation_handler,
 )
