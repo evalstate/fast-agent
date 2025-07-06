@@ -1,49 +1,21 @@
-# Configuration for Elicitation Examples
-
-# Default model - change this to use a real model for the account creation example
-default_model: passthrough
+# Model string takes format:
+#   <provider>.<model_string>.<reasoning_effort?> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini.low)
+#
+# Can be overriden with a command line switch --model=<model>, or within the Agent decorator.
+# Check here for current details: https://fast-agent.ai/models/
+# default_model: "haiku"
 
 # Logging and Console Configuration
 logger:
   level: "error"
   type: "console"
-  
-  # Switch the progress display on or off
-  progress_display: true
-  
-  # Show chat User/Assistant messages on the console
-  show_chat: true
-  # Show tool calls on the console
-  show_tools: false
-  # Truncate long tool responses on the console
-  truncate_tools: true
 
 # MCP Server Configuration
 mcp:
   servers:
     # Main elicitation server with forms mode (for passthrough examples)
-    elicitation_forms_mode:
+    elicitation_forms_server:
       command: "uv"
-      args: ["run", "python", "elicitation_server.py"]
-      transport: "stdio"
-      cwd: "."
+      args: ["run", "elicitation_forms_server.py"]
       elicitation:
-        mode: "forms"  # Shows forms to user for passthrough model
-    
-    # Elicitation server for LLM examples (LLM triggers elicitation, user fills form)
-    elicitation_llm_mode:
-      command: "uv"
-      args: ["run", "python", "elicitation_server.py"]
-      transport: "stdio"
-      cwd: "."
-      elicitation:
-        mode: "forms"  # User still fills out forms when LLM requests them
-    
-    # Elicitation server with custom handler (for whimsical example)
-    elicitation_custom_mode:
-      command: "uv"
-      args: ["run", "python", "elicitation_server.py"]
-      transport: "stdio"
-      cwd: "."
-      elicitation:
-        mode: "forms"  # Will be overridden by custom handler
+        mode: "forms" # Can be "none", "auto_cancel" or "forms" (default: "forms").

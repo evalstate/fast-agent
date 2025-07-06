@@ -1,9 +1,12 @@
 """
 Quick Start: Elicitation Forms Demo
 
-This example demonstrates the elicitation forms feature with rich console output.
-It uses the passthrough model to display forms to the user and shows the results
-in an attractive format using the rich library.
+This example demonstrates the elicitation forms feature of fast-agent.
+
+Read Resource requests are sent to the MCP Server, which creates an Elicitation
+Request which creates a form for the user to fill out. This is then returned to the MCP
+Server which sends the content back as Resource Content.
+
 """
 
 import asyncio
@@ -23,14 +26,14 @@ console = Console()
 @fast.agent(
     "forms-demo",
     servers=[
-        "elicitation_forms_mode",
+        "elicitation_forms_server",
     ],
 )
 async def main():
     """Run the forms demo with rich output."""
     async with fast.run() as agent:
         console.print("\n[bold cyan]Welcome to the Elicitation Forms Demo![/bold cyan]\n")
-        console.print("This demo shows how to collect structured data using MCP elicitations.")
+        console.print("This demo shows how to collect structured data using MCP Elicitations.")
         console.print("We'll present several forms and display the results collected for each.\n")
 
         # Example 1: User Profile
@@ -111,5 +114,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    # Quiet mode is enabled via the FastAgent constructor for cleaner demo output
     asyncio.run(main())

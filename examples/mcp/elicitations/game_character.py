@@ -1,5 +1,5 @@
 """
-Whimsical Game Character Creator with Custom Elicitation Handler
+Demonstration of Custom Elicitation Handler
 
 This example demonstrates a custom elicitation handler that creates
 an interactive game character creation experience with dice rolls,
@@ -16,15 +16,14 @@ from rich.panel import Panel
 from mcp_agent.core.fastagent import FastAgent
 from mcp_agent.mcp.helpers.content_helpers import get_resource_text
 
-# Create the application with quiet mode for cleaner demo output
 fast = FastAgent("Game Character Creator", quiet=True)
 console = Console()
 
 
 @fast.agent(
     "character-creator",
-    servers=["elicitation_custom_mode"],
-    # Register our custom handler from the separate module
+    servers=["elicitation_forms_server"],
+    # Register our handler from game_character_handler.py
     elicitation_handler=game_character_elicitation_handler,
 )
 async def main():
@@ -40,8 +39,6 @@ async def main():
             )
         )
 
-        await agent.send("Greetings, brave adventurer! Let's create your character...")
-
         # Trigger the character creation
         result = await agent.get_resource("elicitation://game-character")
 
@@ -51,7 +48,6 @@ async def main():
             )
             console.print(character_panel)
 
-            # Adventure hook
             console.print("\n[italic]Your character is ready for adventure![/italic]")
             console.print("[dim]The tavern door opens, and your journey begins...[/dim]\n")
 
