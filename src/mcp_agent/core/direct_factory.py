@@ -237,6 +237,7 @@ async def create_agents_by_type(
                     context=app_instance.context,
                     fan_in_agent=fan_in_agent,
                     fan_out_agents=fan_out_agents,
+                    include_request=agent_data.get("include_request", True),
                 )
                 await parallel.initialize()
                 result_agents[name] = parallel
