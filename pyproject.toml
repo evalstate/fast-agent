@@ -36,6 +36,7 @@ dependencies = [
     "tensorzero>=2025.6.3",
     "deprecated>=1.2.18",
     "a2a-sdk>=0.2.9",
+    "email-validator>=2.2.0",
 ]
 
 [project.optional-dependencies]
