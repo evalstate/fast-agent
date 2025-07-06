@@ -21,6 +21,7 @@ from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
+from mcp_agent.llm.providers.augmented_llm_ollama import OllamaAugmentedLLM
 
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
@@ -144,6 +145,7 @@ class ModelFactory:
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
         Provider.ALIYUN: AliyunAugmentedLLM,
+        Provider.OLLAMA: OllamaAugmentedLLM,  # Add this line
     }
 
     # Mapping of special model names to their specific LLM classes
