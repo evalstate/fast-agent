@@ -51,8 +51,6 @@ async def main():
         else:
             console.print("[red]No registration data received[/red]")
 
-        console.print("\n" + "─" * 50 + "\n")
-
         # Example 2: Product Review
         console.print("[bold yellow]Example 2: Product Review Form[/bold yellow]")
         console.print(
@@ -66,8 +64,6 @@ async def main():
             )
             console.print(review_panel)
 
-        console.print("\n" + "─" * 50 + "\n")
-
         # Example 3: Account Settings
         console.print("[bold yellow]Example 3: Account Settings Form[/bold yellow]")
         console.print(
@@ -80,8 +76,6 @@ async def main():
                 result_text, title="⚙️ Account Settings", border_style="blue", expand=False
             )
             console.print(settings_panel)
-
-        console.print("\n" + "─" * 50 + "\n")
 
         # Example 4: Service Appointment
         console.print("[bold yellow]Example 4: Service Appointment Booking[/bold yellow]")

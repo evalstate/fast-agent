@@ -1,16 +1,19 @@
 """Run an interactive agent directly from the command line."""
 
 import asyncio
+import shlex
 import sys
 from typing import Dict, List, Optional
 
 import typer
 
+from mcp_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from mcp_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from mcp_agent.core.fastagent import FastAgent
 
 app = typer.Typer(
-    help="Run an interactive agent directly from the command line without creating an agent.py file"
+    help="Run an interactive agent directly from the command line without creating an agent.py file",
+    context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
 
@@ -23,11 +26,11 @@ async def _run_agent(
     message: Optional[str] = None,
     prompt_file: Optional[str] = None,
     url_servers: Optional[Dict[str, Dict[str, str]]] = None,
+    stdio_servers: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> None:
     """Async implementation to run an interactive agent."""
     from pathlib import Path
 
-    from mcp_agent.config import MCPServerSettings, MCPSettings
     from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
     # Create the FastAgent instance
@@ -40,31 +43,9 @@ async def _run_agent(
 
     fast = FastAgent(**fast_kwargs)
 
-    # Add URL-based servers to the context configuration
-    if url_servers:
-        # Initialize the app to ensure context is ready
-        await fast.app.initialize()
-
-        # Initialize mcp settings if needed
-        if not hasattr(fast.app.context.config, "mcp"):
-            fast.app.context.config.mcp = MCPSettings()
-
-        # Initialize servers dictionary if needed
-        if (
-            not hasattr(fast.app.context.config.mcp, "servers")
-            or fast.app.context.config.mcp.servers is None
-        ):
-            fast.app.context.config.mcp.servers = {}
-
-        # Add each URL server to the config
-        for server_name, server_config in url_servers.items():
-            server_settings = {"transport": server_config["transport"], "url": server_config["url"]}
-
-            # Add headers if present in the server config
-            if "headers" in server_config:
-                server_settings["headers"] = server_config["headers"]
-
-            fast.app.context.config.mcp.servers[server_name] = MCPServerSettings(**server_settings)
+    # Add all dynamic servers to the configuration
+    await add_servers_to_config(fast, url_servers)
+    await add_servers_to_config(fast, stdio_servers)
 
     # Define the agent with specified parameters
     agent_kwargs = {"instruction": instruction}
@@ -109,6 +90,7 @@ def run_async_agent(
     model: Optional[str] = None,
     message: Optional[str] = None,
     prompt_file: Optional[str] = None,
+    stdio_commands: Optional[List[str]] = None,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -128,6 +110,60 @@ def run_async_agent(
         except ValueError as e:
             print(f"Error parsing URLs: {e}")
             return
+
+    # Generate STDIO server configurations if provided
+    stdio_servers = None
+
+    if stdio_commands:
+        stdio_servers = {}
+        for i, stdio_cmd in enumerate(stdio_commands):
+            # Parse the stdio command string
+            try:
+                parsed_command = shlex.split(stdio_cmd)
+                if not parsed_command:
+                    print(f"Error: Empty stdio command: {stdio_cmd}")
+                    continue
+
+                command = parsed_command[0]
+                initial_args = parsed_command[1:] if len(parsed_command) > 1 else []
+
+                # Generate a server name from the command
+                if initial_args:
+                    # Try to extract a meaningful name from the args
+                    for arg in initial_args:
+                        if arg.endswith(".py") or arg.endswith(".js") or arg.endswith(".ts"):
+                            base_name = generate_server_name(arg)
+                            break
+                    else:
+                        # Fallback to command name
+                        base_name = generate_server_name(command)
+                else:
+                    base_name = generate_server_name(command)
+
+                # Ensure unique server names when multiple servers
+                server_name = base_name
+                if len(stdio_commands) > 1:
+                    server_name = f"{base_name}_{i + 1}"
+
+                # Build the complete args list
+                stdio_command_args = initial_args.copy()
+
+                # Add this server to the configuration
+                stdio_servers[server_name] = {
+                    "transport": "stdio",
+                    "command": command,
+                    "args": stdio_command_args,
+                }
+
+                # Add STDIO server to the server list
+                if not server_list:
+                    server_list = [server_name]
+                else:
+                    server_list.append(server_name)
+
+            except ValueError as e:
+                print(f"Error parsing stdio command '{stdio_cmd}': {e}")
+                continue
 
     # Check if we're already in an event loop
     try:
@@ -153,6 +189,7 @@ def run_async_agent(
                 message=message,
                 prompt_file=prompt_file,
                 url_servers=url_servers,
+                stdio_servers=stdio_servers,
             )
         )
     finally:
@@ -171,7 +208,7 @@ def run_async_agent(
             pass
 
 
-@app.callback(invoke_without_command=True)
+@app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
     name: str = typer.Option("FastAgent CLI", "--name", help="Name for the agent"),
@@ -199,6 +236,15 @@ def go(
     prompt_file: Optional[str] = typer.Option(
         None, "--prompt-file", "-p", help="Path to a prompt file to use (either text or JSON)"
     ),
+    npx: Optional[str] = typer.Option(
+        None, "--npx", help="NPX package and args to run as MCP server (quoted)"
+    ),
+    uvx: Optional[str] = typer.Option(
+        None, "--uvx", help="UVX package and args to run as MCP server (quoted)"
+    ),
+    stdio: Optional[str] = typer.Option(
+        None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
+    ),
 ) -> None:
     """
     Run an interactive agent directly from the command line.
@@ -209,6 +255,10 @@ def go(
         fast-agent go --prompt-file=my-prompt.txt --model=haiku
         fast-agent go --url=http://localhost:8001/mcp,http://api.example.com/sse
         fast-agent go --url=https://api.example.com/mcp --auth=YOUR_API_TOKEN
+        fast-agent go --npx "@modelcontextprotocol/server-filesystem /path/to/data"
+        fast-agent go --uvx "mcp-server-fetch --verbose"
+        fast-agent go --stdio "python my_server.py --debug"
+        fast-agent go --stdio "uv run server.py --config=settings.json"
 
     This will start an interactive session with the agent, using the specified model
     and instruction. It will use the default configuration from fastagent.config.yaml
@@ -222,7 +272,22 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
+        --npx                 NPX package and args to run as MCP server (quoted)
+        --uvx                 UVX package and args to run as MCP server (quoted)
+        --stdio               Command to run as STDIO MCP server (quoted)
     """
+    # Collect all stdio commands from convenience options
+    stdio_commands = []
+
+    if npx:
+        stdio_commands.append(f"npx {npx}")
+
+    if uvx:
+        stdio_commands.append(f"uvx {uvx}")
+
+    if stdio:
+        stdio_commands.append(stdio)
+
     run_async_agent(
         name=name,
         instruction=instruction,
@@ -233,4 +298,5 @@ def go(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        stdio_commands=stdio_commands,
     )
