@@ -38,6 +38,7 @@ class AgentConfig:
     agent_type: AgentType = AgentType.BASIC
     default: bool = False
     elicitation_handler: ElicitationFnT | None = None
+    api_key: str | None = None
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

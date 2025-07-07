@@ -123,6 +123,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         ] = BasicFormatConverter,
         context: Optional["Context"] = None,
         model: Optional[str] = None,
+        api_key: Optional[str] = None,
         **kwargs: dict[str, Any],
     ) -> None:
         """
@@ -172,6 +173,8 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
         self.type_converter = type_converter
         self.verb = kwargs.get("verb")
+
+        self._init_api_key = api_key
 
         # Initialize usage tracking
         self.usage_accumulator = UsageAccumulator()
@@ -692,6 +695,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         return self._message_history
 
     def _api_key(self):
+        if self._init_api_key:
+            return self._init_api_key
+
         from mcp_agent.llm.provider_key_manager import ProviderKeyManager
 
         assert self.provider

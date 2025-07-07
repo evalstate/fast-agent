@@ -138,6 +138,7 @@ def _decorator_impl(
             human_input=human_input,
             default=default,
             elicitation_handler=extra_kwargs.get("elicitation_handler"),
+            api_key=extra_kwargs.get("api_key"),
         )
 
         # Update request params if provided
@@ -182,6 +183,7 @@ def agent(
     human_input: bool = False,
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -215,6 +217,7 @@ def agent(
         human_input=human_input,
         default=default,
         elicitation_handler=elicitation_handler,
+        api_key=api_key,
     )
 
 
@@ -232,6 +235,7 @@ def custom(
     human_input: bool = False,
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -265,6 +269,7 @@ def custom(
         agent_class=cls,
         default=default,
         elicitation_handler=elicitation_handler,
+        api_key=api_key,
     )
 
 
@@ -288,6 +293,7 @@ def orchestrator(
     plan_type: Literal["full", "iterative"] = "full",
     plan_iterations: int = 5,
     default: bool = False,
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
     """
     Decorator to create and register an orchestrator agent with type-safe signature.
@@ -326,6 +332,7 @@ def orchestrator(
             plan_type=plan_type,
             plan_iterations=plan_iterations,
             default=default,
+            api_key=api_key,
         ),
     )
 
@@ -345,6 +352,7 @@ def router(
     elicitation_handler: Optional[
         ElicitationFnT
     ] = None,  ## exclude from docs, decide whether allowable
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]:
     """
     Decorator to create and register a router agent with type-safe signature.
@@ -383,6 +391,7 @@ def router(
             default=default,
             router_agents=agents,
             elicitation_handler=elicitation_handler,
+            api_key=api_key,
         ),
     )
 
