@@ -302,7 +302,7 @@ class ElicitationForm:
         def submit_alt(event):
             self._accept()
 
-        @kb.add("escape")
+        @kb.add("escape", eager=True)
         def cancel(event):
             self._cancel()
 
