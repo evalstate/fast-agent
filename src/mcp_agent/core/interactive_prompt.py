@@ -53,6 +53,7 @@ class PromptProvider(Protocol):
     async def apply_prompt(
         self,
         prompt_name: str,
+        prompt_title: Optional[str] = None,
         arguments: Optional[Dict[str, str]] = None,
         agent_name: Optional[str] = None,
         **kwargs,
@@ -314,6 +315,7 @@ class InteractivePrompt:
                 table.add_column("#", justify="right", style="cyan")
                 table.add_column("Server", style="green")
                 table.add_column("Prompt Name", style="bright_blue")
+                table.add_column("Title")
                 table.add_column("Description")
                 table.add_column("Args", justify="center")
 
@@ -323,6 +325,7 @@ class InteractivePrompt:
                         str(i + 1),
                         prompt["server"],
                         prompt["name"],
+                        prompt["title"],
                         prompt["description"],
                         str(prompt["arg_count"]),
                     )
@@ -388,6 +391,7 @@ class InteractivePrompt:
                 for prompt in prompts:
                     # Get basic prompt info
                     prompt_name = getattr(prompt, "name", "Unknown")
+                    prompt_title = getattr(prompt, "title", "No title")
                     prompt_description = getattr(prompt, "description", "No description")
 
                     # Extract argument information
@@ -424,6 +428,7 @@ class InteractivePrompt:
                             "server": server_name,
                             "name": prompt_name,
                             "namespaced_name": namespaced_name,
+                            "title": prompt_title,
                             "description": prompt_description,
                             "arg_count": len(arg_names),
                             "arg_names": arg_names,
@@ -486,6 +491,7 @@ class InteractivePrompt:
                 table.add_column("#", justify="right", style="cyan")
                 table.add_column("Server", style="green")
                 table.add_column("Prompt Name", style="bright_blue")
+                table.add_column("Title")
                 table.add_column("Description")
                 table.add_column("Args", justify="center")
 
@@ -508,6 +514,7 @@ class InteractivePrompt:
                         str(i + 1),
                         prompt["server"],
                         prompt["name"],
+                        prompt["title"] or "No title",
                         prompt["description"] or "No description",
                         args_display,
                     )
@@ -669,6 +676,7 @@ class InteractivePrompt:
             table = Table(title="Available MCP Tools")
             table.add_column("#", justify="right", style="cyan")
             table.add_column("Tool Name", style="bright_blue")
+            table.add_column("Title")
             table.add_column("Description")
 
             # Add tools to table
@@ -676,6 +684,7 @@ class InteractivePrompt:
                 table.add_row(
                     str(i + 1),
                     tool.name,
+                    getattr(tool, "title", "No title") or "No title",
                     getattr(tool, "description", "No description") or "No description",
                 )
 
