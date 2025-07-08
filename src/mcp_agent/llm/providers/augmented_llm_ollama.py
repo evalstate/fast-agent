@@ -327,12 +327,15 @@ class OllamaAugmentedLLM(AugmentedLLM):
             payload = {
                 "model": effective_params.model,
                 "messages": ollama_messages,
-                "stream": False,
+                "stream": True,  # Enable streaming
             }
 
             # Add tools if provided
             if tools:
                 payload["tools"] = tools
+
+            # Log chat progress before starting the request (like OpenAI provider does)
+            self._log_chat_progress(self.chat_turn(), model=effective_params.model)
 
             async with client.post(
                     f"{self._base_url()}/api/chat",
@@ -343,31 +346,100 @@ class OllamaAugmentedLLM(AugmentedLLM):
                     error_text = await response.text()
                     raise Exception(f"Ollama API error {response.status}: {error_text}")
 
-                response_data = await response.json()
+                # Process streaming response
+                accumulated_response = {
+                    "model": effective_params.model,
+                    "created_at": None,
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": []
+                    },
+                    "done": False,
+                    "total_duration": None,
+                    "load_duration": None,
+                    "prompt_eval_count": None,
+                    "prompt_eval_duration": None,
+                    "eval_count": None,
+                    "eval_duration": None
+                }
+
+                estimated_tokens = 0
+
+                async for line in response.content:
+                    line = line.decode('utf-8').strip()
+                    if not line:
+                        continue
+
+                    try:
+                        chunk = json.loads(line)
+
+                        # Update basic response metadata
+                        if chunk.get("created_at"):
+                            accumulated_response["created_at"] = chunk["created_at"]
+                        if chunk.get("model"):
+                            accumulated_response["model"] = chunk["model"]
+
+                        # Process message content
+                        if "message" in chunk:
+                            message = chunk["message"]
+
+                            # Accumulate content
+                            if "content" in message and message["content"]:
+                                content = message["content"]
+                                accumulated_response["message"]["content"] += content
+
+                                # Update streaming progress
+                                estimated_tokens = self._update_streaming_progress(
+                                    content, effective_params.model, estimated_tokens
+                                )
+
+                            # Handle tool calls
+                            if "tool_calls" in message and message["tool_calls"]:
+                                accumulated_response["message"]["tool_calls"] = message["tool_calls"]
+
+                        # Check if done
+                        if chunk.get("done", False):
+                            accumulated_response["done"] = True
+                            accumulated_response["done_reason"] = chunk.get("done_reason")
+                            accumulated_response["total_duration"] = chunk.get("total_duration")
+                            accumulated_response["load_duration"] = chunk.get("load_duration")
+                            accumulated_response["prompt_eval_count"] = chunk.get("prompt_eval_count")
+                            accumulated_response["prompt_eval_duration"] = chunk.get("prompt_eval_duration")
+                            accumulated_response["eval_count"] = chunk.get("eval_count")
+                            accumulated_response["eval_duration"] = chunk.get("eval_duration")
+                            break
+
+                    except json.JSONDecodeError:
+                        logger.warning(f"Failed to parse JSON chunk: {line}")
+                        continue
 
                 # Add usage tracking if the response contains usage data
-                if response_data.get('done') and response_data.get('prompt_eval_count') is not None:
+                if accumulated_response.get('done') and accumulated_response.get('prompt_eval_count') is not None:
                     # Create a FastAgentUsage object that matches the expected schema
                     # Convert token counts to character estimates (rough approximation)
-                    input_chars = response_data.get('prompt_eval_count', 0) * 4  # ~4 chars per token
-                    output_chars = response_data.get('eval_count', 0) * 4
+                    input_chars = accumulated_response.get('prompt_eval_count', 0) * 4  # ~4 chars per token
+                    output_chars = accumulated_response.get('eval_count', 0) * 4
 
                     ollama_usage = FastAgentUsage(
                         input_chars=input_chars,
                         output_chars=output_chars,
                         model_type="ollama",
                         tool_calls=len(tools) if tools else 0,
-                        delay_seconds=response_data.get('total_duration', 0) / 1_000_000_000
+                        delay_seconds=accumulated_response.get('total_duration', 0) / 1_000_000_000
                         # Convert nanoseconds to seconds
                     )
 
                     turn_usage = TurnUsage.from_fast_agent(
                         usage=ollama_usage,
-                        model=response_data.get('model', effective_params.model)
+                        model=accumulated_response.get('model', effective_params.model)
                     )
                     self.usage_accumulator.add_turn(turn_usage)
 
-                return response_data
+                # Log chat finished (like OpenAI provider does)
+                self._log_chat_finished(model=effective_params.model)
+
+                return accumulated_response
 
         except Exception as e:
             logger.error(f"Error calling Ollama API: {e}", exc_info=True)
