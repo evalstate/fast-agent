@@ -302,7 +302,8 @@ class ElicitationForm:
         def submit_alt(event):
             self._accept()
 
-        @kb.add("escape")
+        # ESC should ALWAYS cancel immediately, no matter what
+        @kb.add("escape", eager=True, is_global=True)
         def cancel(event):
             self._cancel()
 

@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 app = typer.Typer(
-    help="Create example applications",
+    help="Create fast-agent quickstarts",
     no_args_is_help=False,  # Allow showing our custom help instead
 )
 console = Console()
@@ -227,7 +227,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
 
 def show_overview() -> None:
     """Display an overview of available examples in a nicely formatted table."""
-    console.print("\n[bold cyan]fast-agent Example Applications[/bold cyan]")
+    console.print("\n[bold cyan]fast-agent quickstarts[/bold cyan]")
     console.print("Build agents and compose workflows through practical examples\n")
 
     # Create a table for better organization
@@ -237,31 +237,23 @@ def show_overview() -> None:
     table.add_column("Files")
 
     for name, info in EXAMPLE_TYPES.items():
-        files_list = "\n".join(f"• {f}" for f in info["files"])
+        # Just show file count instead of listing all files
+        file_count = len(info["files"])
+        files_summary = f"{file_count} files"
         if "mount_point_files" in info:
-            files_list += "\n[blue]mount-point:[/blue]\n" + "\n".join(
-                f"• {f}" for f in info["mount_point_files"]
-            )
-        table.add_row(f"[green]{name}[/green]", info["description"], files_list)
+            mount_count = len(info["mount_point_files"])
+            files_summary += f"\n+ {mount_count} data files"
+        table.add_row(f"[green]{name}[/green]", info["description"], files_summary)
 
     console.print(table)
 
     # Show usage instructions in a panel
     usage_text = (
-        "[bold]Commands:[/bold]\n"
-        "  fastagent quickstart workflow DIR       Create workflow examples in DIR\n"
-        "  fastagent quickstart researcher DIR     Create researcher example in 'researcher' subdirectory\n"
-        "  fastagent quickstart data-analysis DIR  Create data analysis examples in 'data-analysis' subdirectory\n"
-        "  fastagent quickstart state-transfer DIR Create state transfer examples in 'state-transfer' subdirectory\n"
-        "  fastagent quickstart elicitations DIR   Create elicitation examples in 'elicitations' subdirectory\n\n"
+        "[bold]Usage:[/bold]\n"
+        "  [cyan]fast-agent[/cyan] [green]quickstart[/green] [yellow]<name>[/yellow] [dim]\\[directory][/dim]\n\n"
+        "[dim]directory optionally overrides the default subdirectory name[/dim]\n\n"
         "[bold]Options:[/bold]\n"
-        "  --force            Overwrite existing files\n\n"
-        "[bold]Examples:[/bold]\n"
-        "  fastagent quickstart workflow .              Create in current directory\n"
-        "  fastagent quickstart researcher .            Create in researcher subdirectory\n"
-        "  fastagent quickstart data-analysis . --force Force overwrite files in data-analysis subdirectory\n"
-        "  fastagent quickstart state-transfer .        Create state transfer examples\n"
-        "  fastagent quickstart elicitations .          Create elicitation form examples"
+        "  [cyan]--force[/cyan]            Overwrite existing files"
     )
     console.print(Panel(usage_text, title="Usage", border_style="blue"))
 
@@ -393,16 +385,16 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
         elif example_type == "state-transfer":
             console.print("Check https://fast-agent.ai for quick start walkthroughs")
         elif example_type == "elicitations":
-            console.print("1. Try the forms demo: uv run forms_demo.py")
-            console.print("2. For the AI assistant example, configure your API keys first")
+            console.print("1. Go to the `elicitations` subdirectory (cd elicitations)")
+            console.print("2. Try the forms demo: uv run forms_demo.py")
             console.print("3. Run the game character creator: uv run game_character.py")
-            console.print("4. Check the README.md for detailed information about elicitations")
+            console.print("Check https://fast-agent.ai/mcp/elicitations/ for more details")
     else:
         console.print("\n[yellow]No files were created.[/yellow]")
 
 
 @app.callback(invoke_without_command=True)
 def main(ctx: typer.Context) -> None:
-    """Create example applications and learn FastAgent patterns."""
+    """Quickstart applications for fast-agent."""
     if ctx.invoked_subcommand is None:
         show_overview()
