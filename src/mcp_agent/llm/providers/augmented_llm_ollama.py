@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 import aiohttp
 from mcp.types import TextContent, CallToolResult
@@ -17,8 +17,14 @@ DEFAULT_OLLAMA_MODEL = "llama3.2:latest"
 
 logger = logging.getLogger(__name__)
 
+OllamaRole = Literal["system", "user", "assistant", "tool"]
 
-def _extract_tool_result_text(result: CallToolResult) -> TextContent:
+class OllamaPromptMessageMultipart(PromptMessageMultipart):
+    """Extended PromptMessageMultipart that supports 'tool' role for Ollama."""
+    role: OllamaRole
+
+
+def _extract_tool_result_text(result: CallToolResult) -> str:
     """Extract text content from a CallToolResult."""
     if hasattr(result, 'content') and result.content:
         if isinstance(result.content, list) and len(result.content) > 0:
@@ -26,11 +32,11 @@ def _extract_tool_result_text(result: CallToolResult) -> TextContent:
             if hasattr(content_item, 'text'):
                 return content_item.text
             else:
-                return content_item
+                return str(content_item)
         else:
-            return result.content[0]
+            return str(result.content[0])
     else:
-        return result.content[0]
+        return str(result.content[0])
 
 
 def _convert_mcp_tools_to_ollama(mcp_tools) -> List[Dict[str, Any]]:
@@ -117,11 +123,11 @@ class OllamaAugmentedLLM(AugmentedLLM):
             self,
             multipart_messages: List[PromptMessageMultipart],
             request_params: Optional[RequestParams] = None,
+            is_template: bool = False,
             **kwargs,
     ) -> PromptMessageMultipart:
         """
         Apply prompt using Ollama's native API.
-        :param **kwargs:
         """
         try:
             # Get tools from the aggregator (this should be the agent's MCPAggregator)
@@ -142,7 +148,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
                     ]
 
             # Generate response with tools (returns Dict[str, Any])
-            response_dict = await self._generate_with_tools(multipart_messages, tools, request_params)
+            response_dict = await self._generate_with_tools(self._message_history, tools, request_params)
 
             # Check if the response contains tool calls
             message = response_dict.get("message", {})
@@ -172,32 +178,6 @@ class OllamaAugmentedLLM(AugmentedLLM):
         finally:
             # Always clean up the client connection after each agent execution
             await self._ensure_client_closed()
-
-    async def generate_messages(
-            self,
-            multipart_messages: List[PromptMessageMultipart],
-            request_params: Optional[RequestParams] = None,
-    ) -> PromptMessageMultipart:
-        """
-        Generate messages with visual feedback similar to Anthropic provider.
-        This method provides the interactive conversation flow display.
-        """
-        try:
-            # Call the main processing method
-            result = await self._apply_prompt_provider_specific(multipart_messages, request_params)
-
-            # Show usage summary if available
-            if hasattr(self, 'usage_accumulator') and self.usage_accumulator:
-                usage_summary = self.usage_accumulator.get_summary()
-                if usage_summary:
-                    # Display usage information similar to Anthropic
-                    self.display.show_usage_summary(usage_summary)
-
-            return result
-
-        except Exception as e:
-            logger.error(f"Error in generate_messages: {e}")
-            raise
 
     async def _handle_tool_calls_and_continue(
             self,
@@ -257,50 +237,75 @@ class OllamaAugmentedLLM(AugmentedLLM):
     ) -> PromptMessageMultipart:
         """Continue the conversation after tool execution, letting the model process the results."""
 
-        # Build conversation history including tool calls and results
-        conversation_messages = []
+        # Get tools for potential follow-up calls
+        tools = None
+        if hasattr(self, 'aggregator') and self.aggregator:
+            tools_result = await self.aggregator.list_tools()
+            if tools_result and tools_result.tools:
+                tools = [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.inputSchema
+                        }
+                    }
+                    for tool in tools_result.tools
+                ]
 
-        # Add original messages
-        for msg in original_messages:
-            conversation_messages.append(msg)
-
-        # Add the assistant's response with tool calls (if any initial content)
+        # Add the assistant's response with tool calls to the main history
         assistant_message = initial_response.get("message", {})
-        if assistant_message.get("content"):
-            assistant_content = assistant_message["content"]
-            conversation_messages.append(PromptMessageMultipart(
+        tool_calls = assistant_message.get("tool_calls", [])
+        assistant_content = assistant_message.get("content", "")
+
+        if tool_calls:
+            assistant_msg = PromptMessageMultipart(
                 role="assistant",
                 content=[TextContent(type="text", text=assistant_content)]
-            ))
+            )
+            self._message_history.append(assistant_msg)
 
-        # Add tool results as user messages (this is how Ollama expects it)
+        # Add tool results directly to the main history
         for tool_result in tool_results:
             tool_call = tool_result["call"]
             result_text = tool_result["result"]
 
-            # Format the tool result as a user message
-            tool_message = f"Tool call result for {tool_call.get('function', {}).get('name', 'unknown')}:\n{result_text}"
-            conversation_messages.append(PromptMessageMultipart(
-                role="user",
-                content=[TextContent(type="text", text=tool_message)]
-            ))
+            # Use our extended model that supports "tool" role
+            tool_message = OllamaPromptMessageMultipart(
+                role="tool",
+                content=[TextContent(type="text", text=result_text)]
+            )
+            self._message_history.append(tool_message)
 
-        # Now get the model's final response
-        final_response = await self._generate_with_tools(conversation_messages, None,
-                                                         request_params)  # Don't pass tools again
+        # Now get the model's final response using the main history
+        final_response = await self._generate_with_tools(self._message_history, tools, request_params)
 
-        # Extract the final content
-        final_content = final_response.get("message", {}).get("content", "")
+        # Check if the final response also contains tool calls
+        final_message = final_response.get("message", {})
+        final_tool_calls = final_message.get("tool_calls", [])
 
-        if not final_content:
-            final_content = "No response generated."
+        if final_tool_calls:
+            # Handle follow-up tool calls recursively
+            return await self._handle_tool_calls_and_continue(
+                final_response, original_messages, request_params
+            )
+        else:
+            # Extract the final content
+            final_content = final_message.get("content", "")
 
-        result = PromptMessageMultipart(
-            role="assistant",
-            content=[TextContent(type="text", text=final_content)]
-        )
+            if not final_content:
+                final_content = "No response generated."
 
-        return result
+            # Show the assistant's final response
+            await self.show_assistant_message(final_content)
+
+            # Create and return the final assistant response message
+            # Note: This will be added to history by the calling method
+            return PromptMessageMultipart(
+                role="assistant",
+                content=[TextContent(type="text", text=final_content)]
+            )
 
     async def _generate_with_tools(
             self,
@@ -360,7 +365,6 @@ class OllamaAugmentedLLM(AugmentedLLM):
                         usage=ollama_usage,
                         model=response_data.get('model', effective_params.model)
                     )
-                    # self.usage_accumulator.add_turn_usage(turn_usage)
                     self.usage_accumulator.add_turn(turn_usage)
 
                 return response_data
@@ -374,7 +378,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
             messages: List[PromptMessageMultipart],
             request_params: Optional[RequestParams] = None
     ) -> List[Dict[str, Any]]:
-        """Convert multipart messages to Ollama format, including system prompt."""
+        """Convert multipart messages to Ollama format, including system prompt and tool messages."""
         ollama_messages = []
 
         # Get effective request params to access the system prompt
@@ -391,10 +395,18 @@ class OllamaAugmentedLLM(AugmentedLLM):
         for i, message in enumerate(messages):
             if len(message.content) == 1 and hasattr(message.content[0], 'text'):
                 content_text = message.content[0].text
-                ollama_messages.append({
-                    "role": message.role,
-                    "content": content_text
-                })
+
+                # Handle tool role specifically
+                if message.role == "tool":
+                    ollama_messages.append({
+                        "role": "tool",
+                        "content": content_text
+                    })
+                else:
+                    ollama_messages.append({
+                        "role": message.role,
+                        "content": content_text
+                    })
             else:
                 # Handle multipart content
                 text_parts = []
@@ -413,7 +425,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
         return ollama_messages
 
     async def _execute_tool_call(self, tool_call: dict) -> CallToolResult:
-        """Execute a single tool call and return the result as a string."""
+        """Execute a single tool call and return the result."""
         function_call = tool_call["function"]
         tool_name = function_call["name"]
         try:
@@ -445,23 +457,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
                 # Show the tool result using the existing display method
                 self.show_tool_result(result)
 
-                # Format result as text for the conversation
-                if result.isError:
-                    error_text = []
-                    for content_item in result.content:
-                        if hasattr(content_item, "text"):
-                            error_text.append(content_item.text)
-                        else:
-                            error_text.append(str(content_item))
-                    return CallToolResult(content=[TextContent(type="text", text="\n".join(error_text))], isError=True)
-                else:
-                    result_text = []
-                    for content_item in result.content:
-                        if hasattr(content_item, "text"):
-                            result_text.append(content_item.text)
-                        else:
-                            result_text.append(str(content_item))
-                    return CallToolResult(content=[TextContent(type="text", text="\n".join(result_text))], isError=False)
+                return result
             else:
                 error_msg = f"No aggregator available to execute tool '{tool_name}'"
                 logger.error(error_msg)
