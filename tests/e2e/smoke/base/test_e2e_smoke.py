@@ -31,6 +31,7 @@ if TYPE_CHECKING:
         "gemini2",
         "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
         "azure.gpt-4.1",
+        "ollama.llama3.2:latest",
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -186,6 +187,7 @@ class WeatherForecast(BaseModel):
         "gemini2",
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
+        "ollama.llama3.2:latest",
     ],
 )
 async def test_structured_weather_forecast_openai_structured_api(fast_agent, model_name):
@@ -304,6 +306,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "gemini25",
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
+        "ollama.llama3.2:latest",
         "o3-mini.low",
         "azure.gpt-4.1",
     ],
