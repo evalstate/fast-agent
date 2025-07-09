@@ -1,14 +1,11 @@
 import json
 import logging
 import os
-import base64
-from typing import Any, Dict, List, Optional, Literal
+from typing import Dict, Any, List, Optional, Literal
 
 import aiohttp
-from mcp.types import TextContent, CallToolResult
+from mcp.types import CallToolResult
 from mcp.types import EmbeddedResource, ImageContent, TextContent
-from typing import Dict, Any, List, Optional, Union
-
 from mcp_agent.core.prompt import PromptMessageMultipart
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.augmented_llm import AugmentedLLM
@@ -21,6 +18,7 @@ DEFAULT_OLLAMA_MODEL = "llama3.2:latest"
 logger = logging.getLogger(__name__)
 
 OllamaRole = Literal["system", "user", "assistant", "tool"]
+
 
 class OllamaPromptMessageMultipart(PromptMessageMultipart):
     """Extended PromptMessageMultipart that supports the 'tool' role for Ollama."""
