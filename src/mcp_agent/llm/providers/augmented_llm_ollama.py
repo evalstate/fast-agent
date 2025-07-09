@@ -1,10 +1,13 @@
 import json
 import logging
 import os
+import base64
 from typing import Any, Dict, List, Optional, Literal
 
 import aiohttp
 from mcp.types import TextContent, CallToolResult
+from mcp.types import EmbeddedResource, ImageContent, TextContent
+from typing import Dict, Any, List, Optional, Union
 
 from mcp_agent.core.prompt import PromptMessageMultipart
 from mcp_agent.core.request_params import RequestParams
@@ -20,7 +23,7 @@ logger = logging.getLogger(__name__)
 OllamaRole = Literal["system", "user", "assistant", "tool"]
 
 class OllamaPromptMessageMultipart(PromptMessageMultipart):
-    """Extended PromptMessageMultipart that supports 'tool' role for Ollama."""
+    """Extended PromptMessageMultipart that supports the 'tool' role for Ollama."""
     role: OllamaRole
 
 
@@ -90,12 +93,19 @@ class OllamaAugmentedLLM(AugmentedLLM):
     async def _get_client(self) -> aiohttp.ClientSession:
         """Get or create an HTTP client."""
         if self._client is None or self._client.closed:
-            # Create a client with proper timeout and connector settings
+            # Create headers - only add Authorization if we have a token
+            headers = {"Content-Type": "application/json"}
+            auth_header = self._get_authorization_header()
+            if auth_header:
+                headers["Authorization"] = auth_header
+
+            # Create a client with proper timeout, connector settings, and headers
             connector = aiohttp.TCPConnector(limit=100, limit_per_host=30)
             timeout = aiohttp.ClientTimeout(total=300)
             self._client = aiohttp.ClientSession(
                 connector=connector,
-                timeout=timeout
+                timeout=timeout,
+                headers=headers
             )
         return self._client
 
@@ -271,7 +281,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
             tool_call = tool_result["call"]
             result_text = tool_result["result"]
 
-            # Use our extended model that supports "tool" role
+            # Use our extended model that supports the "tool" role
             tool_message = OllamaPromptMessageMultipart(
                 role="tool",
                 content=[TextContent(type="text", text=result_text)]
@@ -340,7 +350,6 @@ class OllamaAugmentedLLM(AugmentedLLM):
             async with client.post(
                     f"{self._base_url()}/api/chat",
                     json=payload,
-                    headers={"Content-Type": "application/json"}
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -445,57 +454,6 @@ class OllamaAugmentedLLM(AugmentedLLM):
             logger.error(f"Error calling Ollama API: {e}", exc_info=True)
             raise
 
-    def _convert_messages_to_ollama(
-            self,
-            messages: List[PromptMessageMultipart],
-            request_params: Optional[RequestParams] = None
-    ) -> List[Dict[str, Any]]:
-        """Convert multipart messages to Ollama format, including system prompt and tool messages."""
-        ollama_messages = []
-
-        # Get effective request params to access the system prompt
-        effective_params = self.get_request_params(request_params)
-
-        # Add a system message if we have a system prompt
-        if effective_params.systemPrompt:
-            ollama_messages.append({
-                "role": "system",
-                "content": effective_params.systemPrompt
-            })
-
-        # Convert the provided messages
-        for i, message in enumerate(messages):
-            if len(message.content) == 1 and hasattr(message.content[0], 'text'):
-                content_text = message.content[0].text
-
-                # Handle tool role specifically
-                if message.role == "tool":
-                    ollama_messages.append({
-                        "role": "tool",
-                        "content": content_text
-                    })
-                else:
-                    ollama_messages.append({
-                        "role": message.role,
-                        "content": content_text
-                    })
-            else:
-                # Handle multipart content
-                text_parts = []
-                for content in message.content:
-                    if hasattr(content, 'text'):
-                        text_parts.append(content.text)
-                    elif hasattr(content, 'resource'):
-                        text_parts.append(f"[Resource: {content.resource}]")
-
-                combined_content = " ".join(text_parts)
-                ollama_messages.append({
-                    "role": message.role,
-                    "content": combined_content
-                })
-
-        return ollama_messages
-
     async def _execute_tool_call(self, tool_call: dict) -> CallToolResult:
         """Execute a single tool call and return the result."""
         function_call = tool_call["function"]
@@ -557,3 +515,153 @@ class OllamaAugmentedLLM(AugmentedLLM):
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Async context manager exit."""
         await self.close()
+
+    def _get_authorization_header(self) -> Optional[str]:
+        """Get an Authorization header for Ollama API if configured."""
+        # Check for auth token in environment variable first
+        auth_token = os.getenv("OLLAMA_AUTH_TOKEN")
+
+        # Then check in config
+        if not auth_token and self.context.config and hasattr(self.context.config, 'ollama'):
+            ollama_config = self.context.config.ollama
+            if isinstance(ollama_config, dict):
+                auth_token = ollama_config.get('api_key', None)
+
+        if auth_token:
+            return f"Bearer {auth_token}"
+
+        return None
+
+    def _convert_messages_to_ollama(
+            self,
+            messages: List[PromptMessageMultipart],
+            request_params: Optional[RequestParams] = None
+    ) -> List[Dict[str, Any]]:
+        """Convert multipart messages to Ollama format, including system prompt, tool messages, and multimodal content."""
+        ollama_messages = []
+
+        # Get effective request params to access the system prompt
+        effective_params = self.get_request_params(request_params)
+
+        # Add a system message if we have a system prompt
+        if effective_params.systemPrompt:
+            ollama_messages.append({
+                "role": "system",
+                "content": effective_params.systemPrompt
+            })
+
+        # Convert the provided messages
+        for message in messages:
+            if message.role == "tool":
+                # Handle tool messages (text only)
+                if len(message.content) == 1 and hasattr(message.content[0], 'text'):
+                    ollama_messages.append({
+                        "role": "tool",
+                        "content": message.content[0].text
+                    })
+                else:
+                    # Fallback for complex tool content
+                    text_parts = self._extract_text_from_content(message.content)
+                    ollama_messages.append({
+                        "role": "tool",
+                        "content": " ".join(text_parts)
+                    })
+            else:
+                # Handle user/assistant messages with potential multimodal content
+                ollama_message = self._convert_multipart_message(message)
+                ollama_messages.append(ollama_message)
+
+        return ollama_messages
+
+    def _convert_multipart_message(self, message: PromptMessageMultipart) -> Dict[str, Any]:
+        """Convert a single multipart message to Ollama format with multimodal support."""
+        if len(message.content) == 1 and hasattr(message.content[0], 'text'):
+            # Simple text-only message
+            return {
+                "role": message.role,
+                "content": message.content[0].text
+            }
+
+        # Handle multimodal content
+        text_parts = []
+        images = []
+
+        for content in message.content:
+            if isinstance(content, TextContent):
+                text_parts.append(content.text)
+            elif isinstance(content, ImageContent):
+                # Convert image to base64 for Ollama
+                image_data = self._convert_image_content(content)
+                if image_data:
+                    images.append(image_data)
+            elif isinstance(content, EmbeddedResource):
+                # Handle embedded resources (PDFs, etc.)
+                resource_text = self._handle_embedded_resource(content)
+                if resource_text:
+                    text_parts.append(resource_text)
+            else:
+                # Handle other content types
+                if hasattr(content, 'text'):
+                    text_parts.append(content.text)
+                elif hasattr(content, 'resource'):
+                    text_parts.append(f"[Resource: {content.resource}]")
+
+        # Build the Ollama message
+        ollama_message = {
+            "role": message.role,
+            "content": " ".join(text_parts) if text_parts else ""
+        }
+
+        # Add images if present
+        if images:
+            ollama_message["images"] = images
+
+        return ollama_message
+
+    def _convert_image_content(self, image_content: ImageContent) -> Optional[str]:
+        """Convert ImageContent to base64 string for Ollama."""
+        try:
+            if hasattr(image_content, 'data') and image_content.data:
+                # Image data is already base64 encoded
+                return image_content.data
+            elif hasattr(image_content, 'url') and image_content.url:
+                # Handle image URLs - would need to fetch and encode
+                logger.warning(f"Image URL not directly supported in Ollama: {image_content.url}")
+                return None
+            else:
+                logger.warning("ImageContent missing both data and url")
+                return None
+        except Exception as e:
+            logger.error(f"Error converting image content: {e}")
+            return None
+
+    def _handle_embedded_resource(self, resource: EmbeddedResource) -> Optional[str]:
+        """Handle embedded resources like PDFs."""
+        try:
+            if hasattr(resource, 'text') and resource.text:
+                return resource.text
+            elif hasattr(resource, 'blob') and resource.blob:
+                # For PDFs and other binary content, we'd need to extract text
+                logger.warning(f"Binary resource content not directly supported: {resource.mimeType}")
+                return f"[Binary Resource: {resource.mimeType}]"
+            else:
+                return f"[Resource: {getattr(resource, 'uri', 'unknown')}]"
+        except Exception as e:
+            logger.error(f"Error handling embedded resource: {e}")
+            return None
+
+    def _extract_text_from_content(self, content_list: List[Any]) -> List[str]:
+        """Extract text parts from a list of content objects."""
+        text_parts = []
+        for content in content_list:
+            if isinstance(content, TextContent):
+                text_parts.append(content.text)
+            elif hasattr(content, 'text'):
+                text_parts.append(content.text)
+            elif isinstance(content, ImageContent):
+                text_parts.append("[Image]")
+            elif isinstance(content, EmbeddedResource):
+                text_parts.append(f"[Resource: {getattr(content, 'uri', 'unknown')}]")
+            else:
+                text_parts.append(str(content))
+        return text_parts
