@@ -244,9 +244,10 @@ class InteractivePrompt:
                                     "server": server_name,
                                     "name": prompt.name,
                                     "namespaced_name": f"{server_name}{SEP}{prompt.name}",
-                                    "description": getattr(prompt, "description", "No description"),
-                                    "arg_count": len(getattr(prompt, "arguments", [])),
-                                    "arguments": getattr(prompt, "arguments", []),
+                                    "title": getattr(prompt, "title", None),
+                                    "description": prompt.description or "No description",
+                                    "arg_count": len(prompt.arguments or []),
+                                    "arguments": prompt.arguments or [],
                                 }
                             )
                     elif isinstance(prompts_info, list) and prompts_info:
@@ -257,6 +258,7 @@ class InteractivePrompt:
                                         "server": server_name,
                                         "name": prompt["name"],
                                         "namespaced_name": f"{server_name}{SEP}{prompt['name']}",
+                                        "title": prompt.get("title", None),
                                         "description": prompt.get("description", "No description"),
                                         "arg_count": len(prompt.get("arguments", [])),
                                         "arguments": prompt.get("arguments", []),
@@ -264,17 +266,15 @@ class InteractivePrompt:
                                 )
                             else:
                                 # Handle Prompt objects from mcp.types
-                                prompt_name = getattr(prompt, "name", str(prompt))
-                                description = getattr(prompt, "description", "No description")
-                                arguments = getattr(prompt, "arguments", [])
                                 all_prompts.append(
                                     {
                                         "server": server_name,
-                                        "name": prompt_name,
-                                        "namespaced_name": f"{server_name}{SEP}{prompt_name}",
-                                        "description": description,
-                                        "arg_count": len(arguments),
-                                        "arguments": arguments,
+                                        "name": prompt.name,
+                                        "namespaced_name": f"{server_name}{SEP}{prompt.name}",
+                                        "title": getattr(prompt, "title", None),
+                                        "description": prompt.description or "No description",
+                                        "arg_count": len(prompt.arguments or []),
+                                        "arguments": prompt.arguments or [],
                                     }
                                 )
 
@@ -381,7 +381,7 @@ class InteractivePrompt:
                     continue
 
                 # Extract prompts
-                prompts = []
+                prompts: List[Prompt] = []
                 if hasattr(prompts_info, "prompts"):
                     prompts = prompts_info.prompts
                 elif isinstance(prompts_info, list):
@@ -390,9 +390,9 @@ class InteractivePrompt:
                 # Process each prompt
                 for prompt in prompts:
                     # Get basic prompt info
-                    prompt_name = getattr(prompt, "name", "Unknown")
-                    prompt_title = getattr(prompt, "title", "No title")
-                    prompt_description = getattr(prompt, "description", "No description")
+                    prompt_name = prompt.name
+                    prompt_title = getattr(prompt, "title", None)
+                    prompt_description = prompt.description or "No description"
 
                     # Extract argument information
                     arg_names = []
@@ -401,23 +401,19 @@ class InteractivePrompt:
                     arg_descriptions = {}
 
                     # Get arguments list
-                    arguments = getattr(prompt, "arguments", None)
-                    if arguments:
-                        for arg in arguments:
-                            name = getattr(arg, "name", None)
-                            if name:
-                                arg_names.append(name)
+                    if prompt.arguments:
+                        for arg in prompt.arguments:
+                            arg_names.append(arg.name)
 
-                                # Store description if available
-                                description = getattr(arg, "description", None)
-                                if description:
-                                    arg_descriptions[name] = description
+                            # Store description if available
+                            if arg.description:
+                                arg_descriptions[arg.name] = arg.description
 
-                                # Check if required
-                                if getattr(arg, "required", False):
-                                    required_args.append(name)
-                                else:
-                                    optional_args.append(name)
+                            # Check if required
+                            if arg.required:
+                                required_args.append(arg.name)
+                            else:
+                                optional_args.append(arg.name)
 
                     # Create namespaced version using the consistent separator
                     namespaced_name = f"{server_name}{SEP}{prompt_name}"
@@ -685,7 +681,7 @@ class InteractivePrompt:
                     str(i + 1),
                     tool.name,
                     getattr(tool, "title", "No title") or "No title",
-                    getattr(tool, "description", "No description") or "No description",
+                    tool.description or "No description",
                 )
 
             console.print(table)
