@@ -1,16 +1,16 @@
 import json
 import logging
 import os
-from typing import Dict, Any, List, Optional, Literal
+from typing import Any, Dict, List, Literal, Optional
 
 import aiohttp
-from mcp.types import CallToolResult
-from mcp.types import EmbeddedResource, ImageContent, TextContent
+from mcp.types import CallToolResult, EmbeddedResource, ImageContent, TextContent
+
 from mcp_agent.core.prompt import PromptMessageMultipart
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.augmented_llm import AugmentedLLM
 from mcp_agent.llm.provider_types import Provider
-from mcp_agent.llm.usage_tracking import TurnUsage, FastAgentUsage
+from mcp_agent.llm.usage_tracking import FastAgentUsage, TurnUsage
 
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2:latest"
@@ -22,15 +22,16 @@ OllamaRole = Literal["system", "user", "assistant", "tool"]
 
 class OllamaPromptMessageMultipart(PromptMessageMultipart):
     """Extended PromptMessageMultipart that supports the 'tool' role for Ollama."""
+
     role: OllamaRole
 
 
 def _extract_tool_result_text(result: CallToolResult) -> str:
     """Extract text content from a CallToolResult."""
-    if hasattr(result, 'content') and result.content:
+    if hasattr(result, "content") and result.content:
         if isinstance(result.content, list) and len(result.content) > 0:
             content_item = result.content[0]
-            if hasattr(content_item, 'text'):
+            if hasattr(content_item, "text"):
                 return content_item.text
             else:
                 return str(content_item)
@@ -45,14 +46,16 @@ def _convert_mcp_tools_to_ollama(mcp_tools) -> List[Dict[str, Any]]:
     ollama_tools = []
 
     for tool in mcp_tools:
-        ollama_tools.append({
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "parameters": tool.inputSchema if hasattr(tool, 'inputSchema') else {}
+        ollama_tools.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "parameters": tool.inputSchema if hasattr(tool, "inputSchema") else {},
+                },
             }
-        })
+        )
 
     return ollama_tools
 
@@ -79,13 +82,13 @@ class OllamaAugmentedLLM(AugmentedLLM):
     def _base_url(self) -> str:
         """Get Ollama base URL."""
         base_url = os.getenv("OLLAMA_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
-        if self.context.config and hasattr(self.context.config, 'ollama'):
+        if self.context.config and hasattr(self.context.config, "ollama"):
             # Handle both dict and object access patterns
             ollama_config = self.context.config.ollama
             if isinstance(ollama_config, dict):
-                base_url = ollama_config.get('base_url', base_url)
+                base_url = ollama_config.get("base_url", base_url)
             else:
-                base_url = getattr(ollama_config, 'base_url', base_url)
+                base_url = getattr(ollama_config, "base_url", base_url)
         return base_url
 
     async def _get_client(self) -> aiohttp.ClientSession:
@@ -101,23 +104,22 @@ class OllamaAugmentedLLM(AugmentedLLM):
             connector = aiohttp.TCPConnector(limit=100, limit_per_host=30)
             timeout = aiohttp.ClientTimeout(total=300)
             self._client = aiohttp.ClientSession(
-                connector=connector,
-                timeout=timeout,
-                headers=headers
+                connector=connector, timeout=timeout, headers=headers
             )
         return self._client
 
     async def _ensure_client_closed(self):
         """Ensure the HTTP client is properly closed."""
-        if hasattr(self, '_client') and self._client and not self._client.closed:
+        if hasattr(self, "_client") and self._client and not self._client.closed:
             await self._client.close()
             self._client = None
 
     def __del__(self):
         """Destructor - schedule cleanup if not already done."""
-        if hasattr(self, '_client') and self._client and not self._client.closed:
+        if hasattr(self, "_client") and self._client and not self._client.closed:
             # Schedule cleanup without failing if the event loop is closed
             import asyncio
+
             try:
                 loop = asyncio.get_event_loop()
                 if loop.is_running():
@@ -128,11 +130,11 @@ class OllamaAugmentedLLM(AugmentedLLM):
                 pass
 
     async def _apply_prompt_provider_specific(
-            self,
-            multipart_messages: List[PromptMessageMultipart],
-            request_params: Optional[RequestParams] = None,
-            is_template: bool = False,
-            **kwargs,
+        self,
+        multipart_messages: List[PromptMessageMultipart],
+        request_params: Optional[RequestParams] = None,
+        is_template: bool = False,
+        **kwargs,
     ) -> PromptMessageMultipart:
         """
         Apply prompt using Ollama's native API.
@@ -140,7 +142,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
         try:
             # Get tools from the aggregator (this should be the agent's MCPAggregator)
             tools = None
-            if hasattr(self, 'aggregator') and self.aggregator:
+            if hasattr(self, "aggregator") and self.aggregator:
                 tools_result = await self.aggregator.list_tools()
                 if tools_result and tools_result.tools:
                     tools = [
@@ -149,14 +151,16 @@ class OllamaAugmentedLLM(AugmentedLLM):
                             "function": {
                                 "name": tool.name,
                                 "description": tool.description,
-                                "parameters": tool.inputSchema
-                            }
+                                "parameters": tool.inputSchema,
+                            },
                         }
                         for tool in tools_result.tools
                     ]
 
             # Generate response with tools (returns Dict[str, Any])
-            response_dict = await self._generate_with_tools(self._message_history, tools, request_params)
+            response_dict = await self._generate_with_tools(
+                self._message_history, tools, request_params
+            )
 
             # Check if the response contains tool calls
             message = response_dict.get("message", {})
@@ -174,8 +178,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
                 # Create PromptMessageMultipart with the response text
                 result = PromptMessageMultipart(
-                    role="assistant",
-                    content=[TextContent(type="text", text=response_text)]
+                    role="assistant", content=[TextContent(type="text", text=response_text)]
                 )
 
             return result
@@ -188,10 +191,10 @@ class OllamaAugmentedLLM(AugmentedLLM):
             await self._ensure_client_closed()
 
     async def _handle_tool_calls_and_continue(
-            self,
-            initial_response: Dict[str, Any],
-            original_messages: List[PromptMessageMultipart],
-            request_params: Optional[RequestParams] = None,
+        self,
+        initial_response: Dict[str, Any],
+        original_messages: List[PromptMessageMultipart],
+        request_params: Optional[RequestParams] = None,
     ) -> PromptMessageMultipart:
         """Handle tool calls, execute them, and let the model continue with the results."""
 
@@ -201,8 +204,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
         if not tool_calls:
             return PromptMessageMultipart(
-                role="assistant",
-                content=[TextContent(type="text", text=content)]
+                role="assistant", content=[TextContent(type="text", text=content)]
             )
 
         # Execute all tool calls
@@ -213,17 +215,11 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
                 # Extract text from CallToolResult
                 tool_result_text = _extract_tool_result_text(result)
-                tool_results.append({
-                    "call": tool_call,
-                    "result": tool_result_text
-                })
+                tool_results.append({"call": tool_call, "result": tool_result_text})
 
             except Exception as e:
                 logger.error(f"Error executing tool call: {e}", exc_info=True)
-                tool_results.append({
-                    "call": tool_call,
-                    "result": f"Error: {str(e)}"
-                })
+                tool_results.append({"call": tool_call, "result": f"Error: {str(e)}"})
 
         # Now continue the conversation with tool results
         if tool_results:
@@ -232,22 +228,21 @@ class OllamaAugmentedLLM(AugmentedLLM):
             )
         else:
             return PromptMessageMultipart(
-                role="assistant",
-                content=[TextContent(type="text", text="Tool calls completed.")]
+                role="assistant", content=[TextContent(type="text", text="Tool calls completed.")]
             )
 
     async def _continue_conversation_with_tool_results(
-            self,
-            original_messages: List[PromptMessageMultipart],
-            initial_response: Dict[str, Any],
-            tool_results: List[Dict[str, Any]],
-            request_params: Optional[RequestParams] = None,
+        self,
+        original_messages: List[PromptMessageMultipart],
+        initial_response: Dict[str, Any],
+        tool_results: List[Dict[str, Any]],
+        request_params: Optional[RequestParams] = None,
     ) -> PromptMessageMultipart:
         """Continue the conversation after tool execution, letting the model process the results."""
 
         # Get tools for potential follow-up calls
         tools = None
-        if hasattr(self, 'aggregator') and self.aggregator:
+        if hasattr(self, "aggregator") and self.aggregator:
             tools_result = await self.aggregator.list_tools()
             if tools_result and tools_result.tools:
                 tools = [
@@ -256,8 +251,8 @@ class OllamaAugmentedLLM(AugmentedLLM):
                         "function": {
                             "name": tool.name,
                             "description": tool.description,
-                            "parameters": tool.inputSchema
-                        }
+                            "parameters": tool.inputSchema,
+                        },
                     }
                     for tool in tools_result.tools
                 ]
@@ -269,25 +264,24 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
         if tool_calls:
             assistant_msg = PromptMessageMultipart(
-                role="assistant",
-                content=[TextContent(type="text", text=assistant_content)]
+                role="assistant", content=[TextContent(type="text", text=assistant_content)]
             )
             self._message_history.append(assistant_msg)
 
         # Add tool results directly to the main history
         for tool_result in tool_results:
-            tool_call = tool_result["call"]
             result_text = tool_result["result"]
 
             # Use our extended model that supports the "tool" role
             tool_message = OllamaPromptMessageMultipart(
-                role="tool",
-                content=[TextContent(type="text", text=result_text)]
+                role="tool", content=[TextContent(type="text", text=result_text)]
             )
             self._message_history.append(tool_message)
 
         # Now get the model's final response using the main history
-        final_response = await self._generate_with_tools(self._message_history, tools, request_params)
+        final_response = await self._generate_with_tools(
+            self._message_history, tools, request_params
+        )
 
         # Check if the final response also contains tool calls
         final_message = final_response.get("message", {})
@@ -311,15 +305,14 @@ class OllamaAugmentedLLM(AugmentedLLM):
             # Create and return the final assistant response message
             # Note: This will be added to history by the calling method
             return PromptMessageMultipart(
-                role="assistant",
-                content=[TextContent(type="text", text=final_content)]
+                role="assistant", content=[TextContent(type="text", text=final_content)]
             )
 
     async def _generate_with_tools(
-            self,
-            messages: List[PromptMessageMultipart],
-            tools: Optional[List[Dict[str, Any]]] = None,
-            request_params: Optional[RequestParams] = None
+        self,
+        messages: List[PromptMessageMultipart],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        request_params: Optional[RequestParams] = None,
     ) -> Dict[str, Any]:
         """Generate a response using Ollama's native API with tool support."""
         client = await self._get_client()
@@ -346,8 +339,8 @@ class OllamaAugmentedLLM(AugmentedLLM):
             self._log_chat_progress(self.chat_turn(), model=effective_params.model)
 
             async with client.post(
-                    f"{self._base_url()}/api/chat",
-                    json=payload,
+                f"{self._base_url()}/api/chat",
+                json=payload,
             ) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -357,24 +350,20 @@ class OllamaAugmentedLLM(AugmentedLLM):
                 accumulated_response = {
                     "model": effective_params.model,
                     "created_at": None,
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": []
-                    },
+                    "message": {"role": "assistant", "content": "", "tool_calls": []},
                     "done": False,
                     "total_duration": None,
                     "load_duration": None,
                     "prompt_eval_count": None,
                     "prompt_eval_duration": None,
                     "eval_count": None,
-                    "eval_duration": None
+                    "eval_duration": None,
                 }
 
                 estimated_tokens = 0
 
                 async for line in response.content:
-                    line = line.decode('utf-8').strip()
+                    line = line.decode("utf-8").strip()
                     if not line:
                         continue
 
@@ -403,7 +392,9 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
                             # Handle tool calls
                             if "tool_calls" in message and message["tool_calls"]:
-                                accumulated_response["message"]["tool_calls"] = message["tool_calls"]
+                                accumulated_response["message"]["tool_calls"] = message[
+                                    "tool_calls"
+                                ]
 
                         # Check if done
                         if chunk.get("done", False):
@@ -411,8 +402,12 @@ class OllamaAugmentedLLM(AugmentedLLM):
                             accumulated_response["done_reason"] = chunk.get("done_reason")
                             accumulated_response["total_duration"] = chunk.get("total_duration")
                             accumulated_response["load_duration"] = chunk.get("load_duration")
-                            accumulated_response["prompt_eval_count"] = chunk.get("prompt_eval_count")
-                            accumulated_response["prompt_eval_duration"] = chunk.get("prompt_eval_duration")
+                            accumulated_response["prompt_eval_count"] = chunk.get(
+                                "prompt_eval_count"
+                            )
+                            accumulated_response["prompt_eval_duration"] = chunk.get(
+                                "prompt_eval_duration"
+                            )
                             accumulated_response["eval_count"] = chunk.get("eval_count")
                             accumulated_response["eval_duration"] = chunk.get("eval_duration")
                             break
@@ -422,24 +417,29 @@ class OllamaAugmentedLLM(AugmentedLLM):
                         continue
 
                 # Add usage tracking if the response contains usage data
-                if accumulated_response.get('done') and accumulated_response.get('prompt_eval_count') is not None:
+                if (
+                    accumulated_response.get("done")
+                    and accumulated_response.get("prompt_eval_count") is not None
+                ):
                     # Create a FastAgentUsage object that matches the expected schema
                     # Convert token counts to character estimates (rough approximation)
-                    input_chars = accumulated_response.get('prompt_eval_count', 0) * 4  # ~4 chars per token
-                    output_chars = accumulated_response.get('eval_count', 0) * 4
+                    input_chars = (
+                        accumulated_response.get("prompt_eval_count", 0) * 4
+                    )  # ~4 chars per token
+                    output_chars = accumulated_response.get("eval_count", 0) * 4
 
                     ollama_usage = FastAgentUsage(
                         input_chars=input_chars,
                         output_chars=output_chars,
                         model_type="ollama",
                         tool_calls=len(tools) if tools else 0,
-                        delay_seconds=accumulated_response.get('total_duration', 0) / 1_000_000_000
+                        delay_seconds=accumulated_response.get("total_duration", 0) / 1_000_000_000,
                         # Convert nanoseconds to seconds
                     )
 
                     turn_usage = TurnUsage.from_fast_agent(
                         usage=ollama_usage,
-                        model=accumulated_response.get('model', effective_params.model)
+                        model=accumulated_response.get("model", effective_params.model),
                     )
                     self.usage_accumulator.add_turn(turn_usage)
 
@@ -464,14 +464,11 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
             # Get available tools for display
             available_tools = []
-            if hasattr(self, 'aggregator') and self.aggregator:
+            if hasattr(self, "aggregator") and self.aggregator:
                 tools_result = await self.aggregator.list_tools()
                 if tools_result and tools_result.tools:
                     available_tools = [
-                        {
-                            "name": tool.name,
-                            "description": tool.description
-                        }
+                        {"name": tool.name, "description": tool.description}
                         for tool in tools_result.tools
                     ]
 
@@ -479,7 +476,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
             self.show_tool_call(available_tools, tool_name, tool_args)
 
             # Execute the tool
-            if hasattr(self, 'aggregator') and self.aggregator:
+            if hasattr(self, "aggregator") and self.aggregator:
                 result = await self.aggregator.call_tool(tool_name, tool_args)
 
                 # Show the tool result using the existing display method
@@ -489,7 +486,9 @@ class OllamaAugmentedLLM(AugmentedLLM):
             else:
                 error_msg = f"No aggregator available to execute tool '{tool_name}'"
                 logger.error(error_msg)
-                return CallToolResult(content=[TextContent(type="text", text=error_msg)], isError=True)
+                return CallToolResult(
+                    content=[TextContent(type="text", text=error_msg)], isError=True
+                )
 
         except Exception as e:
             error_msg = f"Error executing tool '{tool_name}': {str(e)}"
@@ -520,10 +519,10 @@ class OllamaAugmentedLLM(AugmentedLLM):
         auth_token = os.getenv("OLLAMA_AUTH_TOKEN")
 
         # Then check in config
-        if not auth_token and self.context.config and hasattr(self.context.config, 'ollama'):
+        if not auth_token and self.context.config and hasattr(self.context.config, "ollama"):
             ollama_config = self.context.config.ollama
             if isinstance(ollama_config, dict):
-                auth_token = ollama_config.get('api_key', None)
+                auth_token = ollama_config.get("api_key", None)
 
         if auth_token:
             return f"Bearer {auth_token}"
@@ -531,9 +530,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
         return None
 
     def _convert_messages_to_ollama(
-            self,
-            messages: List[PromptMessageMultipart],
-            request_params: Optional[RequestParams] = None
+        self, messages: List[PromptMessageMultipart], request_params: Optional[RequestParams] = None
     ) -> List[Dict[str, Any]]:
         """Convert multipart messages to Ollama format, including system prompt, tool messages, and multimodal content."""
         ollama_messages = []
@@ -543,27 +540,18 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
         # Add a system message if we have a system prompt
         if effective_params.systemPrompt:
-            ollama_messages.append({
-                "role": "system",
-                "content": effective_params.systemPrompt
-            })
+            ollama_messages.append({"role": "system", "content": effective_params.systemPrompt})
 
         # Convert the provided messages
         for message in messages:
             if message.role == "tool":
                 # Handle tool messages (text only)
-                if len(message.content) == 1 and hasattr(message.content[0], 'text'):
-                    ollama_messages.append({
-                        "role": "tool",
-                        "content": message.content[0].text
-                    })
+                if len(message.content) == 1 and hasattr(message.content[0], "text"):
+                    ollama_messages.append({"role": "tool", "content": message.content[0].text})
                 else:
                     # Fallback for complex tool content
                     text_parts = self._extract_text_from_content(message.content)
-                    ollama_messages.append({
-                        "role": "tool",
-                        "content": " ".join(text_parts)
-                    })
+                    ollama_messages.append({"role": "tool", "content": " ".join(text_parts)})
             else:
                 # Handle user/assistant messages with potential multimodal content
                 ollama_message = self._convert_multipart_message(message)
@@ -573,12 +561,9 @@ class OllamaAugmentedLLM(AugmentedLLM):
 
     def _convert_multipart_message(self, message: PromptMessageMultipart) -> Dict[str, Any]:
         """Convert a single multipart message to Ollama format with multimodal support."""
-        if len(message.content) == 1 and hasattr(message.content[0], 'text'):
+        if len(message.content) == 1 and hasattr(message.content[0], "text"):
             # Simple text-only message
-            return {
-                "role": message.role,
-                "content": message.content[0].text
-            }
+            return {"role": message.role, "content": message.content[0].text}
 
         # Handle multimodal content
         text_parts = []
@@ -599,15 +584,15 @@ class OllamaAugmentedLLM(AugmentedLLM):
                     text_parts.append(resource_text)
             else:
                 # Handle other content types
-                if hasattr(content, 'text'):
+                if hasattr(content, "text"):
                     text_parts.append(content.text)
-                elif hasattr(content, 'resource'):
+                elif hasattr(content, "resource"):
                     text_parts.append(f"[Resource: {content.resource}]")
 
         # Build the Ollama message
         ollama_message = {
             "role": message.role,
-            "content": " ".join(text_parts) if text_parts else ""
+            "content": " ".join(text_parts) if text_parts else "",
         }
 
         # Add images if present
@@ -619,10 +604,10 @@ class OllamaAugmentedLLM(AugmentedLLM):
     def _convert_image_content(self, image_content: ImageContent) -> Optional[str]:
         """Convert ImageContent to base64 string for Ollama."""
         try:
-            if hasattr(image_content, 'data') and image_content.data:
+            if hasattr(image_content, "data") and image_content.data:
                 # Image data is already base64 encoded
                 return image_content.data
-            elif hasattr(image_content, 'url') and image_content.url:
+            elif hasattr(image_content, "url") and image_content.url:
                 # Handle image URLs - would need to fetch and encode
                 logger.warning(f"Image URL not directly supported in Ollama: {image_content.url}")
                 return None
@@ -636,11 +621,13 @@ class OllamaAugmentedLLM(AugmentedLLM):
     def _handle_embedded_resource(self, resource: EmbeddedResource) -> Optional[str]:
         """Handle embedded resources like PDFs."""
         try:
-            if hasattr(resource, 'text') and resource.text:
+            if hasattr(resource, "text") and resource.text:
                 return resource.text
-            elif hasattr(resource, 'blob') and resource.blob:
+            elif hasattr(resource, "blob") and resource.blob:
                 # For PDFs and other binary content, we'd need to extract text
-                logger.warning(f"Binary resource content not directly supported: {resource.mimeType}")
+                logger.warning(
+                    f"Binary resource content not directly supported: {resource.mimeType}"
+                )
                 return f"[Binary Resource: {resource.mimeType}]"
             else:
                 return f"[Resource: {getattr(resource, 'uri', 'unknown')}]"
@@ -654,7 +641,7 @@ class OllamaAugmentedLLM(AugmentedLLM):
         for content in content_list:
             if isinstance(content, TextContent):
                 text_parts.append(content.text)
-            elif hasattr(content, 'text'):
+            elif hasattr(content, "text"):
                 text_parts.append(content.text)
             elif isinstance(content, ImageContent):
                 text_parts.append("[Image]")
