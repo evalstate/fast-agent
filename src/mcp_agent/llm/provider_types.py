@@ -14,6 +14,7 @@ class Provider(Enum):
     GENERIC = "generic"
     GOOGLE_OAI = "googleoai"  # For Google through OpenAI libraries
     GOOGLE = "google"  # For Google GenAI native library
+    OLLAMA = "ollama"  # Add native Ollama
     OPENAI = "openai"
     OPENROUTER = "openrouter"
     TENSORZERO = "tensorzero"  # For TensorZero Gateway

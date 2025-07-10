@@ -17,6 +17,7 @@ from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_native import GoogleNativeAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_oai import GoogleOaiAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_ollama import OllamaAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
@@ -144,6 +145,7 @@ class ModelFactory:
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
         Provider.ALIYUN: AliyunAugmentedLLM,
+        Provider.OLLAMA: OllamaAugmentedLLM,  # Add this line
     }
 
     # Mapping of special model names to their specific LLM classes
