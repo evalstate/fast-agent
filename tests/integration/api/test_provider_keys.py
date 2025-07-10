@@ -3,6 +3,7 @@ import os
 import pytest
 
 from mcp_agent.core.exceptions import ProviderKeyError
+from mcp_agent.llm.augmented_llm import AugmentedLLM
 from mcp_agent.llm.provider_key_manager import ProviderKeyManager
 
 
@@ -88,5 +89,22 @@ async def test_ollama_generic_api_key(fast_agent):
             finally:
                 if generic_key:
                     os.environ["GENERIC_API_KEY"] = generic_key
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_programmatic_api_key(fast_agent):
+    fast = fast_agent
+
+    @fast.agent(model="haiku", api_key="programmatic-api-key")
+    async def agent_function():
+        async with fast.run() as agent:
+            assert fast.config
+            assert "test-key-anth" == ProviderKeyManager.get_api_key("anthropic", fast.config)
+            assert "programmatic-api-key" == agent.default.config.api_key
+            assert isinstance(agent.default._llm, AugmentedLLM)
+            assert "programmatic-api-key" == agent.default._llm._api_key(), "api_key arg > config file"
 
     await agent_function()
