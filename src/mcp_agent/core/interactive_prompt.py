@@ -244,7 +244,7 @@ class InteractivePrompt:
                                     "server": server_name,
                                     "name": prompt.name,
                                     "namespaced_name": f"{server_name}{SEP}{prompt.name}",
-                                    "title": getattr(prompt, "title", None),
+                                    "title": prompt.title or None,
                                     "description": prompt.description or "No description",
                                     "arg_count": len(prompt.arguments or []),
                                     "arguments": prompt.arguments or [],
@@ -271,7 +271,7 @@ class InteractivePrompt:
                                         "server": server_name,
                                         "name": prompt.name,
                                         "namespaced_name": f"{server_name}{SEP}{prompt.name}",
-                                        "title": getattr(prompt, "title", None),
+                                        "title": prompt.title or None,
                                         "description": prompt.description or "No description",
                                         "arg_count": len(prompt.arguments or []),
                                         "arguments": prompt.arguments or [],
@@ -391,7 +391,7 @@ class InteractivePrompt:
                 for prompt in prompts:
                     # Get basic prompt info
                     prompt_name = prompt.name
-                    prompt_title = getattr(prompt, "title", None)
+                    prompt_title = prompt.title or None
                     prompt_description = prompt.description or "No description"
 
                     # Extract argument information
@@ -680,7 +680,7 @@ class InteractivePrompt:
                 table.add_row(
                     str(i + 1),
                     tool.name,
-                    getattr(tool, "title", "No title") or "No title",
+                    tool.title or "No title",
                     tool.description or "No description",
                 )
 
