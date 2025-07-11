@@ -3,7 +3,7 @@ Common constants and utilities shared between modules to avoid circular imports.
 """
 
 # Constants
-SEP = "-"
+SEP = ":"
 
 
 def create_namespaced_name(server_name: str, resource_name: str) -> str:
