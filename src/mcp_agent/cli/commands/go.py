@@ -47,15 +47,56 @@ async def _run_agent(
     await add_servers_to_config(fast, url_servers)
     await add_servers_to_config(fast, stdio_servers)
 
-    # Define the agent with specified parameters
-    agent_kwargs = {"instruction": instruction}
-    if server_list:
-        agent_kwargs["servers"] = server_list
-    if model:
-        agent_kwargs["model"] = model
+    # Check if we have multiple models (comma-delimited)
+    if model and "," in model:
+        # Parse multiple models
+        models = [m.strip() for m in model.split(",") if m.strip()]
 
-    # Handle prompt file and message options
-    if message or prompt_file:
+        # Create an agent for each model
+        fan_out_agents = []
+        for i, model_name in enumerate(models):
+            agent_name = f"{model_name}_agent"
+
+            # Define the agent with specified parameters
+            agent_kwargs = {"instruction": instruction, "name": agent_name}
+            if server_list:
+                agent_kwargs["servers"] = server_list
+            agent_kwargs["model"] = model_name
+
+            @fast.agent(**agent_kwargs)
+            async def model_agent():
+                pass
+
+            fan_out_agents.append(agent_name)
+
+        # Create a parallel agent without fan_in (using default passthrough)
+        @fast.parallel(
+            name="parallel",
+            fan_out=fan_out_agents,
+            fan_in=None,  # This will create a default passthrough fan_in
+            include_request=True,
+        )
+        async def cli_agent():
+            async with fast.run() as agent:
+                if message:
+                    response = await agent.cli_agent.send(message)
+                    # Print the response and exit
+                    print(response)
+                elif prompt_file:
+                    prompt = load_prompt_multipart(Path(prompt_file))
+                    response = await agent.cli_agent.generate(prompt)
+                    # Print the response text and exit
+                    print(response.last_text())
+                else:
+                    await agent.interactive(agent_name="parallel")
+    else:
+        # Single model - use original behavior
+        # Define the agent with specified parameters
+        agent_kwargs = {"instruction": instruction}
+        if server_list:
+            agent_kwargs["servers"] = server_list
+        if model:
+            agent_kwargs["model"] = model
 
         @fast.agent(**agent_kwargs)
         async def cli_agent():
@@ -69,12 +110,8 @@ async def _run_agent(
                     response = await agent.default.generate(prompt)
                     # Print the response text and exit
                     print(response.last_text())
-    else:
-        # Standard interactive mode
-        @fast.agent(**agent_kwargs)
-        async def cli_agent():
-            async with fast.run() as agent:
-                await agent.interactive()
+                else:
+                    await agent.interactive()
 
     # Run the agent
     await cli_agent()

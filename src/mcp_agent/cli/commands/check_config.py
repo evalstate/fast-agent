@@ -109,13 +109,14 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     secrets_status = secrets_summary.get("status", "not_found")
     # Get config if available
     config = config_summary if config_summary.get("status") == "parsed" else {}
+
     config_azure = {}
     if config and "azure" in config.get("config", {}):
         config_azure = config["config"]["azure"]
 
-    for provider_value in results:
+    for provider in results:
         # Special handling for Azure: support api_key and DefaultAzureCredential
-        if provider_value == "azure":
+        if provider == "azure":
             # Prefer secrets if present, else fallback to config
             azure_cfg = {}
             if secrets_status == "parsed" and "azure" in secrets:
@@ -125,40 +126,26 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
 
             use_default_cred = azure_cfg.get("use_default_azure_credential", False)
             base_url = azure_cfg.get("base_url")
-            api_key = azure_cfg.get("api_key")
-            # DefaultAzureCredential mode
             if use_default_cred and base_url:
-                results[provider_value]["config"] = "DefaultAzureCredential"
-            # API key mode (retrocompatible)
-            if api_key and api_key != API_KEY_HINT_TEXT:
-                if len(api_key) > 5:
-                    if results[provider_value]["config"]:
-                        results[provider_value]["config"] += " + api_key"
-                    else:
-                        results[provider_value]["config"] = f"...{api_key[-5:]}"
-                else:
-                    if results[provider_value]["config"]:
-                        results[provider_value]["config"] += " + api_key"
-                    else:
-                        results[provider_value]["config"] = "...***"
-        else:
-            # Check environment variables using ProviderKeyManager
-            env_key_name = ProviderKeyManager.get_env_key_name(provider_value)
-            env_key_value = os.environ.get(env_key_name)
-            if env_key_value:
-                if len(env_key_value) > 5:
-                    results[provider_value]["env"] = f"...{env_key_value[-5:]}"
-                else:
-                    results[provider_value]["env"] = "...***"
+                results[provider]["config"] = "DefaultAzureCredential"
+                continue
 
-            # Check secrets file if it was parsed successfully
-            if secrets_status == "parsed":
-                config_key = ProviderKeyManager.get_config_file_key(provider_value, secrets)
-                if config_key and config_key != API_KEY_HINT_TEXT:
-                    if len(config_key) > 5:
-                        results[provider_value]["config"] = f"...{config_key[-5:]}"
-                    else:
-                        results[provider_value]["config"] = "...***"
+        env_key_name = ProviderKeyManager.get_env_key_name(provider)
+        env_key_value = os.environ.get(env_key_name)
+        if env_key_value:
+            if len(env_key_value) > 5:
+                results[provider]["env"] = f"...{env_key_value[-5:]}"
+            else:
+                results[provider]["env"] = "...***"
+        print(provider, ProviderKeyManager.get_env_key_name(provider), env_key_value)
+        # Check secrets file if it was parsed successfully
+        if secrets_status == "parsed":
+            config_key = ProviderKeyManager.get_config_file_key(provider, secrets)
+            if config_key and config_key != API_KEY_HINT_TEXT:
+                if len(config_key) > 5:
+                    results[provider]["config"] = f"...{config_key[-5:]}"
+                else:
+                    results[provider]["config"] = "...***"
 
     return results
 
@@ -228,10 +215,11 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
                 if "url" in server_config:
                     url = server_config.get("url", "")
                     server_info["url"] = url
-                    
+
                     # Use URL path to determine transport type
                     try:
                         from .url_parser import parse_server_url
+
                         _, transport_type, _ = parse_server_url(url)
                         server_info["transport"] = transport_type.upper()
                     except Exception:

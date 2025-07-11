@@ -69,7 +69,7 @@ class AzureOpenAIAugmentedLLM(OpenAIAugmentedLLM):
 
             self.get_azure_token = get_azure_token
         else:
-            self.api_key = getattr(azure_cfg, "api_key", None)
+            self.api_key = self._api_key()
             self.resource_name = getattr(azure_cfg, "resource_name", None)
             self.base_url = getattr(azure_cfg, "base_url", None) or (
                 f"https://{self.resource_name}.openai.azure.com/" if self.resource_name else None

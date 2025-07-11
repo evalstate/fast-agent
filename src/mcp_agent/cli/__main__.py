@@ -14,12 +14,13 @@ def main():
         first_arg = sys.argv[1]
 
         if first_arg not in KNOWN_SUBCOMMANDS and any(
-            arg in sys.argv for arg in GO_SPECIFIC_OPTIONS
+            arg in sys.argv or any(arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS)
+            for arg in sys.argv
         ):
             # Find where to insert 'go' - before the first go-specific option
             insert_pos = 1
             for i, arg in enumerate(sys.argv[1:], 1):
-                if arg in GO_SPECIFIC_OPTIONS:
+                if arg in GO_SPECIFIC_OPTIONS or any(arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS):
                     insert_pos = i
                     break
             # Auto-route to go command
