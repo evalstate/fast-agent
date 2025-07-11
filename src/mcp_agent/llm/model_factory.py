@@ -17,10 +17,10 @@ from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_native import GoogleNativeAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_oai import GoogleOaiAugmentedLLM
-from mcp_agent.llm.providers.augmented_llm_xai import XAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_xai import XAIAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
