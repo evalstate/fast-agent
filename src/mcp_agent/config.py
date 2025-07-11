@@ -181,9 +181,10 @@ class XAISettings(BaseModel):
     """
 
     api_key: str | None = None
-    base_url: str | None = None  # Optional, can be constructed from resource_name
+    base_url: str | None = "https://api.x.ai/v1"
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
 
 class GenericSettings(BaseModel):
     """

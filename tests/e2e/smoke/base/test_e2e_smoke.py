@@ -23,14 +23,15 @@ if TYPE_CHECKING:
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
         "deepseek",
-        #        "generic.qwen2.5:latest",
-        #        "generic.llama3.2:latest",
+        "generic.qwen2.5:latest",
+        "generic.llama3.2:latest",
         "openrouter.google/gemini-2.0-flash-001",
         "googleoai.gemini-2.5-flash-preview-05-20",
         "google.gemini-2.0-flash",
         "gemini2",
         "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
         "azure.gpt-4.1",
+        "grok-3-fast",
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -59,7 +60,7 @@ async def test_basic_textual_prompting(fast_agent, model_name):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    ["gpt-4.1-nano", "generic.qwen2.5:latest", "haiku"],
+    ["gpt-4.1-nano", "generic.qwen2.5:latest", "haiku", "grok-3-fast"],
 )
 async def test_open_ai_history(fast_agent, model_name):
     """Test that the agent can process an image and respond appropriately."""
@@ -186,6 +187,8 @@ class WeatherForecast(BaseModel):
         "gemini2",
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
+        "grok-3",
+        #  "grok-4", slow,
     ],
 )
 async def test_structured_weather_forecast_openai_structured_api(fast_agent, model_name):
@@ -306,6 +309,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "generic.llama3.2:latest",
         "o3-mini.low",
         "azure.gpt-4.1",
+        "grok-3",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
@@ -327,7 +331,9 @@ async def test_basic_tool_calling(fast_agent, model_name):
 
             assert not os.path.exists("weather_location.txt")
 
-            response = await agent.send(Prompt.user("what is the weather in london"))
+            response = await agent.send(
+                Prompt.user("what is the weather in london. use appropriate tools")
+            )
             assert "sunny" in response
 
             # Check that the file exists after response
@@ -353,6 +359,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "openrouter.anthropic/claude-3.7-sonnet",
         "openrouter.google/gemini-2.5-flash",
         "azure.gpt-4.1",
+        "grok-3",
     ],
 )
 async def test_tool_calls_no_args(fast_agent, model_name):

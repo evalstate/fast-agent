@@ -7,6 +7,7 @@ from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 XAI_BASE_URL = "https://api.x.ai/v1"
 DEFAULT_XAI_MODEL = "grok-3"
 
+
 class XAIAugmentedLLM(OpenAIAugmentedLLM):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(
@@ -31,3 +32,7 @@ class XAIAugmentedLLM(OpenAIAugmentedLLM):
             base_url = self.context.config.xai.base_url
 
         return base_url
+
+    async def _is_tool_stop_reason(self, finish_reason: str) -> bool:
+        # grok uses Null as the finish reason for tool calls?
+        return await super()._is_tool_stop_reason(finish_reason) or finish_reason is None
