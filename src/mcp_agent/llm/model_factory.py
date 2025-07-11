@@ -17,6 +17,7 @@ from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_native import GoogleNativeAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_oai import GoogleOaiAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_xai import XAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
@@ -106,6 +107,12 @@ class ModelFactory:
         "gemini-2.0-flash": Provider.GOOGLE,
         "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
         "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
+        "grok-4": Provider.XAI,
+        "grok-4-0709": Provider.XAI,
+        "grok-3": Provider.XAI,
+        "grok-3-mini": Provider.XAI,
+        "grok-3-fast": Provider.XAI,
+        "grok-3-mini-fast": Provider.XAI,
         "qwen-turbo": Provider.ALIYUN,
         "qwen-plus": Provider.ALIYUN,
         "qwen-max": Provider.ALIYUN,
@@ -140,6 +147,7 @@ class ModelFactory:
         Provider.GENERIC: GenericAugmentedLLM,
         Provider.GOOGLE_OAI: GoogleOaiAugmentedLLM,
         Provider.GOOGLE: GoogleNativeAugmentedLLM,
+        Provider.XAI: XAIAugmentedLLM,
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
         Provider.TENSORZERO: TensorZeroAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,

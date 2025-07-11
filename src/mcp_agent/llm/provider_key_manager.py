@@ -15,6 +15,7 @@ PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
     "openai": "OPENAI_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "google": "GOOGLE_API_KEY",
+    "xai": "XAI_API_KEY",
     "openrouter": "OPENROUTER_API_KEY",
     "generic": "GENERIC_API_KEY",
     "huggingface": "HF_TOKEN",

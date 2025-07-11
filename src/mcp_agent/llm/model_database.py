@@ -47,6 +47,7 @@ class ModelDatabase:
         "video/mp4",
     ]
     QWEN_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp"]
+    XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     TEXT_ONLY = ["text/plain"]
 
     # Common parameter configurations
@@ -128,6 +129,17 @@ class ModelDatabase:
         context_window=2097152, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
     )
 
+    # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
+    GROK_4 = ModelParameters(
+        context_window=256000, max_output_tokens=16385, tokenizes=XAI_VISION
+    )
+
+    # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
+    # xAI does not document Grok 3 max output tokens, using the above source as a reference.
+    GROK_3 = ModelParameters(
+        context_window=131072, max_output_tokens=16385, tokenizes=TEXT_ONLY
+    )
+
     # Model configuration database
     MODELS: Dict[str, ModelParameters] = {
         # internal models
@@ -194,6 +206,13 @@ class ModelDatabase:
         "gemini-2.5-pro-preview": GEMINI_2_5_PRO,
         "gemini-2.5-flash-preview-05-20": GEMINI_FLASH,
         "gemini-2.5-pro-preview-05-06": GEMINI_PRO,
+        # xAI Grok Models
+        "grok-4": GROK_4,
+        "grok-4-0709": GROK_4,
+        "grok-3": GROK_3,
+        "grok-3-mini": GROK_3,
+        "grok-3-fast": GROK_3,
+        "grok-3-mini-fast": GROK_3,
     }
 
     @classmethod
