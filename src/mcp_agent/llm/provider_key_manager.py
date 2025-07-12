@@ -11,12 +11,8 @@ from pydantic import BaseModel
 from mcp_agent.core.exceptions import ProviderKeyError
 
 PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
-    "anthropic": "ANTHROPIC_API_KEY",
-    "openai": "OPENAI_API_KEY",
-    "deepseek": "DEEPSEEK_API_KEY",
-    "google": "GOOGLE_API_KEY",
-    "openrouter": "OPENROUTER_API_KEY",
-    "generic": "GENERIC_API_KEY",
+    # default behaviour in _get_env_key_name is to capitalize the
+    # provider name and suffix "_API_KEY" - so no specific mapping needed unless overriding
     "huggingface": "HF_TOKEN",
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
