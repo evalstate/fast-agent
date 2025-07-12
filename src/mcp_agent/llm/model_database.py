@@ -144,6 +144,7 @@ class ModelDatabase:
     MODELS: Dict[str, ModelParameters] = {
         # internal models
         "passthrough": FAST_AGENT_STANDARD,
+        "silent": FAST_AGENT_STANDARD,
         "playback": FAST_AGENT_STANDARD,
         "slow": FAST_AGENT_STANDARD,
         # aliyun models

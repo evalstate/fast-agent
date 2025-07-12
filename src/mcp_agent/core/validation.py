@@ -8,6 +8,7 @@ from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
+    ProviderKeyError,
     ServerConfigError,
 )
 from mcp_agent.llm.augmented_llm import AugmentedLLM
@@ -52,7 +53,7 @@ def validate_workflow_references(agents: Dict[str, Dict[str, Any]]) -> None:
 
     for name, agent_data in agents.items():
         agent_type = agent_data["type"]  # This is a string from config
-        
+
         # Note: Compare string values from config with the Enum's string value
         if agent_type == AgentType.PARALLEL.value:
             # Check fan_in exists
@@ -226,7 +227,7 @@ def get_dependencies_groups(
     # Build the dependency graph
     for name, agent_data in agents_dict.items():
         agent_type = agent_data["type"]  # This is a string from config
-        
+
         # Note: Compare string values from config with the Enum's string value
         if agent_type == AgentType.PARALLEL.value:
             # Parallel agents depend on their fan-out and fan-in agents
@@ -305,3 +306,22 @@ def get_dependencies_groups(
         remaining -= current_level
 
     return result
+
+
+def validate_provider_keys_post_creation(active_agents: Dict[str, Any]) -> None:
+    """
+    Validate that API keys are available for all created agents with LLMs.
+
+    This runs after agent creation when we have actual agent instances.
+
+    Args:
+        active_agents: Dictionary of created agent instances
+
+    Raises:
+        ProviderKeyError: If any required API key is missing
+    """
+    for agent_name, agent in active_agents.items():
+        llm = getattr(agent, "_llm", None)
+        if llm:
+            # This throws a ProviderKeyError if the key is not present
+            llm._api_key()

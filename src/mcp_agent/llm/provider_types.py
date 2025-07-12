@@ -8,16 +8,22 @@ from enum import Enum
 class Provider(Enum):
     """Supported LLM providers"""
 
-    ANTHROPIC = "anthropic"
-    DEEPSEEK = "deepseek"
-    FAST_AGENT = "fast-agent"
-    GENERIC = "generic"
-    GOOGLE_OAI = "googleoai"  # For Google through OpenAI libraries
-    GOOGLE = "google"  # For Google GenAI native library
-    OPENAI = "openai"
-    OPENROUTER = "openrouter"
-    TENSORZERO = "tensorzero"  # For TensorZero Gateway
-    AZURE = "azure"  # Azure OpenAI Service
-    ALIYUN = "aliyun"  # Aliyun Bailian OpenAI Service
-    HUGGINGFACE = "huggingface"  # For HuggingFace MCP connections
-    XAI = "xai"  # For xAI Grok models
+    def __new__(cls, config_name, display_name=None):
+        obj = object.__new__(cls)
+        obj._value_ = config_name
+        obj.display_name = display_name or config_name.title()
+        return obj
+
+    ANTHROPIC = ("anthropic", "Anthropic")
+    DEEPSEEK = ("deepseek", "Deepseek")
+    FAST_AGENT = ("fast-agent", "FastAgent")
+    GENERIC = ("generic", "Generic")
+    GOOGLE_OAI = ("googleoai", "GoogleOAI")  # For Google through OpenAI libraries
+    GOOGLE = ("google", "Google")  # For Google GenAI native library
+    OPENAI = ("openai", "OpenAI")
+    OPENROUTER = ("openrouter", "OpenRouter")
+    TENSORZERO = ("tensorzero", "TensorZero")  # For TensorZero Gateway
+    AZURE = ("azure", "Azure")  # Azure OpenAI Service
+    ALIYUN = ("aliyun", "Aliyun")  # Aliyun Bailian OpenAI Service
+    HUGGINGFACE = ("huggingface", "HuggingFace")  # For HuggingFace MCP connections
+    XAI = ("xai", "XAI")  # For xAI Grok models

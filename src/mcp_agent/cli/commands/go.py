@@ -69,11 +69,20 @@ async def _run_agent(
 
             fan_out_agents.append(agent_name)
 
-        # Create a parallel agent without fan_in (using default passthrough)
+        # Create a silent fan-in agent for cleaner output
+        @fast.agent(
+            name="parallel_fan_in",
+            model="silent",
+            instruction="You are a silent agent that combines outputs from parallel agents.",
+        )
+        async def fan_in_agent():
+            pass
+
+        # Create a parallel agent with silent fan_in
         @fast.parallel(
             name="parallel",
             fan_out=fan_out_agents,
-            fan_in=None,  # This will create a default passthrough fan_in
+            fan_in="parallel_fan_in",
             include_request=True,
         )
         async def cli_agent():

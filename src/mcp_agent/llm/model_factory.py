@@ -8,6 +8,7 @@ from mcp_agent.core.exceptions import ModelConfigError
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.augmented_llm_playback import PlaybackLLM
+from mcp_agent.llm.augmented_llm_silent import SilentLLM
 from mcp_agent.llm.augmented_llm_slow import SlowLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.augmented_llm_aliyun import AliyunAugmentedLLM
@@ -32,6 +33,7 @@ LLMClass = Union[
     Type[OpenAIAugmentedLLM],
     Type[PassthroughLLM],
     Type[PlaybackLLM],
+    Type[SilentLLM],
     Type[SlowLLM],
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
@@ -76,6 +78,7 @@ class ModelFactory:
     """
     DEFAULT_PROVIDERS = {
         "passthrough": Provider.FAST_AGENT,
+        "silent": Provider.FAST_AGENT,
         "playback": Provider.FAST_AGENT,
         "slow": Provider.FAST_AGENT,
         "gpt-4o": Provider.OPENAI,
@@ -158,6 +161,7 @@ class ModelFactory:
     # This overrides the provider-based class selection
     MODEL_SPECIFIC_CLASSES: Dict[str, LLMClass] = {
         "playback": PlaybackLLM,
+        "silent": SilentLLM,
         "slow": SlowLLM,
     }
 

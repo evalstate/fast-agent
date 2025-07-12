@@ -56,6 +56,7 @@ from mcp_agent.core.exceptions import (
 )
 from mcp_agent.core.usage_display import display_usage_report
 from mcp_agent.core.validation import (
+    validate_provider_keys_post_creation,
     validate_server_references,
     validate_workflow_references,
 )
@@ -313,6 +314,9 @@ class FastAgent:
                         self.agents,
                         model_factory_func,
                     )
+                    
+                    # Validate API keys after agent creation
+                    validate_provider_keys_post_creation(active_agents)
 
                     # Create a wrapper with all agents for simplified access
                     wrapper = AgentApp(active_agents)

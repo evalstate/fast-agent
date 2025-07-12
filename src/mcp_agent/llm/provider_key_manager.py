@@ -62,7 +62,14 @@ class ProviderKeyManager:
             ProviderKeyError: If the API key is not found or is invalid
         """
 
+        from mcp_agent.llm.provider_types import Provider
+
         provider_name = provider_name.lower()
+
+        # Fast-agent provider doesn't need external API keys
+        if provider_name == "fast-agent":
+            return ""
+
         api_key = ProviderKeyManager.get_config_file_key(provider_name, config)
         if not api_key:
             api_key = ProviderKeyManager.get_env_var(provider_name)
@@ -71,9 +78,13 @@ class ProviderKeyManager:
             api_key = "ollama"  # Default for generic provider
 
         if not api_key:
+            # Get proper display name for error message
+            provider_enum = Provider(provider_name)
+            display_name = provider_enum.display_name
+
             raise ProviderKeyError(
-                f"{provider_name.title()} API key not configured",
-                f"The {provider_name.title()} API key is required but not set.\n"
+                f"{display_name} API key not configured",
+                f"The {display_name} API key is required but not set.\n"
                 f"Add it to your configuration file under {provider_name}.api_key "
                 f"or set the {ProviderKeyManager.get_env_key_name(provider_name)} environment variable.",
             )
