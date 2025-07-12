@@ -681,11 +681,6 @@ class InteractivePrompt:
 
             console.print(table)
 
-            # Add usage instructions
-            rich_print("\n[bold]Usage:[/bold]")
-            rich_print("  • Tools are automatically available in your conversation")
-            rich_print("  • Just ask the agent to use a tool by name or description")
-
         except Exception as e:
             import traceback
 
