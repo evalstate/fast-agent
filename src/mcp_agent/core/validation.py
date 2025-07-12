@@ -8,7 +8,6 @@ from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.exceptions import (
     AgentConfigError,
     CircularDependencyError,
-    ProviderKeyError,
     ServerConfigError,
 )
 from mcp_agent.llm.augmented_llm import AugmentedLLM
