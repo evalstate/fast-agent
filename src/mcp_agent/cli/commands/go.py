@@ -79,12 +79,12 @@ async def _run_agent(
         async def cli_agent():
             async with fast.run() as agent:
                 if message:
-                    response = await agent.cli_agent.send(message)
+                    response = await agent.parallel.send(message)
                     # Print the response and exit
                     print(response)
                 elif prompt_file:
                     prompt = load_prompt_multipart(Path(prompt_file))
-                    response = await agent.cli_agent.generate(prompt)
+                    response = await agent.parallel.generate(prompt)
                     # Print the response text and exit
                     print(response.last_text())
                 else:

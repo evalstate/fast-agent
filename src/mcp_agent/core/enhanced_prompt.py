@@ -429,7 +429,7 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Type /help for commands, @agent to switch agent. Ctrl+T toggles multiline mode.[/dim]\n"
+                "[dim]Type '/' for commands, '@' to switch agent. Ctrl+T multiline, CTRL+E external editor.[/dim]\n"
             )
 
             # Display agent info right after help text if agent_provider is available
