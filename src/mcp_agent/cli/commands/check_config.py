@@ -25,7 +25,7 @@ console = Console()
 def find_config_files(start_path: Path) -> dict[str, Optional[Path]]:
     """Find FastAgent configuration files, preferring secrets file next to config file."""
     from mcp_agent.config import find_fastagent_config_files
-    
+
     config_path, secrets_path = find_fastagent_config_files(start_path)
     return {
         "config": config_path,
@@ -99,6 +99,15 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
         config_azure = config["config"]["azure"]
 
     for provider in results:
+        # Always check environment variables first
+        env_key_name = ProviderKeyManager.get_env_key_name(provider)
+        env_key_value = os.environ.get(env_key_name)
+        if env_key_value:
+            if len(env_key_value) > 5:
+                results[provider]["env"] = f"...{env_key_value[-5:]}"
+            else:
+                results[provider]["env"] = "...***"
+
         # Special handling for Azure: support api_key and DefaultAzureCredential
         if provider == "azure":
             # Prefer secrets if present, else fallback to config
@@ -114,13 +123,6 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
                 results[provider]["config"] = "DefaultAzureCredential"
                 continue
 
-        env_key_name = ProviderKeyManager.get_env_key_name(provider)
-        env_key_value = os.environ.get(env_key_name)
-        if env_key_value:
-            if len(env_key_value) > 5:
-                results[provider]["env"] = f"...{env_key_value[-5:]}"
-            else:
-                results[provider]["env"] = "...***"
         # Check secrets file if it was parsed successfully
         if secrets_status == "parsed":
             config_key = ProviderKeyManager.get_config_file_key(provider, secrets)
@@ -144,10 +146,10 @@ def get_fastagent_version() -> str:
 def get_config_summary(config_path: Optional[Path]) -> dict:
     """Extract key information from the configuration file."""
     from mcp_agent.config import Settings
-    
+
     # Get actual defaults from Settings class
     default_settings = Settings()
-    
+
     result = {
         "status": "not_found",  # Default status: not found
         "error": None,
@@ -192,11 +194,17 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
             result["logger"] = {
                 "level": logger_config.get("level", default_settings.logger.level),
                 "type": logger_config.get("type", default_settings.logger.type),
-                "progress_display": logger_config.get("progress_display", default_settings.logger.progress_display),
+                "progress_display": logger_config.get(
+                    "progress_display", default_settings.logger.progress_display
+                ),
                 "show_chat": logger_config.get("show_chat", default_settings.logger.show_chat),
                 "show_tools": logger_config.get("show_tools", default_settings.logger.show_tools),
-                "truncate_tools": logger_config.get("truncate_tools", default_settings.logger.truncate_tools),
-                "enable_markup": logger_config.get("enable_markup", default_settings.logger.enable_markup),
+                "truncate_tools": logger_config.get(
+                    "truncate_tools", default_settings.logger.truncate_tools
+                ),
+                "enable_markup": logger_config.get(
+                    "enable_markup", default_settings.logger.enable_markup
+                ),
             }
 
         # Get MCP server info
@@ -274,7 +282,9 @@ def show_check_summary() -> None:
     system_table.add_row("Python Version", ".".join(system_info["python_version"].split(".")[:3]))
     system_table.add_row("Python Path", system_info["python_path"])
 
-    console.print(Panel(system_table, title="System Information", title_align="left", border_style="blue"))
+    console.print(
+        Panel(system_table, title="System Information", title_align="left", border_style="blue")
+    )
 
     # Configuration files panel
     config_path = config_files["config"]
@@ -313,7 +323,9 @@ def show_check_summary() -> None:
             "Default Model", config_summary.get("default_model", "haiku (system default)")
         )
 
-    console.print(Panel(files_table, title="Configuration Files", title_align="left", border_style="blue"))
+    console.print(
+        Panel(files_table, title="Configuration Files", title_align="left", border_style="blue")
+    )
 
     # Logger Settings panel with two-column layout
     logger = config_summary.get("logger", {})
@@ -330,11 +342,11 @@ def show_check_summary() -> None:
     settings_data = [
         ("Logger Level", logger.get("level", "warning (default)")),
         ("Logger Type", logger.get("type", "file (default)")),
-        ("Progress Display", bool_to_symbol(logger.get('progress_display', True))),
-        ("Show Chat", bool_to_symbol(logger.get('show_chat', True))),
-        ("Show Tools", bool_to_symbol(logger.get('show_tools', True))),
-        ("Truncate Tools", bool_to_symbol(logger.get('truncate_tools', True))),
-        ("Enable Markup", bool_to_symbol(logger.get('enable_markup', True))),
+        ("Progress Display", bool_to_symbol(logger.get("progress_display", True))),
+        ("Show Chat", bool_to_symbol(logger.get("show_chat", True))),
+        ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),
+        ("Truncate Tools", bool_to_symbol(logger.get("truncate_tools", True))),
+        ("Enable Markup", bool_to_symbol(logger.get("enable_markup", True))),
     ]
 
     # Add rows in two-column layout
@@ -347,7 +359,9 @@ def show_check_summary() -> None:
             # Odd number of settings - fill right column with empty strings
             logger_table.add_row(left_setting, left_value, "", "")
 
-    console.print(Panel(logger_table, title="Logger Settings", title_align="left", border_style="blue"))
+    console.print(
+        Panel(logger_table, title="Logger Settings", title_align="left", border_style="blue")
+    )
 
     # API keys panel with two-column layout
     keys_table = Table(show_header=True, box=None)
@@ -397,20 +411,21 @@ def show_check_summary() -> None:
 
         # Get the proper display name for the provider
         from mcp_agent.llm.provider_types import Provider
+
         provider_enum = Provider(provider)
         display_name = provider_enum.display_name
-        
+
         return display_name, env_status, config_status, active
 
     # Split providers into two columns
     providers_list = list(api_keys.items())
     mid_point = (len(providers_list) + 1) // 2  # Round up for odd numbers
-    
+
     for i in range(mid_point):
         # Left column
         left_provider, left_status = providers_list[i]
         left_data = format_provider_row(left_provider, left_status)
-        
+
         # Right column (if exists)
         if i + mid_point < len(providers_list):
             right_provider, right_status = providers_list[i + mid_point]
@@ -446,12 +461,16 @@ def show_check_summary() -> None:
                     command_url = server["url"] or "[dim]Not configured[/dim]"
                     servers_table.add_row(name, transport, command_url)
 
-            console.print(Panel(servers_table, title="MCP Servers", title_align="left", border_style="blue"))
+            console.print(
+                Panel(servers_table, title="MCP Servers", title_align="left", border_style="blue")
+            )
 
     # Show help tips
     if config_status == "not_found" or secrets_status == "not_found":
         console.print("\n[bold]Setup Tips:[/bold]")
-        console.print("Run [cyan]fast-agent setup[/cyan] to create configuration files")
+        console.print(
+            "Run [cyan]fast-agent setup[/cyan] to create configuration files. Visit [cyan]fast-agent.ai[/cyan] for configuration guides. "
+        )
     elif config_status == "error" or secrets_status == "error":
         console.print("\n[bold]Config File Issues:[/bold]")
         console.print("Fix the YAML syntax errors in your configuration files")

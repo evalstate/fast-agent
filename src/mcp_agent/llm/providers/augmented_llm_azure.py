@@ -93,6 +93,12 @@ class AzureOpenAIAugmentedLLM(OpenAIAugmentedLLM):
             if not self.resource_name and self.base_url:
                 self.resource_name = _extract_resource_name(self.base_url)
 
+    def _api_key(self):
+        """Override to return 'AzureCredential' when using DefaultAzureCredential"""
+        if self.use_default_cred:
+            return "AzureCredential"
+        return super()._api_key()
+
     def _openai_client(self) -> AsyncOpenAI:
         """
         Returns an AzureOpenAI client, handling both API Key and DefaultAzureCredential.

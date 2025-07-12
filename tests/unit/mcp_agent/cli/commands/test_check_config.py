@@ -39,8 +39,8 @@ def test_check_api_keys_both_modes():
     }
     summary = make_secrets_summary(azure_cfg)
     results = check_api_keys(summary, {})
-    assert "DefaultAzureCredential" in results["azure"]["config"]
-    assert "api_key" in results["azure"]["config"]
+    # When use_default_azure_credential=True, Azure LLM ignores api_key and only uses DefaultAzureCredential
+    assert results["azure"]["config"] == "DefaultAzureCredential"
 
 
 def test_check_api_keys_invalid_config():

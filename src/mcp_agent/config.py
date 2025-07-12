@@ -310,18 +310,18 @@ class LoggerSettings(BaseModel):
 def find_fastagent_config_files(start_path: Path) -> Tuple[Optional[Path], Optional[Path]]:
     """
     Find FastAgent configuration files with standardized behavior.
-    
+
     Returns:
         Tuple of (config_path, secrets_path) where either can be None if not found.
-        
+
     Strategy:
     1. Find config file recursively from start_path upward
-    2. Prefer secrets file in same directory as config file  
+    2. Prefer secrets file in same directory as config file
     3. If no secrets file next to config, search recursively from start_path
     """
     config_path = None
     secrets_path = None
-    
+
     # First, find the config file with recursive search
     current = start_path.resolve()
     while current != current.parent:
@@ -330,7 +330,7 @@ def find_fastagent_config_files(start_path: Path) -> Tuple[Optional[Path], Optio
             config_path = potential_config
             break
         current = current.parent
-    
+
     # If config file found, prefer secrets file in the same directory
     if config_path:
         potential_secrets = config_path.parent / "fastagent.secrets.yaml"
@@ -354,7 +354,7 @@ def find_fastagent_config_files(start_path: Path) -> Tuple[Optional[Path], Optio
                 secrets_path = potential_secrets
                 break
             current = current.parent
-    
+
     return config_path, secrets_path
 
 
@@ -510,7 +510,7 @@ def get_settings(config_path: str | None = None) -> Settings:
             resolved_path = Path.cwd() / config_file.name
             if resolved_path.exists():
                 config_file = resolved_path
-        
+
         # When config path is explicitly provided, find secrets using standardized logic
         secrets_file = None
         if config_file.exists():
@@ -521,31 +521,25 @@ def get_settings(config_path: str | None = None) -> Settings:
 
     merged_settings = {}
 
-    if config_file:
-        if not config_file.exists():
-            print(f"Warning: Specified config file does not exist: {config_file}")
-        else:
-            import yaml  # pylint: disable=C0415
+    import yaml  # pylint: disable=C0415
 
-            # Load main config
-            with open(config_file, "r", encoding="utf-8") as f:
-                yaml_settings = yaml.safe_load(f) or {}
-                # Resolve environment variables in the loaded YAML settings
-                resolved_yaml_settings = resolve_env_vars(yaml_settings)
-                merged_settings = resolved_yaml_settings
-            # Load secrets file if found using standardized discovery
-            if secrets_file and secrets_file.exists():
-                with open(secrets_file, "r", encoding="utf-8") as f:
-                    yaml_secrets = yaml.safe_load(f) or {}
-                    # Resolve environment variables in the loaded secrets YAML
-                    resolved_secrets_yaml = resolve_env_vars(yaml_secrets)
-                    merged_settings = deep_merge(merged_settings, resolved_secrets_yaml)
+    # Load main config if it exists
+    if config_file and config_file.exists():
+        with open(config_file, "r", encoding="utf-8") as f:
+            yaml_settings = yaml.safe_load(f) or {}
+            # Resolve environment variables in the loaded YAML settings
+            resolved_yaml_settings = resolve_env_vars(yaml_settings)
+            merged_settings = resolved_yaml_settings
+    elif config_file and not config_file.exists():
+        print(f"Warning: Specified config file does not exist: {config_file}")
 
+    # Load secrets file if found (regardless of whether config file exists)
+    if secrets_file and secrets_file.exists():
+        with open(secrets_file, "r", encoding="utf-8") as f:
+            yaml_secrets = yaml.safe_load(f) or {}
+            # Resolve environment variables in the loaded secrets YAML
+            resolved_secrets_yaml = resolve_env_vars(yaml_secrets)
+            merged_settings = deep_merge(merged_settings, resolved_secrets_yaml)
 
-            _settings = Settings(**merged_settings)
-            return _settings
-    else:
-        pass
-
-    _settings = Settings()
+    _settings = Settings(**merged_settings)
     return _settings

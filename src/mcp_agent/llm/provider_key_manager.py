@@ -79,8 +79,15 @@ class ProviderKeyManager:
 
         if not api_key:
             # Get proper display name for error message
-            provider_enum = Provider(provider_name)
-            display_name = provider_enum.display_name
+            try:
+                provider_enum = Provider(provider_name)
+                display_name = provider_enum.display_name
+            except ValueError:
+                # Invalid provider name
+                raise ProviderKeyError(
+                    f"Invalid provider: {provider_name}",
+                    f"'{provider_name}' is not a valid provider name.",
+                )
 
             raise ProviderKeyError(
                 f"{display_name} API key not configured",

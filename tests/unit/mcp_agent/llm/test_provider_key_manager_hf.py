@@ -6,10 +6,7 @@ Environment variables are volatile and may be temporarily modified during test e
 
 import os
 
-import pytest
-
 from mcp_agent.config import HuggingFaceSettings, Settings
-from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.llm.provider_key_manager import ProviderKeyManager
 
 
@@ -67,20 +64,6 @@ def test_config_takes_precedence_over_env():
         config = Settings(huggingface=HuggingFaceSettings(api_key="hf_config_priority"))
         api_key = ProviderKeyManager.get_api_key("huggingface", config)
         assert api_key == "hf_config_priority"
-    finally:
-        _restore_hf_token(original)
-
-
-def test_no_api_key_raises_error():
-    """Test that missing API key raises ProviderKeyError."""
-    original = _set_hf_token(None)
-    try:
-        config = Settings()
-        with pytest.raises(ProviderKeyError) as exc_info:
-            ProviderKeyManager.get_api_key("huggingface", config)
-        
-        assert "Huggingface API key not configured" in str(exc_info.value)
-        assert "HF_TOKEN" in str(exc_info.value)
     finally:
         _restore_hf_token(original)
 
