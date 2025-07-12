@@ -1,0 +1,13 @@
+# Example minimalfast-agent.config.yaml for Bedrock
+
+# List of supported models: https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
+default_model: bedrock.amazon.nova-lite-v1:0
+
+# Bedrock uses the AWS credentials provider chain to authenticate.
+# This can be accomplished with aws sso login on local machines,
+# or by IAM roles within AWS.
+# see https://docs.aws.amazon.com/res/latest/ug/sso-idc.html
+bedrock:
+  region: "us-east-1" # required
+  profile: "default"  # optional, defaults to "default" - only needed if you have multiple profiles. 
+                      # Only needed on local machines, not on AWS.

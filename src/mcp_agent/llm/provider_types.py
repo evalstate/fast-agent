@@ -19,5 +19,6 @@ class Provider(Enum):
     TENSORZERO = "tensorzero"  # For TensorZero Gateway
     AZURE = "azure"  # Azure OpenAI Service
     ALIYUN = "aliyun"  # Aliyun Bailian OpenAI Service
+    BEDROCK = "bedrock"  # AWS Bedrock Service
     HUGGINGFACE = "huggingface"  # For HuggingFace MCP connections
     XAI = "xai"  # For xAI Grok models

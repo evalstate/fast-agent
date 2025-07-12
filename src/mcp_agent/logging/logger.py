@@ -8,6 +8,7 @@ Logger module for the MCP Agent, which provides:
 """
 
 import asyncio
+import logging
 import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
@@ -205,6 +206,12 @@ class LoggingConfig:
         """
         if cls._initialized:
             return
+
+        # Suppress boto3/botocore logging to prevent flooding
+        logging.getLogger('boto3').setLevel(logging.WARNING)
+        logging.getLogger('botocore').setLevel(logging.WARNING)
+        logging.getLogger('urllib3').setLevel(logging.WARNING)
+        logging.getLogger('s3transfer').setLevel(logging.WARNING)
 
         bus = AsyncEventBus.get(transport=transport)
 
