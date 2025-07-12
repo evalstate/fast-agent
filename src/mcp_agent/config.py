@@ -175,6 +175,17 @@ class GoogleSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class XAISettings(BaseModel):
+    """
+    Settings for using xAI Grok models in the fast-agent application.
+    """
+
+    api_key: str | None = None
+    base_url: str | None = "https://api.x.ai/v1"
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class GenericSettings(BaseModel):
     """
     Settings for using OpenAI models in the fast-agent application.
@@ -338,6 +349,9 @@ class Settings(BaseSettings):
 
     google: GoogleSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
+
+    xai: XAISettings | None = None
+    """Settings for using xAI Grok models in the fast-agent application"""
 
     openrouter: OpenRouterSettings | None = None
     """Settings for using OpenRouter models in the fast-agent application"""

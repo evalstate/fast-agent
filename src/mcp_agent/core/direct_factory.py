@@ -150,7 +150,11 @@ async def create_agents_by_type(
 
                 # Attach LLM to the agent
                 llm_factory = model_factory_func(model=config.model)
-                await agent.attach_llm(llm_factory, request_params=config.default_request_params)
+                await agent.attach_llm(
+                    llm_factory,
+                    request_params=config.default_request_params,
+                    api_key=config.api_key
+                )
                 result_agents[name] = agent
 
             elif agent_type == AgentType.CUSTOM:
@@ -165,7 +169,11 @@ async def create_agents_by_type(
 
                 # Attach LLM to the agent
                 llm_factory = model_factory_func(model=config.model)
-                await agent.attach_llm(llm_factory, request_params=config.default_request_params)
+                await agent.attach_llm(
+                    llm_factory,
+                    request_params=config.default_request_params,
+                    api_key=config.api_key
+                )
                 result_agents[name] = agent
 
             elif agent_type == AgentType.ORCHESTRATOR:
@@ -200,7 +208,9 @@ async def create_agents_by_type(
                 # Attach LLM to the orchestrator
                 llm_factory = model_factory_func(model=config.model)
                 await orchestrator.attach_llm(
-                    llm_factory, request_params=config.default_request_params
+                    llm_factory,
+                    request_params=config.default_request_params,
+                    api_key=config.api_key
                 )
 
                 result_agents[name] = orchestrator
@@ -261,7 +271,11 @@ async def create_agents_by_type(
 
                 # Attach LLM to the router
                 llm_factory = model_factory_func(model=config.model)
-                await router.attach_llm(llm_factory, request_params=config.default_request_params)
+                await router.attach_llm(
+                    llm_factory,
+                    request_params=config.default_request_params,
+                    api_key=config.api_key
+                )
                 result_agents[name] = router
 
             elif agent_type == AgentType.CHAIN:

@@ -55,6 +55,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
         "sonnet",  # Anthropic model
         "azure.gpt-4.1",
         "gemini25",
+        "grok-4",
         #    "gemini2",
     ],
 )

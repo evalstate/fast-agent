@@ -108,6 +108,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
     def _openai_client(self) -> AsyncOpenAI:
         try:
             return AsyncOpenAI(api_key=self._api_key(), base_url=self._base_url())
+
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",
@@ -389,7 +390,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             messages.append(message)
 
             message_text = message.content
-            if choice.finish_reason in ["tool_calls", "function_call"] and message.tool_calls:
+            if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
                 if message_text:
                     await self.show_assistant_message(
                         message_text,
@@ -476,6 +477,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         self._log_chat_finished(model=self.default_request_params.model)
 
         return responses
+
+    async def _is_tool_stop_reason(self, finish_reason: str) -> bool:
+        return True
 
     async def _apply_prompt_provider_specific(
         self,

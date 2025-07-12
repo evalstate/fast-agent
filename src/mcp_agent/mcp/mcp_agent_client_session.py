@@ -78,6 +78,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self.agent_model: str | None = kwargs.pop("agent_model", None)
         # Extract agent_name if provided
         self.agent_name: str | None = kwargs.pop("agent_name", None)
+        # Extract api_key if provided
+        self.api_key: str | None = kwargs.pop("api_key", None)
         # Extract custom elicitation handler if provided
         custom_elicitation_handler = kwargs.pop("elicitation_handler", None)
 

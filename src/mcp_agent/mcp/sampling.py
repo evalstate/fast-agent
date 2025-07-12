@@ -20,7 +20,7 @@ logger = get_logger(__name__)
 
 
 def create_sampling_llm(
-    params: CreateMessageRequestParams, model_string: str
+    params: CreateMessageRequestParams, model_string: str, api_key: str | None
 ) -> AugmentedLLMProtocol:
     """
     Create an LLM instance for sampling without tools support.
@@ -52,7 +52,7 @@ def create_sampling_llm(
 
     # Create the LLM using the factory
     factory = ModelFactory.create_factory(model_string)
-    llm = factory(agent=agent)
+    llm = factory(agent=agent, api_key=api_key)
 
     # Attach the LLM to the agent
     agent._llm = llm
@@ -77,7 +77,8 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
     Returns:
         A CreateMessageResult containing the LLM's response
     """
-    model = None
+    model: str | None = None
+    api_key: str | None = None
     try:
         # Extract model from server config using type-safe helper
         server_config = get_server_config(mcp_ctx)
@@ -104,13 +105,16 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
                 from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
                 
                 # Try agent's model first (from the session)
-                if (hasattr(mcp_ctx, 'session') and 
-                    isinstance(mcp_ctx.session, MCPAgentClientSession) and
-                    mcp_ctx.session.agent_model):
-                    model = mcp_ctx.session.agent_model
-                    logger.debug(f"Using agent's model for sampling: {model}")
-                else:
-                    # Fall back to system default model
+                if hasattr(mcp_ctx, "session") and isinstance(mcp_ctx.session, MCPAgentClientSession):
+                    if mcp_ctx.session.agent_model:
+                        model = mcp_ctx.session.agent_model
+                        logger.debug(f"Using agent's model for sampling: {model}")
+                    if mcp_ctx.session.api_key:
+                        api_key = mcp_ctx.session.api_key
+                        logger.debug(f"Using agent's API KEY for sampling: {api_key}")
+
+                # Fall back to system default model
+                if model is None:
                     try:
                         if app_context and app_context.config and app_context.config.default_model:
                             model = app_context.config.default_model
@@ -122,7 +126,7 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
             raise ValueError("No model configured for sampling (server config, agent model, or system default)")
 
         # Create an LLM instance
-        llm = create_sampling_llm(params, model)
+        llm = create_sampling_llm(params, model, api_key)
 
         # Extract all messages from the request params
         if not params.messages:
