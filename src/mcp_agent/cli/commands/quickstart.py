@@ -383,12 +383,16 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
                 "On Windows platforms, please edit the fastagent.config.yaml and adjust the volume mount point."
             )
         elif example_type == "state-transfer":
-            console.print("Check https://fast-agent.ai for quick start walkthroughs")
+            console.print(
+                "Check [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for quick start walkthroughs"
+            )
         elif example_type == "elicitations":
             console.print("1. Go to the `elicitations` subdirectory (cd elicitations)")
             console.print("2. Try the forms demo: uv run forms_demo.py")
             console.print("3. Run the game character creator: uv run game_character.py")
-            console.print("Check https://fast-agent.ai/mcp/elicitations/ for more details")
+            console.print(
+                "Check [cyan][link=https://fast-agent.ai/mcp/elicitations/]https://fast-agent.ai/mcp/elicitations/[/link][/cyan] for more details"
+            )
     else:
         console.print("\n[yellow]No files were created.[/yellow]")
 

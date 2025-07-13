@@ -48,7 +48,7 @@ def show_welcome() -> None:
     console.print(table)
 
     console.print(
-        "\n[italic]get started with:[/italic] [bold][cyan]fast-agent[/cyan][/bold] [green]setup[/green]"
+        "\n[italic]get started with:[/italic] [bold][cyan]fast-agent[/cyan][/bold] [green]setup[/green]. visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for more information."
     )
 
 

@@ -469,7 +469,7 @@ def show_check_summary() -> None:
     if config_status == "not_found" or secrets_status == "not_found":
         console.print("\n[bold]Setup Tips:[/bold]")
         console.print(
-            "Run [cyan]fast-agent setup[/cyan] to create configuration files. Visit [cyan]fast-agent.ai[/cyan] for configuration guides. "
+            "Run [cyan]fast-agent setup[/cyan] to create configuration files. Visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for configuration guides. "
         )
     elif config_status == "error" or secrets_status == "error":
         console.print("\n[bold]Config File Issues:[/bold]")
