@@ -235,13 +235,14 @@ class AgentApp:
         """
         return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
 
-    async def interactive(self, agent_name: str | None = None, default_prompt: str = "") -> str:
+    async def interactive(self, agent_name: str | None = None, default_prompt: str = "", pretty_print_parallel: bool = False) -> str:
         """
         Interactive prompt for sending messages with advanced features.
 
         Args:
             agent_name: Optional target agent name (uses default if not specified)
             default: Default message to use when user presses enter
+            pretty_print_parallel: Enable clean parallel results display for parallel agents
 
         Returns:
             The result of the interactive session
@@ -276,6 +277,14 @@ class AgentApp:
         # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
             result = await self.send(message, agent_name)
+
+            # Show parallel results if enabled and this is a parallel agent
+            if pretty_print_parallel:
+                agent = self._agents.get(agent_name)
+                if agent and agent.agent_type == AgentType.PARALLEL:
+                    from mcp_agent.ui.console_display import ConsoleDisplay
+                    display = ConsoleDisplay(config=None)
+                    display.show_parallel_results(agent)
 
             # Show usage info after each turn if progress display is enabled
             self._show_turn_usage(agent_name)

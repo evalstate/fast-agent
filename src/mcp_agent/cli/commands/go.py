@@ -10,6 +10,7 @@ import typer
 from mcp_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from mcp_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from mcp_agent.core.fastagent import FastAgent
+from mcp_agent.ui.console_display import ConsoleDisplay
 
 app = typer.Typer(
     help="Run an interactive agent directly from the command line without creating an agent.py file",
@@ -88,16 +89,16 @@ async def _run_agent(
         async def cli_agent():
             async with fast.run() as agent:
                 if message:
-                    response = await agent.parallel.send(message)
-                    # Print the response and exit
-                    print(response)
+                    await agent.parallel.send(message)
+                    display = ConsoleDisplay(config=None)
+                    display.show_parallel_results(agent.parallel)
                 elif prompt_file:
                     prompt = load_prompt_multipart(Path(prompt_file))
-                    response = await agent.parallel.generate(prompt)
-                    # Print the response text and exit
-                    print(response.last_text())
+                    await agent.parallel.generate(prompt)
+                    display = ConsoleDisplay(config=None)
+                    display.show_parallel_results(agent.parallel)
                 else:
-                    await agent.interactive(agent_name="parallel")
+                    await agent.interactive(agent_name="parallel", pretty_print_parallel=True)
     else:
         # Single model - use original behavior
         # Define the agent with specified parameters
@@ -274,7 +275,7 @@ def go(
         None, "--auth", help="Bearer token for authorization with URL-based servers"
     ),
     model: Optional[str] = typer.Option(
-        None, "--model", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
+        None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
     ),
     message: Optional[str] = typer.Option(
         None, "--message", "-m", help="Message to send to the agent (skips interactive mode)"

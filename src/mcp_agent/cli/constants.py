@@ -7,6 +7,7 @@ GO_SPECIFIC_OPTIONS = {
     "--stdio",
     "--url",
     "--model",
+    "--models",
     "--instruction",
     "-i",
     "--message",
