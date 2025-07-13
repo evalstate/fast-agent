@@ -9,6 +9,7 @@ from mcp.types import PromptMessage
 from rich import print as rich_print
 
 from mcp_agent.agents.agent import Agent
+from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.interactive_prompt import InteractivePrompt
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.progress_display import progress_display
@@ -293,13 +294,78 @@ class AgentApp:
     def _show_turn_usage(self, agent_name: str) -> None:
         """Show subtle usage information after each turn."""
         agent = self._agents.get(agent_name)
-        if not agent or not agent.usage_accumulator:
+        if not agent:
             return
+
+        # Check if this is a parallel agent
+        if agent.agent_type == AgentType.PARALLEL:
+            self._show_parallel_agent_usage(agent)
+        else:
+            self._show_regular_agent_usage(agent)
+
+    def _show_regular_agent_usage(self, agent) -> None:
+        """Show usage for a regular (non-parallel) agent."""
+        usage_info = self._format_agent_usage(agent)
+        if usage_info:
+            with progress_display.paused():
+                rich_print(
+                    f"[dim]Last turn: {usage_info['display_text']}[/dim]{usage_info['cache_suffix']}"
+                )
+
+    def _show_parallel_agent_usage(self, parallel_agent) -> None:
+        """Show usage for a parallel agent and its children."""
+        # Collect usage from all child agents
+        child_usage_data = []
+        total_input = 0
+        total_output = 0
+        total_tool_calls = 0
+
+        # Get usage from fan-out agents
+        if hasattr(parallel_agent, "fan_out_agents") and parallel_agent.fan_out_agents:
+            for child_agent in parallel_agent.fan_out_agents:
+                usage_info = self._format_agent_usage(child_agent)
+                if usage_info:
+                    child_usage_data.append({**usage_info, "name": child_agent.name})
+                    total_input += usage_info["input_tokens"]
+                    total_output += usage_info["output_tokens"]
+                    total_tool_calls += usage_info["tool_calls"]
+
+        # Get usage from fan-in agent
+        if hasattr(parallel_agent, "fan_in_agent") and parallel_agent.fan_in_agent:
+            usage_info = self._format_agent_usage(parallel_agent.fan_in_agent)
+            if usage_info:
+                child_usage_data.append({**usage_info, "name": parallel_agent.fan_in_agent.name})
+                total_input += usage_info["input_tokens"]
+                total_output += usage_info["output_tokens"]
+                total_tool_calls += usage_info["tool_calls"]
+
+        if not child_usage_data:
+            return
+
+        # Show aggregated usage for parallel agent (no context percentage)
+        with progress_display.paused():
+            tool_info = f", {total_tool_calls} tool calls" if total_tool_calls > 0 else ""
+            rich_print(
+                f"[dim]Last turn (parallel): {total_input:,} Input, {total_output:,} Output{tool_info}[/dim]"
+            )
+
+            # Show individual child agent usage
+            for i, usage_data in enumerate(child_usage_data):
+                is_last = i == len(child_usage_data) - 1
+                prefix = "└─" if is_last else "├─"
+                rich_print(
+                    f"[dim]  {prefix} {usage_data['name']}: {usage_data['display_text']}[/dim]{usage_data['cache_suffix']}"
+                )
+
+    def _format_agent_usage(self, agent) -> Optional[Dict]:
+        """Format usage information for a single agent."""
+        if not agent or not agent.usage_accumulator:
+            return None
 
         # Get the last turn's usage (if any)
         turns = agent.usage_accumulator.turns
         if not turns:
-            return
+            return None
 
         last_turn = turns[-1]
         input_tokens = last_turn.display_input_tokens
@@ -321,10 +387,18 @@ class AgentApp:
         if context_percentage is not None:
             context_info = f" ({context_percentage:.1f}%)"
 
-        # Show subtle usage line - pause progress display to ensure visibility
-        with progress_display.paused():
-            cache_suffix = f" {cache_indicators}" if cache_indicators else ""
-            tool_info = f", {last_turn.tool_calls} tool calls" if last_turn.tool_calls > 0 else ""
-            rich_print(
-                f"[dim]Last turn: {input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}[/dim]{cache_suffix}"
-            )
+        # Build tool call info
+        tool_info = f", {last_turn.tool_calls} tool calls" if last_turn.tool_calls > 0 else ""
+
+        # Build display text
+        display_text = f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"
+        cache_suffix = f" {cache_indicators}" if cache_indicators else ""
+
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "tool_calls": last_turn.tool_calls,
+            "context_percentage": context_percentage,
+            "display_text": display_text,
+            "cache_suffix": cache_suffix,
+        }

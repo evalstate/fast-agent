@@ -71,20 +71,44 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
         prompts_dict = await agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
 
-        # Display with proper pluralization and subdued formatting
-        if server_count == 0:
-            rich_print(
-                f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]: No MCP Servers attached[/dim]"
-            )
-        else:
-            # Pluralization helpers
-            server_word = "Server" if server_count == 1 else "Servers"
-            tool_word = "tool" if tool_count == 1 else "tools"
-            prompt_word = "prompt" if prompt_count == 1 else "prompts"
+        # Handle different agent types
+        if agent.agent_type == AgentType.PARALLEL:
+            # Count child agents for parallel agents
+            child_count = 0
+            if hasattr(agent, "fan_out_agents") and agent.fan_out_agents:
+                child_count += len(agent.fan_out_agents)
+            if hasattr(agent, "fan_in_agent") and agent.fan_in_agent:
+                child_count += 1
 
-            rich_print(
-                f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
-            )
+            if child_count > 0:
+                child_word = "child agent" if child_count == 1 else "child agents"
+                rich_print(
+                    f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {child_count:,}[dim] {child_word}[/dim]"
+                )
+        elif agent.agent_type == AgentType.ROUTER:
+            # Count child agents for router agents
+            child_count = 0
+            if hasattr(agent, "routing_agents") and agent.routing_agents:
+                child_count = len(agent.routing_agents)
+            elif hasattr(agent, "agents") and agent.agents:
+                child_count = len(agent.agents)
+
+            if child_count > 0:
+                child_word = "child agent" if child_count == 1 else "child agents"
+                rich_print(
+                    f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {child_count:,}[dim] {child_word}[/dim]"
+                )
+        else:
+            # For regular agents, only display if they have MCP servers attached
+            if server_count > 0:
+                # Pluralization helpers
+                server_word = "Server" if server_count == 1 else "Servers"
+                tool_word = "tool" if tool_count == 1 else "tools"
+                prompt_word = "prompt" if prompt_count == 1 else "prompts"
+
+                rich_print(
+                    f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
+                )
 
         # Mark as shown
         _agent_info_shown.add(agent_name)
@@ -92,6 +116,133 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
     except Exception:
         # Silently ignore errors to not disrupt the user experience
         pass
+
+
+async def _display_all_agents_with_hierarchy(available_agents: List[str], agent_provider) -> None:
+    """Display all agents with tree structure for workflow agents."""
+    # Track which agents are children to avoid displaying them twice
+    child_agents = set()
+
+    # First pass: identify all child agents
+    for agent_name in available_agents:
+        try:
+            if hasattr(agent_provider, "_agent"):
+                agent = agent_provider._agent(agent_name)
+            else:
+                agent = agent_provider
+
+            if agent.agent_type == AgentType.PARALLEL:
+                if hasattr(agent, "fan_out_agents") and agent.fan_out_agents:
+                    for child_agent in agent.fan_out_agents:
+                        child_agents.add(child_agent.name)
+                if hasattr(agent, "fan_in_agent") and agent.fan_in_agent:
+                    child_agents.add(agent.fan_in_agent.name)
+            elif agent.agent_type == AgentType.ROUTER:
+                if hasattr(agent, "routing_agents") and agent.routing_agents:
+                    for child_agent in agent.routing_agents:
+                        child_agents.add(child_agent.name)
+                elif hasattr(agent, "agents") and agent.agents:
+                    for child_agent in agent.agents:
+                        child_agents.add(child_agent.name)
+        except Exception:
+            continue
+
+    # Second pass: display agents (parents with children, standalone agents without children)
+    for agent_name in sorted(available_agents):
+        # Skip if this agent is a child of another agent
+        if agent_name in child_agents:
+            continue
+
+        try:
+            if hasattr(agent_provider, "_agent"):
+                agent = agent_provider._agent(agent_name)
+            else:
+                agent = agent_provider
+
+            # Display parent agent
+            await _display_agent_info_helper(agent_name, agent_provider)
+
+            # If it's a workflow agent, display its children
+            if agent.agent_type == AgentType.PARALLEL:
+                await _display_parallel_children(agent, agent_provider)
+            elif agent.agent_type == AgentType.ROUTER:
+                await _display_router_children(agent, agent_provider)
+
+        except Exception:
+            continue
+
+
+async def _display_parallel_children(parallel_agent, agent_provider) -> None:
+    """Display child agents of a parallel agent in tree format."""
+    children = []
+
+    # Collect fan-out agents
+    if hasattr(parallel_agent, "fan_out_agents") and parallel_agent.fan_out_agents:
+        for child_agent in parallel_agent.fan_out_agents:
+            children.append(child_agent)
+
+    # Collect fan-in agent
+    if hasattr(parallel_agent, "fan_in_agent") and parallel_agent.fan_in_agent:
+        children.append(parallel_agent.fan_in_agent)
+
+    # Display children with tree formatting
+    for i, child_agent in enumerate(children):
+        is_last = i == len(children) - 1
+        prefix = "└─" if is_last else "├─"
+        await _display_child_agent_info(child_agent, prefix, agent_provider)
+
+
+async def _display_router_children(router_agent, agent_provider) -> None:
+    """Display child agents of a router agent in tree format."""
+    children = []
+
+    # Collect routing agents
+    if hasattr(router_agent, "routing_agents") and router_agent.routing_agents:
+        children = router_agent.routing_agents
+    elif hasattr(router_agent, "agents") and router_agent.agents:
+        children = router_agent.agents
+
+    # Display children with tree formatting
+    for i, child_agent in enumerate(children):
+        is_last = i == len(children) - 1
+        prefix = "└─" if is_last else "├─"
+        await _display_child_agent_info(child_agent, prefix, agent_provider)
+
+
+async def _display_child_agent_info(child_agent, prefix: str, agent_provider) -> None:
+    """Display info for a child agent with tree prefix."""
+    try:
+        # Get counts for child agent
+        servers = await child_agent.list_servers()
+        server_count = len(servers) if servers else 0
+
+        tools_result = await child_agent.list_tools()
+        tool_count = (
+            len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
+        )
+
+        prompts_dict = await child_agent.list_prompts()
+        prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
+
+        # Only display if child has MCP servers
+        if server_count > 0:
+            # Pluralization helpers
+            server_word = "Server" if server_count == 1 else "Servers"
+            tool_word = "tool" if tool_count == 1 else "tools"
+            prompt_word = "prompt" if prompt_count == 1 else "prompts"
+
+            rich_print(
+                f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
+            )
+        else:
+            # Show child even without MCP servers for context
+            rich_print(
+                f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue][dim]: No MCP Servers[/dim]"
+            )
+
+    except Exception:
+        # Fallback: just show the name
+        rich_print(f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue]")
 
 
 class AgentCompleter(Completer):
@@ -434,9 +585,8 @@ async def get_enhanced_input(
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
-                # Display info for all available agents, not just the current one
-                for agent in sorted(available_agents):
-                    await _display_agent_info_helper(agent, agent_provider)
+                # Display info for all available agents with tree structure for workflows
+                await _display_all_agents_with_hierarchy(available_agents, agent_provider)
 
         rich_print()
         help_message_shown = True

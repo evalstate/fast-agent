@@ -7,6 +7,8 @@ Demonstrates router's ability to either:
 
 import asyncio
 
+from rich.console import Console
+
 from mcp_agent.core.fastagent import FastAgent
 
 # Create the application
@@ -45,7 +47,14 @@ SAMPLE_REQUESTS = [
     agents=["code_expert", "general_assistant", "fetcher"],
 )
 async def main() -> None:
+    console = Console()
+    console.print(
+        "\n[bright_red]Router Workflow Demo[/bright_red]\n\n"
+        "Enter a request to route it to the appropriate agent.\nEnter [bright_red]STOP[/bright_red] to run the demo, [bright_red]EXIT[/bright_red] to leave"
+    )
+
     async with fast.run() as agent:
+        await agent.interactive(agent_name="route")
         for request in SAMPLE_REQUESTS:
             await agent.route(request)
 
