@@ -36,7 +36,7 @@ from mcp_agent.llm.sampling_format_converter import (
     BasicFormatConverter,
     ProviderFormatConverter,
 )
-from mcp_agent.llm.usage_tracking import UsageAccumulator
+from mcp_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.helpers.content_helpers import get_text
 from mcp_agent.mcp.interfaces import (
@@ -158,6 +158,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
         # Initialize the display component
         self.display = ConsoleDisplay(config=self.context.config)
+
+        # Tool call counter for current turn
+        self._current_turn_tool_calls = 0
 
         # Initialize default parameters, passing model info
         model_kwargs = kwargs.copy()
@@ -451,7 +454,17 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
         """Display a tool call in a formatted panel."""
+        self._current_turn_tool_calls += 1
         self.display.show_tool_call(available_tools, tool_name, tool_args, name=self.name)
+
+    def _reset_turn_tool_calls(self) -> None:
+        """Reset tool call counter for new turn."""
+        self._current_turn_tool_calls = 0
+
+    def _finalize_turn_usage(self, turn_usage: "TurnUsage") -> None:
+        """Set tool call count on TurnUsage and add to accumulator."""
+        turn_usage.set_tool_calls(self._current_turn_tool_calls)
+        self.usage_accumulator.add_turn(turn_usage)
 
     async def show_assistant_message(
         self,

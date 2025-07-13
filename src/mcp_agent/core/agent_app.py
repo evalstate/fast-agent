@@ -275,10 +275,10 @@ class AgentApp:
         # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
             result = await self.send(message, agent_name)
-            
+
             # Show usage info after each turn if progress display is enabled
             self._show_turn_usage(agent_name)
-            
+
             return result
 
         # Start the prompt loop with the agent name (not the agent object)
@@ -295,30 +295,36 @@ class AgentApp:
         agent = self._agents.get(agent_name)
         if not agent or not agent.usage_accumulator:
             return
-            
+
         # Get the last turn's usage (if any)
         turns = agent.usage_accumulator.turns
         if not turns:
             return
-            
+
         last_turn = turns[-1]
         input_tokens = last_turn.display_input_tokens
         output_tokens = last_turn.output_tokens
-        
+
         # Build cache indicators with bright colors
         cache_indicators = ""
         if last_turn.cache_usage.cache_write_tokens > 0:
             cache_indicators += "[bright_yellow]^[/bright_yellow]"
-        if last_turn.cache_usage.cache_read_tokens > 0 or last_turn.cache_usage.cache_hit_tokens > 0:
+        if (
+            last_turn.cache_usage.cache_read_tokens > 0
+            or last_turn.cache_usage.cache_hit_tokens > 0
+        ):
             cache_indicators += "[bright_green]*[/bright_green]"
-            
+
         # Build context percentage - get from accumulator, not individual turn
         context_info = ""
         context_percentage = agent.usage_accumulator.context_usage_percentage
         if context_percentage is not None:
             context_info = f" ({context_percentage:.1f}%)"
-            
+
         # Show subtle usage line - pause progress display to ensure visibility
         with progress_display.paused():
             cache_suffix = f" {cache_indicators}" if cache_indicators else ""
-            rich_print(f"[dim]Last turn: {input_tokens:,} Input, {output_tokens:,} Output{context_info}[/dim]{cache_suffix}")
+            tool_info = f", {last_turn.tool_calls} tool calls" if last_turn.tool_calls > 0 else ""
+            rich_print(
+                f"[dim]Last turn: {input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}[/dim]{cache_suffix}"
+            )

@@ -112,7 +112,9 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 and event.delta.type == "text_delta"
             ):
                 # Use base class method for token estimation and progress emission
-                estimated_tokens = self._update_streaming_progress(event.delta.text, model, estimated_tokens)
+                estimated_tokens = self._update_streaming_progress(
+                    event.delta.text, model, estimated_tokens
+                )
 
             # Also check for final message_delta events with actual usage info
             elif (
@@ -285,7 +287,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                     turn_usage = TurnUsage.from_anthropic(
                         response.usage, model or DEFAULT_ANTHROPIC_MODEL
                     )
-                    self.usage_accumulator.add_turn(turn_usage)
+                    self._finalize_turn_usage(turn_usage)
                 #                    self._show_usage(response.usage, turn_usage)
                 except Exception as e:
                     self.logger.warning(f"Failed to track usage: {e}")
@@ -435,6 +437,9 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         Override this method to use a different LLM.
 
         """
+        # Reset tool call counter for new turn
+        self._reset_turn_tool_calls()
+
         res = await self._anthropic_completion(
             message_param=message_param,
             request_params=request_params,

@@ -295,7 +295,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
                         turn_usage = TurnUsage.from_google(
                             api_response.usage_metadata, request_params.model
                         )
-                        self.usage_accumulator.add_turn(turn_usage)
+                        self._finalize_turn_usage(turn_usage)
 
                     except Exception as e:
                         self.logger.warning(f"Failed to track usage: {e}")
@@ -439,6 +439,9 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         """
         Applies the prompt messages and potentially calls the LLM for completion.
         """
+        # Reset tool call counter for new turn
+        self._reset_turn_tool_calls()
+
         request_params = self.get_request_params(
             request_params=request_params
         )  # Get request params

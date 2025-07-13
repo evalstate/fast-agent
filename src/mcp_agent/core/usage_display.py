@@ -36,6 +36,7 @@ def display_usage_report(
     total_input = 0
     total_output = 0
     total_tokens = 0
+    total_tool_calls = 0
 
     for agent_name, agent in agents.items():
         if agent.usage_accumulator:
@@ -45,6 +46,7 @@ def display_usage_report(
                 output_tokens = summary["cumulative_output_tokens"]
                 billing_tokens = summary["cumulative_billing_tokens"]
                 turns = summary["turn_count"]
+                tool_calls = summary["cumulative_tool_calls"]
 
                 # Get context percentage for this agent
                 context_percentage = agent.usage_accumulator.context_usage_percentage
@@ -72,6 +74,7 @@ def display_usage_report(
                         "output": output_tokens,
                         "total": billing_tokens,
                         "turns": turns,
+                        "tool_calls": tool_calls,
                         "context": context_percentage,
                     }
                 )
@@ -79,6 +82,7 @@ def display_usage_report(
                 total_input += input_tokens
                 total_output += output_tokens
                 total_tokens += billing_tokens
+                total_tool_calls += tool_calls
 
     if not usage_data:
         return
@@ -94,7 +98,7 @@ def display_usage_report(
 
     # Print header with proper spacing
     console.print(
-        f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Context%':>9}  {'Model':<25}[/dim]"
+        f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Tools':>6} {'Context%':>9}  {'Model':<25}[/dim]"
     )
 
     # Print agent rows - use styling based on subdued_colors flag
@@ -103,6 +107,7 @@ def display_usage_report(
         output_str = f"{data['output']:,}"
         total_str = f"{data['total']:,}"
         turns_str = str(data["turns"])
+        tools_str = str(data["tool_calls"])
         context_str = f"{data['context']:.1f}%" if data["context"] is not None else "-"
 
         # Truncate agent name if needed
@@ -118,6 +123,7 @@ def display_usage_report(
                 f"{output_str:>9} "
                 f"[bold]{total_str:>9}[/bold] "
                 f"{turns_str:>6} "
+                f"{tools_str:>6} "
                 f"{context_str:>9}  "
                 f"{data['model']:<25}[/dim]"
             )
@@ -129,6 +135,7 @@ def display_usage_report(
                 f"{output_str:>9} "
                 f"[bold]{total_str:>9}[/bold] "
                 f"{turns_str:>6} "
+                f"{tools_str:>6} "
                 f"{context_str:>9}  "
                 f"[dim]{data['model']:<25}[/dim]"
             )
@@ -139,6 +146,7 @@ def display_usage_report(
         total_input_str = f"{total_input:,}"
         total_output_str = f"{total_output:,}"
         total_tokens_str = f"{total_tokens:,}"
+        total_tools_str = str(total_tool_calls)
 
         if subdued_colors:
             # Original fastagent.py style with dim wrapper on bold
@@ -148,6 +156,7 @@ def display_usage_report(
                 f"{total_output_str:>9} "
                 f"[bold]{total_tokens_str:>9}[/bold] "
                 f"{'':<6} "
+                f"{total_tools_str:>6} "
                 f"{'':<9}  "
                 f"{'':<25}[/bold dim]"
             )
@@ -159,6 +168,7 @@ def display_usage_report(
                 f"[bold]{total_output_str:>9}[/bold] "
                 f"[bold]{total_tokens_str:>9}[/bold] "
                 f"{'':<6} "
+                f"[bold]{total_tools_str:>6}[/bold] "
                 f"{'':<9}  "
                 f"{'':<25}"
             )

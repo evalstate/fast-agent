@@ -16,7 +16,6 @@ from prompt_toolkit.validation import ValidationError, Validator
 from prompt_toolkit.widgets import (
     Button,
     Checkbox,
-    Dialog,
     Frame,
     Label,
     RadioList,
@@ -187,13 +186,31 @@ class ElicitationForm:
             height=len(self.message.split("\n")),
         )
 
-        # Create form fields - removed useless horizontal divider
-        form_fields = [
-            fastagent_header,  # Fast-agent info
-            Window(height=1),  # Spacing
-            mcp_header,  # MCP server message
-            Window(height=1),  # Spacing
-        ]
+        # Create sticky headers (outside scrollable area)
+        sticky_headers = HSplit(
+            [
+                Window(height=1),  # Top padding
+                VSplit(
+                    [
+                        Window(width=2),  # Left padding
+                        fastagent_header,  # Fast-agent info
+                        Window(width=2),  # Right padding
+                    ]
+                ),
+                Window(height=1),  # Spacing
+                VSplit(
+                    [
+                        Window(width=2),  # Left padding
+                        mcp_header,  # MCP server message
+                        Window(width=2),  # Right padding
+                    ]
+                ),
+                Window(height=1),  # Spacing
+            ]
+        )
+
+        # Create scrollable form fields (without headers)
+        form_fields = []
 
         for field_name, field_def in self.properties.items():
             field_widget = self._create_field(field_name, field_def)
@@ -228,18 +245,17 @@ class ElicitationForm:
             ]
         )
 
-        # Main layout
+        # Main scrollable content (form fields and buttons only)
         form_fields.extend([self.status_line, buttons])
-        content = HSplit(form_fields)
+        scrollable_form_content = HSplit(form_fields)
 
-        # Add padding around content using HSplit and VSplit with empty windows
-        padded_content = HSplit(
+        # Add padding around scrollable content
+        padded_scrollable_content = HSplit(
             [
-                Window(height=1),  # Top padding
                 VSplit(
                     [
                         Window(width=2),  # Left padding
-                        content,
+                        scrollable_form_content,
                         Window(width=2),  # Right padding
                     ]
                 ),
@@ -247,20 +263,36 @@ class ElicitationForm:
             ]
         )
 
-        # Wrap content in ScrollablePane to handle oversized forms
+        # Wrap only form fields in ScrollablePane (headers stay fixed)
         scrollable_content = ScrollablePane(
-            content=padded_content,
+            content=padded_scrollable_content,
             show_scrollbar=False,  # Only show when content exceeds available space
             display_arrows=False,  # Only show when content exceeds available space
             keep_cursor_visible=True,
             keep_focused_window_visible=True,
         )
 
-        # Dialog - formatted title with better styling and text
-        dialog = Dialog(
-            title=FormattedText([("class:title", "Elicitation Request")]),
-            body=scrollable_content,
-            with_background=True,  # Re-enable background for proper layout
+        # Create title bar manually
+        title_bar = Window(
+            FormattedTextControl(FormattedText([("class:title", "Elicitation Request")])),
+            height=1,
+            style="class:dialog.title",
+        )
+
+        # Combine title, sticky headers, and scrollable content
+        full_content = HSplit(
+            [
+                title_bar,
+                Window(height=1),  # Spacing after title
+                sticky_headers,  # Headers stay fixed at top
+                scrollable_content,  # Form fields can scroll
+            ]
+        )
+
+        # Create dialog frame manually to avoid Dialog's internal scrolling
+        dialog = Frame(
+            body=full_content,
+            style="class:dialog",
         )
 
         # Key bindings

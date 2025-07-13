@@ -78,6 +78,9 @@ class TurnUsage(BaseModel):
     tool_use_tokens: int = Field(default=0, description="Tokens used for tool calling prompts")
     reasoning_tokens: int = Field(default=0, description="Tokens used for reasoning/thinking")
 
+    # Tool call count for this turn
+    tool_calls: int = Field(default=0, description="Number of tool calls made in this turn")
+
     # Raw usage data from provider (preserves all original data)
     raw_usage: ProviderUsage
 
@@ -86,7 +89,11 @@ class TurnUsage(BaseModel):
     def current_context_tokens(self) -> int:
         """Current context size after this turn (total input including cache + output)"""
         # For Anthropic: input_tokens + cache_read_tokens represents total input context
-        total_input = self.input_tokens + self.cache_usage.cache_read_tokens + self.cache_usage.cache_write_tokens
+        total_input = (
+            self.input_tokens
+            + self.cache_usage.cache_read_tokens
+            + self.cache_usage.cache_write_tokens
+        )
         return total_input + self.output_tokens
 
     @computed_field
@@ -106,10 +113,19 @@ class TurnUsage(BaseModel):
         """Input tokens to display for 'Last turn' (total submitted tokens)"""
         # For Anthropic: input_tokens excludes cache, so add cache tokens
         if self.provider == Provider.ANTHROPIC:
-            return self.input_tokens + self.cache_usage.cache_read_tokens + self.cache_usage.cache_write_tokens
+            return (
+                self.input_tokens
+                + self.cache_usage.cache_read_tokens
+                + self.cache_usage.cache_write_tokens
+            )
         else:
             # For OpenAI/Google: input_tokens already includes cached tokens
             return self.input_tokens
+
+    def set_tool_calls(self, count: int) -> None:
+        """Set the number of tool calls made in this turn"""
+        # Use object.__setattr__ since this is a Pydantic model
+        object.__setattr__(self, "tool_calls", count)
 
     @classmethod
     def from_anthropic(cls, usage: AnthropicUsage, model: str) -> "TurnUsage":
@@ -219,7 +235,9 @@ class UsageAccumulator(BaseModel):
     def cumulative_input_tokens(self) -> int:
         """Total input tokens charged across all turns (including cache tokens)"""
         return sum(
-            turn.input_tokens + turn.cache_usage.cache_read_tokens + turn.cache_usage.cache_write_tokens
+            turn.input_tokens
+            + turn.cache_usage.cache_read_tokens
+            + turn.cache_usage.cache_write_tokens
             for turn in self.turns
         )
 
@@ -246,6 +264,12 @@ class UsageAccumulator(BaseModel):
     def cumulative_cache_write_tokens(self) -> int:
         """Total tokens written to cache across all turns"""
         return sum(turn.cache_usage.cache_write_tokens for turn in self.turns)
+
+    @computed_field
+    @property
+    def cumulative_tool_calls(self) -> int:
+        """Total tool calls made across all turns"""
+        return sum(turn.tool_calls for turn in self.turns)
 
     @computed_field
     @property
@@ -333,6 +357,7 @@ class UsageAccumulator(BaseModel):
             "cumulative_billing_tokens": self.cumulative_billing_tokens,
             "cumulative_tool_use_tokens": self.cumulative_tool_use_tokens,
             "cumulative_reasoning_tokens": self.cumulative_reasoning_tokens,
+            "cumulative_tool_calls": self.cumulative_tool_calls,
             "current_context_tokens": self.current_context_tokens,
             "context_window_size": self.context_window_size,
             "context_usage_percentage": self.context_usage_percentage,

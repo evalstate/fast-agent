@@ -356,7 +356,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                 try:
                     model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
                     turn_usage = TurnUsage.from_openai(response.usage, model_name)
-                    self.usage_accumulator.add_turn(turn_usage)
+                    self._finalize_turn_usage(turn_usage)
                 except Exception as e:
                     self.logger.warning(f"Failed to track usage: {e}")
 
@@ -487,6 +487,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         request_params: RequestParams | None = None,
         is_template: bool = False,
     ) -> PromptMessageMultipart:
+        # Reset tool call counter for new turn
+        self._reset_turn_tool_calls()
+
         last_message = multipart_messages[-1]
 
         # Add all previous messages to history (or all messages if last is from assistant)
