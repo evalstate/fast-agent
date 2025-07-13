@@ -434,7 +434,9 @@ async def get_enhanced_input(
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
-                await _display_agent_info_helper(agent_name, agent_provider)
+                # Display info for all available agents, not just the current one
+                for agent in sorted(available_agents):
+                    await _display_agent_info_helper(agent, agent_provider)
 
         rich_print()
         help_message_shown = True

@@ -443,15 +443,15 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     def show_tool_result(self, result: CallToolResult) -> None:
         """Display a tool result in a formatted panel."""
-        self.display.show_tool_result(result)
+        self.display.show_tool_result(result, name=self.name)
 
     def show_oai_tool_result(self, result: str) -> None:
         """Display a tool result in a formatted panel."""
-        self.display.show_oai_tool_result(result)
+        self.display.show_oai_tool_result(result, name=self.name)
 
     def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
         """Display a tool call in a formatted panel."""
-        self.display.show_tool_call(available_tools, tool_name, tool_args)
+        self.display.show_tool_call(available_tools, tool_name, tool_args, name=self.name)
 
     async def show_assistant_message(
         self,
@@ -559,12 +559,12 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     def _update_streaming_progress(self, content: str, model: str, estimated_tokens: int) -> int:
         """Update streaming progress with token estimation and formatting.
-        
+
         Args:
             content: The text content from the streaming event
             model: The model name
             estimated_tokens: Current token count to update
-            
+
         Returns:
             Updated estimated token count
         """
@@ -572,10 +572,10 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         text_length = len(content)
         additional_tokens = max(1, text_length // 4)
         new_total = estimated_tokens + additional_tokens
-        
+
         # Format token count for display
         token_str = str(new_total).rjust(5)
-        
+
         # Emit progress event
         data = {
             "progress_action": ProgressAction.STREAMING,
@@ -585,7 +585,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             "details": token_str.strip(),  # Token count goes in details for STREAMING action
         }
         self.logger.info("Streaming progress", data=data)
-        
+
         return new_total
 
     def _log_chat_finished(self, model: Optional[str] = None) -> None:

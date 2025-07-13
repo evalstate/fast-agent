@@ -28,7 +28,7 @@ class ConsoleDisplay:
         self.config = config
         self._markup = config.logger.enable_markup if config else True
 
-    def show_tool_result(self, result: CallToolResult) -> None:
+    def show_tool_result(self, result: CallToolResult, name: Optional[str] = None) -> None:
         """Display a tool result in a formatted panel."""
         if not self.config or not self.config.logger.show_tools:
             return
@@ -37,7 +37,7 @@ class ConsoleDisplay:
 
         panel = Panel(
             Text(str(result.content), overflow="..."),
-            title="[TOOL RESULT]",
+            title=f"[TOOL RESULT]{f' ({name})' if name else ''}",
             title_align="right",
             style=style,
             border_style="white",
@@ -51,14 +51,14 @@ class ConsoleDisplay:
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
-    def show_oai_tool_result(self, result) -> None:
+    def show_oai_tool_result(self, result, name: Optional[str] = None) -> None:
         """Display an OpenAI tool result in a formatted panel."""
         if not self.config or not self.config.logger.show_tools:
             return
 
         panel = Panel(
             Text(str(result), overflow="..."),
-            title="[TOOL RESULT]",
+            title=f"[TOOL RESULT]{f' ({name})' if name else ''}",
             title_align="right",
             style="magenta",
             border_style="white",
@@ -72,7 +72,9 @@ class ConsoleDisplay:
         console.console.print(panel, markup=self._markup)
         console.console.print("\n")
 
-    def show_tool_call(self, available_tools, tool_name, tool_args) -> None:
+    def show_tool_call(
+        self, available_tools, tool_name, tool_args, name: Optional[str] = None
+    ) -> None:
         """Display a tool call in a formatted panel."""
         if not self.config or not self.config.logger.show_tools:
             return
@@ -81,7 +83,7 @@ class ConsoleDisplay:
 
         panel = Panel(
             Text(str(tool_args), overflow="ellipsis"),
-            title="[TOOL CALL]",
+            title=f"[TOOL CALL]{f' ({name})' if name else ''}",
             title_align="left",
             style="magenta",
             border_style="white",

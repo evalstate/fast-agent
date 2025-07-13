@@ -55,7 +55,7 @@ async def _run_agent(
         # Create an agent for each model
         fan_out_agents = []
         for i, model_name in enumerate(models):
-            agent_name = f"{model_name}_agent"
+            agent_name = f"{model_name}"
 
             # Define the agent with specified parameters
             agent_kwargs = {"instruction": instruction, "name": agent_name}
@@ -71,7 +71,7 @@ async def _run_agent(
 
         # Create a silent fan-in agent for cleaner output
         @fast.agent(
-            name="parallel_fan_in",
+            name="aggregate",
             model="silent",
             instruction="You are a silent agent that combines outputs from parallel agents.",
         )
@@ -82,7 +82,7 @@ async def _run_agent(
         @fast.parallel(
             name="parallel",
             fan_out=fan_out_agents,
-            fan_in="parallel_fan_in",
+            fan_in="aggregate",
             include_request=True,
         )
         async def cli_agent():
