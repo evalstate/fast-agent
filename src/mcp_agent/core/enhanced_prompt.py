@@ -69,7 +69,9 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
         )
 
         resources_dict = await agent.list_resources()
-        resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+        resource_count = (
+            sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+        )
 
         prompts_dict = await agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
@@ -226,7 +228,9 @@ async def _display_child_agent_info(child_agent, prefix: str, agent_provider) ->
         )
 
         resources_dict = await child_agent.list_resources()
-        resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+        resource_count = (
+            sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+        )
 
         prompts_dict = await child_agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0

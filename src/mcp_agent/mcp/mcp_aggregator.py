@@ -258,7 +258,12 @@ class MCPAggregator(ContextDependent):
                 },
             )
 
-        async def fetch_tools(client: ClientSession):
+        async def fetch_tools(client: ClientSession, server_name: str) -> List[Tool]:
+            # Only fetch tools if the server supports them
+            if not await self.server_supports_feature(server_name, "tools"):
+                logger.debug(f"Server '{server_name}' does not support tools")
+                return []
+
             try:
                 result: ListToolsResult = await client.list_tools()
                 return result.tools or []
@@ -287,7 +292,7 @@ class MCPAggregator(ContextDependent):
                 server_connection = await self._persistent_connection_manager.get_server(
                     server_name, client_session_factory=MCPAgentClientSession
                 )
-                tools = await fetch_tools(server_connection.session)
+                tools = await fetch_tools(server_connection.session, server_name)
                 prompts = await fetch_prompts(server_connection.session, server_name)
             else:
                 # Create a factory function for the client session
@@ -326,7 +331,7 @@ class MCPAggregator(ContextDependent):
                     server_registry=self.context.server_registry,
                     client_session_factory=create_session,
                 ) as client:
-                    tools = await fetch_tools(client)
+                    tools = await fetch_tools(client, server_name)
                     prompts = await fetch_prompts(client, server_name)
 
             return server_name, tools, prompts
@@ -962,6 +967,11 @@ class MCPAggregator(ContextDependent):
             logger.error(f"Cannot refresh tools for unknown server '{server_name}'")
             return
 
+        # Check if server supports tools capability
+        if not await self.server_supports_feature(server_name, "tools"):
+            logger.debug(f"Server '{server_name}' does not support tools")
+            return
+
         await self.display.show_tool_update(aggregator=self, updated_server=server_name)
 
         async with self._refresh_lock:
@@ -1103,6 +1113,10 @@ class MCPAggregator(ContextDependent):
         Raises:
             Exception: If the resource couldn't be found or other error occurs
         """
+        # Check if server supports resources capability
+        if not await self.server_supports_feature(server_name, "resources"):
+            raise ValueError(f"Server '{server_name}' does not support resources")
+
         logger.info(
             "Requesting resource",
             data={
@@ -1162,6 +1176,11 @@ class MCPAggregator(ContextDependent):
 
             # Initialize empty list for this server
             results[s_name] = []
+
+            # Check if server supports resources capability
+            if not await self.server_supports_feature(s_name, "resources"):
+                logger.debug(f"Server '{s_name}' does not support resources")
+                continue
 
             try:
                 # Use the _execute_on_server method to call list_resources on the server
