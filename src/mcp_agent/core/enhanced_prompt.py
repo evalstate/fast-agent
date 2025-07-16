@@ -68,6 +68,9 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
             len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
         )
 
+        resources_dict = await agent.list_resources()
+        resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+
         prompts_dict = await agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
 
@@ -104,10 +107,11 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
                 # Pluralization helpers
                 server_word = "Server" if server_count == 1 else "Servers"
                 tool_word = "tool" if tool_count == 1 else "tools"
+                resource_word = "resource" if resource_count == 1 else "resources"
                 prompt_word = "prompt" if prompt_count == 1 else "prompts"
 
                 rich_print(
-                    f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
+                    f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{resource_count:,}[dim] {resource_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
                 )
 
         # Mark as shown
@@ -221,6 +225,9 @@ async def _display_child_agent_info(child_agent, prefix: str, agent_provider) ->
             len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
         )
 
+        resources_dict = await child_agent.list_resources()
+        resource_count = sum(len(resources) for resources in resources_dict.values()) if resources_dict else 0
+
         prompts_dict = await child_agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
 
@@ -229,10 +236,11 @@ async def _display_child_agent_info(child_agent, prefix: str, agent_provider) ->
             # Pluralization helpers
             server_word = "Server" if server_count == 1 else "Servers"
             tool_word = "tool" if tool_count == 1 else "tools"
+            resource_word = "resource" if resource_count == 1 else "resources"
             prompt_word = "prompt" if prompt_count == 1 else "prompts"
 
             rich_print(
-                f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
+                f"[dim]  {prefix} [/dim][blue]{child_agent.name}[/blue][dim]:[/dim] {server_count:,}[dim] MCP {server_word}, [/dim]{tool_count:,}[dim] {tool_word}, [/dim]{resource_count:,}[dim] {resource_word}, [/dim]{prompt_count:,}[dim] {prompt_word} available[/dim]"
             )
         else:
             # Show child even without MCP servers for context

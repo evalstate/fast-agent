@@ -6,6 +6,7 @@ and delegates operations to an attached AugmentedLLMProtocol instance.
 """
 
 import asyncio
+import fnmatch
 import uuid
 from typing import (
     TYPE_CHECKING,
@@ -13,6 +14,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Mapping,
     Optional,
     Tuple,
     Type,
@@ -325,9 +327,29 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         self.logger.debug("Received human input signal", data=result)
         return result
 
+    def _matches_pattern(self, name: str, pattern: str, server_name: str) -> bool:
+        """
+        Check if a name matches a pattern for a specific server.
+        
+        Args:
+            name: The name to match (could be tool name, resource URI, or prompt name)
+            pattern: The pattern to match against (e.g., "add", "math*", "resource://math/*")
+            server_name: The server name (used for tool name prefixing)
+            
+        Returns:
+            True if the name matches the pattern
+        """
+        # For tools, build the full pattern with server prefix: server_name-pattern
+        if name.startswith(f"{server_name}-"):
+            full_pattern = f"{server_name}-{pattern}"
+            return fnmatch.fnmatch(name, full_pattern)
+        
+        # For resources and prompts, match directly against the pattern
+        return fnmatch.fnmatch(name, pattern)
+
     async def list_tools(self) -> ListToolsResult:
         """
-        List all tools available to this agent.
+        List all tools available to this agent, filtered by configuration.
 
         Returns:
             ListToolsResult with available tools
@@ -335,7 +357,25 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         if not self.initialized:
             await self.initialize()
 
+        # Get all tools from the parent class
         result = await super().list_tools()
+
+        # Apply filtering if tools are specified in config
+        if self.config.tools is not None:
+            filtered_tools = []
+            for tool in result.tools:
+                # Extract server name from tool name (e.g., "mathematics-add" -> "mathematics")
+                if '-' in tool.name:
+                    server_name = tool.name.split('-', 1)[0]
+                    
+                    # Check if this server has tool filters
+                    if server_name in self.config.tools:
+                        # Check if tool matches any pattern for this server
+                        for pattern in self.config.tools[server_name]:
+                            if self._matches_pattern(tool.name, pattern, server_name):
+                                filtered_tools.append(tool)
+                                break
+            result.tools = filtered_tools
 
         if not self.human_input_callback:
             return result
@@ -634,6 +674,76 @@ class BaseAgent(MCPAggregator, AgentProtocol):
 
         response = await self.generate(prompts, request_params)
         return response.first_text()
+
+    async def list_prompts(self, server_name: str | None = None) -> Mapping[str, List[Prompt]]:
+        """
+        List all prompts available to this agent, filtered by configuration.
+
+        Args:
+            server_name: Optional server name to list prompts from
+
+        Returns:
+            Dictionary mapping server names to lists of Prompt objects
+        """
+        if not self.initialized:
+            await self.initialize()
+
+        # Get all prompts from the parent class
+        result = await super().list_prompts(server_name)
+
+        # Apply filtering if prompts are specified in config
+        if self.config.prompts is not None:
+            filtered_result = {}
+            for server, prompts in result.items():
+                # Check if this server has prompt filters
+                if server in self.config.prompts:
+                    filtered_prompts = []
+                    for prompt in prompts:
+                        # Check if prompt matches any pattern for this server
+                        for pattern in self.config.prompts[server]:
+                            if self._matches_pattern(prompt.name, pattern, server):
+                                filtered_prompts.append(prompt)
+                                break
+                    if filtered_prompts:
+                        filtered_result[server] = filtered_prompts
+            result = filtered_result
+
+        return result
+
+    async def list_resources(self, server_name: str | None = None) -> Dict[str, List[str]]:
+        """
+        List all resources available to this agent, filtered by configuration.
+
+        Args:
+            server_name: Optional server name to list resources from
+
+        Returns:
+            Dictionary mapping server names to lists of resource URIs
+        """
+        if not self.initialized:
+            await self.initialize()
+
+        # Get all resources from the parent class
+        result = await super().list_resources(server_name)
+
+        # Apply filtering if resources are specified in config
+        if self.config.resources is not None:
+            filtered_result = {}
+            for server, resources in result.items():
+                # Check if this server has resource filters
+                if server in self.config.resources:
+                    filtered_resources = []
+                    for resource in resources:
+                        # Check if resource matches any pattern for this server
+                        for pattern in self.config.resources[server]:
+                            if self._matches_pattern(resource, pattern, server):
+                                filtered_resources.append(resource)
+                                break
+                    if filtered_resources:
+                        filtered_result[server] = filtered_resources
+            result = filtered_result
+
+        return result
 
     @property
     def agent_type(self) -> AgentType:

@@ -4,7 +4,7 @@ Type definitions for agents and agent configurations.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List
+from typing import Dict, List, Optional
 
 from mcp.client.session import ElicitationFnT
 
@@ -31,6 +31,9 @@ class AgentConfig:
     name: str
     instruction: str = "You are a helpful agent."
     servers: List[str] = field(default_factory=list)
+    tools: Optional[Dict[str, List[str]]] = None
+    resources: Optional[Dict[str, List[str]]] = None
+    prompts: Optional[Dict[str, List[str]]] = None
     model: str | None = None
     use_history: bool = True
     default_request_params: RequestParams | None = None

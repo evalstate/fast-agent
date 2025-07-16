@@ -253,6 +253,20 @@ class TensorZeroSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class BedrockSettings(BaseModel):
+    """
+    Settings for using AWS Bedrock models in the fast-agent application.
+    """
+
+    region: str | None = None
+    """AWS region for Bedrock service"""
+
+    profile: str | None = None
+    """AWS profile to use for authentication"""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class HuggingFaceSettings(BaseModel):
     """
     Settings for HuggingFace authentication (used for MCP connections).
@@ -418,6 +432,9 @@ class Settings(BaseSettings):
 
     aliyun: OpenAISettings | None = None
     """Settings for using Aliyun OpenAI Service in the fast-agent application"""
+
+    bedrock: BedrockSettings | None = None
+    """Settings for using AWS Bedrock models in the fast-agent application"""
 
     huggingface: HuggingFaceSettings | None = None
     """Settings for HuggingFace authentication (used for MCP connections)"""
