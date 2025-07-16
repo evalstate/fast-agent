@@ -84,7 +84,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         # TODO -- move this to model capabilities, add o4.
         chosen_model = self.default_request_params.model if self.default_request_params else None
         self._reasoning = chosen_model and (
-            chosen_model.startswith("o3") or chosen_model.startswith("o1")
+            chosen_model.startswith("o3")
+            or chosen_model.startswith("o1")
+            or chosen_model.startswith("o4")
         )
         if self._reasoning:
             self.logger.info(
