@@ -308,6 +308,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "generic.qwen2.5:latest",
         "generic.llama3.2:latest",
         "o3-mini.low",
+        "o4-mini.low",
         "azure.gpt-4.1",
         "grok-3",
     ],
