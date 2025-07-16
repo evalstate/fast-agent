@@ -141,6 +141,15 @@ class TestShouldAddHfAuth:
             assert should_add_hf_auth("https://hf.co/models", headers) is False
         finally:
             _restore_hf_token(original)
+    
+    def test_hf_space_existing_x_hf_auth_with_token(self):
+        """Test that existing X-HF-Authorization prevents adding auth to .hf.space."""
+        original = _set_hf_token("test_token")
+        try:
+            headers = {"X-HF-Authorization": "Bearer existing_token"}
+            assert should_add_hf_auth("https://myspace.hf.space/api", headers) is False
+        finally:
+            _restore_hf_token(original)
 
     def test_hf_url_existing_other_headers_with_token(self):
         original = _set_hf_token("test_token")
@@ -168,7 +177,8 @@ class TestShouldAddHfAuth:
 class TestAddHfAuthHeader:
     """Test adding HF authentication headers."""
 
-    def test_adds_auth_header_when_appropriate(self):
+    def test_adds_auth_header_for_hf_co(self):
+        """Test that hf.co domains get the standard Authorization header."""
         original = _set_hf_token("test_token_123")
         try:
             result = add_hf_auth_header("https://hf.co/models", None)
@@ -176,8 +186,29 @@ class TestAddHfAuthHeader:
             assert result == expected
         finally:
             _restore_hf_token(original)
+    
+    def test_adds_auth_header_for_huggingface_co(self):
+        """Test that huggingface.co domains get the standard Authorization header."""
+        original = _set_hf_token("test_token_123")
+        try:
+            result = add_hf_auth_header("https://huggingface.co/models", None)
+            expected = {"Authorization": "Bearer test_token_123"}
+            assert result == expected
+        finally:
+            _restore_hf_token(original)
+    
+    def test_adds_x_hf_auth_header_for_hf_space(self):
+        """Test that .hf.space domains get the X-HF-Authorization header."""
+        original = _set_hf_token("test_token_123")
+        try:
+            result = add_hf_auth_header("https://myspace.hf.space/api", None)
+            expected = {"X-HF-Authorization": "Bearer test_token_123"}
+            assert result == expected
+        finally:
+            _restore_hf_token(original)
 
-    def test_preserves_existing_headers(self):
+    def test_preserves_existing_headers_for_hf_co(self):
+        """Test that existing headers are preserved when adding auth to hf.co."""
         original = _set_hf_token("test_token_123")
         try:
             existing = {"Content-Type": "application/json", "User-Agent": "test"}
@@ -190,12 +221,38 @@ class TestAddHfAuthHeader:
             assert result == expected
         finally:
             _restore_hf_token(original)
+    
+    def test_preserves_existing_headers_for_hf_space(self):
+        """Test that existing headers are preserved when adding auth to .hf.space."""
+        original = _set_hf_token("test_token_123")
+        try:
+            existing = {"Content-Type": "application/json", "User-Agent": "test"}
+            result = add_hf_auth_header("https://myspace.hf.space/api", existing)
+            expected = {
+                "Content-Type": "application/json",
+                "User-Agent": "test",
+                "X-HF-Authorization": "Bearer test_token_123",
+            }
+            assert result == expected
+        finally:
+            _restore_hf_token(original)
 
-    def test_does_not_override_existing_auth(self):
+    def test_does_not_override_existing_auth_for_hf_co(self):
+        """Test that existing Authorization header is not overridden for hf.co."""
         original = _set_hf_token("test_token_123")
         try:
             existing = {"Authorization": "Bearer existing_token"}
             result = add_hf_auth_header("https://hf.co/models", existing)
+            assert result == existing
+        finally:
+            _restore_hf_token(original)
+    
+    def test_does_not_override_existing_x_hf_auth_for_hf_space(self):
+        """Test that existing X-HF-Authorization header is not overridden for .hf.space."""
+        original = _set_hf_token("test_token_123")
+        try:
+            existing = {"X-HF-Authorization": "Bearer existing_token"}
+            result = add_hf_auth_header("https://myspace.hf.space/api", existing)
             assert result == existing
         finally:
             _restore_hf_token(original)
@@ -364,7 +421,9 @@ class TestSecurityAndLeakagePrevention:
             for url in valid_urls:
                 result = add_hf_auth_header(url, None)
                 assert result is not None, f"Should add auth to: {url}"
-                assert result["Authorization"] == "Bearer test_token_123", f"Incorrect auth for: {url}"
+                assert result["X-HF-Authorization"] == "Bearer test_token_123", f"Incorrect auth for: {url}"
+                # Ensure Authorization header is NOT set for .hf.space domains
+                assert "Authorization" not in result, f"Should not set Authorization header for: {url}"
         finally:
             _restore_hf_token(original)
 
