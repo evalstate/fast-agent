@@ -331,12 +331,17 @@ class GoogleConverter:
         """
         Converts a list of google.genai types.Content to a list of fast-agent PromptMessageMultipart.
         """
-        return [self._convert_from_google_content(content) for content in contents]
+        return [
+            self._convert_from_google_content(content) for content in contents if content
+        ]
 
     def _convert_from_google_content(self, content: types.Content) -> PromptMessageMultipart:
         """
         Converts a single google.genai types.Content to a fast-agent PromptMessageMultipart.
         """
+        if not content:
+            return None
+
         if content.role == "model" and any(part.function_call for part in content.parts):
             return PromptMessageMultipart(role="assistant", content=[])
 

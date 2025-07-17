@@ -99,7 +99,11 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_TEMPLATE_VARS = "template_vars"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
+    BASE_EXCLUDE_FIELDS = {
+        PARAM_METADATA,
+        "truncation_strategy",
+        "max_context_tokens",
+    }
 
     """
     The basic building block of agentic systems is an LLM enhanced with augmentations

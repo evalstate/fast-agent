@@ -20,6 +20,7 @@ from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.augmented_llm import AugmentedLLM
+from mcp_agent.llm.context_truncation import ContextTruncation
 from mcp_agent.llm.provider_types import Provider
 
 # Import the new converter class
@@ -169,6 +170,8 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         self._google_client = self._initialize_google_client()
         # Initialize the converter
         self._converter = GoogleConverter()
+        # Initialize context truncation manager
+        self.context_truncation = ContextTruncation(self.context)
 
     def _initialize_google_client(self) -> genai.Client:
         """
@@ -234,6 +237,8 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         """
         request_params = self.get_request_params(request_params=request_params)
         responses: List[TextContent | ImageContent | EmbeddedResource] = []
+        
+        system_prompt = self.instruction or request_params.systemPrompt
 
         # Load full conversation history if use_history is true
         if request_params.use_history:
@@ -255,7 +260,37 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         # Keep track of the number of messages in history before this turn
         initial_history_length = len(conversation_history)
 
+
+        self.logger.debug("""!!!!!!!!!!!!!!!!!!!! _google_completion Augmented LLM Google Native !!!!!!!!!!!!!!!!!!!!!!!!!!!!""")
+
         for i in range(request_params.max_iterations):
+            # CONTEXT TRUNCATION LOGIC
+            if request_params.truncation_strategy and request_params.max_context_tokens:
+                if self.context_truncation.needs_truncation(
+                    self.history,
+                    request_params.max_context_tokens,
+                    request_params.model,
+                    system_prompt,
+                ):
+                    if request_params.truncation_strategy == "summarize":
+                        self.history = await self.context_truncation.summarize_and_truncate(
+                            self.history,
+                            request_params.max_context_tokens,
+                            request_params.model,
+                            system_prompt,
+                        )
+                    else:
+                        self.history = self.context_truncation.truncate(
+                            self.history,
+                            request_params.max_context_tokens,
+                            request_params.model,
+                            system_prompt,
+                        )
+                    # Rebuild conversation_history with the truncated history
+                    conversation_history = self._converter.convert_to_google_content(
+                        self.history.get(include_completion_history=True)
+                    )
+
             # 1. Get available tools
             aggregator_response = await self.aggregator.list_tools()
             available_tools = self._converter.convert_to_google_tools(

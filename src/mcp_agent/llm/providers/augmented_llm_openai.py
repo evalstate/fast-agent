@@ -11,7 +11,7 @@ from mcp.types import (
 from openai import AsyncOpenAI, AuthenticationError
 from openai.lib.streaming.chat import ChatCompletionStreamState
 
-# from openai.types.beta.chat import
+# from openai.types.beta.chat
 from openai.types.chat import (
     ChatCompletionMessage,
     ChatCompletionMessageParam,
@@ -28,6 +28,7 @@ from mcp_agent.llm.augmented_llm import (
     AugmentedLLM,
     RequestParams,
 )
+from mcp_agent.llm.context_truncation import ContextTruncation
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.multipart_converter_openai import OpenAIConverter, OpenAIMessage
 from mcp_agent.llm.providers.sampling_converter_openai import (
@@ -71,6 +72,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
         # Initialize logger with name if available
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
+        
+        # Initialize context truncation manager
+        self.context_truncation = ContextTruncation(self.context)
 
         # Set up reasoning-related attributes
         self._reasoning_effort = kwargs.get("reasoning_effort", None)
@@ -339,6 +343,36 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
         # we do NOT send "stop sequences" as this causes errors with mutlimodal processing
         for i in range(request_params.max_iterations):
+            # CONTEXT TRUNCATION LOGIC
+            if request_params.truncation_strategy and request_params.max_context_tokens:
+                if self.context_truncation.needs_truncation(
+                    self.history,
+                    request_params.max_context_tokens,
+                    request_params.model,
+                    system_prompt,
+                ):
+                    if request_params.truncation_strategy == "summarize":
+                        self.history = await self.context_truncation.summarize_and_truncate(
+                            self.history,
+                            request_params.max_context_tokens,
+                            request_params.model,
+                            system_prompt,
+                        )
+                    else:
+                        self.history = self.context_truncation.truncate(
+                            self.history,
+                            request_params.max_context_tokens,
+                            request_params.model,
+                            system_prompt,
+                        )
+                    # Rebuild messages list with truncated history
+                    messages = []
+                    if system_prompt:
+                        messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
+                    messages.extend(self.history.get(include_completion_history=request_params.use_history))
+                    messages.append(message)
+
+
             arguments = self._prepare_api_request(messages, available_tools, request_params)
             self.logger.debug(f"OpenAI completion requested for: {arguments}")
 

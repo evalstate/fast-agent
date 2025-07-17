@@ -4,6 +4,8 @@ from mcp.types import EmbeddedResource, ImageContent, TextContent
 
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.event_progress import ProgressAction
+from mcp_agent.llm.context_truncation import ContextTruncation
+from mcp_agent.llm.memory import SimpleMemory
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.multipart_converter_anthropic import (
     AnthropicConverter,
@@ -75,6 +77,9 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         super().__init__(
             *args, provider=Provider.ANTHROPIC, type_converter=AnthropicSamplingConverter, **kwargs
         )
+        
+        # Initialize context truncation manager
+        self.context_truncation = ContextTruncation(self.context)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
@@ -193,17 +198,49 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         responses: List[TextContent | ImageContent | EmbeddedResource] = []
 
         model = self.default_request_params.model
+        system_prompt = self.instruction or params.systemPrompt
 
         # Note: We'll cache tools+system together by putting cache_control only on system prompt
 
         for i in range(params.max_iterations):
+            # CONTEXT TRUNCATION LOGIC
+            if params.truncation_strategy and params.max_context_tokens:
+                # Create a temporary memory object to check the token count with the new message
+                temp_memory = SimpleMemory()
+                temp_memory.set(self.history.get() + [message_param])
+                
+                if self.context_truncation.needs_truncation(
+                    temp_memory,
+                    params.max_context_tokens,
+                    model,
+                    system_prompt,
+                ):
+                    if params.truncation_strategy == "summarize":
+                        self.history = await self.context_truncation.summarize_and_truncate(
+                            self.history,
+                            params.max_context_tokens,
+                            model,
+                            system_prompt,
+                        )
+                    else:
+                        self.history = self.context_truncation.truncate(
+                            self.history,
+                            params.max_context_tokens,
+                            model,
+                            system_prompt,
+                        )
+                    # Rebuild messages list with truncated history
+                    messages = []
+                    messages.extend(self.history.get(include_completion_history=params.use_history))
+                    messages.append(message_param)
+
             self._log_chat_progress(self.chat_turn(), model=model)
 
             # Create base arguments dictionary
             base_args = {
                 "model": model,
                 "messages": messages,
-                "system": self.instruction or params.systemPrompt,
+                "system": system_prompt,
                 "stop_sequences": params.stopSequences,
                 "tools": available_tools,
             }

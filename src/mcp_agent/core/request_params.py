@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
@@ -51,4 +51,18 @@ class RequestParams(CreateMessageRequestParams):
     template_vars: Dict[str, Any] = Field(default_factory=dict)
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
+    """
+
+    truncation_strategy: Literal["simple", "summarize"] | None = None
+    """
+    Strategy to use for context truncation when the context window is exceeded.
+    'simple': Removes the oldest messages.
+    'summarize': Summarizes older messages into a system prompt.
+    If None, no truncation is performed.
+    """
+
+    max_context_tokens: int | None = None
+    """
+    The maximum number of tokens to maintain in the conversation history.
+    If the context exceeds this value, the specified 'truncation_strategy' will be applied.
     """
