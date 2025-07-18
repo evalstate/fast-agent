@@ -1,6 +1,6 @@
 import pytest
 
-from src.mcp_agent.mcp.common import SEP
+from mcp_agent.mcp.common import SEP
 
 
 @pytest.mark.integration
