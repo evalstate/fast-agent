@@ -22,10 +22,10 @@ def check_weather_prompt(location: str) -> str:
     return f"Check the weather in {location}"
 
 @app.tool(
-    name="check_weather_tool",
+    name="check_weather",
     description="Returns the weather for a specified location.",
 )
-def check_weather_tool(location: str) -> str:
+def check_weather(location: str) -> str:
     """The location to check"""
     # Write the location to a text file
     with open("weather_location.txt", "w") as f:

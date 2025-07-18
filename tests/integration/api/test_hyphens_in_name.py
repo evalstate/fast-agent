@@ -19,7 +19,7 @@ async def test_hyphenated_server_name(fast_agent):
             assert get_prompt_result.description is None
 
             # test tool calling
-            result = await app.test.send('***CALL_TOOL check_weather_tool {"location": "New York"}')
+            result = await app.test.send('***CALL_TOOL check_weather {"location": "New York"}')
             assert "sunny" in result
 
     await agent_function()
