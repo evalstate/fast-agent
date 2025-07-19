@@ -345,7 +345,8 @@ class MCPAggregator(ContextDependent):
         for result in results:
             if isinstance(result, BaseException):
                 logger.error(f"Error loading server data: {result}")
-                continue
+                # Re-raise the exception to propagate it up to the agent creation logic
+                raise result
 
             server_name, tools, prompts = result
 
@@ -470,7 +471,7 @@ class MCPAggregator(ContextDependent):
         error_factory: Callable[[str], R] = None,
     ) -> R:
         """
-        Generic method to execute operations on a specific server.
+        Generic method to execute operations on a specific server with retry logic.
 
         Args:
             server_name: Name of the server to execute the operation on
@@ -483,49 +484,77 @@ class MCPAggregator(ContextDependent):
         Returns:
             Result from the operation or an error result
         """
-
+        import asyncio
+        
         async def try_execute(client: ClientSession):
             try:
                 method = getattr(client, method_name)
                 return await method(**method_args)
             except Exception as e:
-                error_msg = (
-                    f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
-                )
-                logger.error(error_msg)
-                if error_factory:
-                    return error_factory(error_msg)
-                else:
-                    # Re-raise the original exception to propagate it
-                    raise e
+                # Re-raise the original exception to be handled by retry logic
+                raise e
 
-        if self.connection_persistence:
-            server_connection = await self._persistent_connection_manager.get_server(
-                server_name, client_session_factory=MCPAgentClientSession
-            )
-            return await try_execute(server_connection.session)
-        else:
-            logger.debug(
-                f"Creating temporary connection to server: {server_name}",
-                data={
-                    "progress_action": ProgressAction.STARTING,
-                    "server_name": server_name,
-                    "agent_name": self.agent_name,
-                },
-            )
-            async with gen_client(
-                server_name, server_registry=self.context.server_registry
-            ) as client:
-                result = await try_execute(client)
-                logger.debug(
-                    f"Closing temporary connection to server: {server_name}",
-                    data={
-                        "progress_action": ProgressAction.SHUTDOWN,
-                        "server_name": server_name,
-                        "agent_name": self.agent_name,
-                    },
-                )
-                return result
+        # Retry logic with exponential backoff
+        max_retries = 3
+        base_delay = 0.5  # Start with 0.5 seconds
+        
+        for attempt in range(max_retries):
+            try:
+                if self.connection_persistence:
+                    server_connection = await self._persistent_connection_manager.get_server(
+                        server_name, client_session_factory=MCPAgentClientSession
+                    )
+                    return await try_execute(server_connection.session)
+                else:
+                    logger.debug(
+                        f"Creating temporary connection to server: {server_name}",
+                        data={
+                            "progress_action": ProgressAction.STARTING,
+                            "server_name": server_name,
+                            "agent_name": self.agent_name,
+                        },
+                    )
+                    async with gen_client(
+                        server_name, server_registry=self.context.server_registry
+                    ) as client:
+                        result = await try_execute(client)
+                        logger.debug(
+                            f"Closing temporary connection to server: {server_name}",
+                            data={
+                                "progress_action": ProgressAction.SHUTDOWN,
+                                "server_name": server_name,
+                                "agent_name": self.agent_name,
+                            },
+                        )
+                        return result
+                        
+            except Exception as e:
+                is_last_attempt = (attempt == max_retries - 1)
+                
+                if is_last_attempt:
+                    # Final failure - log and return error
+                    error_msg = (
+                        f"Failed to {method_name} '{operation_name}' on server '{server_name}' after {max_retries} attempts: {e}"
+                    )
+                    logger.debug(error_msg)
+                    
+                    # Check if this is a connection-related failure that should trigger agent deactivation
+                    if self._is_connection_failure(e):
+                        await self._handle_server_failure(server_name)
+                    
+                    if error_factory:
+                        return error_factory(error_msg)
+                    else:
+                        # Re-raise the original exception to propagate it
+                        raise e
+                else:
+                    # Retry attempt - log and wait
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    logger.debug(
+                        f"Attempt {attempt + 1} failed for {method_name} '{operation_name}' on server '{server_name}': {e}. "
+                        f"Retrying in {delay:.1f}s..."
+                    )
+                    await asyncio.sleep(delay)
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
         """
@@ -1201,3 +1230,99 @@ class MCPAggregator(ContextDependent):
                 logger.error(f"Error fetching resources from {s_name}: {e}")
 
         return results
+
+    def _is_connection_failure(self, exception: Exception) -> bool:
+        """
+        Check if an exception indicates a connection failure that should trigger agent deactivation.
+        
+        Args:
+            exception: The exception to check
+            
+        Returns:
+            True if this is a connection failure, False otherwise
+        """
+        # Check for common connection-related exceptions
+        import httpx
+        
+        connection_error_types = (
+            ConnectionError,
+            ConnectionRefusedError,
+            ConnectionResetError,
+            ConnectionAbortedError,
+            OSError,
+            httpx.ConnectError,
+            httpx.TimeoutException,
+            httpx.NetworkError,
+        )
+        
+        # Check if it's a direct connection error
+        if isinstance(exception, connection_error_types):
+            return True
+            
+        # Check for connection-related error messages
+        error_msg = str(exception).lower()
+        connection_keywords = [
+            "connection",
+            "timeout",
+            "network",
+            "refused",
+            "reset",
+            "aborted",
+            "peer closed",
+            "incomplete chunked read",
+            "server unavailable",
+            "transport error"
+        ]
+        
+        return any(keyword in error_msg for keyword in connection_keywords)
+
+    async def _handle_server_failure(self, server_name: str) -> None:
+        """
+        Handle server failure by notifying the FastAgent system to deactivate related agents.
+        
+        Args:
+            server_name: Name of the server that failed
+        """
+        try:
+            # Try to get the FastAgent instance from context to report server failure
+            from mcp_agent.context import get_current_context
+            
+            context = get_current_context()
+            if context and hasattr(context, 'fast_agent'):
+                fast_agent = context.fast_agent
+                if hasattr(fast_agent, 'unavailable_servers'):
+                    fast_agent.unavailable_servers.add(server_name)
+                    
+                    # Find agents that use this server and deactivate them
+                    if hasattr(fast_agent, 'app') and hasattr(fast_agent.app, '_agents'):
+                        agents_to_deactivate = []
+                        for agent_name, agent in fast_agent.app._agents.items():
+                            if hasattr(agent, 'server_names') and server_name in agent.server_names:
+                                agents_to_deactivate.append(agent_name)
+                        
+                        # Move agents to deactivated list
+                        for agent_name in agents_to_deactivate:
+                            if agent_name in fast_agent.app._agents:
+                                # Get agent config from active agents
+                                agent_config = getattr(fast_agent.app._agents[agent_name], 'config', {})
+                                
+                                # Move to deactivated agents
+                                if hasattr(fast_agent, 'deactivated_agents'):
+                                    fast_agent.deactivated_agents[agent_name] = agent_config
+                                
+                                # Remove from active agents
+                                del fast_agent.app._agents[agent_name]
+                                
+                                logger.debug(f"Agent '{agent_name}' deactivated due to server '{server_name}' failure during runtime.")
+                                
+                                # Log progress update
+                                logger.info(
+                                    f"Agent '{agent_name}' deactivated",
+                                    data={
+                                        "progress_action": ProgressAction.DEACTIVATED,
+                                        "agent_name": agent_name,
+                                    },
+                                )
+                        
+        except Exception as e:
+            logger.error(f"Error handling server failure for '{server_name}': {e}")

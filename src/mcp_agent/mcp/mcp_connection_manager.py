@@ -3,7 +3,6 @@ Manages the lifecycle of multiple MCP server connections.
 """
 
 import asyncio
-import traceback
 from datetime import timedelta
 from typing import (
     TYPE_CHECKING,
@@ -32,7 +31,6 @@ from mcp_agent.core.exceptions import ServerInitializationError
 from mcp_agent.event_progress import ProgressAction
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.logger_textio import get_stderr_handler
-from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 if TYPE_CHECKING:
     from mcp_agent.context import Context
@@ -104,7 +102,7 @@ class ServerConnection:
 
         # Track error state
         self._error_occurred = False
-        self._error_message = None
+        self._original_exception: Optional[Exception] = None
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -191,12 +189,13 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                 await server_conn.wait_for_shutdown_request()
 
     except HTTPStatusError as http_exc:
-        logger.error(
-            f"{server_name}: Lifecycle task encountered HTTP error: {http_exc}",
-            exc_info=True,
+        logger.info(
+            f"{server_name}: MCP server unavailable",
             data={
-                "progress_action": ProgressAction.FATAL_ERROR,
+                "progress_action": ProgressAction.DEACTIVATED,
                 "server_name": server_name,
+                "agent_name": server_name,
+                "target": server_name,
             },
         )
         server_conn._error_occurred = True
@@ -205,53 +204,17 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
         # No raise - let get_server handle it with a friendly message
 
     except Exception as exc:
-        logger.error(
-            f"{server_name}: Lifecycle task encountered an error: {exc}",
-            exc_info=True,
+        logger.info(
+            f"{server_name}: MCP server unavailable",
             data={
-                "progress_action": ProgressAction.FATAL_ERROR,
+                "progress_action": ProgressAction.DEACTIVATED,
                 "server_name": server_name,
+                "agent_name": server_name,
+                "target": server_name,
             },
         )
         server_conn._error_occurred = True
-
-        if "ExceptionGroup" in type(exc).__name__ and hasattr(exc, "exceptions"):
-            # Handle ExceptionGroup better by extracting the actual errors
-            def extract_errors(exception_group):
-                """Recursively extract meaningful errors from ExceptionGroups"""
-                messages = []
-                for subexc in exception_group.exceptions:
-                    if "ExceptionGroup" in type(subexc).__name__ and hasattr(subexc, "exceptions"):
-                        # Recursively handle nested ExceptionGroups
-                        messages.extend(extract_errors(subexc))
-                    elif isinstance(subexc, HTTPStatusError):
-                        # Special handling for HTTP errors to make them more user-friendly
-                        messages.append(
-                            f"HTTP Error: {subexc.response.status_code} {subexc.response.reason_phrase} for URL: {subexc.request.url}"
-                        )
-                    else:
-                        # Show the exception type and message, plus the root cause if available
-                        error_msg = f"{type(subexc).__name__}: {subexc}"
-                        messages.append(error_msg)
-
-                        # If there's a root cause, show that too as it's often the most informative
-                        if hasattr(subexc, "__cause__") and subexc.__cause__:
-                            messages.append(
-                                f"Caused by: {type(subexc.__cause__).__name__}: {subexc.__cause__}"
-                            )
-                return messages
-
-            error_messages = extract_errors(exc)
-            # If we didn't extract any meaningful errors, fall back to the original exception
-            if not error_messages:
-                error_messages = [f"{type(exc).__name__}: {exc}"]
-            server_conn._error_message = error_messages
-        else:
-            # For regular exceptions, keep the traceback but format it more cleanly
-            server_conn._error_message = traceback.format_exception(exc)
-
-        # If there's an error, we should also set the event so that
-        # 'get_server' won't hang
+        server_conn._original_exception = exc
         server_conn._initialized_event.set()
         # No raise - allow graceful exit
 
@@ -405,28 +368,17 @@ class MCPConnectionManager(ContextDependent):
 
         # Check if the server is healthy after initialization
         if not server_conn.is_healthy():
-            error_msg = server_conn._error_message or "Unknown error"
-
-            # Format the error message for better display
-            if isinstance(error_msg, list):
-                # Join the list with newlines for better readability
-                formatted_error = "\n".join(error_msg)
-            else:
-                formatted_error = str(error_msg)
-
             raise ServerInitializationError(
-                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?",
-                formatted_error,
-            )
+                f"MCP Server: '{server_name}': Failed to initialize - see details. Check fastagent.config.yaml?"
+            ) from server_conn._original_exception
 
         return server_conn
 
     async def get_server_capabilities(self, server_name: str) -> ServerCapabilities | None:
         """Get the capabilities of a specific server."""
-        server_conn = await self.get_server(
-            server_name, client_session_factory=MCPAgentClientSession
-        )
-        return server_conn.server_capabilities if server_conn else None
+        async with self._lock:
+            server_conn = self.running_servers.get(server_name)
+            return server_conn.server_capabilities if server_conn else None
 
     async def disconnect_server(self, server_name: str) -> None:
         """

@@ -47,6 +47,10 @@ class AgentApp:
         if name in self._agents:
             return self._agents[name]
         raise AttributeError(f"Agent '{name}' not found")
+    
+    def add_agent(self, name: str, agent: Agent) -> None:
+        """Add a new agent to the app."""
+        self._agents[name] = agent
 
     async def __call__(
         self,

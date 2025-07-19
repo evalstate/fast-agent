@@ -82,6 +82,7 @@ class RichProgressDisplay:
             ProgressAction.SHUTDOWN: "black on red",
             ProgressAction.AGGREGATOR_INITIALIZED: "bold green",
             ProgressAction.FATAL_ERROR: "black on red",
+            ProgressAction.DEACTIVATED: "dim yellow",
         }.get(action, "white")
 
     def update(self, event: ProgressEvent) -> None:
@@ -120,6 +121,7 @@ class RichProgressDisplay:
             event.action == ProgressAction.INITIALIZED
             or event.action == ProgressAction.READY
             or event.action == ProgressAction.LOADED
+            or event.action == ProgressAction.DEACTIVATED
         ):
             self._progress.update(task_id, completed=100, total=100)
         elif event.action == ProgressAction.FINISHED:

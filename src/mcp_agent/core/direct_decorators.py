@@ -114,6 +114,16 @@ def _decorator_impl(
         default: Whether to mark this as the default agent
         **extra_kwargs: Additional agent/workflow-specific parameters
     """
+    # Check for duplicate agent registration
+    if name in self.agents:
+        # We can't use the logger here as it's not configured yet, so print a warning
+        print(f"Warning: Agent '{name}' is already registered. Skipping duplicate definition.")
+
+        # Return a no-op decorator to prevent re-registration
+        def no_op_decorator(func: AgentCallable[P, R]) -> AgentCallable[P, R]:
+            return func
+
+        return no_op_decorator
 
     def decorator(func: AgentCallable[P, R]) -> DecoratedAgentProtocol[P, R]:
         is_async = inspect.iscoroutinefunction(func)

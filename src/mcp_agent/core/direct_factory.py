@@ -3,6 +3,7 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
+import re
 from typing import Any, Callable, Dict, Optional, Protocol, TypeVar
 
 from mcp_agent.agents.agent import Agent, AgentConfig
@@ -15,7 +16,7 @@ from mcp_agent.agents.workflow.parallel_agent import ParallelAgent
 from mcp_agent.agents.workflow.router_agent import RouterAgent
 from mcp_agent.app import MCPApp
 from mcp_agent.core.agent_types import AgentType
-from mcp_agent.core.exceptions import AgentConfigError
+from mcp_agent.core.exceptions import AgentConfigError, ServerInitializationError
 from mcp_agent.core.validation import get_dependencies_groups
 from mcp_agent.event_progress import ProgressAction
 from mcp_agent.llm.augmented_llm import RequestParams
@@ -125,13 +126,6 @@ async def create_agents_by_type(
 
     # Get all agents of the specified type
     for name, agent_data in agents_dict.items():
-        logger.info(
-            f"Loaded {name}",
-            data={
-                "progress_action": ProgressAction.LOADED,
-                "agent_name": name,
-            },
-        )
 
         # Compare type string from config with Enum value
         if agent_data["type"] == agent_type.value:
@@ -156,6 +150,16 @@ async def create_agents_by_type(
                     api_key=config.api_key
                 )
                 result_agents[name] = agent
+                
+                # Log successful agent creation
+                logger.info(
+                    f"Loaded {name}",
+                    data={
+                        "progress_action": ProgressAction.LOADED,
+                        "agent_name": name,
+                        "target": name,
+                    },
+                )
 
             elif agent_type == AgentType.CUSTOM:
                 # Get the class to instantiate
@@ -175,6 +179,16 @@ async def create_agents_by_type(
                     api_key=config.api_key
                 )
                 result_agents[name] = agent
+                
+                # Log successful agent creation
+                logger.info(
+                    f"Loaded {name}",
+                    data={
+                        "progress_action": ProgressAction.LOADED,
+                        "agent_name": name,
+                        "target": name,
+                    },
+                )
 
             elif agent_type == AgentType.ORCHESTRATOR:
                 # Get base params configured with model settings
@@ -370,111 +384,78 @@ async def create_agents_in_dependency_order(
 
     # Create agent proxies for each group in dependency order
     for group in dependencies:
-        # Create basic agents first
-        # Note: We compare string values from config with the Enum's string value
-        if AgentType.BASIC.value in [agents_dict[name]["type"] for name in group]:
-            basic_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.BASIC.value
-                },
-                AgentType.BASIC,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(basic_agents)
+        for agent_name in group:
+            agent_config = agents_dict[agent_name]
 
-        # Create custom agents first
-        if AgentType.CUSTOM.value in [agents_dict[name]["type"] for name in group]:
-            basic_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.CUSTOM.value
-                },
-                AgentType.CUSTOM,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(basic_agents)
+            # Check if any required servers for this agent are unavailable
+            # Only do this check if polling is enabled (mcp_polling_interval > 0)
+            if (hasattr(app_instance.fast_agent, 'mcp_polling_interval') and 
+                app_instance.fast_agent.mcp_polling_interval is not None and 
+                app_instance.fast_agent.mcp_polling_interval > 0):
+                
+                agent_config_obj = agent_config.get("config")
+                required_servers = agent_config_obj.servers if agent_config_obj else []
+                if any(server in app_instance.fast_agent.unavailable_servers for server in required_servers):
+                    logger.warning(
+                        f"Skipping agent '{agent_name}' because it depends on an unavailable server."
+                    )
+                    app_instance.fast_agent.deactivated_agents[agent_name] = agent_config
+                    continue
 
-        # Create parallel agents
-        if AgentType.PARALLEL.value in [agents_dict[name]["type"] for name in group]:
-            parallel_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.PARALLEL.value
-                },
-                AgentType.PARALLEL,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(parallel_agents)
+            try:
+                agent_type = AgentType(agent_config["type"])
+                # Create agents of a specific type for the current group
+                created_agents = await create_agents_by_type(
+                    app_instance,
+                    {agent_name: agent_config},
+                    agent_type,
+                    active_agents,
+                    model_factory_func,
+                )
+                active_agents.update(created_agents)
 
-        # Create router agents
-        if AgentType.ROUTER.value in [agents_dict[name]["type"] for name in group]:
-            router_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.ROUTER.value
-                },
-                AgentType.ROUTER,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(router_agents)
+            except ServerInitializationError as e:
+                # Only handle graceful deactivation if polling is enabled
+                if (hasattr(app_instance.fast_agent, 'mcp_polling_interval') and 
+                    app_instance.fast_agent.mcp_polling_interval is not None and 
+                    app_instance.fast_agent.mcp_polling_interval > 0):
+                    
+                    # The original error (e.g., ConnectError) is the cause
+                    server_name = "unknown"
 
-        # Create chain agents
-        if AgentType.CHAIN.value in [agents_dict[name]["type"] for name in group]:
-            chain_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.CHAIN.value
-                },
-                AgentType.CHAIN,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(chain_agents)
+                    # We need to find the server name from the original exception text
+                    # as ServerInitializationError doesn't carry it directly.
+                    match = re.search(r"MCP Server: '([^']*)'", str(e))
+                    if match:
+                        server_name = match.group(1)
 
-        # Create evaluator-optimizer agents
-        if AgentType.EVALUATOR_OPTIMIZER.value in [agents_dict[name]["type"] for name in group]:
-            evaluator_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.EVALUATOR_OPTIMIZER.value
-                },
-                AgentType.EVALUATOR_OPTIMIZER,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(evaluator_agents)
+                    app_instance.fast_agent.unavailable_servers.add(server_name)
+                    app_instance.fast_agent.deactivated_agents[agent_name] = agent_config
+                    
+                    logger.debug(f"MCP server '{server_name}' is not available. Agent '{agent_name}' will be deactivated.")
+                    
+                    logger.info(
+                        f"Agent '{agent_name}' deactivated",
+                        data={
+                            "progress_action": ProgressAction.DEACTIVATED,
+                            "agent_name": agent_name,
+                        },
+                    )
+                else:
+                    # If polling is not enabled, let the error propagate normally (old behavior)
+                    raise
 
-        # Create orchestrator agents last since they might depend on other agents
-        if AgentType.ORCHESTRATOR.value in [agents_dict[name]["type"] for name in group]:
-            orchestrator_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.ORCHESTRATOR.value
-                },
-                AgentType.ORCHESTRATOR,
-                active_agents,
-                model_factory_func,
-            )
-            active_agents.update(orchestrator_agents)
+            except Exception as e:
+                # Only handle graceful deactivation if polling is enabled
+                if (hasattr(app_instance.fast_agent, 'mcp_polling_interval') and 
+                    app_instance.fast_agent.mcp_polling_interval is not None and 
+                    app_instance.fast_agent.mcp_polling_interval > 0):
+                    
+                    logger.error(f"Failed to create agent '{agent_name}': {e}")
+                    app_instance.fast_agent.deactivated_agents[agent_name] = agent_config
+                else:
+                    # If polling is not enabled, let the error propagate normally (old behavior)
+                    raise
 
     return active_agents
 

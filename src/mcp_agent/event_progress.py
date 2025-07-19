@@ -21,10 +21,13 @@ class ProgressAction(str, Enum):
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
     UPDATED = "Updated"
+    RUNNING = "Running"
     FINISHED = "Finished"
     SHUTDOWN = "Shutdown"
     AGGREGATOR_INITIALIZED = "Running"
     FATAL_ERROR = "Error"
+    ERROR = "Error"
+    DEACTIVATED = "Deactivated"
 
 
 class ProgressEvent(BaseModel):
@@ -68,6 +71,11 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
 
     progress_action = event_data.get("progress_action")
     if not progress_action:
+        return None
+    
+    # Filter out MCP server lifecycle events - only show agent events
+    if "mcp_connection_manager" in event.namespace and progress_action == ProgressAction.DEACTIVATED:
+        # Skip MCP server lifecycle events, only show agent deactivation events
         return None
 
     # Build target string based on the event type.
