@@ -71,12 +71,21 @@ class ChainAgent(BaseAgent):
         # # Get the original user message (last message in the list)
         user_message = multipart_messages[-1] if multipart_messages else None
 
+        aggregator = getattr(self.context, "response_aggregator", None)
+
         if not self.cumulative:
             response: PromptMessageMultipart = await self.agents[0].generate(multipart_messages)
+            if aggregator:
+                await aggregator.add_agent_response(self.agents[0].name, response.all_text())
             # Process the rest of the agents in the chain
             for agent in self.agents[1:]:
                 next_message = Prompt.user(*response.content)
                 response = await agent.generate([next_message])
+                if aggregator:
+                    await aggregator.add_agent_response(agent.name, response.all_text())
+
+            if aggregator and await aggregator.should_send_response():
+                await aggregator.get_aggregated_response()
 
             return response
 
@@ -96,6 +105,8 @@ class ChainAgent(BaseAgent):
             chain_messages = multipart_messages.copy()
             chain_messages.extend(all_responses)
             current_response = await agent.generate(chain_messages, request_params)
+            if aggregator:
+                await aggregator.add_agent_response(agent.name, current_response.all_text())
 
             # Store the response
             all_responses.append(current_response)
@@ -111,10 +122,16 @@ class ChainAgent(BaseAgent):
 
         # For cumulative mode, return the properly formatted output with XML tags
         response_text = "\n\n".join(final_results)
-        return PromptMessageMultipart(
+        final_message = PromptMessageMultipart(
             role="assistant",
             content=[TextContent(type="text", text=response_text)],
         )
+        if aggregator:
+            await aggregator.add_agent_response(self.name, response_text)
+            if await aggregator.should_send_response():
+                await aggregator.get_aggregated_response()
+
+        return final_message
 
     async def structured(
         self,
