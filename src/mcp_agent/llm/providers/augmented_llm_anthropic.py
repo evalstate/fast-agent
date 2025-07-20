@@ -174,7 +174,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
     async def _process_structured_output(
         self,
         content_block: Any,
-    ) -> Tuple[str, TextContent]:
+    ) -> Tuple[str, CallToolResult, TextContent]:
         """
         Process a structured output tool call from Anthropic.
 
@@ -182,8 +182,12 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         a 'return_structured_output' tool via tool_choice. The tool input contains
         the JSON data we want, so we extract it and format it for display.
 
+        Even though we don't call an external tool, we must create a CallToolResult
+        to satisfy Anthropic's API requirement that every tool_use has a corresponding
+        tool_result in the next message.
+
         Returns:
-            Tuple of (tool_use_id, content_block) for the structured data
+            Tuple of (tool_use_id, tool_result, content_block) for the structured data
         """
         tool_args = content_block.input
         tool_use_id = content_block.id
@@ -192,9 +196,14 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         json_response = json.dumps(tool_args, indent=2)
         await self.show_assistant_message(json_response)
 
-        # Return the JSON data as content (this is what gets parsed later)
+        # Create the content for responses
         structured_content = TextContent(type="text", text=json.dumps(tool_args))
-        return tool_use_id, structured_content
+
+        # Create a CallToolResult to satisfy Anthropic's API requirements
+        # This represents the "result" of our structured output "tool"
+        tool_result = CallToolResult(isError=False, content=[structured_content])
+
+        return tool_use_id, tool_result, structured_content
 
     async def _process_regular_tool_call(
         self,
@@ -252,11 +261,14 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
 
             if tool_name == "return_structured_output" and structured_model:
                 # Structured output: extract JSON, don't call external tools
-                tool_use_id, structured_content = await self._process_structured_output(
-                    content_block
-                )
+                (
+                    tool_use_id,
+                    tool_result,
+                    structured_content,
+                ) = await self._process_structured_output(content_block)
                 responses.append(structured_content)
-                # Note: We don't add to tool_results because no actual tool was called
+                # Add to tool_results to satisfy Anthropic's API requirement for tool_result messages
+                tool_results.append((tool_use_id, tool_result))
             else:
                 # Regular tool: call external MCP tool
                 tool_use_id, tool_result = await self._process_regular_tool_call(
@@ -520,15 +532,15 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                     )
                     responses.extend(tool_responses)
 
-                    # For structured output, we have our result and should exit
+                    # Always add tool_results_message first (required by Anthropic API)
+                    messages.append(AnthropicConverter.create_tool_results_message(tool_results))
+
+                    # For structured output, we have our result and should exit after sending tool_result
                     if structured_model and any(
                         tool.name == "return_structured_output" for tool in tool_uses
                     ):
                         self.logger.debug("Structured output received, breaking iteration loop")
                         break
-
-                    # For regular tools, continue the conversation
-                    messages.append(AnthropicConverter.create_tool_results_message(tool_results))
 
         # Only save the new conversation messages to history if use_history is true
         # Keep the prompt messages separate
