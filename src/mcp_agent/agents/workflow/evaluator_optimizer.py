@@ -33,16 +33,14 @@ class QualityRating(str, Enum):
     GOOD = "GOOD"  # Minor improvements possible
     EXCELLENT = "EXCELLENT"  # No improvements needed
 
-    # Map string values to integer values for comparisons
-    @property
-    def value(self) -> int:
-        """Convert string enum values to integers for comparison."""
-        return {
-            "POOR": 0,
-            "FAIR": 1,
-            "GOOD": 2,
-            "EXCELLENT": 3,
-        }[self._value_]
+
+# Separate mapping for quality ratings to numerical values
+QUALITY_RATING_VALUES = {
+    QualityRating.POOR: 0,
+    QualityRating.FAIR: 1,
+    QualityRating.GOOD: 2,
+    QualityRating.EXCELLENT: 3,
+}
 
 
 class EvaluationResult(BaseModel):
@@ -140,7 +138,7 @@ class EvaluatorOptimizerAgent(BaseAgent):
 
             # Evaluate current response
             eval_prompt = self._build_eval_prompt(
-                request=request, response=response.all_text(), iteration=refinement_count
+                request=request, response=response.last_text(), iteration=refinement_count
             )
 
             # Create evaluation message and get structured evaluation result
@@ -171,7 +169,7 @@ class EvaluatorOptimizerAgent(BaseAgent):
             logger.debug(f"Evaluation result: {evaluation_result.rating}")
 
             # Track best response based on rating
-            if evaluation_result.rating.value > best_rating.value:
+            if QUALITY_RATING_VALUES[evaluation_result.rating] > QUALITY_RATING_VALUES[best_rating]:
                 best_rating = evaluation_result.rating
                 best_response = response
                 logger.debug(f"New best response (rating: {best_rating})")
@@ -183,14 +181,17 @@ class EvaluatorOptimizerAgent(BaseAgent):
                 best_response = response
                 break
 
-            if evaluation_result.rating.value >= self.min_rating.value:
+            if (
+                QUALITY_RATING_VALUES[evaluation_result.rating]
+                >= QUALITY_RATING_VALUES[self.min_rating]
+            ):
                 logger.debug(f"Acceptable quality reached ({evaluation_result.rating})")
                 break
 
             # Generate refined response
             refinement_prompt = self._build_refinement_prompt(
                 request=request,
-                response=response.all_text(),
+                response=response.last_text(),  ## only if there is no history?
                 feedback=evaluation_result,
                 iteration=refinement_count,
             )
@@ -270,48 +271,21 @@ class EvaluatorOptimizerAgent(BaseAgent):
         return f"""
 You are an expert evaluator for content quality. Your task is to evaluate a response against the user's original request.
 
-Evaluate the response for iteration {iteration + 1} and provide structured feedback on its quality and areas for improvement.
+Evaluate the response for iteration {iteration + 1} and provide feedback on its quality and areas for improvement.
 
+```
 <fastagent:data>
-<fastagent:request>
+    <fastagent:request>
 {request}
-</fastagent:request>
+    </fastagent:request>
 
-<fastagent:response>
+    <fastagent:response>
 {response}
-</fastagent:response>
+    </fastagent:response>
 </fastagent:data>
 
-<fastagent:instruction>
-Your response MUST be valid JSON matching this exact format (no other text, markdown, or explanation):
+```
 
-{{
-  "rating": "RATING",
-  "feedback": "DETAILED FEEDBACK",
-  "needs_improvement": BOOLEAN,
-  "focus_areas": ["FOCUS_AREA_1", "FOCUS_AREA_2", "FOCUS_AREA_3"]
-}}
-
-Where:
-- RATING: Must be one of: "EXCELLENT", "GOOD", "FAIR", or "POOR"
-  - EXCELLENT: No improvements needed
-  - GOOD: Only minor improvements possible
-  - FAIR: Several improvements needed
-  - POOR: Major improvements needed
-- DETAILED FEEDBACK: Specific, actionable feedback (as a single string)
-- BOOLEAN: true or false (lowercase, no quotes) indicating if further improvement is needed
-- FOCUS_AREAS: Array of 1-3 specific areas to focus on (empty array if no improvement needed)
-
-Example of valid response (DO NOT include the triple backticks in your response):
-{{
-  "rating": "GOOD",
-  "feedback": "The response is clear but could use more supporting evidence.",
-  "needs_improvement": true,
-  "focus_areas": ["Add more examples", "Include data points"]
-}}
-
-IMPORTANT: Your response should be ONLY the JSON object without any code fences, explanations, or other text.
-</fastagent:instruction>
 """
 
     def _build_refinement_prompt(
@@ -333,28 +307,27 @@ IMPORTANT: Your response should be ONLY the JSON object without any code fences,
         Returns:
             Formatted refinement prompt
         """
-        focus_areas = ", ".join(feedback.focus_areas) if feedback.focus_areas else "None specified"
+
+        # Format focus areas as bulleted list with each item on a separate line
+        if feedback.focus_areas:
+            focus_areas = "\n".join(f"      * {area}" for area in feedback.focus_areas)
+        else:
+            focus_areas = "None specified"
 
         return f"""
-You are tasked with improving a response based on expert feedback. This is iteration {iteration + 1} of the refinement process.
+You are tasked with improving your previous response based on expert feedback. This is iteration {iteration + 1} of the refinement process.
 
 Your goal is to address all feedback points while maintaining accuracy and relevance to the original request.
 
-<fastagent:data>
-<fastagent:request>
-{request}
-</fastagent:request>
-
-<fastagent:previous-response>
-{response}
-</fastagent:previous-response>
+```
 
 <fastagent:feedback>
-<rating>{feedback.rating}</rating>
-<details>{feedback.feedback}</details>
-<focus-areas>{focus_areas}</focus-areas>
+    <rating>{feedback.rating.name}</rating>
+    <details>{feedback.feedback}</details>
+    <focus-areas>
+{focus_areas}
+    </focus-areas>
 </fastagent:feedback>
-</fastagent:data>
 
 <fastagent:instruction>
 Create an improved version of the response that:
@@ -365,4 +338,7 @@ Create an improved version of the response that:
 
 Provide your complete improved response without explanations or commentary.
 </fastagent:instruction>
+
+```
+
 """

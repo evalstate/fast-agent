@@ -23,6 +23,9 @@ from typing import (
 from mcp.client.session import ElicitationFnT
 
 from mcp_agent.agents.agent import AgentConfig
+from mcp_agent.agents.workflow.router_agent import (
+    ROUTING_SYSTEM_INSTRUCTION,
+)
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.request_params import RequestParams
 
@@ -397,10 +400,6 @@ def router(
     Returns:
         A decorator that registers the router with proper type annotations
     """
-    default_instruction = """
-    You are a router that determines which specialized agent should handle a given query.
-    Analyze the query and select the most appropriate agent to handle it.
-    """
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]",
@@ -408,7 +407,7 @@ def router(
             self,
             AgentType.ROUTER,
             name=name,
-            instruction=instruction or default_instruction,
+            instruction=instruction or ROUTING_SYSTEM_INSTRUCTION,
             servers=servers,
             model=model,
             use_history=use_history,

@@ -212,8 +212,6 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         # note - check changes here are mirrored in structured(). i've thought hard about
         # a strategy to reduce duplication etc, but aiming for simple but imperfect for the moment
 
-        # We never expect this for structured() calls - this is for interactive use - developers
-        # can do this programatically
         # TODO -- create a "fast-agent" control role rather than magic strings
 
         if multipart_messages[-1].first_text().startswith("***SAVE_HISTORY"):
@@ -235,6 +233,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
         # add generic error and termination reason handling/rollback
         self._message_history.append(assistant_response)
+
         return assistant_response
 
     @abstractmethod

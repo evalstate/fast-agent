@@ -1,6 +1,8 @@
+from json import JSONDecodeError
 from typing import Optional, Union
 
 from mcp.types import CallToolResult
+from rich.json import JSON
 from rich.panel import Panel
 from rich.text import Text
 
@@ -359,16 +361,22 @@ class ConsoleDisplay:
         right = f"[dim]{model}[/dim]" if model else ""
         self._create_combined_separator_status(left, right)
 
-        # Display content as markdown if it looks like markdown, otherwise as text
         if isinstance(message_text, str):
             content = message_text
-            #         if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
-            md = Markdown(content, code_theme=CODE_STYLE)
-            console.console.print(md, markup=self._markup)
-        #        else:
-        #           console.console.print(content, markup=self._markup)
+
+            # Try to detect and pretty print JSON
+            try:
+                import json
+
+                json.loads(content)
+                json = JSON(message_text)
+                console.console.print(json, markup=self._markup)
+            except (JSONDecodeError, TypeError, ValueError):
+                # Not JSON, treat as markdown
+                md = Markdown(content, code_theme=CODE_STYLE)
+                console.console.print(md, markup=self._markup)
         else:
-            # Handle Text objects directly
+            # Handle Rich Text objects directly
             console.console.print(message_text, markup=self._markup)
 
         # Bottom separator with server list: ─ [server1] [server2] ────────

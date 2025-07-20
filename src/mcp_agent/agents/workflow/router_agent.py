@@ -39,7 +39,7 @@ Follow these guidelines:
 """
 
 # Default routing instruction with placeholders for context (AgentCard JSON)
-DEFAULT_ROUTING_INSTRUCTION = """
+ROUTING_AGENT_INSTRUCTION = """
 Select from the following agents to handle the request:
 <fastagent:agents>
 [
@@ -100,7 +100,7 @@ class RouterAgent(BaseAgent):
         self.routing_instruction = routing_instruction
         self.agent_map = {agent.name: agent for agent in agents}
 
-        # Set up base router request parameters
+        # Set up base router request parameters with just the base instruction for now
         base_params = {"systemPrompt": ROUTING_SYSTEM_INSTRUCTION, "use_history": False}
 
         if default_request_params:
@@ -120,6 +120,18 @@ class RouterAgent(BaseAgent):
                 if not getattr(agent, "initialized", False):
                     await agent.initialize()
 
+            complete_routing_instruction = await self._generate_routing_instruction(
+                self.agents, self.routing_instruction
+            )
+
+            # Update the system prompt to include the routing instruction with agent cards
+            combined_system_prompt = (
+                ROUTING_SYSTEM_INSTRUCTION + "\n\n" + complete_routing_instruction
+            )
+            self._default_request_params.systemPrompt = combined_system_prompt
+            self.instruction = combined_system_prompt
+            self._routing_instruction_generated = True
+
             self.initialized = True
 
     async def shutdown(self) -> None:
@@ -132,6 +144,36 @@ class RouterAgent(BaseAgent):
                 await agent.shutdown()
             except Exception as e:
                 logger.warning(f"Error shutting down agent: {str(e)}")
+
+    @staticmethod
+    async def _generate_routing_instruction(
+        agents: List[Agent], routing_instruction: Optional[str] = None
+    ) -> str:
+        """
+        Generate the complete routing instruction with agent cards.
+
+        Args:
+            agents: List of agents to include in routing instruction
+            routing_instruction: Optional custom routing instruction template
+
+        Returns:
+            Complete routing instruction with agent cards formatted
+        """
+        # Generate agent descriptions
+        agent_descriptions = []
+        for agent in agents:
+            agent_card: AgentCard = await agent.agent_card()
+            agent_descriptions.append(
+                agent_card.model_dump_json(
+                    include={"name", "description", "skills"}, exclude_none=True
+                )
+            )
+
+        context = ",\n".join(agent_descriptions)
+
+        # Format the routing instruction
+        instruction_template = routing_instruction or ROUTING_AGENT_INSTRUCTION
+        return instruction_template.format(context=context)
 
     async def attach_llm(
         self,
@@ -227,27 +269,10 @@ class RouterAgent(BaseAgent):
                 agent=self.agents[0].name, confidence="high", reasoning="Only one agent available"
             ), None
 
-        # Generate agent descriptions for the context
-        agent_descriptions = []
-        for agent in self.agents:
-            agent_card: AgentCard = await agent.agent_card()
-            agent_descriptions.append(
-                agent_card.model_dump_json(
-                    include={"name", "description", "skills"}, exclude_none=True
-                )
-            )
-
-        context = ",\n".join(agent_descriptions)
-
-        # Format the routing prompt
-        routing_instruction = self.routing_instruction or DEFAULT_ROUTING_INSTRUCTION
-        routing_instruction = routing_instruction.format(context=context)
-
         assert self._llm
-        mutated = message.model_copy(deep=True)
-        mutated.add_text(routing_instruction)
+        # No need to add routing instruction here - it's already in the system prompt
         response, _ = await self._llm.structured(
-            [mutated],
+            [message],
             RoutingResponse,
             self._default_request_params,
         )

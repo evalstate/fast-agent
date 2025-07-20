@@ -43,7 +43,7 @@ SAMPLE_REQUESTS = [
 )
 @fast.router(
     name="route",
-    model="sonnet",
+    model="gpt-4.1",
     agents=["code_expert", "general_assistant", "fetcher"],
 )
 async def main() -> None:
