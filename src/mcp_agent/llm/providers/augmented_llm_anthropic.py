@@ -1,4 +1,5 @@
-from typing import TYPE_CHECKING, List, Tuple, Type
+import json
+from typing import TYPE_CHECKING, Any, List, Tuple, Type
 
 from mcp.types import TextContent
 
@@ -33,6 +34,7 @@ from anthropic.types import (
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
+    CallToolResult,
     ContentBlock,
 )
 from rich.text import Text
@@ -99,6 +101,172 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
 
+    async def _prepare_tools(self, structured_model: Type[ModelT] | None = None) -> List[ToolParam]:
+        """Prepare tools based on whether we're in structured output mode."""
+        if structured_model:
+            # JSON mode - create a single tool for structured output
+            return [
+                ToolParam(
+                    name="return_structured_output",
+                    description="Return the response in the required JSON format",
+                    input_schema=structured_model.model_json_schema(),
+                )
+            ]
+        else:
+            # Regular mode - use tools from aggregator
+            tool_list: ListToolsResult = await self.aggregator.list_tools()
+            return [
+                ToolParam(
+                    name=tool.name,
+                    description=tool.description or "",
+                    input_schema=tool.inputSchema,
+                )
+                for tool in tool_list.tools
+            ]
+
+    def _apply_system_cache(self, base_args: dict, cache_mode: str) -> None:
+        """Apply cache control to system prompt if cache mode allows it."""
+        if cache_mode != "off" and base_args["system"]:
+            if isinstance(base_args["system"], str):
+                base_args["system"] = [
+                    {
+                        "type": "text",
+                        "text": base_args["system"],
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ]
+                self.logger.debug(
+                    "Applied cache_control to system prompt (caches tools+system in one block)"
+                )
+            else:
+                self.logger.debug(f"System prompt is not a string: {type(base_args['system'])}")
+
+    async def _apply_conversation_cache(self, messages: List[MessageParam], cache_mode: str) -> int:
+        """Apply conversation caching if in auto mode. Returns number of cache blocks applied."""
+        applied_count = 0
+        if cache_mode == "auto" and self.history.should_apply_conversation_cache():
+            cache_updates = self.history.get_conversation_cache_updates()
+
+            # Remove cache control from old positions
+            if cache_updates["remove"]:
+                self.history.remove_cache_control_from_messages(messages, cache_updates["remove"])
+                self.logger.debug(
+                    f"Removed conversation cache_control from positions {cache_updates['remove']}"
+                )
+
+            # Add cache control to new positions
+            if cache_updates["add"]:
+                applied_count = self.history.add_cache_control_to_messages(
+                    messages, cache_updates["add"]
+                )
+                if applied_count > 0:
+                    self.history.apply_conversation_cache_updates(cache_updates)
+                    self.logger.debug(
+                        f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)"
+                    )
+                else:
+                    self.logger.debug(
+                        f"Failed to apply conversation cache_control to positions {cache_updates['add']}"
+                    )
+
+        return applied_count
+
+    async def _process_structured_output(
+        self,
+        content_block: Any,
+    ) -> Tuple[str, TextContent]:
+        """
+        Process a structured output tool call from Anthropic.
+
+        This handles the special case where Anthropic's model was forced to use
+        a 'return_structured_output' tool via tool_choice. The tool input contains
+        the JSON data we want, so we extract it and format it for display.
+
+        Returns:
+            Tuple of (tool_use_id, content_block) for the structured data
+        """
+        tool_args = content_block.input
+        tool_use_id = content_block.id
+
+        # Show the formatted JSON response to the user
+        json_response = json.dumps(tool_args, indent=2)
+        await self.show_assistant_message(json_response)
+
+        # Return the JSON data as content (this is what gets parsed later)
+        structured_content = TextContent(type="text", text=json.dumps(tool_args))
+        return tool_use_id, structured_content
+
+    async def _process_regular_tool_call(
+        self,
+        content_block: Any,
+        available_tools: List[ToolParam],
+        is_first_tool: bool,
+        message_text: str | Text,
+    ) -> Tuple[str, CallToolResult]:
+        """
+        Process a regular MCP tool call.
+
+        This handles actual tool execution via the MCP aggregator.
+        """
+        tool_name = content_block.name
+        tool_args = content_block.input
+        tool_use_id = content_block.id
+
+        if is_first_tool:
+            await self.show_assistant_message(message_text, tool_name)
+
+        self.show_tool_call(available_tools, tool_name, tool_args)
+        tool_call_request = CallToolRequest(
+            method="tools/call",
+            params=CallToolRequestParams(name=tool_name, arguments=tool_args),
+        )
+        result = await self.call_tool(request=tool_call_request, tool_call_id=tool_use_id)
+        self.show_tool_result(result)
+        return tool_use_id, result
+
+    async def _process_tool_calls(
+        self,
+        tool_uses: List[Any],
+        available_tools: List[ToolParam],
+        message_text: str | Text,
+        structured_model: Type[ModelT] | None = None,
+    ) -> Tuple[List[Tuple[str, CallToolResult]], List[ContentBlock]]:
+        """
+        Process tool calls, handling both structured output and regular MCP tools.
+
+        For structured output mode:
+        - Extracts JSON data from the forced 'return_structured_output' tool
+        - Does NOT create fake CallToolResults
+        - Returns the JSON content directly
+
+        For regular tools:
+        - Calls actual MCP tools via the aggregator
+        - Returns real CallToolResults
+        """
+        tool_results = []
+        responses = []
+
+        for tool_idx, content_block in enumerate(tool_uses):
+            tool_name = content_block.name
+            is_first_tool = tool_idx == 0
+
+            if tool_name == "return_structured_output" and structured_model:
+                # Structured output: extract JSON, don't call external tools
+                tool_use_id, structured_content = await self._process_structured_output(
+                    content_block
+                )
+                responses.append(structured_content)
+                # Note: We don't add to tool_results because no actual tool was called
+            else:
+                # Regular tool: call external MCP tool
+                tool_use_id, tool_result = await self._process_regular_tool_call(
+                    content_block, available_tools, is_first_tool, message_text
+                )
+                tool_results.append((tool_use_id, tool_result))
+                responses.extend(tool_result.content)
+
+        return tool_results, responses
+
     async def _process_stream(self, stream: AsyncMessageStream, model: str) -> Message:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
@@ -150,6 +318,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         self,
         message_param,
         request_params: RequestParams | None = None,
+        structured_model: Type[ModelT] | None = None,
     ) -> list[ContentBlock]:
         """
         Process a query using an LLM and available tools.
@@ -181,15 +350,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         cache_mode = self._get_cache_mode()
         self.logger.debug(f"Anthropic cache_mode: {cache_mode}")
 
-        tool_list: ListToolsResult = await self.aggregator.list_tools()
-        available_tools: List[ToolParam] = [
-            ToolParam(
-                name=tool.name,
-                description=tool.description or "",
-                input_schema=tool.inputSchema,
-            )
-            for tool in tool_list.tools
-        ]
+        available_tools = await self._prepare_tools(structured_model)
 
         responses: List[ContentBlock] = []
 
@@ -209,59 +370,25 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                 "tools": available_tools,
             }
 
-            # Apply cache_control to system prompt if cache_mode is not "off"
-            # This caches both tools and system prompt together in one cache block
-            if cache_mode != "off" and base_args["system"]:
-                if isinstance(base_args["system"], str):
-                    base_args["system"] = [
-                        {
-                            "type": "text",
-                            "text": base_args["system"],
-                            "cache_control": {"type": "ephemeral"},
-                        }
-                    ]
-                    self.logger.debug(
-                        "Applied cache_control to system prompt (caches tools+system in one block)"
-                    )
-                else:
-                    self.logger.debug(f"System prompt is not a string: {type(base_args['system'])}")
+            # Add tool_choice for structured output mode
+            if structured_model:
+                base_args["tool_choice"] = {"type": "tool", "name": "return_structured_output"}
 
-            # Apply conversation caching using walking algorithm if in auto mode
-            if cache_mode == "auto" and self.history.should_apply_conversation_cache():
-                cache_updates = self.history.get_conversation_cache_updates()
+            # Apply cache control to system prompt
+            self._apply_system_cache(base_args, cache_mode)
 
-                # Remove cache control from old positions
-                if cache_updates["remove"]:
-                    self.history.remove_cache_control_from_messages(
-                        messages, cache_updates["remove"]
-                    )
-                    self.logger.debug(
-                        f"Removed conversation cache_control from positions {cache_updates['remove']}"
-                    )
+            # Apply conversation caching
+            applied_count = await self._apply_conversation_cache(messages, cache_mode)
 
-                # Add cache control to new positions
-                if cache_updates["add"]:
-                    applied_count = self.history.add_cache_control_to_messages(
-                        messages, cache_updates["add"]
+            # Verify we don't exceed Anthropic's 4 cache block limit
+            if applied_count > 0:
+                total_cache_blocks = applied_count
+                if cache_mode != "off" and base_args["system"]:
+                    total_cache_blocks += 1  # tools+system cache block
+                if total_cache_blocks > 4:
+                    self.logger.warning(
+                        f"Total cache blocks ({total_cache_blocks}) exceeds Anthropic limit of 4"
                     )
-                    if applied_count > 0:
-                        self.history.apply_conversation_cache_updates(cache_updates)
-                        self.logger.debug(
-                            f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)"
-                        )
-
-                        # Verify we don't exceed Anthropic's 4 cache block limit
-                        total_cache_blocks = applied_count
-                        if cache_mode != "off" and base_args["system"]:
-                            total_cache_blocks += 1  # tools+system cache block
-                        if total_cache_blocks > 4:
-                            self.logger.warning(
-                                f"Total cache blocks ({total_cache_blocks}) exceeds Anthropic limit of 4"
-                            )
-                    else:
-                        self.logger.debug(
-                            f"Failed to apply conversation cache_control to positions {cache_updates['add']}"
-                        )
 
             if params.maxTokens is not None:
                 base_args["max_tokens"] = params.maxTokens
@@ -387,32 +514,20 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
                             style="dim green italic",
                         )
 
-                    # Process all tool calls and collect results
-                    tool_results = []
-                    # Use a different loop variable for tool enumeration if 'i' is outer loop counter
-                    for tool_idx, content_block in enumerate(tool_uses):
-                        tool_name = content_block.name
-                        tool_args = content_block.input
-                        tool_use_id = content_block.id
+                    # Process all tool calls using the helper method
+                    tool_results, tool_responses = await self._process_tool_calls(
+                        tool_uses, available_tools, message_text, structured_model
+                    )
+                    responses.extend(tool_responses)
 
-                        if tool_idx == 0:  # Only show message for first tool use
-                            await self.show_assistant_message(message_text, tool_name)
+                    # For structured output, we have our result and should exit
+                    if structured_model and any(
+                        tool.name == "return_structured_output" for tool in tool_uses
+                    ):
+                        self.logger.debug("Structured output received, breaking iteration loop")
+                        break
 
-                        self.show_tool_call(available_tools, tool_name, tool_args)
-                        tool_call_request = CallToolRequest(
-                            method="tools/call",
-                            params=CallToolRequestParams(name=tool_name, arguments=tool_args),
-                        )
-                        # TODO -- support MCP isError etc.
-                        result = await self.call_tool(
-                            request=tool_call_request, tool_call_id=tool_use_id
-                        )
-                        self.show_tool_result(result)
-
-                        # Add each result to our collection
-                        tool_results.append((tool_use_id, result))
-                        responses.extend(result.content)
-
+                    # For regular tools, continue the conversation
                     messages.append(AnthropicConverter.create_tool_results_message(tool_results))
 
         # Only save the new conversation messages to history if use_history is true
@@ -501,19 +616,51 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:  # noqa: F821
         request_params = self.get_request_params(request_params)
 
-        # TODO - convert this to use Tool Calling convention for Anthropic Structured outputs
-        multipart_messages[-1].add_text(
-            """YOU MUST RESPOND IN THE FOLLOWING FORMAT:
-            {schema}
-            RESPOND ONLY WITH THE JSON, NO PREAMBLE, CODE FENCES OR 'properties' ARE PERMISSABLE """.format(
-                schema=model.model_json_schema()
-            )
-        )
+        # Check the last message role
+        last_message = multipart_messages[-1]
 
-        result: PromptMessageMultipart = await self._apply_prompt_provider_specific(
-            multipart_messages, request_params
+        # Add all previous messages to history (or all messages if last is from assistant)
+        messages_to_add = (
+            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
         )
-        return self._structured_from_multipart(result, model)
+        converted = []
+
+        for msg in messages_to_add:
+            anthropic_msg = AnthropicConverter.convert_to_anthropic(msg)
+            converted.append(anthropic_msg)
+
+        self.history.extend(converted, is_prompt=False)
+
+        if last_message.role == "user":
+            self.logger.debug("Last message in prompt is from user, generating structured response")
+            message_param = AnthropicConverter.convert_to_anthropic(last_message)
+
+            # Call _anthropic_completion with the structured model
+            response_content = await self._anthropic_completion(
+                message_param, request_params, structured_model=model
+            )
+
+            # Extract the structured data from the response
+            for content in response_content:
+                if content.type == "text":
+                    try:
+                        # Parse the JSON response from the tool
+                        data = json.loads(content.text)
+                        parsed_model = model(**data)
+                        # Create assistant response
+                        assistant_response = Prompt.assistant(content)
+                        return parsed_model, assistant_response
+                    except (json.JSONDecodeError, ValueError) as e:
+                        self.logger.error(f"Failed to parse structured output: {e}")
+                        assistant_response = Prompt.assistant(content)
+                        return None, assistant_response
+
+            # If no valid response found
+            return None, Prompt.assistant()
+        else:
+            # For assistant messages: Return the last message content
+            self.logger.debug("Last message in prompt is from assistant, returning it directly")
+            return None, last_message
 
     def _show_usage(self, raw_usage: Usage, turn_usage: TurnUsage) -> None:
         # Print raw usage for debugging
