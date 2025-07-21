@@ -75,6 +75,7 @@ include = [
     "src/mcp_agent/**/*.csv",
     "src/mcp_agent/**/*.txt",    
     "src/mcp_agent/**/*.example",
+    "src/mcp_agent/py.typed",
     "examples/**/*",
 ]
 
