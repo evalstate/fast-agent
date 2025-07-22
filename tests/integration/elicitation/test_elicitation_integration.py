@@ -144,8 +144,51 @@ async def test_elicitation_precedence_decorator_over_config(fast_agent):
             # Test actual elicitation behavior
             result = await agent.get_resource("elicitation://user-profile")
             result_str = str(result)
-            
+
             # Should get test data from our custom handler, not config behavior
             assert "Test User" in result_str, f"Decorator precedence failed: {result_str}"
-    
+
     await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_elicitation_form_default_values():
+    """Test that default values are properly extracted and set for all field types in elicitation forms."""
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.widgets import Checkbox, RadioList
+
+    from mcp_agent.human_input.elicitation_form import ElicitationForm
+
+    schema = {
+        "properties": {
+            "username": {"type": "string", "title": "Username", "default": "john_doe"},
+            "age": {"type": "integer", "title": "Age", "default": 25},
+            "subscribe": {"type": "boolean", "title": "Subscribe", "default": True},
+            "theme": {
+                "type": "string",
+                "title": "Theme",
+                "enum": ["light", "dark", "auto"],
+                "default": "dark",
+            },
+        },
+        "required": [],
+    }
+
+    form = ElicitationForm(schema, "Test defaults", "test_agent", "test_server")
+
+    # Check string default
+    assert isinstance(form.field_widgets["username"], Buffer)
+    assert form.field_widgets["username"].text == "john_doe"
+
+    # Check integer default
+    assert isinstance(form.field_widgets["age"], Buffer)
+    assert form.field_widgets["age"].text == "25"
+
+    # Check boolean default
+    assert isinstance(form.field_widgets["subscribe"], Checkbox)
+    assert form.field_widgets["subscribe"].checked is True
+
+    # Check enum default
+    assert isinstance(form.field_widgets["theme"], RadioList)
+    assert form.field_widgets["theme"].current_value == "dark"
