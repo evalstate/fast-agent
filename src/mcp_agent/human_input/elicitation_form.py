@@ -435,6 +435,20 @@ class ElicitationForm:
 
         return constraints
 
+    def _extract_default_value(self, field_def: Dict[str, Any]) -> Any:
+        """Extract default value from field definition, handling anyOf schemas."""
+        # Check direct default
+        if "default" in field_def:
+            return field_def["default"]
+
+        # Check anyOf variants (for Optional fields with defaults)
+        if "anyOf" in field_def:
+            for variant in field_def["anyOf"]:
+                if "default" in variant:
+                    return variant["default"]
+
+        return None
+
     def _create_field(self, field_name: str, field_def: Dict[str, Any]):
         """Create a field widget."""
 
@@ -510,7 +524,8 @@ class ElicitationForm:
             enum_names = field_def.get("enumNames", enum_values)
             values = [(val, name) for val, name in zip(enum_values, enum_names)]
 
-            radio_list = RadioList(values=values)
+            default_value = self._extract_default_value(field_def)
+            radio_list = RadioList(values=values, default=default_value)
             self.field_widgets[field_name] = radio_list
 
             return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
@@ -559,6 +574,11 @@ class ElicitationForm:
                 multiline = False
                 height = 1
 
+            default_value = self._extract_default_value(field_def)
+            initial_text = ""
+            if default_value is not None:
+                initial_text = str(default_value)
+
             buffer = Buffer(
                 validator=validator,
                 multiline=multiline,
@@ -566,6 +586,8 @@ class ElicitationForm:
                 complete_while_typing=False,  # Disable completion for cleaner experience
                 enable_history_search=False,  # Disable history for cleaner experience
             )
+            if initial_text:
+                buffer.text = initial_text
             self.field_widgets[field_name] = buffer
 
             # Create dynamic style function for focus highlighting and validation errors
