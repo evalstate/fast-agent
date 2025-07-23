@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from mcp_agent.mcp.common import SEP
+
 if TYPE_CHECKING:
     from mcp import ListToolsResult
 
@@ -24,7 +26,7 @@ async def test_tool_list_changes(fast_agent):
             # Initially there should be one tool (check_weather)
             tools: ListToolsResult = await app.test.list_tools()
             assert 1 == len(tools.tools)
-            assert "dynamic_tool-check_weather" == tools.tools[0].name
+            assert f"dynamic_tool{SEP}check_weather" == tools.tools[0].name
 
             # Calling check_weather will toggle the dynamic_tool and send a notification
             result = await app.test.send('***CALL_TOOL check_weather {"location": "New York"}')
@@ -37,7 +39,7 @@ async def test_tool_list_changes(fast_agent):
             dynamic_tool_found = False
             # Check if dynamic_tool is in the list
             for tool in tools.tools:
-                if tool.name == "dynamic_tool-dynamic_tool":
+                if tool.name == f"dynamic_tool{SEP}dynamic_tool":
                     dynamic_tool_found = True
                     break
 

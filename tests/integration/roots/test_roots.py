@@ -1,5 +1,7 @@
 import pytest
 
+from mcp_agent.mcp.common import SEP
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -12,7 +14,7 @@ async def test_roots_returned(fast_agent):
     @fast.agent(name="foo", instruction="bar", servers=["roots_test"])
     async def agent_function():
         async with fast.run() as agent:
-            result = await agent.foo.send("***CALL_TOOL roots_test-show_roots {}")
+            result = await agent.foo.send(f"***CALL_TOOL roots_test{SEP}show_roots {{}}")
             assert "file:///mnt/data/" in result  # alias
             assert "test_data" in result
             assert "file://no/alias" in result  # no alias.
