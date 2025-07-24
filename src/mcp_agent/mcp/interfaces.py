@@ -36,6 +36,17 @@ if TYPE_CHECKING:
     from mcp_agent.llm.usage_tracking import UsageAccumulator
 
 
+__all__ = [
+    "MCPConnectionManagerProtocol",
+    "ServerRegistryProtocol",
+    "ServerConnection",
+    "AugmentedLLMProtocol",
+    "AgentProtocol",
+    "ModelFactoryClassProtocol",
+    "ModelT",
+]
+
+
 @runtime_checkable
 class MCPConnectionManagerProtocol(Protocol):
     """Protocol for MCPConnectionManager functionality needed by ServerRegistry."""
@@ -101,7 +112,7 @@ class AugmentedLLMProtocol(Protocol):
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -110,7 +121,7 @@ class AugmentedLLMProtocol(Protocol):
 
     async def generate(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         request_params: RequestParams | None = None,
     ) -> PromptMessageMultipart:
         """

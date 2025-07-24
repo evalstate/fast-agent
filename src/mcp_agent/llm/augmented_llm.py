@@ -9,6 +9,7 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
+    Union,
     cast,
 )
 
@@ -203,7 +204,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     async def generate(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         request_params: RequestParams | None = None,
     ) -> PromptMessageMultipart:
         """
@@ -211,6 +212,10 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         """
         # note - check changes here are mirrored in structured(). i've thought hard about
         # a strategy to reduce duplication etc, but aiming for simple but imperfect for the moment
+
+        # Convert PromptMessage to PromptMessageMultipart if needed
+        if multipart_messages and isinstance(multipart_messages[0], PromptMessage):
+            multipart_messages = PromptMessageMultipart.to_multipart(multipart_messages)
 
         # TODO -- create a "fast-agent" control role rather than magic strings
 
@@ -259,11 +264,15 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
         """Return a structured response from the LLM using the provided messages."""
+
+        # Convert PromptMessage to PromptMessageMultipart if needed
+        if multipart_messages and isinstance(multipart_messages[0], PromptMessage):
+            multipart_messages = PromptMessageMultipart.to_multipart(multipart_messages)
 
         self._precall(multipart_messages)
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
