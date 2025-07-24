@@ -252,3 +252,97 @@ async def test_setting_an_agent_as_default(fast_agent):
             assert "it's a-me!...Mario! " == await agent.send("hello")
 
     await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_path_instruction(fast_agent):
+    """Test that agents can load instructions from Path objects."""
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create Path to prompt.md
+    prompt_path = Path(__file__).parent / "prompt.md"
+
+    # Define the agent with Path instruction
+    @fast.agent(
+        "path_agent",
+        instruction=prompt_path,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Verify the agent was created successfully
+            assert hasattr(agent, "path_agent")
+
+            # Verify the instruction was loaded from the file by checking the agent instruction
+            instruction = agent.path_agent.instruction
+            assert "markdown-loaded" in instruction
+            assert "test agent loaded from a markdown file" in instruction
+            assert "helpful AI assistant" in instruction
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_nonexistent_path_instruction(fast_agent):
+    """Test that agents properly handle nonexistent Path files."""
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create Path to nonexistent file
+    nonexistent_path = Path(__file__).parent / "nonexistent_prompt.md"
+
+    # This should raise an exception when the decorator is applied
+    with pytest.raises(FileNotFoundError):
+
+        @fast.agent(
+            "error_agent",
+            instruction=nonexistent_path,
+        )
+        async def agent_function():
+            pass
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_orchestrator_with_path_instruction(fast_agent):
+    """Test that orchestrator can load instructions from Path objects."""
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create some basic agents first
+    @fast.agent("worker1", instruction="I am worker 1")
+    async def worker1():
+        pass
+
+    @fast.agent("worker2", instruction="I am worker 2")
+    async def worker2():
+        pass
+
+    # Create Path to prompt.md
+    prompt_path = Path(__file__).parent / "prompt.md"
+
+    # Define the orchestrator with Path instruction
+    @fast.orchestrator(
+        "path_orchestrator",
+        agents=["worker1", "worker2"],
+        instruction=prompt_path,
+    )
+    async def orchestrator_function():
+        async with fast.run() as agent:
+            # Verify the orchestrator was created successfully
+            assert hasattr(agent, "path_orchestrator")
+
+            # Verify the instruction was loaded from the file
+            instruction = agent.path_orchestrator.instruction
+            assert "markdown-loaded" in instruction
+            assert "test agent loaded from a markdown file" in instruction
+
+    await orchestrator_function()

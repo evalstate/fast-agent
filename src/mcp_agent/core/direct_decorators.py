@@ -6,6 +6,7 @@ for creating agents in the DirectFastAgent framework.
 
 import inspect
 from functools import wraps
+from pathlib import Path
 from typing import (
     Awaitable,
     Callable,
@@ -83,6 +84,26 @@ class DecoratedEvaluatorOptimizerProtocol(DecoratedAgentProtocol[P, R], Protocol
 
     _generator: str
     _evaluator: str
+
+
+def _resolve_instruction(instruction: str | Path) -> str:
+    """
+    Resolve instruction from either a string or Path.
+
+    Args:
+        instruction: Either a string instruction or Path to a file containing the instruction
+
+    Returns:
+        The resolved instruction string
+
+    Raises:
+        FileNotFoundError: If the Path doesn't exist
+        PermissionError: If the Path can't be read
+        UnicodeDecodeError: If the file can't be decoded as UTF-8
+    """
+    if isinstance(instruction, Path):
+        return instruction.read_text(encoding="utf-8")
+    return instruction
 
 
 def _decorator_impl(
@@ -183,9 +204,9 @@ def _decorator_impl(
 def agent(
     self,
     name: str = "default",
-    instruction_or_kwarg: Optional[str] = None,
+    instruction_or_kwarg: Optional[str | Path] = None,
     *,
-    instruction: str = "You are a helpful agent.",
+    instruction: str | Path = "You are a helpful agent.",
     servers: List[str] = [],
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
@@ -220,7 +241,10 @@ def agent(
     Returns:
         A decorator that registers the agent with proper type annotations
     """
-    final_instruction = instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+    final_instruction_raw = (
+        instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+    )
+    final_instruction = _resolve_instruction(final_instruction_raw)
 
     return _decorator_impl(
         self,
@@ -245,9 +269,9 @@ def custom(
     self,
     cls,
     name: str = "default",
-    instruction_or_kwarg: Optional[str] = None,
+    instruction_or_kwarg: Optional[str | Path] = None,
     *,
-    instruction: str = "You are a helpful agent.",
+    instruction: str | Path = "You are a helpful agent.",
     servers: List[str] = [],
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
@@ -277,7 +301,10 @@ def custom(
     Returns:
         A decorator that registers the agent with proper type annotations
     """
-    final_instruction = instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+    final_instruction_raw = (
+        instruction_or_kwarg if instruction_or_kwarg is not None else instruction
+    )
+    final_instruction = _resolve_instruction(final_instruction_raw)
 
     return _decorator_impl(
         self,
@@ -311,7 +338,7 @@ def orchestrator(
     name: str,
     *,
     agents: List[str],
-    instruction: str = DEFAULT_INSTRUCTION_ORCHESTRATOR,
+    instruction: str | Path = DEFAULT_INSTRUCTION_ORCHESTRATOR,
     model: Optional[str] = None,
     request_params: RequestParams | None = None,
     use_history: bool = False,
@@ -341,6 +368,7 @@ def orchestrator(
     """
 
     # Create final request params with plan_iterations
+    resolved_instruction = _resolve_instruction(instruction)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
@@ -348,7 +376,7 @@ def orchestrator(
             self,
             AgentType.ORCHESTRATOR,
             name=name,
-            instruction=instruction,
+            instruction=resolved_instruction,
             servers=[],  # Orchestrators don't connect to servers directly
             model=model,
             use_history=use_history,
@@ -368,7 +396,7 @@ def router(
     name: str,
     *,
     agents: List[str],
-    instruction: Optional[str] = None,
+    instruction: Optional[str | Path] = None,
     servers: List[str] = [],
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
@@ -400,6 +428,7 @@ def router(
     Returns:
         A decorator that registers the router with proper type annotations
     """
+    resolved_instruction = _resolve_instruction(instruction or ROUTING_SYSTEM_INSTRUCTION)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]",
@@ -407,7 +436,7 @@ def router(
             self,
             AgentType.ROUTER,
             name=name,
-            instruction=instruction or ROUTING_SYSTEM_INSTRUCTION,
+            instruction=resolved_instruction,
             servers=servers,
             model=model,
             use_history=use_history,
@@ -429,7 +458,7 @@ def chain(
     name: str,
     *,
     sequence: List[str],
-    instruction: Optional[str] = None,
+    instruction: Optional[str | Path] = None,
     cumulative: bool = False,
     default: bool = False,
 ) -> Callable[[AgentCallable[P, R]], DecoratedChainProtocol[P, R]]:
@@ -456,6 +485,7 @@ def chain(
     You are a chain that processes requests through a series of specialized agents in sequence.
     Pass the output of each agent to the next agent in the chain.
     """
+    resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedChainProtocol[P, R]]",
@@ -463,7 +493,7 @@ def chain(
             self,
             AgentType.CHAIN,
             name=name,
-            instruction=instruction or default_instruction,
+            instruction=resolved_instruction,
             sequence=sequence,
             cumulative=cumulative,
             default=default,
@@ -477,7 +507,7 @@ def parallel(
     *,
     fan_out: List[str],
     fan_in: str | None = None,
-    instruction: Optional[str] = None,
+    instruction: Optional[str | Path] = None,
     include_request: bool = True,
     default: bool = False,
 ) -> Callable[[AgentCallable[P, R]], DecoratedParallelProtocol[P, R]]:
@@ -499,6 +529,7 @@ def parallel(
     You are a parallel processor that executes multiple agents simultaneously
     and aggregates their results.
     """
+    resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedParallelProtocol[P, R]]",
@@ -506,7 +537,7 @@ def parallel(
             self,
             AgentType.PARALLEL,
             name=name,
-            instruction=instruction or default_instruction,
+            instruction=resolved_instruction,
             servers=[],  # Parallel agents don't connect to servers directly
             fan_in=fan_in,
             fan_out=fan_out,
@@ -522,7 +553,7 @@ def evaluator_optimizer(
     *,
     generator: str,
     evaluator: str,
-    instruction: Optional[str] = None,
+    instruction: Optional[str | Path] = None,
     min_rating: str = "GOOD",
     max_refinements: int = 3,
     default: bool = False,
@@ -547,6 +578,7 @@ def evaluator_optimizer(
     evaluated for quality, and then refined based on specific feedback until
     it reaches an acceptable quality standard.
     """
+    resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedEvaluatorOptimizerProtocol[P, R]]",
@@ -554,7 +586,7 @@ def evaluator_optimizer(
             self,
             AgentType.EVALUATOR_OPTIMIZER,
             name=name,
-            instruction=instruction or default_instruction,
+            instruction=resolved_instruction,
             servers=[],  # Evaluator-optimizer doesn't connect to servers directly
             generator=generator,
             evaluator=evaluator,
