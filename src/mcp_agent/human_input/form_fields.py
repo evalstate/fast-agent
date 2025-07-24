@@ -17,7 +17,7 @@ class StringField:
 
     def to_schema(self) -> Dict[str, Any]:
         """Convert to MCP elicitation schema format."""
-        schema = {"type": "string"}
+        schema: Dict[str, Any] = {"type": "string"}
 
         if self.title:
             schema["title"] = self.title
@@ -47,7 +47,7 @@ class IntegerField:
 
     def to_schema(self) -> Dict[str, Any]:
         """Convert to MCP elicitation schema format."""
-        schema = {"type": "integer"}
+        schema: Dict[str, Any] = {"type": "integer"}
 
         if self.title:
             schema["title"] = self.title
@@ -75,7 +75,7 @@ class NumberField:
 
     def to_schema(self) -> Dict[str, Any]:
         """Convert to MCP elicitation schema format."""
-        schema = {"type": "number"}
+        schema: Dict[str, Any] = {"type": "number"}
 
         if self.title:
             schema["title"] = self.title
@@ -101,7 +101,7 @@ class BooleanField:
 
     def to_schema(self) -> Dict[str, Any]:
         """Convert to MCP elicitation schema format."""
-        schema = {"type": "boolean"}
+        schema: Dict[str, Any] = {"type": "boolean"}
 
         if self.title:
             schema["title"] = self.title
@@ -125,7 +125,7 @@ class EnumField:
 
     def to_schema(self) -> Dict[str, Any]:
         """Convert to MCP elicitation schema format."""
-        schema = {"type": "string", "enum": self.choices}
+        schema: Dict[str, Any] = {"type": "string", "enum": self.choices}
 
         if self.title:
             schema["title"] = self.title
@@ -163,7 +163,7 @@ class FormSchema:
         for field_name, field in self.fields.items():
             properties[field_name] = field.to_schema()
 
-        schema = {"type": "object", "properties": properties}
+        schema: Dict[str, Any] = {"type": "object", "properties": properties}
 
         if self._required_fields:
             schema["required"] = self._required_fields
