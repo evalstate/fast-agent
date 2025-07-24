@@ -259,8 +259,8 @@ def run_async_agent(
 def go(
     ctx: typer.Context,
     name: str = typer.Option("FastAgent CLI", "--name", help="Name for the agent"),
-    instruction: str = typer.Option(
-        "You are a helpful AI Agent.", "--instruction", "-i", help="Instruction for the agent"
+    instruction: Optional[str] = typer.Option(
+        None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
     config_path: Optional[str] = typer.Option(
         None, "--config-path", "-c", help="Path to config file"
@@ -297,7 +297,8 @@ def go(
     Run an interactive agent directly from the command line.
 
     Examples:
-        fast-agent go --model=haiku --instruction="You are a coding assistant" --servers=fetch,filesystem
+        fast-agent go --model=haiku --instruction=./instruction.md --servers=fetch,filesystem
+        fast-agent go --instruction=https://raw.githubusercontent.com/user/repo/prompt.md
         fast-agent go --message="What is the weather today?" --model=haiku
         fast-agent go --prompt-file=my-prompt.txt --model=haiku
         fast-agent go --url=http://localhost:8001/mcp,http://api.example.com/sse
@@ -335,9 +336,29 @@ def go(
     if stdio:
         stdio_commands.append(stdio)
 
+    # Resolve instruction from file/URL or use default
+    resolved_instruction = "You are a helpful AI Agent."  # Default
+    if instruction:
+        try:
+            from pathlib import Path
+
+            from pydantic import AnyUrl
+
+            from mcp_agent.core.direct_decorators import _resolve_instruction
+
+            # Check if it's a URL
+            if instruction.startswith(("http://", "https://")):
+                resolved_instruction = _resolve_instruction(AnyUrl(instruction))
+            else:
+                # Treat as file path
+                resolved_instruction = _resolve_instruction(Path(instruction))
+        except Exception as e:
+            typer.echo(f"Error loading instruction from {instruction}: {e}", err=True)
+            raise typer.Exit(1)
+
     run_async_agent(
         name=name,
-        instruction=instruction,
+        instruction=resolved_instruction,
         config_path=config_path,
         servers=servers,
         urls=urls,

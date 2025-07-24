@@ -22,6 +22,7 @@ from typing import (
 )
 
 from mcp.client.session import ElicitationFnT
+from pydantic import AnyUrl
 
 from mcp_agent.agents.agent import AgentConfig
 from mcp_agent.agents.workflow.router_agent import (
@@ -86,24 +87,89 @@ class DecoratedEvaluatorOptimizerProtocol(DecoratedAgentProtocol[P, R], Protocol
     _evaluator: str
 
 
-def _resolve_instruction(instruction: str | Path) -> str:
+def _fetch_url_content(url: str) -> str:
     """
-    Resolve instruction from either a string or Path.
+    Fetch content from a URL.
 
     Args:
-        instruction: Either a string instruction or Path to a file containing the instruction
+        url: The URL to fetch content from
 
     Returns:
-        The resolved instruction string
+        The text content from the URL
+
+    Raises:
+        requests.RequestException: If the URL cannot be fetched
+        UnicodeDecodeError: If the content cannot be decoded as UTF-8
+    """
+    import requests
+
+    response = requests.get(url, timeout=10)
+    response.raise_for_status()  # Raise exception for HTTP errors
+    return response.text
+
+
+def _apply_templates(text: str) -> str:
+    """
+    Apply template substitutions to instruction text.
+
+    Supported templates:
+        {{currentDate}} - Current date in format "24 July 2025"
+        {{url:https://...}} - Content fetched from the specified URL
+
+    Args:
+        text: The text to process
+
+    Returns:
+        Text with template substitutions applied
+
+    Raises:
+        requests.RequestException: If a URL in {{url:...}} cannot be fetched
+        UnicodeDecodeError: If URL content cannot be decoded as UTF-8
+    """
+    import re
+    from datetime import datetime
+
+    # Apply {{currentDate}} template
+    current_date = datetime.now().strftime("%d %B %Y")
+    text = text.replace("{{currentDate}}", current_date)
+
+    # Apply {{url:...}} templates
+    url_pattern = re.compile(r"\{\{url:(https?://[^}]+)\}\}")
+
+    def replace_url(match):
+        url = match.group(1)
+        return _fetch_url_content(url)
+
+    text = url_pattern.sub(replace_url, text)
+
+    return text
+
+
+def _resolve_instruction(instruction: str | Path | AnyUrl) -> str:
+    """
+    Resolve instruction from either a string, Path, or URL with template support.
+
+    Args:
+        instruction: Either a string instruction, Path to a file, or URL containing the instruction
+
+    Returns:
+        The resolved instruction string with templates applied
 
     Raises:
         FileNotFoundError: If the Path doesn't exist
         PermissionError: If the Path can't be read
-        UnicodeDecodeError: If the file can't be decoded as UTF-8
+        UnicodeDecodeError: If the file/URL content can't be decoded as UTF-8
+        requests.RequestException: If the URL cannot be fetched
     """
     if isinstance(instruction, Path):
-        return instruction.read_text(encoding="utf-8")
-    return instruction
+        text = instruction.read_text(encoding="utf-8")
+    elif isinstance(instruction, AnyUrl):
+        text = _fetch_url_content(str(instruction))
+    else:
+        text = instruction
+
+    # Apply template substitutions
+    return _apply_templates(text)
 
 
 def _decorator_impl(
@@ -204,9 +270,9 @@ def _decorator_impl(
 def agent(
     self,
     name: str = "default",
-    instruction_or_kwarg: Optional[str | Path] = None,
+    instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
     *,
-    instruction: str | Path = "You are a helpful agent.",
+    instruction: str | Path | AnyUrl = "You are a helpful agent.",
     servers: List[str] = [],
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
@@ -269,9 +335,9 @@ def custom(
     self,
     cls,
     name: str = "default",
-    instruction_or_kwarg: Optional[str | Path] = None,
+    instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
     *,
-    instruction: str | Path = "You are a helpful agent.",
+    instruction: str | Path | AnyUrl = "You are a helpful agent.",
     servers: List[str] = [],
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
@@ -338,7 +404,7 @@ def orchestrator(
     name: str,
     *,
     agents: List[str],
-    instruction: str | Path = DEFAULT_INSTRUCTION_ORCHESTRATOR,
+    instruction: str | Path | AnyUrl = DEFAULT_INSTRUCTION_ORCHESTRATOR,
     model: Optional[str] = None,
     request_params: RequestParams | None = None,
     use_history: bool = False,
@@ -396,7 +462,7 @@ def router(
     name: str,
     *,
     agents: List[str],
-    instruction: Optional[str | Path] = None,
+    instruction: Optional[str | Path | AnyUrl] = None,
     servers: List[str] = [],
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
@@ -458,7 +524,7 @@ def chain(
     name: str,
     *,
     sequence: List[str],
-    instruction: Optional[str | Path] = None,
+    instruction: Optional[str | Path | AnyUrl] = None,
     cumulative: bool = False,
     default: bool = False,
 ) -> Callable[[AgentCallable[P, R]], DecoratedChainProtocol[P, R]]:
@@ -507,7 +573,7 @@ def parallel(
     *,
     fan_out: List[str],
     fan_in: str | None = None,
-    instruction: Optional[str | Path] = None,
+    instruction: Optional[str | Path | AnyUrl] = None,
     include_request: bool = True,
     default: bool = False,
 ) -> Callable[[AgentCallable[P, R]], DecoratedParallelProtocol[P, R]]:
@@ -553,7 +619,7 @@ def evaluator_optimizer(
     *,
     generator: str,
     evaluator: str,
-    instruction: Optional[str | Path] = None,
+    instruction: Optional[str | Path | AnyUrl] = None,
     min_rating: str = "GOOD",
     max_refinements: int = 3,
     default: bool = False,
