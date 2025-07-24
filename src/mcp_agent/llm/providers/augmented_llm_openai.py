@@ -106,7 +106,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
 
-    def _openai_client(self) -> AsyncOpenAI:
+    def _initialize_client(self) -> AsyncOpenAI:
         try:
             return AsyncOpenAI(api_key=self._api_key(), base_url=self._base_url())
 
@@ -344,7 +344,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             self._log_chat_progress(self.chat_turn(), model=self.default_request_params.model)
 
             # Use basic streaming API
-            stream = await self._openai_client().chat.completions.create(**arguments)
+            stream = await self._initialize_client().chat.completions.create(**arguments)
             # Process the stream
             response = await self._process_stream(stream, self.default_request_params.model)
 

@@ -1,11 +1,16 @@
-from typing import List
+# region External Imports
+## External Imports -- General Imports
+import json
+from typing import List, Optional, Tuple, Type
 
-# Import necessary types and client from google.genai
+## External Imports -- Provider-Specific Imports
 from google import genai
 from google.genai import (
-    errors,  # For error handling
+    errors,
     types,
 )
+
+## External Imports -- MCP
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
@@ -15,16 +20,24 @@ from mcp.types import (
 )
 from rich.text import Text
 
+# endregion
+# region Internal Imports
+## Internal -- Core
 from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.core.request_params import RequestParams
+
+## Internal -- LLM
 from mcp_agent.llm.augmented_llm import AugmentedLLM
 from mcp_agent.llm.provider_types import Provider
-
-# Import the new converter class
 from mcp_agent.llm.providers.google_converter import GoogleConverter
 from mcp_agent.llm.usage_tracking import TurnUsage
+
+## Internal -- MCP
+from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+
+#endregion
 
 # Define default model and potentially other Google-specific defaults
 DEFAULT_GOOGLE_MODEL = "gemini-2.0-flash"
@@ -35,122 +48,6 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
     Google LLM provider using the native google.genai library.
     """
 
-    async def _apply_prompt_provider_specific_structured(
-        self,
-        multipart_messages,
-        model,
-        request_params=None,
-    ):
-        """
-        Handles structured output for Gemini models using response_schema and response_mime_type.
-        """
-        import json
-
-        # Check if the last message is from assistant
-        if multipart_messages and multipart_messages[-1].role == "assistant":
-            last_message = multipart_messages[-1]
-
-            # Extract text content from the assistant message
-            assistant_text = last_message.first_text()
-
-            if assistant_text:
-                try:
-                    json_data = json.loads(assistant_text)
-                    validated_model = model.model_validate(json_data)
-
-                    # Update history with all messages including the assistant message
-                    self.history.extend(multipart_messages, is_prompt=False)
-
-                    # Return the validated model and the assistant message
-                    return validated_model, last_message
-
-                except (json.JSONDecodeError, Exception) as e:
-                    self.logger.warning(
-                        f"Failed to parse assistant message as structured response: {e}"
-                    )
-                    # Return None and the assistant message on failure
-                    self.history.extend(multipart_messages, is_prompt=False)
-                    return None, last_message
-
-        # Prepare request params
-        request_params = self.get_request_params(request_params)
-        # Convert Pydantic model to schema dict for Gemini
-        schema = None
-        try:
-            schema = model.model_json_schema()
-        except Exception:
-            pass
-
-        # Set up Gemini config for structured output
-        def _get_schema_type(model):
-            # Try to get the type annotation for the model (for list[...] etc)
-            # Fallback to dict schema if not available
-            try:
-                return model
-            except Exception:
-                return None
-
-        # Use the schema as a dict or as a type, as Gemini supports both
-        response_schema = _get_schema_type(model)
-        if schema is not None:
-            response_schema = schema
-
-        # Set config for structured output
-        generate_content_config = self._converter.convert_request_params_to_google_config(
-            request_params
-        )
-        generate_content_config.response_mime_type = "application/json"
-        generate_content_config.response_schema = response_schema
-
-        # Convert messages to google.genai format
-        conversation_history = self._converter.convert_to_google_content(multipart_messages)
-
-        # Call Gemini API
-        try:
-            api_response = await self._google_client.aio.models.generate_content(
-                model=request_params.model,
-                contents=conversation_history,
-                config=generate_content_config,
-            )
-        except Exception as e:
-            self.logger.error(f"Error during Gemini structured call: {e}")
-            # Return None and a dummy assistant message
-            return None, Prompt.assistant(f"Error: {e}")
-
-        # Parse the response as JSON and validate against the model
-        if not api_response.candidates or not api_response.candidates[0].content.parts:
-            return None, Prompt.assistant("No structured response returned.")
-
-        # Try to extract the JSON from the first part
-        text = None
-        for part in api_response.candidates[0].content.parts:
-            if part.text:
-                text = part.text
-                break
-        if text is None:
-            return None, Prompt.assistant("No structured text returned.")
-
-        try:
-            json_data = json.loads(text)
-            validated_model = model.model_validate(json_data)
-            # Update LLM history with user and assistant messages for correct history tracking
-            # Add user message(s)
-            for msg in multipart_messages:
-                self.history.append(msg)
-            # Add assistant message
-            assistant_msg = Prompt.assistant(text)
-            self.history.append(assistant_msg)
-            return validated_model, assistant_msg
-        except Exception as e:
-            self.logger.warning(f"Failed to parse structured response: {e}")
-            # Still update history for consistency
-            for msg in multipart_messages:
-                self.history.append(msg)
-            assistant_msg = Prompt.assistant(text)
-            self.history.append(assistant_msg)
-            return None, assistant_msg
-
-    # Define Google-specific parameter exclusions if necessary
     GOOGLE_EXCLUDE_FIELDS = {
         # Add fields that should not be passed directly from RequestParams to google.genai config
         AugmentedLLM.PARAM_MESSAGES,  # Handled by contents
@@ -164,9 +61,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, provider=Provider.GOOGLE, **kwargs)
-        # Initialize the google.genai client
         self._google_client = self._initialize_google_client()
-        # Initialize the converter
         self._converter = GoogleConverter()
 
     def _initialize_google_client(self) -> genai.Client:
@@ -176,16 +71,12 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         Reads Google API key or Vertex AI configuration from context config.
         """
         try:
-            # Example: Authenticate using API key from config
-            api_key = self._api_key()  # Assuming _api_key() exists in base class
-            if not api_key:
-                # Handle case where API key is missing
+            if not self._api_key(): #  _api_key() from base class.
                 raise ProviderKeyError(
                     "Google API key not found.", "Please configure your Google API key."
                 )
-
-            # Check for Vertex AI configuration
-            if (
+            
+            if ( #  Check if Vertex or Gemini API
                 self.context
                 and self.context.config
                 and hasattr(self.context.config, "google")
@@ -203,7 +94,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
             else:
                 # Default to Gemini Developer API
                 return genai.Client(
-                    api_key=api_key,
+                    api_key=self._api_key(),
                     # http_options=types.HttpOptions(api_version='v1') # Example for v1 API
                 )
         except Exception as e:
@@ -221,247 +112,262 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
             max_iterations=20,
             use_history=True,
             maxTokens=65536,  # Default max tokens for Google models
-            # Include other relevant default parameters
         )
 
-    async def _google_completion(
-        self,
-        request_params: RequestParams | None = None,
-    ) -> List[ContentBlock]:
+    async def _completion_orchestrator(
+            self,
+            messages_for_turn: List[types.Content],
+            params: RequestParams,
+            structured_model: Optional[Type[ModelT]] = None,
+
+    ) -> Tuple[List[ContentBlock], List[types.Content]]:
         """
-        Process a query using Google's generate_content API and available tools.
+        Orchestrates the agentic loop of API calls and tool use for a single turn.
+
+        This method does not modify self.history directly.
         """
-        request_params = self.get_request_params(request_params=request_params)
-        responses: List[ContentBlock] = []
+        all_content_responses: List[ContentBlock] = []
+        turn_conversation_history = list(messages_for_turn)
 
-        # Load full conversation history if use_history is true
-        if request_params.use_history:
-            # Get history from self.history and convert to google.genai format
-            conversation_history = self._converter.convert_to_google_content(
-                self.history.get(include_completion_history=True)
-            )
-        else:
-            # If not using history, convert the last message to google.genai format
-            conversation_history = self._converter.convert_to_google_content(
-                self.history.get(include_completion_history=True)[-1:]
-            )
+        for i in range(params.max_iterations):
+            self._log_chat_progress(self.chat_turn(), model=params.model)
 
-        self.logger.debug(f"Google completion requested with messages: {conversation_history}")
-        self._log_chat_progress(
-            self.chat_turn(), model=request_params.model
-        )  # Log chat progress at the start of completion
-
-        # Keep track of the number of messages in history before this turn
-        initial_history_length = len(conversation_history)
-
-        for i in range(request_params.max_iterations):
-            # 1. Get available tools
-            aggregator_response = await self.aggregator.list_tools()
-            available_tools = self._converter.convert_to_google_tools(
-                aggregator_response.tools
-            )  # Convert fast-agent tools to google.genai tools
-
-            # 2. Prepare generate_content arguments
-            generate_content_config = self._converter.convert_request_params_to_google_config(
-                request_params
+            # 1. Prepare the request for the API
+            available_tools = await self.aggregator.list_tools()
+            google_tools = self._converter.convert_to_google_tools(available_tools.tools)
+            payload = self._prepare_request_payload(
+                conversation_history=turn_conversation_history,
+                params=params,
+                tools=google_tools,
+                structured_model=structured_model,
             )
 
-            # Add tools and tool_config to generate_content_config if tools are available
-            if available_tools:
-                generate_content_config.tools = available_tools
-                # Set tool_config mode to AUTO to allow the model to decide when to call tools
-                generate_content_config.tool_config = types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode="AUTO")
-                )
-
-            # 3. Call the google.genai API
-            try:
-                # Use the async client
-                api_response = await self._google_client.aio.models.generate_content(
-                    model=request_params.model,
-                    contents=conversation_history,  # Pass the current turn's conversation history
-                    config=generate_content_config,
-                )
-                self.logger.debug("Google generate_content response:", data=api_response)
-
-                # Track usage if response is valid and has usage data
-                if (
-                    hasattr(api_response, "usage_metadata")
-                    and api_response.usage_metadata
-                    and not isinstance(api_response, BaseException)
-                ):
-                    try:
-                        turn_usage = TurnUsage.from_google(
-                            api_response.usage_metadata, request_params.model
-                        )
-                        self._finalize_turn_usage(turn_usage)
-
-                    except Exception as e:
-                        self.logger.warning(f"Failed to track usage: {e}")
-
-            except errors.APIError as e:
-                # Handle specific Google API errors
-                self.logger.error(f"Google API Error: {e.code} - {e.message}")
-                raise ProviderKeyError(f"Google API Error: {e.code}", e.message or "") from e
-            except Exception as e:
-                self.logger.error(f"Error during Google generate_content call: {e}")
-                # Decide how to handle other exceptions - potentially re-raise or return an error message
-                raise e
-
-            # 4. Process the API response
+            # 2. Execute the API call
+            api_response = await self._execute_api_call(payload)
             if not api_response.candidates:
-                # No response from the model, we're done
-                self.logger.debug(f"Iteration {i}: No candidates returned.")
+                self.logger.warning("No candidates returned from Gemini API.")
                 break
 
-            candidate = api_response.candidates[0]  # Process the first candidate
+            # 3. Process the response to determine the next action
+            candidate = api_response.candidates[0]
+            action, content_blocks, assistant_message= self._process_response(candidate)
+            turn_conversation_history.append(assistant_message)
 
-            # Convert the model's response content to fast-agent types
-            model_response_content_parts = self._converter.convert_from_google_content(
-                candidate.content
-            )
+            # 4. Execute the determined action
+            if action == self.ACTIONS.STOP:
+                all_content_responses.extend(content_blocks)
+                if any(isinstance(c, TextContent) and c.text for c in content_blocks):
+                    await self.show_assistant_message("".join(c.text for c in content_blocks if isinstance(c, TextContent)))
+                self.logger.debug(f"Iteration {i}: Stopping because finish_reason is '{candidate.finish_reason}'")
+                break # Correctly breaks the loop
 
-            # Add model's response to conversation history for potential next turn
-            # This is for the *internal* conversation history of this completion call
-            # to handle multi-turn tool use within one _google_completion call.
-            conversation_history.append(candidate.content)
+            # ADD THIS BLOCK
+            elif action == self.ACTIONS.CONTINUE_WITH_TOOLS:
+                tool_requests = [block for block in content_blocks if isinstance(block, CallToolRequestParams)]
+                tool_results_for_api = await self._execute_tool_calls(tool_requests, available_tools)
+                turn_conversation_history.extend(tool_results_for_api)
+                # Loop continues to the next iteration
 
-            # Extract and process text content and tool calls
-            assistant_message_parts = []
-            tool_calls_to_execute = []
-
-            for part in model_response_content_parts:
-                if isinstance(part, TextContent):
-                    responses.append(part)  # Add text content to the final responses to be returned
-                    assistant_message_parts.append(
-                        part
-                    )  # Collect text for potential assistant message display
-                elif isinstance(part, CallToolRequestParams):
-                    # This is a function call requested by the model
-                    tool_calls_to_execute.append(part)  # Collect tool calls to execute
-
-            # Display assistant message if there is text content
-            if assistant_message_parts:
-                # Combine text parts for display
-                assistant_text = "".join(
-                    [p.text for p in assistant_message_parts if isinstance(p, TextContent)]
-                )
-                # Display the assistant message. If there are tool calls, indicate that.
-                if tool_calls_to_execute:
-                    tool_names = ", ".join([tc.name for tc in tool_calls_to_execute])
-                    display_text = Text(
-                        f"{assistant_text}\nAssistant requested tool calls: {tool_names}",
-                        style="dim green italic",
-                    )
-                    await self.show_assistant_message(display_text, tool_names)
-                else:
-                    await self.show_assistant_message(Text(assistant_text))
-
-            # 5. Handle tool calls if any
-            if tool_calls_to_execute:
-                tool_results = []
-                for tool_call_params in tool_calls_to_execute:
-                    # Convert to CallToolRequest and execute
-                    tool_call_request = CallToolRequest(
-                        method="tools/call", params=tool_call_params
-                    )
-                    self.show_tool_call(
-                        aggregator_response.tools,  # Pass fast-agent tool definitions for display
-                        tool_call_request.params.name,
-                        str(
-                            tool_call_request.params.arguments
-                        ),  # Convert dict to string for display
-                    )
-
-                    # Execute the tool call. google.genai does not provide a tool_call_id, pass None.
-                    result = await self.call_tool(tool_call_request, None)
-                    self.show_tool_result(result)
-
-                    tool_results.append((tool_call_params.name, result))  # Store name and result
-
-                    # Add tool result content to the overall responses to be returned
-                    responses.extend(result.content)
-
-                # Convert tool results back to google.genai format and add to conversation_history for the next turn
-                tool_response_google_contents = self._converter.convert_function_results_to_google(
-                    tool_results
-                )
-                conversation_history.extend(tool_response_google_contents)
-
-                self.logger.debug(f"Iteration {i}: Tool call results processed.")
             else:
-                # If no tool calls, check finish reason to stop or continue
-                # google.genai finish reasons: STOP, MAX_TOKENS, SAFETY, RECITATION, OTHER
-                if candidate.finish_reason in ["STOP", "MAX_TOKENS", "SAFETY"]:
-                    self.logger.debug(
-                        f"Iteration {i}: Stopping because finish_reason is '{candidate.finish_reason}'"
-                    )
-                    # Display message if stopping due to max tokens
-                    if (
-                        candidate.finish_reason == "MAX_TOKENS"
-                        and request_params
-                        and request_params.maxTokens is not None
-                    ):
-                        message_text = Text(
-                            f"the assistant has reached the maximum token limit ({request_params.maxTokens})",
-                            style="dim green italic",
-                        )
-                        await self.show_assistant_message(message_text)
-                    break  # Exit the loop if a stopping condition is met
-                # If no tool calls and no explicit stopping reason, the model might be done.
-                # Break to avoid infinite loops if the model doesn't explicitly stop or call tools.
-                self.logger.debug(
-                    f"Iteration {i}: No tool calls and no explicit stop reason, breaking."
-                )
-                break
+                self.logger.warning(f"Exceeded max iterations ({params.max_iterations}) without stopping.")
 
-        # 6. Update history after all iterations are done (or max_iterations reached)
-        # Only add the new messages generated during this completion turn to history
-        if request_params.use_history:
-            new_google_messages = conversation_history[initial_history_length:]
-            new_multipart_messages = self._converter.convert_from_google_content_list(
-                new_google_messages
+        new_messages = turn_conversation_history[len(messages_for_turn):] # Return the final content and the new messages generated during this turn.
+        return all_content_responses, new_messages
+
+    # --------------------------------------------------------------------------
+    # Helper Methods (New & Refactored)
+    # --------------------------------------------------------------------------
+
+    def _prepare_request_payload(
+        self,
+        conversation_history: List[types.Content],
+        params: RequestParams,
+        tools: List[types.Tool],
+        structured_model: Optional[Type[ModelT]] = None,
+    ) -> dict:
+        """Assembles the final dictionary of arguments for the Gemini API call."""
+        config = self._converter.convert_request_params_to_google_config(params)
+        tool_config = None
+
+        if tools: 
+            tool_config = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(mode="AUTO")
             )
-            self.history.extend(new_multipart_messages)
+        
+        if structured_model:
+            config.response_mime_type = "application/json"
+            config.response_schema = structured_model.model_json_schema()
+            tools = None  # In JSON mode, no other tools are used.
 
-        self._log_chat_finished(model=request_params.model)  # Use model from request_params
-        return responses  # Return the accumulated responses (fast-agent content types)
+        return {
+            "model": params.model,
+            "contents": conversation_history,
+            "generation_config": config,
+            "tools": tools,
+            "tool_config": tool_config,
+            "system_instruction": params.systemPrompt or self.instruction
+        }
+    
+    async def _execute_api_call(
+            self,
+            payload: dict
+    ) -> genai.types.GenerateContentResponse:
+        """Executes the raw API call and handles usage tracking."""
+
+        try:
+            model_instance = self._google_client
+            if payload.get("model"):
+                model_instance = genai.GenerativeModel(payload["model"])  # Create a model instance with the specific model for this call
+
+            api_response = await model_instance.generate_content_async(**payload)
+
+            if hasattr(api_response, "usage_metadata") and api_response.usage_metadata:
+                turn_usage = TurnUsage.from_google(
+                    api_response.usage_metadata,
+                    payload["model"],
+                )
+                self._finalize_turn_usage(turn_usage=turn_usage)
+            
+            return api_response
+
+        except errors.GoogleAPICallError as e:
+            self.logger.error(f"Google API Error: {e}")
+            raise ProviderKeyError(f"Google API Error: {e.message}", str(e)) from e
+
+        except Exception as e:
+            self.logger.error(f"Error during Google generate_content call: {e}")
+            raise e
+
+    def _process_response(
+            self, 
+            candidate: types.Candidate,
+    ) -> Tuple[str, List[ContentBlock], types.Content]:
+        """Parses a response candidate to extract content and determine the next action."""
+
+        assistant_message_content_parts = self._converter.convert_from_google_content(candidate.content)  # Convert the raw assistant message for internal use.
+        raw_assistant_message = candidate.content  # Keep the raw assistant message to append to the turn's history.
+
+        text_blocks = [block for block in assistant_message_content_parts if isinstance(block, TextContent)]
+        tool_requests = [block for block in assistant_message_content_parts if isinstance(block, CallToolRequestParams)]
+
+        if candidate.finish_reason == "TOOL_USE" and tool_requests:  # Determine next action
+            return self.ACTIONS.CONTINUE_WITH_TOOLS, tool_requests, raw_assistant_message
+        
+        else: 
+            return self.ACTIONS.STOP, text_blocks, raw_assistant_message
+
+    async def _execute_tool_calls(
+            self,
+            tool_requests: List[CallToolRequestParams],
+            available_tools,
+    ) -> List[types.Content]:
+        """Manages the execution of tool calls and converts results for the API."""
+        tool_results_for_next_turn = []
+
+        if tool_requests:
+            await self.show_assistant_message(Text("Assistant requested tool calls...", style="dim green italic"))
+
+        for tool_call_params in tool_requests:
+            tool_call_request = CallToolRequest(method="tools/call", params=tool_call_params)
+
+            self.show_tool_call(
+                available_tools=available_tools.tools,
+                tool_name=tool_call_request.params.name,
+                tool_args=str(tool_call_request.params.arguments),
+            )
+
+            result = await self.call_tool(tool_call_request, None)
+            self.show_tool_result(result)
+
+            tool_results_for_next_turn.append((tool_call_params.name, result))
+        
+        return self._converter.convert_function_results_to_google(tool_results_for_next_turn)
+
+    # --------------------------------------------------------------------------
+    # Main Entry Points
+    # --------------------------------------------------------------------------
 
     async def _apply_prompt_provider_specific(
-        self,
+        self, 
         multipart_messages: List[PromptMessageMultipart],
-        request_params: RequestParams | None = None,
+        request_params: Optional[RequestParams] = None,
         is_template: bool = False,
     ) -> PromptMessageMultipart:
-        """
-        Applies the prompt messages and potentially calls the LLM for completion.
-        """
-        # Reset tool call counter for new turn
+        """Applies a prompt, handling history and generating a response if the last message is from the user."""
+
         self._reset_turn_tool_calls()
 
-        request_params = self.get_request_params(
-            request_params=request_params
-        )  # Get request params
+        params = self.get_request_params(request_params)
 
-        # Add incoming messages to history before calling completion
-        # This ensures the current user message is part of the history for the API call
+        # 1. Prepare messages for the current turn
         self.history.extend(multipart_messages, is_prompt=is_template)
+        messages_for_turn = self._converter.convert_to_google_content(
+            self.history.get(include_completion_history=params.use_history)
+        )
 
         last_message_role = multipart_messages[-1].role if multipart_messages else None
+        if last_message_role != "user":
+            return multipart_messages[-1]
+        
+        # 2. Call the orchestrator
+        final_content, new_history_messages = await self._completion_orchestrator(
+            messages_for_turn=messages_for_turn,
+            params=params
+        )
 
-        if last_message_role == "user":
-            # If the last message is from the user, call the LLM for a response
-            # _google_completion will now load history internally
-            responses = await self._google_completion(request_params=request_params)
+        # 3. Update history with the generated messages (is_prompt=False)
+        new_multipart_messages = self._converter._converter_convert_from_google_content_list(new_history_messages)
+        self.history.extend(new_multipart_messages, is_prompt=False)
 
-            # History update is now handled within _google_completion
-            pass
+        self._log_chat_finished(model=params.model)
+        return Prompt.assistant(*final_content)
 
-            return Prompt.assistant(*responses)  # Return combined responses as an assistant message
-        else:
-            # If the last message is not from the user (e.g., assistant), no completion is needed for this step
-            # The messages have already been added to history by the calling code/framework
-            return multipart_messages[-1]  # Return the last message as is
+    async def _apply_prompt_provider_specific_structured(
+        self,
+        multipart_messages: List[PromptMessageMultipart],
+        model: Type[ModelT],
+        request_params: Optional[RequestParams] = None,
+    ) -> Tuple[Optional[ModelT], PromptMessageMultipart]:
+        """
+        Applies a prompt and generates a structured (JSON) response by callingthe orchestrator.
+
+        Handles structured output for Gemini models using response_schema and response_mime_type.
+        """
+        params = self.get_request_params(request_params)
+        self.history.extend(multipart_messages, is_prompt=False)
+
+        messages_for_turn = self._converter.convert_to_google_content(
+            self.history.get(include_completion_history=params.use_history)
+        )
+
+        final_content, new_history_messages = await self._completion_orchestrator(
+            messages_for_turn=messages_for_turn,
+            params=params,
+            structured_model=model,
+        )
+
+        new_multipart_messages = self._converter.convert_from_google_content_list(new_history_messages)
+        self.history.extend(new_multipart_messages, is_prompt=False)
+
+        assistant_msg = Prompt.assistant(*final_content)
+
+        # Parse and validate the response
+        if final_content and isinstance(final_content[0], TextContent):
+            text_response = final_content[0].text
+            try:
+                json_data = json.loads(text_response)
+                validated_model = model.model_validate(json_data)
+                return validated_model, assistant_msg
+            
+            except (json.JSONDecodeError, Exception) as e:
+                self.logger.warning(f"Failed to parse or validate structured response: {e}")
+                return None, assistant_msg
+
+        return None, assistant_msg
+
+    # --------------------------------------------------------------------------
+    # Pro and Post Tool Call
+    # --------------------------------------------------------------------------
 
     async def pre_tool_call(self, tool_call_id: str | None, request: CallToolRequest):
         """
