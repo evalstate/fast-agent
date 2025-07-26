@@ -32,10 +32,10 @@ from mcp_agent.core.direct_decorators import (
     evaluator_optimizer as evaluator_optimizer_decorator,
 )
 from mcp_agent.core.direct_decorators import (
-    orchestrator as orchestrator_decorator,
+    iterative_planner as orchestrator2_decorator,
 )
 from mcp_agent.core.direct_decorators import (
-    orchestrator2 as orchestrator2_decorator,
+    orchestrator as orchestrator_decorator,
 )
 from mcp_agent.core.direct_decorators import (
     parallel as parallel_decorator,
@@ -252,7 +252,7 @@ class FastAgent:
     agent = agent_decorator
     custom = custom_decorator
     orchestrator = orchestrator_decorator
-    orchestrator2 = orchestrator2_decorator
+    iterative_planner = orchestrator2_decorator
     router = router_decorator
     chain = chain_decorator
     parallel = parallel_decorator

@@ -2,8 +2,8 @@ import pytest
 
 from mcp_agent.agents.workflow.orchestrator_models import (
     AgentTask,
-    NextStep,
     Plan,
+    PlanningStep,
     Step,
 )
 from mcp_agent.core.prompt import Prompt
@@ -119,7 +119,7 @@ async def test_iterative_plan_execution(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Define first step
-            step1 = NextStep(
+            step1 = PlanningStep(
                 description="First iterative step",
                 tasks=[AgentTask(description="Initial task for agent1", agent="agent1")],
                 is_complete=False,
@@ -253,7 +253,7 @@ async def test_max_iterations_handling(fast_agent):
             agent.orchestrator._default_request_params.max_iterations = 2
 
             # Create a step that is never complete
-            not_complete_step = NextStep(
+            not_complete_step = PlanningStep(
                 description="Step that isn't complete",
                 tasks=[
                     AgentTask(description="Task that doesn't complete objective", agent="agent1")

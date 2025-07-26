@@ -92,7 +92,7 @@ class TensorZeroAugmentedLLM(AugmentedLLM[Dict[str, Any], Any]):
             systemPrompt=self.instruction,
             maxTokens=4096,
             use_history=True,
-            max_iterations=10,  # Max iterations for tool use loop
+            max_iterations=20,  # Max iterations for tool use loop
             parallel_tool_calls=True,
         )
 

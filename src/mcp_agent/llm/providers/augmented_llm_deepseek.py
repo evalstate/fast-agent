@@ -28,7 +28,7 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
             model=chosen_model,
             systemPrompt=self.instruction,
             parallel_tool_calls=True,
-            max_iterations=10,
+            max_iterations=20,
             use_history=True,
         )
 
@@ -85,7 +85,9 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
         return self._structured_from_multipart(result, model)
 
     @classmethod
-    def convert_message_to_message_param(cls, message: ChatCompletionMessage, **kwargs) -> ChatCompletionAssistantMessageParam:
+    def convert_message_to_message_param(
+        cls, message: ChatCompletionMessage, **kwargs
+    ) -> ChatCompletionAssistantMessageParam:
         """Convert a response object to an input parameter object to allow LLM calls to be chained."""
         if hasattr(message, "reasoning_content"):
             message = copy(message)

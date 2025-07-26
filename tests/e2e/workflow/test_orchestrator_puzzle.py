@@ -1,7 +1,9 @@
 # integration_tests/mcp_agent/test_agent_with_image.py
 
 import asyncio
+
 import pytest
+
 from mcp_agent import FastAgent
 
 
@@ -22,23 +24,25 @@ async def test_iterative_orchestration(fast_agent, model_name):
     @fast.agent(
         "first_two",
         instruction="You can provide the first 2 digits of the secret code.",
-        model="gpt-4.1-nano",
+        model="gpt-4.1-mini",
+        servers=["puzzle_1"],
     )
     @fast.agent(
         "last_two",
         instruction="You can provide the last 2 digits of the secret code.",
-        model="gpt-4.1-nano",
+        model="gpt-4.1-mini",
+        servers=["puzzle_2"],
     )
     @fast.agent(
         "validator",
         instruction="You can validate the 4 digit secret code.",
-        model="gpt-4.1-nano",
+        model="gpt-4.1-mini",
+        servers=["puzzle_validator"],
     )
-    @fast.orchestrator(
+    @fast.iterative_planner(
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
-        model="gpt-4.1-mini",
-        plan_type="iterative",
+        model="gpt-4.1",
     )
     async def agent_function():
         async with fast.run() as agent:
@@ -57,32 +61,30 @@ async def main():
     @fast.agent(
         "first_two",
         instruction="You can provide the first 2 digits of the secret code.",
-        model="gpt-4.1",
+        model="gpt-4.1-mini",
         servers=["puzzle_1"],
     )
     @fast.agent(
         "last_two",
         instruction="You can provide the last 2 digits of the secret code.",
-        model="gpt-4.1",
+        model="gpt-4.1-mini",
         servers=["puzzle_2"],
     )
     @fast.agent(
         "validator",
         instruction="You can validate the 4 digit secret code.",
-        model="gpt-4.1",
+        model="gpt-4.1-mini",
         servers=["puzzle_validator"],
     )
-    @fast.orchestrator2(
+    @fast.iterative_planner(
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
         model="gpt-4.1",
-        plan_type="iterative",
     )
     async def agent_function():
         async with fast.run() as agent:
             await agent.interactive()
             response = await agent.orchestrator.send("find the secret code")
-            print(f"Response: {response}")
             if "4712" in response:
                 print("✓ Secret code found successfully!")
             else:

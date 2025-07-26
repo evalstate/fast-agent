@@ -32,7 +32,7 @@ class OpenRouterAugmentedLLM(OpenAIAugmentedLLM):
             model=chosen_model,  # Will be validated by base class
             systemPrompt=self.instruction,
             parallel_tool_calls=True,  # Default based on OpenAI provider
-            max_iterations=10,  # Default based on OpenAI provider
+            max_iterations=20,  # Default based on OpenAI provider
             use_history=True,  # Default based on OpenAI provider
         )
 

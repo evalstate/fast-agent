@@ -43,8 +43,11 @@ fast = FastAgent("Orchestrator-Workers")
     model="gpt-4.1",
 )
 # Define the orchestrator to coordinate the other agents
-@fast.orchestrator(
-    name="orchestrate", agents=["finder", "writer", "proofreader"], plan_type="full", model="sonnet"
+@fast.iterative_planner(
+    name="orchestrate",
+    agents=["finder", "writer", "proofreader"],
+    model="sonnet",
+    plan_iterations=5,
 )
 async def main() -> None:
     async with fast.run() as agent:

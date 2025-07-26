@@ -173,7 +173,7 @@ def test_initialize_default_params(t0_llm):
     assert default_params.systemPrompt == "Test System Prompt"
     assert default_params.maxTokens == 4096
     assert default_params.use_history is True
-    assert default_params.max_iterations == 10
+    assert default_params.max_iterations == 20
     assert default_params.parallel_tool_calls is True
 
 

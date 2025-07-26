@@ -25,6 +25,7 @@ from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
 from mcp_agent.agents.agent import AgentConfig
+from mcp_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
 from mcp_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
@@ -457,17 +458,15 @@ def orchestrator(
     )
 
 
-def orchestrator2(
+def iterative_planner(
     self,
     name: str,
     *,
     agents: List[str],
-    instruction: str | Path | AnyUrl = "new orchestrator",
+    instruction: str | Path | AnyUrl = ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
     model: Optional[str] = None,
     request_params: RequestParams | None = None,
-    use_history: bool = False,
-    plan_type: Literal["full", "iterative"] = "full",
-    plan_iterations: int = 5,
+    plan_iterations: int = -1,
     default: bool = False,
     api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
@@ -483,7 +482,7 @@ def orchestrator2(
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
         plan_type: Planning approach - "full" or "iterative"
-        plan_iterations: Maximum number of planning iterations
+        plan_iterations: Maximum number of planning iterations (0 for unlimited)
         default: Whether to mark this as the default agent
 
     Returns:
@@ -497,15 +496,14 @@ def orchestrator2(
         "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
         _decorator_impl(
             self,
-            AgentType.ORCHESTRATOR2,
+            AgentType.ITERATIVE_PLANNER,
             name=name,
             instruction=resolved_instruction,
             servers=[],  # Orchestrators don't connect to servers directly
             model=model,
-            use_history=use_history,
+            use_history=False,
             request_params=request_params,
             child_agents=agents,
-            plan_type=plan_type,
             plan_iterations=plan_iterations,
             default=default,
             api_key=api_key,
