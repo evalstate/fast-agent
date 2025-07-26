@@ -86,6 +86,14 @@ def deep_merge(dict1: Dict[Any, Any], dict2: Dict[Any, Any]) -> Dict[Any, Any]:
 
 
 class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT, MessageT]):
+    """
+    The basic building block of agentic systems is an LLM enhanced with augmentations
+    such as retrieval, tools, and memory provided from a collection of MCP servers.
+    Our current models can actively use these capabilities—generating their own search queries,
+    selecting appropriate tools, and determining what information to retain.
+    """
+
+
     # Common parameter names used across providers
     PARAM_MESSAGES = "messages"
     PARAM_MODEL = "model"
@@ -97,16 +105,22 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_USE_HISTORY = "use_history"
     PARAM_MAX_ITERATIONS = "max_iterations"
     PARAM_TEMPLATE_VARS = "template_vars"
+    PARAM_CONTEXT_TRUNCATION_MODE = "context_truncation_mode"
+    PARAM_CONTEXT_TRUNCATION_LENGTH_LIMIT = "context_truncation_length_limit"
+    PARAM_REQUEST_DELAY_SECONDS = "request_delay_seconds"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
+    BASE_EXCLUDE_FIELDS = {
+        PARAM_METADATA,
+        PARAM_CONTEXT_TRUNCATION_MODE,
+        PARAM_CONTEXT_TRUNCATION_LENGTH_LIMIT,
+        PARAM_REQUEST_DELAY_SECONDS,
+    }
 
-    """
-    The basic building block of agentic systems is an LLM enhanced with augmentations
-    such as retrieval, tools, and memory provided from a collection of MCP servers.
-    Our current models can actively use these capabilities—generating their own search queries,
-    selecting appropriate tools, and determining what information to retain.
-    """
+    class _Actions:
+        STOP = "Stop"  # Making the actions available like so: self.ACTIONS.STOP
+        CONTINUE_WITH_TOOLS = "CONTINUE_WITH_TOOLS"
+    ACTIONS = _Actions()
 
     provider: Provider | None = None
 
@@ -200,6 +214,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             parallel_tool_calls=True,
             max_iterations=20,
             use_history=True,
+            context_truncation_mode=None,
+            context_truncation_length_limit=None,
+            request_delay_seconds=0.0,
         )
 
     async def generate(
@@ -607,6 +624,21 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         self.logger.info("Streaming progress", data=data)
 
         return new_total
+
+    def _log_final_streaming_progress(
+            self,
+            actual_tokens: int,
+            model: str,
+    ) -> None:
+        token_str = str(actual_tokens).rjust(5)
+        data = {
+            "progress_action": ProgressAction.STREAMING,
+            "model": model,
+            "agent_name": self.name,
+            "chat_turn": self.chat_turn(),
+            "details": token_str.strip(),
+        }
+        self.logger.info("Streaming progress", data=data)
 
     def _log_chat_finished(self, model: Optional[str] = None) -> None:
         """Log a chat finished event"""

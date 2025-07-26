@@ -24,6 +24,14 @@ class AgentType(Enum):
     CHAIN = "chain"
 
 
+class ContextTruncationMode(str, Enum):
+    """Enumeration of supported context truncation strategies."""
+    
+    NONE = None
+    SUMMARIZE = "summarize"
+    REMOVE = "remove"
+
+
 @dataclass
 class AgentConfig:
     """Configuration for an Agent instance"""
@@ -36,6 +44,10 @@ class AgentConfig:
     prompts: Optional[Dict[str, List[str]]] = None
     model: str | None = None
     use_history: bool = True
+    
+    context_truncation_mode: Optional[ContextTruncationMode] = None
+    context_truncation_length_limit: Optional[int] = None
+    
     default_request_params: RequestParams | None = None
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC

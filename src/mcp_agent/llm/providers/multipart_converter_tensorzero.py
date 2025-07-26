@@ -96,7 +96,7 @@ class TensorZeroConverter:
                     except json.JSONDecodeError:
                         json_result = result_content_str  # Fallback to string if not valid JSON
                 except Exception as e:
-                    _logger.error(f"Unexpected error processing tool result content: {e}")
+                    _logger.error(f"Unexpected error processing tool result content: {str(e)[:500]}")
                     json_result = str(result_content_str)  # Safest fallback
 
                 t0_block = {

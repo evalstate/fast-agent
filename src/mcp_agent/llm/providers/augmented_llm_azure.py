@@ -99,7 +99,7 @@ class AzureOpenAIAugmentedLLM(OpenAIAugmentedLLM):
             return "AzureCredential"
         return super()._api_key()
 
-    def _openai_client(self) -> AsyncOpenAI:
+    def _initialize_client(self) -> AsyncOpenAI:
         """
         Returns an AzureOpenAI client, handling both API Key and DefaultAzureCredential.
         """
