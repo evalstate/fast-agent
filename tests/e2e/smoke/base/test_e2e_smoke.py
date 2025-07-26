@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",
         "gpt-4o-mini",  # OpenAI model
+        "o3-mini.low",  # reasoner
         "haiku35",  # Anthropic model
         "deepseek",
         "generic.qwen2.5:latest",
