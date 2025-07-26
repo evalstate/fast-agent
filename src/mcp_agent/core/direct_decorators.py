@@ -457,6 +457,62 @@ def orchestrator(
     )
 
 
+def orchestrator2(
+    self,
+    name: str,
+    *,
+    agents: List[str],
+    instruction: str | Path | AnyUrl = "new orchestrator",
+    model: Optional[str] = None,
+    request_params: RequestParams | None = None,
+    use_history: bool = False,
+    plan_type: Literal["full", "iterative"] = "full",
+    plan_iterations: int = 5,
+    default: bool = False,
+    api_key: str | None = None,
+) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
+    """
+    Decorator to create and register an orchestrator agent with type-safe signature.
+
+    Args:
+        name: Name of the orchestrator
+        agents: List of agent names this orchestrator can use
+        instruction: Base instruction for the orchestrator
+        model: Model specification string
+        use_history: Whether to maintain conversation history
+        request_params: Additional request parameters for the LLM
+        human_input: Whether to enable human input capabilities
+        plan_type: Planning approach - "full" or "iterative"
+        plan_iterations: Maximum number of planning iterations
+        default: Whether to mark this as the default agent
+
+    Returns:
+        A decorator that registers the orchestrator with proper type annotations
+    """
+
+    # Create final request params with plan_iterations
+    resolved_instruction = _resolve_instruction(instruction)
+
+    return cast(
+        "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
+        _decorator_impl(
+            self,
+            AgentType.ORCHESTRATOR2,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # Orchestrators don't connect to servers directly
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            child_agents=agents,
+            plan_type=plan_type,
+            plan_iterations=plan_iterations,
+            default=default,
+            api_key=api_key,
+        ),
+    )
+
+
 def router(
     self,
     name: str,

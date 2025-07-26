@@ -72,7 +72,7 @@ async def main():
         model="gpt-4.1",
         servers=["puzzle_validator"],
     )
-    @fast.orchestrator(
+    @fast.orchestrator2(
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
         model="gpt-4.1",
