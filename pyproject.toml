@@ -39,6 +39,7 @@ dependencies = [
     "a2a-sdk>=0.2.9",
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
+    "huggingface-hub>=0.34.1",
 ]
 
 [project.optional-dependencies]

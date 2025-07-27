@@ -61,11 +61,9 @@ class MCPServerSettings(BaseModel):
     Represents the configuration for an individual server.
     """
 
-    # TODO: saqadri - server name should be something a server can provide itself during initialization
     name: str | None = None
     """The name of the server."""
 
-    # TODO: saqadri - server description should be something a server can provide itself during initialization
     description: str | None = None
     """The description of the server."""
 
@@ -439,7 +437,7 @@ class Settings(BaseSettings):
     bedrock: BedrockSettings | None = None
     """Settings for using AWS Bedrock models in the fast-agent application"""
 
-    huggingface: HuggingFaceSettings | None = None
+    hf: HuggingFaceSettings | None = None
     """Settings for HuggingFace authentication (used for MCP connections)"""
 
     logger: LoggerSettings | None = LoggerSettings()
