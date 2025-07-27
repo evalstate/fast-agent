@@ -103,7 +103,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
         return base_params
 
-    def _base_url(self) -> str:
+    def _base_url(self) -> str | None:
+        assert self.context.config
+        # return none to use embedded api default
         return self.context.config.openai.base_url if self.context.config.openai else None
 
     def _openai_client(self) -> AsyncOpenAI:

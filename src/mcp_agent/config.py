@@ -273,6 +273,7 @@ class HuggingFaceSettings(BaseModel):
     """
 
     api_key: Optional[str] = None
+    base_url: Optional[str] = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
