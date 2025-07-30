@@ -224,6 +224,17 @@ class AzureSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class GroqSettings(BaseModel):
+    """
+    Settings for using xAI Grok models in the fast-agent application.
+    """
+
+    api_key: str | None = None
+    base_url: str | None = "https://api.groq.com/openai/v1"
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class OpenTelemetrySettings(BaseModel):
     """
     OTEL settings for the fast-agent application.
@@ -440,6 +451,9 @@ class Settings(BaseSettings):
 
     huggingface: HuggingFaceSettings | None = None
     """Settings for HuggingFace authentication (used for MCP connections)"""
+
+    groq: GroqSettings | None = None
+    """Settings for using the Groq provider in the fast-agent application"""
 
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""
