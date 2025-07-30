@@ -409,7 +409,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                     )
 
                 tool_results = []
+                
                 for tool_call in message.tool_calls:
+                    
                     self.show_tool_call(
                         available_tools,
                         tool_call.function.name,
@@ -425,12 +427,20 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                             else from_json(tool_call.function.arguments, allow_partial=True),
                         ),
                     )
-                    result = await self.call_tool(tool_call_request, tool_call.id)
-                    self.show_tool_result(result)
-
-                    tool_results.append((tool_call.id, result))
-                    responses.extend(result.content)
-                messages.extend(OpenAIConverter.convert_function_results_to_openai(tool_results))
+                    
+                    try:
+                        result = await self.call_tool(tool_call_request, tool_call.id)
+                        self.show_tool_result(result)
+                        tool_results.append((tool_call.id, result))
+                        responses.extend(result.content)
+                    except Exception as e:
+                        self.logger.error(f"Tool call {tool_call.id} failed with error: {e}")
+                        # Still add the tool_call_id with an error result to prevent missing responses
+                        error_result = CallToolResult(content=[TextContent(type="text", text=f"Tool call failed: {str(e)}")])
+                        tool_results.append((tool_call.id, error_result))
+                
+                converted_messages = OpenAIConverter.convert_function_results_to_openai(tool_results)
+                messages.extend(converted_messages)
 
                 self.logger.debug(
                     f"Iteration {i}: Tool call results: {str(tool_results) if tool_results else 'None'}"
