@@ -28,3 +28,4 @@ class Provider(Enum):
     HUGGINGFACE = ("huggingface", "HuggingFace")  # For HuggingFace MCP connections
     XAI = ("xai", "XAI")  # For xAI Grok models
     BEDROCK = ("bedrock", "Bedrock")
+    GROQ = ("groq", "Groq")

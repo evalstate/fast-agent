@@ -129,6 +129,10 @@ class ModelDatabase:
         context_window=2097152, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
     )
 
+    KIMI_MOONSHOT = ModelParameters(
+        context_window=131072, max_output_tokens=16384, tokenizes=TEXT_ONLY
+    )
+
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
     GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=XAI_VISION)
 
@@ -209,6 +213,7 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
+        "moonshotai/kimi-k2-instruct": KIMI_MOONSHOT,
     }
 
     @classmethod

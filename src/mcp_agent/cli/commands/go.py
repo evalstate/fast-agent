@@ -19,7 +19,7 @@ app = typer.Typer(
 
 
 async def _run_agent(
-    name: str = "FastAgent CLI",
+    name: str = "fast-agent cli",
     instruction: str = "You are a helpful AI Agent.",
     config_path: Optional[str] = None,
     server_list: Optional[List[str]] = None,
@@ -28,6 +28,7 @@ async def _run_agent(
     prompt_file: Optional[str] = None,
     url_servers: Optional[Dict[str, Dict[str, str]]] = None,
     stdio_servers: Optional[Dict[str, Dict[str, str]]] = None,
+    agent_name: Optional[str] = "agent",
 ) -> None:
     """Async implementation to run an interactive agent."""
     from pathlib import Path
@@ -35,6 +36,7 @@ async def _run_agent(
     from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
     # Create the FastAgent instance
+
     fast_kwargs = {
         "name": name,
         "config_path": config_path,
@@ -103,6 +105,8 @@ async def _run_agent(
         # Single model - use original behavior
         # Define the agent with specified parameters
         agent_kwargs = {"instruction": instruction}
+        if agent_name:
+            agent_kwargs["name"] = agent_name
         if server_list:
             agent_kwargs["servers"] = server_list
         if model:
@@ -117,7 +121,7 @@ async def _run_agent(
                     print(response)
                 elif prompt_file:
                     prompt = load_prompt_multipart(Path(prompt_file))
-                    response = await agent.default.generate(prompt)
+                    response = await agent.generate(prompt)
                     # Print the response text and exit
                     print(response.last_text())
                 else:
@@ -138,6 +142,7 @@ def run_async_agent(
     message: Optional[str] = None,
     prompt_file: Optional[str] = None,
     stdio_commands: Optional[List[str]] = None,
+    agent_name: Optional[str] = None,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -237,6 +242,7 @@ def run_async_agent(
                 prompt_file=prompt_file,
                 url_servers=url_servers,
                 stdio_servers=stdio_servers,
+                agent_name=agent_name,
             )
         )
     finally:
@@ -258,7 +264,7 @@ def run_async_agent(
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def go(
     ctx: typer.Context,
-    name: str = typer.Option("FastAgent CLI", "--name", help="Name for the agent"),
+    name: str = typer.Option("fast-agent", "--name", help="Name for the agent"),
     instruction: Optional[str] = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
@@ -338,6 +344,8 @@ def go(
 
     # Resolve instruction from file/URL or use default
     resolved_instruction = "You are a helpful AI Agent."  # Default
+    agent_name = "agent"
+
     if instruction:
         try:
             from pathlib import Path
@@ -352,6 +360,11 @@ def go(
             else:
                 # Treat as file path
                 resolved_instruction = _resolve_instruction(Path(instruction))
+                # Extract filename without extension to use as agent name
+                instruction_path = Path(instruction)
+                if instruction_path.exists() and instruction_path.is_file():
+                    # Get filename without extension
+                    agent_name = instruction_path.stem
         except Exception as e:
             typer.echo(f"Error loading instruction from {instruction}: {e}", err=True)
             raise typer.Exit(1)
@@ -367,4 +380,5 @@ def go(
         message=message,
         prompt_file=prompt_file,
         stdio_commands=stdio_commands,
+        agent_name=agent_name,
     )

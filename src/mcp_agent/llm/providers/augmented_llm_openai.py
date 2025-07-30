@@ -388,7 +388,10 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
 
             # ParsedChatCompletionMessage is compatible with ChatCompletionMessage
             # since it inherits from it, so we can use it directly
-            messages.append(message)
+            # Convert to dict and remove None values
+            message_dict = message.model_dump()
+            message_dict = {k: v for k, v in message_dict.items() if v is not None}
+            messages.append(message_dict)
 
             message_text = message.content
             if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
