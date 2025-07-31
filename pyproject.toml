@@ -57,6 +57,7 @@ dev = [
     "ruff>=0.8.4",
     "tomli>=2.2.1",
     "pytest>=7.4.0",
+    "pytest-mock",
     "pytest-asyncio>=0.21.1",
     "pytest-cov",
 ]
@@ -107,6 +108,7 @@ dev = [
     "pytest>=7.4.0",
     "pytest-asyncio>=0.21.1",
     "pytest-cov>=6.1.1",
+    "pytest-mock",
     "ipdb>=0.13.13",
 ]
 
