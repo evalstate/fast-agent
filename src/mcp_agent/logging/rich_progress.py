@@ -21,7 +21,7 @@ class RichProgressDisplay:
         self._progress = Progress(
             SpinnerColumn(spinner_name="simpleDotsScrolling"),
             TextColumn(
-                "[progress.description]{task.description}|",
+                "[progress.description]{task.description}▎",
                 #                table_column=Column(max_width=16),
             ),
             TextColumn(text_format="{task.fields[target]:<16}", style="Bold Blue"),
@@ -77,7 +77,7 @@ class RichProgressDisplay:
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
             ProgressAction.CHATTING: "bold blue",
-            ProgressAction.STREAMING: "bold blue",  # Same color as chatting
+            ProgressAction.STREAMING: "bold green",  # Assistant Colour
             ProgressAction.ROUTING: "bold blue",
             ProgressAction.PLANNING: "bold blue",
             ProgressAction.READY: "dim green",
@@ -107,10 +107,19 @@ class RichProgressDisplay:
         # Ensure no None values in the update
         # For streaming, use custom description immediately to avoid flashing
         if event.action == ProgressAction.STREAMING and event.streaming_tokens:
-            formatted_tokens = f"↓ {event.streaming_tokens.strip()}".ljust(15)
+            # Account for [dim][/dim] tags (11 characters) in padding calculation
+            formatted_tokens = f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
+        elif event.action == ProgressAction.CHATTING:
+            # Add special formatting for chatting with dimmed arrow
+            formatted_text = f"▎[dim]▶[/dim] {event.action.value.strip()}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+        elif event.action == ProgressAction.CALLING_TOOL:
+            # Add special formatting for calling tool with dimmed arrow
+            formatted_text = f"▎[dim]◀[/dim] {event.action.value}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
         else:
-            description = f"[{self._get_action_style(event.action)}]{event.action.value:<15}"
+            description = f"[{self._get_action_style(event.action)}]▎ {event.action.value:<15}"
 
         self._progress.update(
             task_id,
