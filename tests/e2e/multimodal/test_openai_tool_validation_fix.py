@@ -155,7 +155,9 @@ async def test_openai_validation_error_prevention(fast_agent, model_name):
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
-@pytest.mark.parametrize("model_name", ["gpt-4o-mini", "openrouter.openai/gpt-4.1-mini"])
+@pytest.mark.parametrize(
+    "model_name", ["gpt-4o-mini", "openrouter.openai/gpt-4.1-mini", "azure.gpt-4.1"]
+)
 async def test_single_mixed_content_tool(fast_agent, model_name):
     """
     Test that a single tool returning mixed content works correctly.

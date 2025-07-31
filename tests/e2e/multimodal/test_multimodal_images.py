@@ -124,6 +124,7 @@ async def test_agent_with_mcp_image_google(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "gpt-4o",
         #    "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
     ],
 )
