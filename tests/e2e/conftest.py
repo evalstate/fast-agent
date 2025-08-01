@@ -94,7 +94,7 @@ def tensorzero_docker_env(project_root):
     """Ensures the TensorZero docker-compose environment is running."""
     compose_file = project_root / "examples" / "tensorzero" / "docker-compose.yml"
     compose_dir = compose_file.parent
-    compose_cmd = ["docker-compose", "-f", str(compose_file)]
+    compose_cmd = ["docker", "compose", "-f", str(compose_file)]
 
     print(f"\nEnsuring TensorZero Docker environment is up ({compose_file})...")
     try:
