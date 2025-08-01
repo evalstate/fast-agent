@@ -459,7 +459,7 @@ async def test_prompt(prompt_name: str, config: PromptConfig) -> int:
     print("\nContent sections:")
     for i, section in enumerate(template.content_sections):
         print(f"\n[{i + 1}] Role: {section.role}")
-        print(f"Content: {section.text}")
+        print(f"Content: {section.text[:500]}")
         if section.resources:
             print(f"Resources: {', '.join(section.resources)}")
 
