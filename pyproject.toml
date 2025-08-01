@@ -136,3 +136,6 @@ ignore=["E501"]
 # More lenient settings for existing code
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN"]  # Don't require type annotations in tests
+
+[tool.uv.workspace]
+members = ["examples/tensorzero/mcp_server"]
