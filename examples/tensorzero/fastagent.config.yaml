@@ -2,6 +2,7 @@ default_model: haiku
 
 tensorzero:
   base_url: http://localhost:3000
+  api_key: verysecret
 
 logger:
   level: "info"
