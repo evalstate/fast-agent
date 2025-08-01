@@ -63,11 +63,11 @@ services:
 
   mcp-server:
     build:
-      context: ../..
-      dockerfile: examples/tensorzero/mcp_server/Dockerfile
+      context: ./mcp_server
+      dockerfile: Dockerfile
     working_dir: /app
     volumes:
-      - ../..:/app
+      - ./mcp_server:/app
     ports:
       - "8000:8000"
     depends_on:

@@ -10,7 +10,7 @@ RUN pip install uv
 
 # Copy dependency files only
 COPY pyproject.toml /tmp/
-COPY uv.lock /tmp/
+#COPY uv.lock /tmp/
 
 # Install dependencies
 WORKDIR /tmp
@@ -21,5 +21,5 @@ WORKDIR /app
 
 # These files will come from the volume mount at runtime
 EXPOSE 8000
-ENTRYPOINT ["/app/examples/tensorzero/mcp_server/entrypoint.sh"]
-CMD ["uvicorn", "examples.tensorzero.mcp_server.mcp_server:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/entrypoint.sh"]
+CMD ["uvicorn", "mcp_server:app", "--host", "0.0.0.0", "--port", "8000"]
