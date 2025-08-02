@@ -26,6 +26,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from mcp_agent.human_input.elicitation_forms import ELICITATION_STYLE
 from mcp_agent.human_input.elicitation_state import elicitation_state
+from mcp_agent.human_input.form_elements import ValidatedCheckboxList
 
 
 class SimpleNumberValidator(Validator):
@@ -454,6 +455,24 @@ class ElicitationForm:
         hints = []
         format_hint = None
 
+        # Check if this is an array type with enum/oneOf/anyOf items
+        if field_type == "array" and "items" in field_def:
+            items_def = field_def["items"]
+
+            # Add minItems/maxItems hints
+            min_items = field_def.get("minItems")
+            max_items = field_def.get("maxItems")
+
+            if min_items is not None and max_items is not None:
+                if min_items == max_items:
+                    hints.append(f"select exactly {min_items}")
+                else:
+                    hints.append(f"select {min_items}-{max_items}")
+            elif min_items is not None:
+                hints.append(f"select at least {min_items}")
+            elif max_items is not None:
+                hints.append(f"select up to {max_items}")
+
         if field_type == "string":
             constraints = self._extract_string_constraints(field_def)
             if constraints.get("minLength"):
@@ -506,6 +525,7 @@ class ElicitationForm:
             return HSplit([label, Frame(checkbox)])
 
         elif field_type == "string" and "enum" in field_def:
+            # Leaving this here for existing enum schema
             enum_values = field_def["enum"]
             enum_names = field_def.get("enumNames", enum_values)
             values = [(val, name) for val, name in zip(enum_values, enum_names)]
@@ -514,6 +534,51 @@ class ElicitationForm:
             self.field_widgets[field_name] = radio_list
 
             return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
+
+        elif field_type == "string" and "oneOf" in field_def:
+            # Handle oneOf pattern for single selection enums
+            values = []
+            for option in field_def["oneOf"]:
+                if "const" in option:
+                    value = option["const"]
+                    title = option.get("title", str(value))
+                    values.append((value, title))
+
+            if values:
+                radio_list = RadioList(values=values)
+                self.field_widgets[field_name] = radio_list
+                return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
+
+        elif field_type == "array" and "items" in field_def:
+            # Handle array types with enum/oneOf/anyOf items
+            items_def = field_def["items"]
+            values = []
+            # oneOf/anyOf pattern
+            options = items_def.get("oneOf", [])
+            if not options:
+                options = items_def.get("anyOf", [])
+
+            for option in options:
+                if "const" in option:
+                    value = option["const"]
+                    title = option.get("title", str(value))
+                    values.append((value, title))
+
+            if values:
+                # Create checkbox list for multi-selection
+                min_items = field_def.get("minItems")
+                max_items = field_def.get("maxItems")
+
+                checkbox_list = ValidatedCheckboxList(
+                    values=values, min_items=min_items, max_items=max_items
+                )
+
+                # Store the widget directly (consistent with other widgets)
+                self.field_widgets[field_name] = checkbox_list
+
+                # Create scrollable frame if many options
+                height = min(len(values) + 2, 8)
+                return HSplit([label, Frame(checkbox_list, height=height)])
 
         else:
             # Text/number input
@@ -620,6 +685,10 @@ class ElicitationForm:
                 if widget.validation_error:
                     title = field_def.get("title", field_name)
                     return False, f"'{title}': {widget.validation_error.message}"
+            elif isinstance(widget, ValidatedCheckboxList):
+                if widget.validation_error:
+                    title = field_def.get("title", field_name)
+                    return False, f"'{title}': {widget.validation_error.message}"
 
         # Then check if required fields are empty
         for field_name in self.required_fields:
@@ -634,6 +703,10 @@ class ElicitationForm:
                     return False, f"'{title}' is required"
             elif isinstance(widget, RadioList):
                 if widget.current_value is None:
+                    title = self.properties[field_name].get("title", field_name)
+                    return False, f"'{title}' is required"
+            elif isinstance(widget, ValidatedCheckboxList):
+                if not widget.current_values:
                     title = self.properties[field_name].get("title", field_name)
                     return False, f"'{title}' is required"
 
@@ -676,6 +749,13 @@ class ElicitationForm:
             elif isinstance(widget, RadioList):
                 if widget.current_value is not None:
                     data[field_name] = widget.current_value
+
+            elif isinstance(widget, ValidatedCheckboxList):
+                selected_values = widget.current_values
+                if selected_values:
+                    data[field_name] = list(selected_values)
+                elif field_name not in self.required_fields:
+                    data[field_name] = []
 
         return data
 
