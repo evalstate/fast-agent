@@ -317,6 +317,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "grok-3",
         "groq.moonshotai/kimi-k2-instruct",
         "groq.deepseek-r1-distill-llama-70b",
+        "groq.qwen/qwen3-32b",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
