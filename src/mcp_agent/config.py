@@ -8,6 +8,7 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+from mcp import Implementation
 from pydantic import BaseModel, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -61,11 +62,9 @@ class MCPServerSettings(BaseModel):
     Represents the configuration for an individual server.
     """
 
-    # TODO: saqadri - server name should be something a server can provide itself during initialization
     name: str | None = None
     """The name of the server."""
 
-    # TODO: saqadri - server description should be something a server can provide itself during initialization
     description: str | None = None
     """The description of the server."""
 
@@ -107,6 +106,8 @@ class MCPServerSettings(BaseModel):
 
     cwd: str | None = None
     """Working directory for the executed server command."""
+
+    implementation: Implementation | None = None
 
 
 class MCPSettings(BaseModel):

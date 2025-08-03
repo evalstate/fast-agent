@@ -9,7 +9,7 @@ from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 
 # Create a minimal testable subclass of AugmentedLLM
-class TestLLM(AugmentedLLM):
+class StubLLM(AugmentedLLM):
     """Minimal implementation of AugmentedLLM for testing purposes"""
 
     def __init__(self, *args, **kwargs):
@@ -31,7 +31,7 @@ class TestRequestParamsInLLM:
     def test_base_prepare_provider_arguments(self):
         """Test the base prepare_provider_arguments method"""
         # Create a testable LLM instance
-        llm = TestLLM()
+        llm = StubLLM()
 
         # Test with minimal base arguments
         base_args = {"model": "test-model"}
@@ -46,7 +46,7 @@ class TestRequestParamsInLLM:
 
     def test_prepare_arguments_with_exclusions(self):
         """Test prepare_provider_arguments with field exclusions"""
-        llm = TestLLM()
+        llm = StubLLM()
 
         # Test with exclusions
         base_args = {"model": "test-model"}
@@ -64,7 +64,7 @@ class TestRequestParamsInLLM:
 
     def test_prepare_arguments_with_metadata(self):
         """Test prepare_provider_arguments with metadata override"""
-        llm = TestLLM()
+        llm = StubLLM()
 
         # Test with metadata
         base_args = {"model": "test-model", "temperature": 0.2}
@@ -79,7 +79,7 @@ class TestRequestParamsInLLM:
 
     def test_response_format_handling(self):
         """Test handling of response_format parameter"""
-        llm = TestLLM()
+        llm = StubLLM()
 
         json_format = {
             "type": "json_schema",
@@ -174,7 +174,7 @@ class TestRequestParamsInLLM:
 
     def test_params_dont_overwrite_base_args(self):
         """Test that params don't overwrite base_args with the same key"""
-        llm = TestLLM()
+        llm = StubLLM()
 
         # Set up conflicting keys
         base_args = {"model": "base-model", "temperature": 0.5}
@@ -189,7 +189,7 @@ class TestRequestParamsInLLM:
 
     def test_none_values_not_included(self):
         """Test that None values from params are not included"""
-        llm = TestLLM()
+        llm = StubLLM()
 
         base_args = {"model": "test-model"}
         params = RequestParams(temperature=None, top_p=0.9)

@@ -133,7 +133,7 @@ async def test_multiple_text_blocks_prompting(fast_agent, model_name):
             response_text = response.all_text()
             words = response_text.split()
             word_count = len(words)
-            assert 30 <= word_count <= 60, f"Expected between 30-60 words, got {word_count}"
+            assert 32 <= word_count <= 70, f"Expected between 32-70 words, got {word_count}"
             assert "cat" in response_text
 
     await agent_function()

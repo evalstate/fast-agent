@@ -66,9 +66,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Extract server_name if provided in kwargs
         from importlib.metadata import version
 
-        version = version("fast-agent-mcp") or "dev"
-        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
-
         self.session_server_name = kwargs.pop("server_name", None)
         # Extract the notification callbacks if provided
         self._tool_list_changed_callback = kwargs.pop("tool_list_changed_callback", None)
@@ -82,6 +79,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self.api_key: str | None = kwargs.pop("api_key", None)
         # Extract custom elicitation handler if provided
         custom_elicitation_handler = kwargs.pop("elicitation_handler", None)
+
+        version = version("fast-agent-mcp") or "dev"
+        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
+        if self.server_config and self.server_config.implementation:
+            fast_agent = self.server_config.implementation
 
         # Only register callbacks if the server_config has the relevant settings
         list_roots_cb = list_roots if (self.server_config and self.server_config.roots) else None

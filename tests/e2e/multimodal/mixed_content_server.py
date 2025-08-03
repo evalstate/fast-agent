@@ -12,9 +12,8 @@ used to cause OpenAI API validation errors before the fix.
 
 import base64
 import logging
-from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.fastmcp import FastMCP
 from mcp.types import ImageContent, TextContent
 
 # Configure logging
@@ -27,7 +26,7 @@ app = FastMCP(name="MixedContentServer", debug=True)
 
 @app.tool(
     name="get_page_data",
-    description="Gets current page data and navigation state (returns pure text)"
+    description="Gets current page data and navigation state (returns pure text)",
 )
 def get_page_data() -> str:
     """
@@ -38,8 +37,8 @@ def get_page_data() -> str:
 
 
 @app.tool(
-    name="take_screenshot", 
-    description="Takes a screenshot of the current page (returns text description + image)"
+    name="take_screenshot",
+    description="Takes a screenshot of the current page (returns text description + image)",
 )
 def take_screenshot() -> list[TextContent | ImageContent]:
     """
@@ -50,14 +49,14 @@ def take_screenshot() -> list[TextContent | ImageContent]:
     try:
         # Create a valid minimal 1x1 pixel transparent PNG
         fake_image_data = base64.b64encode(
-            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
-            b'\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01'
-            b'\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
-        ).decode('utf-8')
-        
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+            b"\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+        ).decode("utf-8")
+
         return [
             TextContent(type="text", text="Screenshot captured successfully"),
-            ImageContent(type="image", data=fake_image_data, mimeType="image/png")
+            ImageContent(type="image", data=fake_image_data, mimeType="image/png"),
         ]
     except Exception as e:
         logger.exception(f"Error creating screenshot: {e}")
@@ -66,7 +65,7 @@ def take_screenshot() -> list[TextContent | ImageContent]:
 
 @app.tool(
     name="get_both_data",
-    description="Gets both page data and screenshot in one call (for testing single tool with mixed content)"
+    description="Gets both page data and screenshot in one call (for testing single tool with mixed content)",
 )
 def get_both_data() -> list[TextContent | ImageContent]:
     """
@@ -76,15 +75,15 @@ def get_both_data() -> list[TextContent | ImageContent]:
     try:
         # Same valid minimal PNG as take_screenshot
         fake_image_data = base64.b64encode(
-            b'\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01'
-            b'\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01'
-            b'\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82'
-        ).decode('utf-8')
-        
+            b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+            b"\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01"
+            b"\x00\x00\x05\x00\x01\r\n-\xdb\x00\x00\x00\x00IEND\xaeB`\x82"
+        ).decode("utf-8")
+
         return [
             TextContent(type="text", text="Combined data: Page loaded, screenshot taken"),
             TextContent(type="text", text="Navigation state: Ready"),
-            ImageContent(type="image", data=fake_image_data, mimeType="image/png")
+            ImageContent(type="image", data=fake_image_data, mimeType="image/png"),
         ]
     except Exception as e:
         logger.exception(f"Error getting combined data: {e}")

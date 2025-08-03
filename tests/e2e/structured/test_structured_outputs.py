@@ -28,6 +28,7 @@ class FormattedResponse(BaseModel):
         "haiku",
         "sonnet",
         "gpt-4.1",
+        "azure.gpt-4.1",
         "gpt-4.1-mini",
         "o3-mini.low",
         "openrouter.google/gemini-2.0-flash-001",
