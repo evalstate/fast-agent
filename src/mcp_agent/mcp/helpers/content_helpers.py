@@ -156,3 +156,32 @@ def get_resource_text(result: ReadResourceResult, index: int = 0) -> Optional[st
         return content.text
 
     return None
+
+
+def split_thinking_content(message: str) -> tuple[Optional[str], str]:
+    """
+    Split a message into thinking and content parts.
+
+    Extracts content between <thinking> tags and returns it along with the remaining content.
+
+    Args:
+        message: A string that may contain a <thinking>...</thinking> block followed by content
+
+    Returns:
+        A tuple of (thinking_content, main_content) where:
+        - thinking_content: The content inside <thinking> tags, or None if not found/parsing fails
+        - main_content: The content after the thinking block, or the entire message if no thinking block
+    """
+    import re
+
+    # Pattern to match <thinking>...</thinking> at the start of the message
+    pattern = r"^<think>(.*?)</think>\s*(.*)$"
+    match = re.match(pattern, message, re.DOTALL)
+
+    if match:
+        thinking_content = match.group(1).strip()
+        main_content = match.group(2).strip()
+        return (thinking_content, main_content)
+    else:
+        # No thinking block found or parsing failed
+        return (None, message)

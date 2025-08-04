@@ -60,3 +60,6 @@ mcp:
     dynamic_tool:
       command: "uv"
       args: ["run", "mcp_dynamic_tools.py"]
+    progress_test:
+      command: "uv"
+      args: ["run", "mcp_progress_server.py"]

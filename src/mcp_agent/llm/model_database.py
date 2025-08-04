@@ -22,6 +22,12 @@ class ModelParameters(BaseModel):
     tokenizes: List[str]
     """List of supported content types for tokenization"""
 
+    json_mode: None | str = "schema"
+    """Structured output style. 'schema', 'object' or None for unsupported """
+
+    reasoning: None | str = None
+    """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -87,6 +93,13 @@ class ModelDatabase:
     QWEN_STANDARD = ModelParameters(
         context_window=32000, max_output_tokens=8192, tokenizes=QWEN_MULTIMODAL
     )
+    QWEN3_REASONER = ModelParameters(
+        context_window=131072,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="tags",
+    )
 
     FAST_AGENT_STANDARD = ModelParameters(
         context_window=1000000, max_output_tokens=100000, tokenizes=TEXT_ONLY
@@ -125,6 +138,13 @@ class ModelDatabase:
         context_window=65536, max_output_tokens=32768, tokenizes=TEXT_ONLY
     )
 
+    DEEPSEEK_DISTILL = ModelParameters(
+        context_window=131072,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="tags",
+    )
     GEMINI_2_5_PRO = ModelParameters(
         context_window=2097152, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
     )
@@ -214,6 +234,8 @@ class ModelDatabase:
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
         "moonshotai/kimi-k2-instruct": KIMI_MOONSHOT,
+        "qwen/qwen3-32b": QWEN3_REASONER,
+        "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
     }
 
     @classmethod
@@ -238,6 +260,18 @@ class ModelDatabase:
         """Get supported tokenization types for a model"""
         params = cls.get_model_params(model)
         return params.tokenizes if params else None
+
+    @classmethod
+    def get_json_mode(cls, model: str) -> str | None:
+        """Get supported json mode (structured output) for a model"""
+        params = cls.get_model_params(model)
+        return params.json_mode if params else None
+
+    @classmethod
+    def get_reasoning(cls, model: str) -> str | None:
+        """Get supported reasoning output style for a model"""
+        params = cls.get_model_params(model)
+        return params.reasoning if params else None
 
     @classmethod
     def get_default_max_tokens(cls, model: str) -> int:
