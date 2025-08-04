@@ -7,10 +7,9 @@ as parallel agents for execution and communication.
 
 import asyncio
 import uuid
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Dict, List, Optional
 
-from mcp.types import TextContent
 from pydantic import BaseModel, Field
 
 from mcp_agent.agents.agent import Agent
@@ -18,11 +17,9 @@ from mcp_agent.core.agent_types import AgentConfig, AgentType
 from mcp_agent.core.direct_factory import get_model_factory
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.logging.logger import get_logger
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 if TYPE_CHECKING:
     from mcp_agent.agents.base_agent import BaseAgent
-    from mcp_agent.context import Context
 
 logger = get_logger(__name__)
 

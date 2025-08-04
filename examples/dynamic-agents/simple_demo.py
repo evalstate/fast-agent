@@ -6,6 +6,7 @@ simple use cases that are easy to understand and modify.
 """
 
 import asyncio
+
 from mcp_agent.core.fastagent import FastAgent
 
 # Create the application

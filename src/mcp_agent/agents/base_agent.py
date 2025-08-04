@@ -61,9 +61,9 @@ HUMAN_INPUT_TOOL_NAME = "__human_input__"
 DYNAMIC_AGENT_TOOL_PREFIX = "dynamic_agent"
 
 if TYPE_CHECKING:
+    from mcp_agent.agents.dynamic_agent_manager import DynamicAgentManager
     from mcp_agent.context import Context
     from mcp_agent.llm.usage_tracking import UsageAccumulator
-    from mcp_agent.agents.dynamic_agent_manager import DynamicAgentManager
 
 
 DEFAULT_CAPABILITIES = AgentCapabilities(

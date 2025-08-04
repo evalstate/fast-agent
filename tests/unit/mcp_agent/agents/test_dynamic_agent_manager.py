@@ -5,16 +5,16 @@ These tests verify the core functionality of dynamic agent creation,
 lifecycle management, and communication.
 """
 
+from unittest.mock import AsyncMock, Mock, patch
+
 import pytest
-import asyncio
-from unittest.mock import Mock, AsyncMock, patch
 
 from mcp_agent.agents.dynamic_agent_manager import (
-    DynamicAgentManager, 
+    DynamicAgentInfo,
+    DynamicAgentManager,
     DynamicAgentSpec,
-    DynamicAgentInfo
 )
-from mcp_agent.core.agent_types import AgentConfig, AgentType
+from mcp_agent.core.agent_types import AgentConfig
 
 
 class TestDynamicAgentSpec:

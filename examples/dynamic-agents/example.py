@@ -6,6 +6,7 @@ based on task analysis. The project manager creates specialized teams on-the-fly
 """
 
 import asyncio
+
 from mcp_agent.core.fastagent import FastAgent
 
 # Create the application
