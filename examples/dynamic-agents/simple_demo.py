@@ -76,8 +76,8 @@ async def run_all_examples():
     print("Running Simple Dynamic Agents Examples...\n")
     
     await simple_example()
-    print("\n" + "="*60 + "\n")
-    await delegation_example()
+    #print("\n" + "="*60 + "\n")
+    #await delegation_example()
 
 
 if __name__ == "__main__":

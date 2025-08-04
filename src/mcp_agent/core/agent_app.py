@@ -320,7 +320,7 @@ class AgentApp:
         if agent.agent_type == AgentType.PARALLEL:
             self._show_parallel_agent_usage(agent)
         # Check if this agent has dynamic agents
-        elif hasattr(agent, 'dynamic_agent_manager') and agent.dynamic_agent_manager and agent.dynamic_agent_manager._agents:
+        elif hasattr(agent, 'dynamic_agent_manager') and agent.dynamic_agent_manager and agent.dynamic_agent_manager.dynamic_agents:
             self._show_dynamic_agent_usage(agent)
         else:
             self._show_regular_agent_usage(agent)
@@ -391,9 +391,9 @@ class AgentApp:
         total_tool_calls = 0
         
         # Get usage from dynamic agents
-        for agent_id, agent_info in parent_agent.dynamic_agent_manager._agents.items():
-            if agent_info.agent:
-                usage_info = self._format_agent_usage(agent_info.agent)
+        for agent_id, agent in parent_agent.dynamic_agent_manager.dynamic_agents.items():
+            if agent:
+                usage_info = self._format_agent_usage(agent)
                 if usage_info:
                     # Extract agent name from agent_id (format: name_hexid)
                     agent_name = agent_id.rsplit('_', 1)[0] if '_' in agent_id else agent_id
