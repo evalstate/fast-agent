@@ -1,0 +1,32 @@
+# FastAgent configuration for Dynamic Agents example
+#
+# This configuration includes MCP servers that dynamic agents can use
+
+app:
+  log_dir: ".logs"
+
+llm:
+  default_model: "haiku"  # Fast model for demonstrations
+  
+mcp:
+  defaults:
+    auto_install_dependencies: true
+    
+  servers:
+    # Filesystem server for file operations
+    filesystem:
+      module: mcp_server_filesystem
+      args:
+        - "/tmp/dynamic-agents-workspace"
+        
+    # Fetch server for web requests
+    fetch:
+      module: mcp_server_fetch
+      args:
+        allowed_domains:
+          - "github.com"
+          - "stackoverflow.com"
+          - "developer.mozilla.org"
+          - "docs.python.org"
+          - "reactjs.org"
+          - "fastapi.tiangolo.com"

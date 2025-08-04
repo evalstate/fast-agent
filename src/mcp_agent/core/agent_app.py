@@ -319,6 +319,9 @@ class AgentApp:
         # Check if this is a parallel agent
         if agent.agent_type == AgentType.PARALLEL:
             self._show_parallel_agent_usage(agent)
+        # Check if this agent has dynamic agents
+        elif hasattr(agent, 'dynamic_agent_manager') and agent.dynamic_agent_manager and agent.dynamic_agent_manager._agents:
+            self._show_dynamic_agent_usage(agent)
         else:
             self._show_regular_agent_usage(agent)
 
@@ -369,6 +372,55 @@ class AgentApp:
             )
 
             # Show individual child agent usage
+            for i, usage_data in enumerate(child_usage_data):
+                is_last = i == len(child_usage_data) - 1
+                prefix = "└─" if is_last else "├─"
+                rich_print(
+                    f"[dim]  {prefix} {usage_data['name']}: {usage_data['display_text']}[/dim]{usage_data['cache_suffix']}"
+                )
+
+    def _show_dynamic_agent_usage(self, parent_agent) -> None:
+        """Show usage for dynamic agents created by a parent agent."""
+        if not hasattr(parent_agent, 'dynamic_agent_manager') or not parent_agent.dynamic_agent_manager:
+            return
+            
+        # Collect usage from all dynamic agents
+        child_usage_data = []
+        total_input = 0
+        total_output = 0
+        total_tool_calls = 0
+        
+        # Get usage from dynamic agents
+        for agent_id, agent_info in parent_agent.dynamic_agent_manager._agents.items():
+            if agent_info.agent:
+                usage_info = self._format_agent_usage(agent_info.agent)
+                if usage_info:
+                    # Extract agent name from agent_id (format: name_hexid)
+                    agent_name = agent_id.rsplit('_', 1)[0] if '_' in agent_id else agent_id
+                    child_usage_data.append({**usage_info, "name": agent_name})
+                    total_input += usage_info["input_tokens"]
+                    total_output += usage_info["output_tokens"]
+                    total_tool_calls += usage_info["tool_calls"]
+        
+        # Also show parent agent's own usage
+        parent_usage = self._format_agent_usage(parent_agent)
+        if parent_usage:
+            with progress_display.paused():
+                rich_print(
+                    f"[dim]Last turn: {parent_usage['display_text']}[/dim]{parent_usage['cache_suffix']}"
+                )
+        
+        if not child_usage_data:
+            return
+            
+        # Show aggregated usage for dynamic agents
+        with progress_display.paused():
+            tool_info = f", {total_tool_calls} tool calls" if total_tool_calls > 0 else ""
+            rich_print(
+                f"[dim]Dynamic agents: {total_input:,} Input, {total_output:,} Output{tool_info}[/dim]"
+            )
+            
+            # Show individual dynamic agent usage
             for i, usage_data in enumerate(child_usage_data):
                 is_last = i == len(child_usage_data) - 1
                 prefix = "└─" if is_last else "├─"

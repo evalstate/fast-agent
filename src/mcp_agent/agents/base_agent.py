@@ -58,9 +58,12 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 LLM = TypeVar("LLM", bound=AugmentedLLMProtocol)
 
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
+DYNAMIC_AGENT_TOOL_PREFIX = "dynamic_agent"
+
 if TYPE_CHECKING:
     from mcp_agent.context import Context
     from mcp_agent.llm.usage_tracking import UsageAccumulator
+    from mcp_agent.agents.dynamic_agent_manager import DynamicAgentManager
 
 
 DEFAULT_CAPABILITIES = AgentCapabilities(
@@ -118,6 +121,14 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             self.human_input_callback: Optional[HumanInputCallback] = human_input_callback
             if not human_input_callback and context and hasattr(context, "human_input_handler"):
                 self.human_input_callback = context.human_input_handler
+
+        # Initialize dynamic agent manager if enabled
+        if self.config.dynamic_agents:
+            # Import here to avoid circular dependency
+            from mcp_agent.agents.dynamic_agent_manager import DynamicAgentManager
+            self.dynamic_agent_manager: Optional["DynamicAgentManager"] = DynamicAgentManager(self)
+        else:
+            self.dynamic_agent_manager = None
 
     async def initialize(self) -> None:
         """
@@ -181,6 +192,10 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Shutdown the agent and close all MCP server connections.
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
+        # Cleanup dynamic agents if enabled
+        if self.config.dynamic_agents and self.dynamic_agent_manager:
+            await self.dynamic_agent_manager.shutdown_all()
+            
         await super().close()
 
     async def __call__(
@@ -377,6 +392,11 @@ class BaseAgent(MCPAggregator, AgentProtocol):
                                 break
             result.tools = filtered_tools
 
+        # Add dynamic agent tools if enabled
+        if self.config.dynamic_agents and self.dynamic_agent_manager:
+            dynamic_tools = self._get_dynamic_agent_tools()
+            result.tools.extend(dynamic_tools)
+
         if not self.human_input_callback:
             return result
 
@@ -408,6 +428,9 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the human input tool
             return await self._call_human_input_tool(arguments)
+        elif name.startswith(f"{DYNAMIC_AGENT_TOOL_PREFIX}_"):
+            # Call dynamic agent tool
+            return await self._call_dynamic_agent_tool(name, arguments)
         else:
             return await super().call_tool(name, arguments)
 
@@ -859,3 +882,211 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         if self._llm:
             return self._llm.usage_accumulator
         return None
+
+    def _get_dynamic_agent_tools(self) -> List[Tool]:
+        """
+        Get the list of dynamic agent tools to add to the agent.
+        
+        Returns:
+            List of Tool objects for dynamic agent functionality
+        """
+        tools = []
+        
+        # create_dynamic_agent tool
+        tools.append(Tool(
+            name=f"{DYNAMIC_AGENT_TOOL_PREFIX}_create",
+            description="Create a new dynamic agent with specified capabilities",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Unique name for the agent (e.g., 'data_analyst', 'frontend_dev')"
+                    },
+                    "instruction": {
+                        "type": "string", 
+                        "description": "System prompt that defines the agent's role and behavior"
+                    },
+                    "servers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "List of MCP server names the agent can access"
+                    },
+                    "tools": {
+                        "type": "object",
+                        "description": "Optional tool filtering (same format as regular agents)",
+                        "additionalProperties": {
+                            "type": "array", 
+                            "items": {"type": "string"}
+                        }
+                    },
+                    "model": {
+                        "type": "string",
+                        "description": "Optional model override for this agent"
+                    }
+                },
+                "required": ["name", "instruction", "servers"]
+            }
+        ))
+        
+        # send_to_dynamic_agent tool
+        tools.append(Tool(
+            name=f"{DYNAMIC_AGENT_TOOL_PREFIX}_send",
+            description="Send a message to a specific dynamic agent",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "ID of the agent to send to (returned from create_dynamic_agent)"
+                    },
+                    "message": {
+                        "type": "string",
+                        "description": "The message/task to send to the agent"
+                    }
+                },
+                "required": ["agent_id", "message"]
+            }
+        ))
+        
+        # broadcast_to_dynamic_agents tool
+        tools.append(Tool(
+            name=f"{DYNAMIC_AGENT_TOOL_PREFIX}_broadcast",
+            description="Send a message to multiple dynamic agents (parallel execution)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "Message to send to all agents"
+                    },
+                    "agent_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Specific agents to send to (if not provided, sends to all)"
+                    },
+                    "parallel": {
+                        "type": "boolean",
+                        "description": "Execute in parallel (true) or sequential (false)",
+                        "default": True
+                    }
+                },
+                "required": ["message"]
+            }
+        ))
+        
+        # list_dynamic_agents tool
+        tools.append(Tool(
+            name=f"{DYNAMIC_AGENT_TOOL_PREFIX}_list",
+            description="List all active dynamic agents and their status",
+            inputSchema={
+                "type": "object",
+                "properties": {}
+            }
+        ))
+        
+        # terminate_dynamic_agent tool
+        tools.append(Tool(
+            name=f"{DYNAMIC_AGENT_TOOL_PREFIX}_terminate",
+            description="Terminate a dynamic agent and clean up its resources",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "agent_id": {
+                        "type": "string",
+                        "description": "ID of agent to terminate"
+                    }
+                },
+                "required": ["agent_id"]
+            }
+        ))
+        
+        return tools
+
+    async def _call_dynamic_agent_tool(
+        self, name: str, arguments: Dict[str, Any] | None = None
+    ) -> CallToolResult:
+        """
+        Handle dynamic agent tool calls.
+        
+        Args:
+            name: Name of the tool
+            arguments: Tool arguments
+            
+        Returns:
+            Result of the tool call
+        """
+        if not self.config.dynamic_agents or not self.dynamic_agent_manager:
+            return CallToolResult(
+                content=[TextContent(type="text", text="Dynamic agents not enabled")],
+                isError=True
+            )
+        
+        args = arguments or {}
+        
+        try:
+            if name == f"{DYNAMIC_AGENT_TOOL_PREFIX}_create":
+                # Import here to avoid circular dependency
+                from mcp_agent.agents.dynamic_agent_manager import DynamicAgentSpec
+                
+                spec = DynamicAgentSpec(
+                    name=args["name"],
+                    instruction=args["instruction"], 
+                    servers=args["servers"],
+                    tools=args.get("tools"),
+                    model=args.get("model")
+                )
+                agent_id = await self.dynamic_agent_manager.create_agent(spec)
+                return CallToolResult(
+                    content=[TextContent(type="text", text=agent_id)]
+                )
+                
+            elif name == f"{DYNAMIC_AGENT_TOOL_PREFIX}_send":
+                response = await self.dynamic_agent_manager.send_to_agent(
+                    args["agent_id"], args["message"]
+                )
+                return CallToolResult(
+                    content=[TextContent(type="text", text=response)]
+                )
+                
+            elif name == f"{DYNAMIC_AGENT_TOOL_PREFIX}_broadcast":
+                responses = await self.dynamic_agent_manager.broadcast_message(
+                    args["message"],
+                    args.get("agent_ids"),
+                    args.get("parallel", True)
+                )
+                
+                # Format as aggregated response like ParallelAgent
+                formatted = self.dynamic_agent_manager.format_responses_for_aggregation(
+                    responses, args["message"]
+                )
+                return CallToolResult(
+                    content=[TextContent(type="text", text=formatted)]
+                )
+                
+            elif name == f"{DYNAMIC_AGENT_TOOL_PREFIX}_list":
+                agents = self.dynamic_agent_manager.list_agents()
+                import json
+                result = json.dumps([agent.model_dump() for agent in agents], indent=2)
+                return CallToolResult(
+                    content=[TextContent(type="text", text=result)]
+                )
+                
+            elif name == f"{DYNAMIC_AGENT_TOOL_PREFIX}_terminate":
+                success = await self.dynamic_agent_manager.terminate_agent(args["agent_id"])
+                result = "Agent terminated successfully" if success else "Failed to terminate agent"
+                return CallToolResult(
+                    content=[TextContent(type="text", text=result)]
+                )
+                
+            else:
+                return CallToolResult(
+                    content=[TextContent(type="text", text=f"Unknown dynamic agent tool: {name}")],
+                    isError=True
+                )
+                
+        except Exception as e:
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Error calling dynamic agent tool: {str(e)}")],
+                isError=True
+            )
