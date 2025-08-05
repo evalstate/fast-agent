@@ -22,7 +22,7 @@ from mcp_agent.llm.providers.augmented_llm_google_oai import GoogleOaiAugmentedL
 from mcp_agent.llm.providers.augmented_llm_groq import GroqAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
-from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_tensorzero_openai import TensorZeroOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_xai import XAIAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
@@ -39,7 +39,7 @@ LLMClass = Union[
     Type[SlowLLM],
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
-    Type[TensorZeroAugmentedLLM],
+    Type[TensorZeroOpenAIAugmentedLLM],
     Type[GoogleNativeAugmentedLLM],
     Type[GenericAugmentedLLM],
     Type[AzureOpenAIAugmentedLLM],
@@ -157,7 +157,7 @@ class ModelFactory:
         Provider.GOOGLE: GoogleNativeAugmentedLLM,
         Provider.XAI: XAIAugmentedLLM,
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
-        Provider.TENSORZERO: TensorZeroAugmentedLLM,
+        Provider.TENSORZERO: TensorZeroOpenAIAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
         Provider.ALIYUN: AliyunAugmentedLLM,
         Provider.BEDROCK: BedrockAugmentedLLM,
