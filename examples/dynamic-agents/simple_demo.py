@@ -23,12 +23,12 @@ Be clear about what you're doing and explain each step.""",
     servers=["filesystem"],
     dynamic_agents=True,
     max_dynamic_agents=3,
-    model="haiku"
+    model="haiku",
 )
 async def simple_example():
     async with fast.run() as agent:
         print("=== Simple Dynamic Agent Example ===\n")
-        
+
         await agent.simple_creator("""
         Please demonstrate the dynamic agent system by:
         1. Creating a file organizer agent that can read and organize files
@@ -52,12 +52,12 @@ async def simple_example():
     servers=["filesystem"],
     dynamic_agents=True,
     max_dynamic_agents=4,
-    model="haiku"
+    model="haiku",
 )
 async def delegation_example():
     async with fast.run() as agent:
         print("\n=== Task Delegation Example ===\n")
-        
+
         await agent.task_delegator("""
         I need to analyze a Python project and create documentation for it.
         
@@ -74,15 +74,15 @@ async def delegation_example():
 async def run_all_examples():
     """Run all simple examples in sequence."""
     print("Running Simple Dynamic Agents Examples...\n")
-    
+
     await simple_example()
-    #print("\n" + "="*60 + "\n")
-    #await delegation_example()
+    # print("\n" + "="*60 + "\n")
+    # await delegation_example()
 
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "delegation":
         asyncio.run(delegation_example())
     elif len(sys.argv) > 1 and sys.argv[1] == "basic":

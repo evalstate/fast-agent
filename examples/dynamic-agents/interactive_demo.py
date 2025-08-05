@@ -33,7 +33,7 @@ Be conversational and educational - explain what you're doing and why.""",
     servers=["filesystem", "fetch"],
     dynamic_agents=True,
     max_dynamic_agents=6,
-    model="haiku"
+    model="haiku",
 )
 async def interactive_demo():
     """Run an interactive demo where users can experiment with dynamic agents."""
@@ -52,8 +52,8 @@ async def interactive_demo():
         print("Type 'help' for more examples or 'exit' to quit")
         print("=" * 60)
         print()
-        
-        await agent.interactive_manager.interactive()
+
+        await agent.interactive("interactive_manager")
 
 
 @fast.agent(
@@ -71,7 +71,6 @@ When asked, create the appropriate team and walk through a realistic scenario.""
     servers=["filesystem", "fetch"],
     dynamic_agents=True,
     max_dynamic_agents=5,
-    model="haiku"
 )
 async def guided_demo():
     """Run a guided demo with pre-built scenarios."""
@@ -86,25 +85,25 @@ async def guided_demo():
         print("  5. Customer Support Team")
         print("  6. All scenarios (sequential)")
         print()
-        
+
         choice = input("Enter your choice (1-6): ").strip()
-        
+
         scenarios = {
             "1": "Create a full-stack development team to build a social media platform",
             "2": "Create a content team to produce a comprehensive product launch campaign",
             "3": "Create a research team to analyze competitor strategies in the AI market",
             "4": "Create a marketing team to launch a new mobile app",
             "5": "Create a customer support team to handle technical inquiries",
-            "6": "all"
+            "6": "all",
         }
-        
+
         if choice == "6":
             for i, scenario in enumerate(scenarios.values(), 1):
                 if scenario == "all":
                     continue
-                print(f"\n{'='*60}")
+                print(f"\n{'=' * 60}")
                 print(f"Demo {i}: {scenario}")
-                print('='*60)
+                print("=" * 60)
                 await agent.demo_guide(scenario)
                 if i < 5:  # Don't wait after the last demo
                     input("\nPress Enter to continue to the next demo...")
@@ -119,7 +118,7 @@ async def quick_demo():
     """A quick demonstration of dynamic agents."""
     async with fast.run() as agent:
         print("=== Quick Dynamic Agents Demo ===")
-        
+
         await agent.demo_guide("""
         Give me a quick demonstration of dynamic agents by:
         1. Creating 2-3 different specialist agents
@@ -132,7 +131,7 @@ async def quick_demo():
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "guided":
         asyncio.run(guided_demo())
     elif len(sys.argv) > 1 and sys.argv[1] == "quick":
