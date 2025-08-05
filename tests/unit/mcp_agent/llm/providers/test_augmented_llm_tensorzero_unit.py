@@ -1,11 +1,11 @@
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam
+
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.providers.augmented_llm_tensorzero_openai import TensorZeroOpenAIAugmentedLLM
-
 
 # --- Fixtures ---
 
