@@ -8,6 +8,7 @@ from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
     TextContent,
@@ -158,17 +159,15 @@ class GoogleConverter:
 
     def convert_from_google_content(
         self, content: types.Content
-    ) -> List[TextContent | ImageContent | EmbeddedResource | CallToolRequestParams]:
+    ) -> List[ContentBlock | CallToolRequestParams]:
         """
         Converts google.genai types.Content from a model response to a list of
         fast-agent content types or tool call requests.
         """
-        fast_agent_parts: List[
-            TextContent | ImageContent | EmbeddedResource | CallToolRequestParams
-        ] = []
+        fast_agent_parts: List[ContentBlock | CallToolRequestParams] = []
 
-        if content is None or not hasattr(content, 'parts') or content.parts is None:
-                    return [] # Google API response 'content' object is None. Cannot extract parts.
+        if content is None or not hasattr(content, "parts") or content.parts is None:
+            return []  # Google API response 'content' object is None. Cannot extract parts.
 
         for part in content.parts:
             if part.text:
@@ -338,15 +337,13 @@ class GoogleConverter:
         Converts a single google.genai types.Content to a fast-agent PromptMessageMultipart.
         """
         # Official fix for GitHub issue #207: Handle None content or content.parts
-        if content is None or not hasattr(content, 'parts') or content.parts is None:
+        if content is None or not hasattr(content, "parts") or content.parts is None:
             return PromptMessageMultipart(role="assistant", content=[])
-            
+
         if content.role == "model" and any(part.function_call for part in content.parts):
             return PromptMessageMultipart(role="assistant", content=[])
 
-        fast_agent_parts: List[
-            TextContent | ImageContent | EmbeddedResource | CallToolRequestParams
-        ] = []
+        fast_agent_parts: List[ContentBlock | CallToolRequestParams] = []
         for part in content.parts:
             if part.text:
                 fast_agent_parts.append(TextContent(type="text", text=part.text))
