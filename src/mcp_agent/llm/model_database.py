@@ -120,7 +120,9 @@ class ModelDatabase:
     OPENAI_O3_MINI_SERIES = ModelParameters(
         context_window=200000, max_output_tokens=100000, tokenizes=TEXT_ONLY
     )
-
+    OPENAI_GPT_OSS_SERIES = ModelParameters(
+        context_window=131072, max_output_tokens=32766, tokenizes=TEXT_ONLY, json_mode="object"
+    )
     # TODO update to 32000
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
         context_window=200000, max_output_tokens=32000, tokenizes=ANTHROPIC_MULTIMODAL
@@ -236,6 +238,8 @@ class ModelDatabase:
         "moonshotai/kimi-k2-instruct": KIMI_MOONSHOT,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
+        "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
+        "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
     }
 
     @classmethod

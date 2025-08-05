@@ -391,8 +391,13 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             # Convert to dict and remove None values
             message_dict = message.model_dump()
             message_dict = {k: v for k, v in message_dict.items() if v is not None}
-            if model_name == "deepseek-r1-distill-llama-70b":
+            if model_name in (
+                "deepseek-r1-distill-llama-70b",
+                "openai/gpt-oss-120b",
+                "openai/gpt-oss-20b",
+            ):
                 message_dict.pop("reasoning", None)
+                message_dict.pop("channel", None)
 
             messages.append(message_dict)
 

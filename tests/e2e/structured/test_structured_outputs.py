@@ -37,6 +37,7 @@ class FormattedResponse(BaseModel):
         "groq.moonshotai/kimi-k2-instruct",
         "groq.deepseek-r1-distill-llama-70b",
         "groq.qwen/qwen3-32b",
+        "gpt-oss",
     ],
 )
 async def test_structured_output_with_automatic_format_for_model(fast_agent, model_name):
