@@ -12,15 +12,14 @@ class AliyunAugmentedLLM(OpenAIAugmentedLLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Aliyun-specific default parameters"""
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
+        
+        # Override with Aliyun-specific settings
         chosen_model = kwargs.get("model", DEFAULT_QWEN_MODEL)
-
-        return RequestParams(
-            model=chosen_model,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=20,
-            use_history=True,
-        )
+        base_params.model = chosen_model
+        
+        return base_params
 
     def _base_url(self) -> str:
         base_url = None

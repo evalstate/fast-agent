@@ -307,6 +307,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         request_params = self.get_request_params(request_params=request_params)
 
         responses: List[ContentBlock] = []
+        model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
 
         # TODO -- move this in to agent context management / agent group handling
         messages: List[ChatCompletionMessageParam] = []
@@ -347,7 +348,6 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             stream = await self._openai_client().chat.completions.create(**arguments)
             # Process the stream
             response = await self._process_stream(stream, self.default_request_params.model)
-
             # Track usage if response is valid and has usage data
             if (
                 hasattr(response, "usage")
@@ -391,6 +391,9 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             # Convert to dict and remove None values
             message_dict = message.model_dump()
             message_dict = {k: v for k, v in message_dict.items() if v is not None}
+            if model_name == "deepseek-r1-distill-llama-70b":
+                message_dict.pop("reasoning", None)
+
             messages.append(message_dict)
 
             message_text = message.content
@@ -412,9 +415,8 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                     )
 
                 tool_results = []
-                
+
                 for tool_call in message.tool_calls:
-                    
                     self.show_tool_call(
                         available_tools,
                         tool_call.function.name,
@@ -430,7 +432,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                             else from_json(tool_call.function.arguments, allow_partial=True),
                         ),
                     )
-                    
+
                     try:
                         result = await self.call_tool(tool_call_request, tool_call.id)
                         self.show_tool_result(result)
@@ -439,10 +441,14 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
                     except Exception as e:
                         self.logger.error(f"Tool call {tool_call.id} failed with error: {e}")
                         # Still add the tool_call_id with an error result to prevent missing responses
-                        error_result = CallToolResult(content=[TextContent(type="text", text=f"Tool call failed: {str(e)}")])
+                        error_result = CallToolResult(
+                            content=[TextContent(type="text", text=f"Tool call failed: {str(e)}")]
+                        )
                         tool_results.append((tool_call.id, error_result))
-                
-                converted_messages = OpenAIConverter.convert_function_results_to_openai(tool_results)
+
+                converted_messages = OpenAIConverter.convert_function_results_to_openai(
+                    tool_results
+                )
                 messages.extend(converted_messages)
 
                 self.logger.debug(

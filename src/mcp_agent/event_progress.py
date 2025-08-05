@@ -20,6 +20,7 @@ class ProgressAction(str, Enum):
     PLANNING = "Planning"
     READY = "Ready"
     CALLING_TOOL = "Calling Tool"
+    TOOL_PROGRESS = "Tool Progress"
     UPDATED = "Updated"
     FINISHED = "Finished"
     SHUTDOWN = "Shutdown"
@@ -35,6 +36,8 @@ class ProgressEvent(BaseModel):
     details: Optional[str] = None
     agent_name: Optional[str] = None
     streaming_tokens: Optional[str] = None  # Special field for streaming token count
+    progress: Optional[float] = None  # Current progress value
+    total: Optional[float] = None  # Total value for progress calculation
 
     def __str__(self) -> str:
         """Format the progress event for display."""
@@ -86,6 +89,12 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
             details = f"{server_name} ({tool_name})"
         else:
             details = f"{server_name}"
+        
+        # For TOOL_PROGRESS, use progress message if available, otherwise keep default
+        if progress_action == ProgressAction.TOOL_PROGRESS:
+            progress_message = event_data.get("details", "")
+            if progress_message:  # Only override if message is non-empty
+                details = progress_message
 
     elif "augmented_llm" in namespace:
         model = event_data.get("model", "")
@@ -104,10 +113,19 @@ def convert_log_event(event: Event) -> Optional[ProgressEvent]:
     if progress_action == ProgressAction.STREAMING:
         streaming_tokens = event_data.get("details", "")
     
+    # Extract progress data for TOOL_PROGRESS actions
+    progress = None
+    total = None
+    if progress_action == ProgressAction.TOOL_PROGRESS:
+        progress = event_data.get("progress")
+        total = event_data.get("total")
+    
     return ProgressEvent(
         action=ProgressAction(progress_action),
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),
         streaming_tokens=streaming_tokens,
+        progress=progress,
+        total=total,
     )

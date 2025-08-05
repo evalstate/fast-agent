@@ -17,24 +17,19 @@ class OpenRouterAugmentedLLM(OpenAIAugmentedLLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenRouter-specific default parameters."""
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
+        
+        # Override with OpenRouter-specific settings
         # OpenRouter model names include the provider, e.g., "google/gemini-flash-1.5"
         # The model should be passed in the 'model' kwarg during factory creation.
         chosen_model = kwargs.get("model", DEFAULT_OPENROUTER_MODEL)
-        if not chosen_model:
-            # Unlike Deepseek, OpenRouter *requires* a model path in the identifier.
-            # The factory should extract this before calling the constructor.
-            # We rely on the model being passed correctly via kwargs.
-            # If it's still None here, it indicates an issue upstream (factory or user input).
-            # However, the base class _get_model handles the error if model is None.
-            pass
-
-        return RequestParams(
-            model=chosen_model,  # Will be validated by base class
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,  # Default based on OpenAI provider
-            max_iterations=20,  # Default based on OpenAI provider
-            use_history=True,  # Default based on OpenAI provider
-        )
+        if chosen_model:
+            base_params.model = chosen_model
+        # If it's still None here, it indicates an issue upstream (factory or user input).
+        # However, the base class _get_model handles the error if model is None.
+        
+        return base_params
 
     def _base_url(self) -> str:
         """Retrieve the OpenRouter base URL from config or use the default."""
