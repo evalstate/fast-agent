@@ -2,22 +2,21 @@
 #
 # This configuration includes MCP servers that dynamic agents can use
 
+default_model: "gpt-4.1" # Fast model for demonstrations
+
 app:
   log_dir: ".logs"
 
-llm:
-  default_model: "haiku"  # Fast model for demonstrations
-  
 mcp:
   defaults:
     auto_install_dependencies: true
-    
+
   servers:
     # Filesystem server for file operations
     filesystem:
       command: "npx"
       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-        
+
     # Fetch server for web requests
     fetch:
       command: "uvx"

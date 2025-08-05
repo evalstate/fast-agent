@@ -46,12 +46,12 @@ Example specialist roles:
     servers=["filesystem", "fetch"],
     dynamic_agents=True,
     max_dynamic_agents=5,
-    model="haiku"
+    model="haiku",
 )
 async def main():
     async with fast.run() as agent:
         print("=== Project Manager Demo ===\n")
-        
+
         # Example 1: Web Development Project
         print("Example 1: Building a Todo App")
         await agent.project_manager("""
@@ -72,9 +72,9 @@ async def main():
         
         Show me the team you create and how you delegate the work.
         """)
-        
-        print("\n" + "="*50 + "\n")
-        
+
+        print("\n" + "=" * 50 + "\n")
+
         # Example 2: Mobile App Project
         print("Example 2: Mobile App Development")
         await agent.project_manager("""
@@ -97,16 +97,16 @@ async def interactive_demo():
         print("You can now interact with the project manager!")
         print("Try commands like:")
         print("- 'Create a microservices architecture for an e-commerce platform'")
-        print("- 'Build a data analysis pipeline with Python and Apache Spark'") 
+        print("- 'Build a data analysis pipeline with Python and Apache Spark'")
         print("- 'Set up a CI/CD pipeline for a React application'")
         print("- Type 'exit' to quit\n")
-        
-        await agent.project_manager.interactive()
+
+        await agent.interactive()
 
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "interactive":
         asyncio.run(interactive_demo())
     else:

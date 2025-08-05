@@ -45,12 +45,12 @@ Example specialist roles:
     servers=["filesystem", "fetch"],
     dynamic_agents=True,
     max_dynamic_agents=5,
-    model="haiku"
+    model="haiku",
 )
 async def main():
     async with fast.run() as agent:
         print("=== Dynamic Agents Demo ===\n")
-        
+
         # Example 1: Web Development Project
         print("Example 1: Building a Todo App")
         await agent.project_manager("""
@@ -71,9 +71,9 @@ async def main():
         
         Show me the team you create and how you delegate the work.
         """)
-        
-        print("\n" + "="*50 + "\n")
-        
+
+        print("\n" + "=" * 50 + "\n")
+
         # Example 2: Code Review Project
         print("Example 2: Code Review Team")
         await agent.project_manager("""
@@ -120,12 +120,11 @@ Show how to create, use, and manage dynamic agents step by step.""",
     servers=["filesystem"],
     dynamic_agents=True,
     max_dynamic_agents=3,
-    model="haiku"
 )
 async def simple_example():
     async with fast.run() as agent:
         print("\n=== Simple Dynamic Agent Example ===\n")
-        
+
         await agent.simple_creator("""
         Please demonstrate the dynamic agent system by:
         1. Creating a file organizer agent that can read and organize files
@@ -145,16 +144,16 @@ async def interactive_demo():
         print("You can now interact with the project manager!")
         print("Try commands like:")
         print("- 'Create a mobile app development team'")
-        print("- 'Build a data analysis pipeline'") 
+        print("- 'Build a data analysis pipeline'")
         print("- 'Set up a microservices architecture'")
         print("- Type 'exit' to quit\n")
-        
+
         await agent.project_manager.interactive()
 
 
 if __name__ == "__main__":
     import sys
-    
+
     if len(sys.argv) > 1 and sys.argv[1] == "simple":
         asyncio.run(simple_example())
     elif len(sys.argv) > 1 and sys.argv[1] == "interactive":
