@@ -23,7 +23,7 @@ async def test_get_agent_card_and_tools(fast_agent):
             assert "test" == card.name
             # TODO -- migrate AgentConfig to include "description" - "instruction" is OK for the moment...
             assert "here are you instructions" == card.description
-            assert 2 == len(card.skills)
+            assert 3 == len(card.skills)
 
             skill: AgentSkill = card.skills[0]
             assert "card_test-check_weather" == skill.id
