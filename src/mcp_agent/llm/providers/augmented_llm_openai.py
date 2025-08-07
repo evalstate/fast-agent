@@ -332,8 +332,8 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         ]
 
         if not available_tools:
-            if self.provider == Provider.DEEPSEEK:
-                available_tools = None  # deepseek does not allow empty array
+            if self.provider in [Provider.DEEPSEEK, Provider.ALIYUN]:
+                available_tools = None  # deepseek/aliyun does not allow empty array
             else:
                 available_tools = []
 
