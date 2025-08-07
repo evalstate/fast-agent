@@ -97,6 +97,7 @@ async def test_open_ai_history(fast_agent, model_name):
     [
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "sonnet",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
         "gemini2",

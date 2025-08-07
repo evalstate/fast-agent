@@ -86,6 +86,7 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
             chosen_model.startswith("o3")
             or chosen_model.startswith("o1")
             or chosen_model.startswith("o4")
+            or chosen_model.startswith("gpt-5")
         )
         if self._reasoning:
             self.logger.info(
