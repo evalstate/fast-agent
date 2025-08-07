@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         "azure.gpt-4.1",
         "grok-3-fast",
         "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-mini.minimal",
         # "groq.deepseek-r1-distill-llama-70b", # handle reasoning outputs (they are long)
     ],
 )
@@ -104,6 +105,7 @@ async def test_open_ai_history(fast_agent, model_name):
         "gemini25",  # Works -> DONE.
         "o3-mini.low",
         "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
@@ -193,6 +195,7 @@ class WeatherForecast(BaseModel):
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
         "grok-3",
+        "gpt-5-mini.minimal",
         #  "grok-4", slow,
     ],
 )
@@ -320,6 +323,7 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "groq.deepseek-r1-distill-llama-70b",
         "groq.qwen/qwen3-32b",
         "gpt-oss",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
@@ -371,6 +375,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "azure.gpt-4.1",
         "grok-3",
         "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-nano.minimal",
     ],
 )
 async def test_tool_calls_no_args(fast_agent, model_name):

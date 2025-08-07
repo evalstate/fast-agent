@@ -143,7 +143,7 @@ class OpenAISettings(BaseModel):
     """
 
     api_key: str | None = None
-    reasoning_effort: Literal["low", "medium", "high"] = "medium"
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = "medium"
 
     base_url: str | None = None
 

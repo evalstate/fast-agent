@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         "sonnet",  # Anthropic model
         "gemini25",  # Not yet turned on as it runs into token limits.
         "azure.gpt-4.1",
+        "gpt-5-mini.low",  # OpenAI model
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -56,6 +57,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
         "azure.gpt-4.1",
         "gemini25",
         "grok-4",
+        "gpt-5-mini.low",
         #    "gemini2",
     ],
 )
@@ -159,6 +161,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
         "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
+        "gpt-5-mini",
     ],
 )
 async def test_agent_with_pdf_prompt(fast_agent, model_name):

@@ -123,6 +123,10 @@ class ModelDatabase:
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072, max_output_tokens=32766, tokenizes=TEXT_ONLY, json_mode="object"
     )
+    OPENAI_GPT_5 = ModelParameters(
+        context_window=400000, max_output_tokens=128000, tokenizes=OPENAI_MULTIMODAL
+    )
+
     # TODO update to 32000
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
         context_window=200000, max_output_tokens=32000, tokenizes=ANTHROPIC_MULTIMODAL
@@ -197,6 +201,9 @@ class ModelDatabase:
         "o3-2025-04-16": OPENAI_O3_SERIES,
         "o3-mini-2025-01-31": OPENAI_O3_MINI_SERIES,
         "o4-mini-2025-04-16": OPENAI_O3_SERIES,
+        "gpt-5": OPENAI_GPT_5,
+        "gpt-5-mini": OPENAI_GPT_5,
+        "gpt-5-nano": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
         "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
@@ -217,8 +224,8 @@ class ModelDatabase:
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES,
         "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-opus-4": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
         # DeepSeek Models
         "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
