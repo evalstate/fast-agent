@@ -234,6 +234,8 @@ def _decorator_impl(
             model=model,
             use_history=use_history,
             human_input=human_input,
+            dynamic_agents=extra_kwargs.get("dynamic_agents", False),
+            max_dynamic_agents=extra_kwargs.get("max_dynamic_agents", 5),
             default=default,
             elicitation_handler=extra_kwargs.get("elicitation_handler"),
             api_key=extra_kwargs.get("api_key"),
@@ -282,6 +284,8 @@ def agent(
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
+    dynamic_agents: bool = False,
+    max_dynamic_agents: int = 5,
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
     api_key: str | None = None,
@@ -301,6 +305,8 @@ def agent(
         use_history: Whether to maintain conversation history
         request_params: Additional request parameters for the LLM
         human_input: Whether to enable human input capabilities
+        dynamic_agents: Whether to enable dynamic agent creation capabilities
+        max_dynamic_agents: Maximum number of dynamic agents this agent can create
         default: Whether to mark this as the default agent
         elicitation_handler: Custom elicitation handler function (ElicitationFnT)
         api_key: Optional API key for the LLM provider
@@ -323,6 +329,8 @@ def agent(
         use_history=use_history,
         request_params=request_params,
         human_input=human_input,
+        dynamic_agents=dynamic_agents,
+        max_dynamic_agents=max_dynamic_agents,
         default=default,
         elicitation_handler=elicitation_handler,
         tools=tools,

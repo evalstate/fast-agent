@@ -39,6 +39,8 @@ class AgentConfig:
     use_history: bool = True
     default_request_params: RequestParams | None = None
     human_input: bool = False
+    dynamic_agents: bool = False
+    max_dynamic_agents: int = 5
     agent_type: AgentType = AgentType.BASIC
     default: bool = False
     elicitation_handler: ElicitationFnT | None = None
