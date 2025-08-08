@@ -132,8 +132,13 @@ class TestRequestParamsInLLM:
         assert "max_iterations" not in result  # Should be excluded
         assert "parallel_tool_calls" not in result  # Should be excluded
 
-    def test_anthropic_provider_arguments(self):
+    def test_anthropic_provider_arguments(self, mocker):
         """Test prepare_provider_arguments with Anthropic provider"""
+        mocker.patch(
+            'mcp_agent.llm.providers.augmented_llm_anthropic.AnthropicAugmentedLLM._initialize_client',
+            return_value=mocker.MagicMock()
+        )
+
         # Create an Anthropic LLM instance without initializing provider connections
         llm = AnthropicAugmentedLLM()
 
