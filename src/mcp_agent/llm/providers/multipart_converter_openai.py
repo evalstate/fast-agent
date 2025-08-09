@@ -1,14 +1,27 @@
+import json
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from mcp.types import (
     CallToolResult,
+    ContentBlock,
     EmbeddedResource,
     ImageContent,
     PromptMessage,
     ResourceLink,
+    Role,
     TextContent,
 )
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartParam,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionMessage,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionUserMessageParam,
+)
 
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.helpers.content_helpers import (
@@ -28,11 +41,41 @@ from mcp_agent.mcp.mime_utils import (
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.resource_utils import extract_title_from_uri
 
+"""
+ChatCompletionContentPartParam: TypeAlias = Union[
+    ChatCompletionContentPartTextParam,
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartInputAudioParam,
+    File,
+]
+
+class ChatCompletionContentPartTextParam(TypedDict, total=False):
+    text: Required[str]
+    '''The text content.'''
+
+    type: Required[Literal["text"]]
+    '''The type of the content part.'''
+
+"""
+
+
+"""
+openai/types/chat/chat_completion_message_param.py
+
+ChatCompletionMessageParam: TypeAlias = Union[
+    ChatCompletionDeveloperMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionToolMessageParam,
+    ChatCompletionFunctionMessageParam,
+]
+"""
+
 _logger = get_logger("multipart_converter_openai")
 
-# Define type aliases for content blocks
-ContentBlock = Dict[str, Any]
-OpenAIMessage = Dict[str, Any]
+# Type alias for clarity
+OpenAIMessage = ChatCompletionMessageParam
 
 
 class OpenAIConverter:
@@ -55,8 +98,8 @@ class OpenAIConverter:
 
     @staticmethod
     def convert_to_openai(
-        multipart_msg: PromptMessageMultipart, concatenate_text_blocks: bool = False
-    ) -> Dict[str, str | ContentBlock | List[ContentBlock]]:
+        multipart_msg: PromptMessageMultipart, concatenate_text_blocks: Optional[bool] = False
+    ) -> ChatCompletionMessageParam:
         """
         Convert a PromptMessageMultipart message to OpenAI API format.
 
@@ -65,26 +108,75 @@ class OpenAIConverter:
             concatenate_text_blocks: If True, adjacent text blocks will be combined
 
         Returns:
-            An OpenAI API message object
+            An OpenAI API message object: ChatCompletionMessageParam
+
+            The ChatCompletionMessageParam class has sub-classes:
+
+                ChatCompletionMessageParam: TypeAlias = Union[
+                    ChatCompletionDeveloperMessageParam,
+                    ChatCompletionSystemMessageParam,
+                    ChatCompletionUserMessageParam,
+                    ChatCompletionAssistantMessageParam,
+                    ChatCompletionToolMessageParam,
+                    ChatCompletionFunctionMessageParam,
+                ]
         """
         role = multipart_msg.role
 
         # Handle empty content
         if not multipart_msg.content:
-            return {"role": role, "content": ""}
+            if role == "user":
+                return ChatCompletionUserMessageParam(
+                    content="",
+                    role=role,
+                )
+
+            elif role == "system":
+                raise ValueError("System message should not be empty.")
+
+            elif role == "assistant":
+                return ChatCompletionAssistantMessageParam(
+                    content="",
+                    role=role,
+                )
+
+            else:
+                raise ValueError(f"role: {role} not supported")
 
         # single text block
         if 1 == len(multipart_msg.content) and is_text_content(multipart_msg.content[0]):
-            return {"role": role, "content": get_text(multipart_msg.content[0])}
+            if role == "user":
+                return ChatCompletionUserMessageParam(
+                    content=get_text(multipart_msg.content[0]),
+                    role=role,
+                )
+            elif role == "system":
+                return ChatCompletionSystemMessageParam(
+                    content=get_text(multipart_msg.content[0]),
+                    role=role,
+                )
+            elif role == "assistant":
+                return ChatCompletionAssistantMessageParam(
+                    content=get_text(multipart_msg.content[0]),
+                    role=role,
+                )
+            else:
+                raise ValueError(f"role: {role} not supported")
 
         # For user messages, convert each content block
-        content_blocks: List[ContentBlock] = []
+        content_blocks: List[ChatCompletionContentPartParam] = []
 
         for item in multipart_msg.content:
             try:
                 if is_text_content(item):
                     text = get_text(item)
-                    content_blocks.append({"type": "text", "text": text})
+
+                    content = ChatCompletionContentPartTextParam(
+                        text=text,
+                        type="text",
+                    )
+
+                    content_blocks.append(content)
 
                 elif is_image_content(item):
                     content_blocks.append(OpenAIConverter._convert_image_content(item))
@@ -112,14 +204,50 @@ class OpenAIConverter:
                 content_blocks.append({"type": "text", "text": fallback_text})
 
         if not content_blocks:
-            return {"role": role, "content": ""}
+            if role == "user":
+                chat_completion_user = ChatCompletionUserMessageParam(
+                    content="content_blocks",
+                    role=role,
+                )
+                return chat_completion_user
+            elif role == "assistant":
+                chat_completion_assistant = ChatCompletionAssistantMessageParam(
+                    content="content_blocks",
+                    role=role,
+                )
+                return chat_completion_assistant
+            elif role == "system":
+                chat_completion_system = ChatCompletionSystemMessageParam(
+                    content="content_blocks",
+                    role=role,
+                )
+                return chat_completion_system
+            else:
+                raise ValueError(f"role: {role} not available.")
 
         # If concatenate_text_blocks is True, combine adjacent text blocks
         if concatenate_text_blocks:
             content_blocks = OpenAIConverter._concatenate_text_blocks(content_blocks)
 
         # Return user message with content blocks
-        return {"role": role, "content": content_blocks}
+        if role == "user":
+            chat_completion = ChatCompletionUserMessageParam(
+                content=content_blocks,
+                role=role,
+            )
+        elif role == "assistant":
+            chat_completion = ChatCompletionAssistantMessageParam(
+                content=content_blocks,
+                role=role,
+            )
+
+        elif role == "system":
+            chat_completion = ChatCompletionSystemMessageParam(
+                content=content_blocks,
+                role=role,
+            )
+
+        return chat_completion
 
     @staticmethod
     def _concatenate_text_blocks(blocks: List[ContentBlock]) -> List[ContentBlock]:
@@ -161,8 +289,8 @@ class OpenAIConverter:
 
     @staticmethod
     def convert_prompt_message_to_openai(
-        message: PromptMessage, concatenate_text_blocks: bool = False
-    ) -> ChatCompletionMessageParam:
+        message: PromptMessage, concatenate_text_blocks: Optional[bool] = False
+    ) -> ChatCompletionUserMessageParam:
         """
         Convert a standard PromptMessage to OpenAI API format.
 
@@ -180,13 +308,13 @@ class OpenAIConverter:
         return OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks)
 
     @staticmethod
-    def _convert_image_content(content: ImageContent) -> ContentBlock:
+    def _convert_image_content(content: ImageContent) -> ChatCompletionContentPartImageParam:
         """Convert ImageContent to OpenAI image_url content block."""
-        # Get image data using helper
-        image_data = get_image_data(content)
+        image_data = get_image_data(content)  # Get image data using helper
 
-        # OpenAI requires image URLs or data URIs for images
-        image_url = {"url": f"data:{content.mimeType};base64,{image_data}"}
+        image_url = {
+            "url": f"data:{content.mimeType};base64,{image_data}"
+        }  # OpenAI requires image URLs or data URIs for images
 
         # Check if the image has annotations for detail level
         if hasattr(content, "annotations") and content.annotations:
@@ -195,7 +323,12 @@ class OpenAIConverter:
                 if detail in ("auto", "low", "high"):
                     image_url["detail"] = detail
 
-        return {"type": "image_url", "image_url": image_url}
+        chat_completion_content_part_image = ChatCompletionContentPartImageParam(
+            image_url=image_url,
+            type="image_url",
+        )
+
+        return chat_completion_content_part_image
 
     @staticmethod
     def _determine_mime_type(resource_content) -> str:
@@ -221,9 +354,7 @@ class OpenAIConverter:
         return "text/plain"
 
     @staticmethod
-    def _convert_resource_link(
-        resource: ResourceLink,
-    ) -> Optional[ContentBlock]:
+    def _convert_resource_link(resource: ResourceLink) -> Optional[ContentBlock]:
         """
         Convert ResourceLink to OpenAI content block.
 
@@ -247,9 +378,7 @@ class OpenAIConverter:
         }
 
     @staticmethod
-    def _convert_embedded_resource(
-        resource: EmbeddedResource,
-    ) -> Optional[ContentBlock]:
+    def _convert_embedded_resource(resource: EmbeddedResource) -> Optional[ContentBlock]:
         """
         Convert EmbeddedResource to appropriate OpenAI content block.
 
@@ -341,9 +470,7 @@ class OpenAIConverter:
         }
 
     @staticmethod
-    def _extract_text_from_content_blocks(
-        content: Union[str, List[ContentBlock]],
-    ) -> str:
+    def _extract_text_from_content_blocks(content: Union[str, List[ContentBlock]]) -> str:
         """
         Extract and combine text from content blocks.
 
@@ -372,7 +499,7 @@ class OpenAIConverter:
         tool_result: CallToolResult,
         tool_call_id: str,
         concatenate_text_blocks: bool = False,
-    ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], List[Dict[str, Any]]]]:
+    ) -> Union[Dict, Tuple[Dict, Optional[List]]]:
         """
         Convert a CallToolResult to an OpenAI tool message.
 
@@ -385,8 +512,8 @@ class OpenAIConverter:
             concatenate_text_blocks: If True, adjacent text blocks will be combined
 
         Returns:
-            Either a single OpenAI message for the tool response (if text only),
-            or a tuple containing the tool message and a list of additional messages for non-text content
+            Either a single OpenAI message dict for the tool response (if text only),
+            or a tuple containing the tool message dict and a list of additional messages for non-text content
         """
         # Handle empty content case
         if not tool_result.content:
@@ -415,24 +542,20 @@ class OpenAIConverter:
                 temp_multipart, concatenate_text_blocks=concatenate_text_blocks
             )
 
-            # Extract text from content blocks
-            tool_message_content = OpenAIConverter._extract_text_from_content_blocks(
+            tool_message_content = OpenAIConverter._extract_text_from_content_blocks(  # Extract text from content blocks
                 converted.get("content", "")
             )
 
-        # Ensure we always have non-empty content for compatibility
-        if not tool_message_content or tool_message_content.strip() == "":
+        if not tool_message_content or tool_message_content.strip() == "":  # Ensure that not empty.
             tool_message_content = "[Tool completed successfully]"
 
-        # Create the tool message with just the text
-        tool_message = {
+        tool_message = {  # Create the tool message with just the text
             "role": "tool",
             "tool_call_id": tool_call_id,
             "content": tool_message_content,
         }
 
-        # If there's no non-text content, return just the tool message
-        if not non_text_content:
+        if not non_text_content:  # If there's no non-text content, return just the tool message
             return tool_message
 
         # Process non-text content as a separate user message
@@ -441,13 +564,16 @@ class OpenAIConverter:
         # Convert to OpenAI format
         user_message = OpenAIConverter.convert_to_openai(non_text_multipart)
 
+        # We need to add tool_call_id manually
+        # user_message["tool_call_id"] = tool_call_id
+
         return (tool_message, [user_message])
 
     @staticmethod
     def convert_function_results_to_openai(
         results: List[Tuple[str, CallToolResult]],
         concatenate_text_blocks: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> List[ChatCompletionToolMessageParam]:
         """
         Convert a list of function call results to OpenAI messages.
 
@@ -497,3 +623,170 @@ class OpenAIConverter:
             # Pure tool responses - keep original order to preserve context (snapshots, etc.)
             messages = tool_messages
         return messages
+
+    @staticmethod
+    def convert_from_openai_list_to_multipart(
+        messages: List[ChatCompletionMessage],
+    ) -> List[PromptMessageMultipart]:
+        """Converts a list of OpenAI messages to a list of PromptMessageMultipart."""
+        return [OpenAIConverter.convert_from_openai_to_multipart(msg) for msg in messages]
+
+    @staticmethod
+    def _convert_openai_content_to_mcp_parts(
+        content: Union[str, List[Dict[str, Any]]],
+    ) -> List[Union[TextContent, ImageContent]]:
+        """
+        Converts the content part of an OpenAI message into a list of MCP ContentBlocks.
+
+        Args:
+            content: The content from an OpenAI message, which can be a string or a list of parts.
+
+        Returns:
+            A list of MCP ContentBlock objects (e.g., TextContent, ImageContent).
+        """
+        if not content:
+            return []
+
+        # Handle simple string content
+        if isinstance(content, str):
+            return [TextContent(type="text", text=content)]
+
+        mcp_parts = []
+        # Handle a list of content blocks
+        for part in content:
+            # Convert part to dict if needed
+            if hasattr(part, "model_dump"):
+                part_dict = part.model_dump()
+            elif isinstance(part, dict):
+                part_dict = part
+            else:
+                part_dict = dict(part)
+
+            part_type = part_dict.get("type")
+
+            if part_type == "text":
+                text = part_dict.get("text", "")
+                mcp_parts.append(TextContent(type="text", text=text))
+
+            elif part_type == "image_url":
+                image_url_data = part_dict.get("image_url", {})
+                # Ensure image_url_data is a dict
+                if hasattr(image_url_data, "model_dump"):
+                    image_url_data = image_url_data.model_dump()
+                elif not isinstance(image_url_data, dict):
+                    image_url_data = dict(image_url_data)
+
+                url = image_url_data.get("url", "")
+
+                # Check for and parse base64 data URIs
+                if url.startswith("data:"):
+                    try:
+                        # e.g., "data:image/jpeg;base64,iVBORw0KGgo..."
+                        header, encoded_data = url.split(",", 1)
+                        mime_type = header.split(":")[1].split(";")[0]
+                        mcp_parts.append(
+                            ImageContent(type="image", mimeType=mime_type, data=encoded_data)
+                        )
+                    except (ValueError, IndexError) as e:
+                        _logger.warning(f"Could not parse image data URI: {url}, error: {e}")
+                else:
+                    # Handle regular URLs by converting them to a descriptive text block
+                    mcp_parts.append(TextContent(type="text", text=f"[Image at URL: {url}]"))
+            else:
+                _logger.warning(f"Skipping unsupported OpenAI content part type: {part_type}")
+
+        return mcp_parts
+
+    @staticmethod
+    def convert_from_openai_to_multipart(message: ChatCompletionMessage) -> PromptMessageMultipart:
+        """Converts a single OpenAI message to a PromptMessageMultipart.
+
+        Args:
+            message: Can be either a ChatCompletionMessage object or a dictionary
+        """
+        # Convert to dictionary if it's a Pydantic model
+        if hasattr(message, "model_dump"):
+            # It's a Pydantic ChatCompletionMessage object
+            message_dict = message.model_dump()
+        elif isinstance(message, dict):
+            # It's already a dictionary
+            message_dict = message
+        else:
+            # Fallback: try to convert to dict
+            message_dict = dict(message)
+
+        role = message_dict.get("role")
+
+        mcp_content: List[Union[TextContent, ImageContent, CallToolResult]] = []
+
+        # Handle tool results, which have a unique structure
+        if role == "tool" or role == "function":
+            role: Role = "user"  # Role only takes "assistant" and "user" as accepted types.
+            text_content = str(message_dict.get("content", ""))
+            # The content should be a TextContent block, not a CallToolResult
+            mcp_content.append(TextContent(text=text_content, type="text"))
+            # The role can remain "tool" if your system handles it, or be mapped to "user"
+            return PromptMessageMultipart(role=role, content=mcp_content)
+
+        # Handle standard content (text, images) for user/assistant messages
+        content = message_dict.get("content")
+        mcp_content.extend(OpenAIConverter._convert_openai_content_to_mcp_parts(content))
+
+        # Handle tool call requests from assistant messages
+        tool_calls = message_dict.get("tool_calls")
+        if tool_calls:
+            for tool_call in tool_calls:
+                # Convert tool_call to dict if needed
+                if hasattr(tool_call, "model_dump"):
+                    tool_call_dict = tool_call.model_dump()
+                elif isinstance(tool_call, dict):
+                    tool_call_dict = tool_call
+                else:
+                    tool_call_dict = dict(tool_call)
+
+                tool_call_type = tool_call_dict.get("type")
+
+                if tool_call_type == "function":
+                    function = tool_call_dict.get("function", {})
+                    name = function.get("name") if isinstance(function, dict) else ""
+                    arguments_str = (
+                        function.get("arguments", "{}") if isinstance(function, dict) else "{}"
+                    )
+
+                    try:
+                        arguments_dict = json.loads(arguments_str)
+                    except json.JSONDecodeError:
+                        _logger.error(f"Failed to decode tool arguments: {arguments_str}")
+                        arguments_dict = {
+                            "error": "failed to decode arguments",
+                            "raw_arguments": arguments_str,
+                        }
+
+                    # Use CallToolRequestParams instead of CallTool
+                    # id_string = tool_call_dict.get("id")
+
+                    content_piece: TextContent = TextContent(
+                        text=f"name: {name}, arguments: {str(arguments_dict)}",
+                        type="text",
+                    )
+                    # ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+                    #    CallToolRequestParams(
+                    #        id=id_string,  # Pass id as an extra field
+                    #        name=name,
+                    #        arguments=arguments_dict,  # Use 'arguments' field
+                    #    )
+
+                    mcp_content.append(content_piece)
+
+        if role == "tool" or role == "function":
+            role: Role = "user"
+        else:
+            role: Role = role
+
+        for _ in mcp_content:
+            if not isinstance(_, ContentBlock) and not isinstance(_, TextContent):
+                raise ValueError(f"Type must be ContentBlock, not {type(_)}")
+
+        # mcp_content: List[ContentBock]
+        # ContentBlock = TextContent | ImageContent | AudioContent | ResourceLink | EmbeddedResource
+        return PromptMessageMultipart(role=role, content=mcp_content)

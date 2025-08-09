@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
@@ -51,4 +51,19 @@ class RequestParams(CreateMessageRequestParams):
     template_vars: Dict[str, Any] = Field(default_factory=dict)
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
+    """
+
+    context_truncation_mode: Optional[str] = None
+    """
+    The mode to use for context truncation: 'summarize', 'remove', or None
+    """
+
+    context_truncation_length_limit: Optional[int] = None
+    """
+    The token limit for context truncation. When exceeded, truncation will be applied.
+    """
+
+    request_delay_seconds: Optional[float] = None
+    """
+    Optional delay in seconds between requests to prevent rate limiting.
     """

@@ -682,6 +682,8 @@ async def get_enhanced_input(
                 return "SHOW_USAGE"
             elif cmd == "markdown":
                 return "MARKDOWN"
+            elif cmd == "compact":
+                return "COMPACT_HISTORY"
             elif cmd == "prompt":
                 # Handle /prompt with no arguments as interactive mode
                 if len(cmd_parts) > 1:
@@ -857,6 +859,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /agents        - List available agents")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
+        rich_print("  /compact       - Compact conversation history using summarization")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
@@ -895,6 +898,10 @@ async def handle_special_commands(command, agent_app=None):
     elif command == "MARKDOWN":
         # Return a dictionary to signal that markdown display should be shown
         return {"show_markdown": True}
+
+    elif command == "COMPACT_HISTORY":
+        # Return a dictionary to signal that history compaction should be performed
+        return {"compact_history": True}
 
     elif command == "SELECT_PROMPT" or (
         isinstance(command, str) and command.startswith("SELECT_PROMPT:")
