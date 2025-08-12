@@ -783,6 +783,60 @@ class BaseAgent(MCPAggregator, AgentProtocol):
 
         return result
 
+    async def list_mcp_tools(self, server_name: str | None = None) -> Mapping[str, List[Tool]]:
+        """
+        List all tools available to this agent, grouped by server and filtered by configuration.
+
+        Args:
+            server_name: Optional server name to list tools from
+
+        Returns:
+            Dictionary mapping server names to lists of Tool objects (with original names, not namespaced)
+        """
+        if not self.initialized:
+            await self.initialize()
+
+        # Get all tools from the parent class
+        result = await super().list_mcp_tools(server_name)
+
+        # Apply filtering if tools are specified in config
+        if self.config.tools is not None:
+            filtered_result = {}
+            for server, tools in result.items():
+                # Check if this server has tool filters
+                if server in self.config.tools:
+                    filtered_tools = []
+                    for tool in tools:
+                        # Check if tool matches any pattern for this server
+                        for pattern in self.config.tools[server]:
+                            if self._matches_pattern(tool.name, pattern, server):
+                                filtered_tools.append(tool)
+                                break
+                    if filtered_tools:
+                        filtered_result[server] = filtered_tools
+            result = filtered_result
+
+        # Add human input tool to a special server if human input is configured
+        if self.human_input_callback:
+            from mcp.server.fastmcp.tools import Tool as FastTool
+
+            human_input_tool: FastTool = FastTool.from_function(self.request_human_input)
+            special_server_name = "__human_input__"
+            
+            # If the special server doesn't exist in result, create it
+            if special_server_name not in result:
+                result[special_server_name] = []
+            
+            result[special_server_name].append(
+                Tool(
+                    name=HUMAN_INPUT_TOOL_NAME,
+                    description=human_input_tool.description,
+                    inputSchema=human_input_tool.parameters,
+                )
+            )
+
+        return result
+
     @property
     def agent_type(self) -> AgentType:
         """

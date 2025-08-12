@@ -1232,3 +1232,55 @@ class MCPAggregator(ContextDependent):
                 logger.error(f"Error fetching resources from {s_name}: {e}")
 
         return results
+
+    async def list_mcp_tools(self, server_name: str | None = None) -> Dict[str, List[Tool]]:
+        """
+        List available tools from one or all servers, grouped by server name.
+        
+        Args:
+            server_name: Optional server name to list tools from. If not provided,
+                        lists tools from all servers.
+        
+        Returns:
+            Dictionary mapping server names to lists of Tool objects (with original names, not namespaced)
+        """
+        if not self.initialized:
+            await self.load_servers()
+
+        results: Dict[str, List[Tool]] = {}
+
+        # Get the list of servers to check  
+        servers_to_check = [server_name] if server_name else self.server_names
+
+        # For each server, try to list its tools
+        for s_name in servers_to_check:
+            if s_name not in self.server_names:
+                logger.error(f"Server '{s_name}' not found")
+                continue
+
+            # Initialize empty list for this server
+            results[s_name] = []
+
+            # Check if server supports tools capability
+            if not await self.server_supports_feature(s_name, "tools"):
+                logger.debug(f"Server '{s_name}' does not support tools")
+                continue
+
+            try:
+                # Use the _execute_on_server method to call list_tools on the server
+                result = await self._execute_on_server(
+                    server_name=s_name,
+                    operation_type="tools-list",
+                    operation_name="",
+                    method_name="list_tools",
+                    method_args={},
+                )
+
+                # Get tools from result (these have original names, not namespaced)
+                tools = getattr(result, "tools", [])
+                results[s_name] = tools
+
+            except Exception as e:
+                logger.error(f"Error fetching tools from {s_name}: {e}")
+
+        return results
