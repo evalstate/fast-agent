@@ -91,7 +91,10 @@ class ModelDatabase:
     )
 
     QWEN_STANDARD = ModelParameters(
-        context_window=32000, max_output_tokens=8192, tokenizes=QWEN_MULTIMODAL
+        context_window=32000,
+        max_output_tokens=8192,
+        tokenizes=QWEN_MULTIMODAL,
+        json_mode="object",
     )
     QWEN3_REASONER = ModelParameters(
         context_window=131072,
