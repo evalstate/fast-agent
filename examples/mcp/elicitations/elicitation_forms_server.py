@@ -7,7 +7,7 @@ different form types and validation patterns.
 
 import logging
 import sys
-from typing import Optional
+from typing import List, Optional
 
 from mcp import ReadResourceResult
 from mcp.server.elicitation import (
@@ -31,9 +31,43 @@ logger = logging.getLogger("elicitation_forms_server")
 mcp = FastMCP("Elicitation Forms Demo Server", log_level="INFO")
 
 
+async def _elicit_skip_validation(ctx, message: str, schema: type[BaseModel]):
+    """Helper to use session.elicit directly to bypass type validation.
+
+    Note: This is just a temporary workound until we update the SDK."""
+    json_schema = schema.model_json_schema()
+
+    elicit_result = await ctx.request_context.session.elicit(
+        message=message, requestedSchema=json_schema, related_request_id=ctx.request_id
+    )
+
+    # Convert the result to match the expected format
+    if elicit_result.action == "accept" and elicit_result.content:
+        logger.info(f"Elicit result content: {elicit_result.content}")
+        logger.info(f"Content type: {type(elicit_result.content)}")
+        validated_data = schema.model_validate(elicit_result.content)
+        return AcceptedElicitation(data=validated_data)
+    elif elicit_result.action == "decline":
+        return DeclinedElicitation()
+    else:
+        return CancelledElicitation()
+
+
+def _serialize_enum(data: dict[str, str]) -> list[dict[str, str]]:
+    return [{"const": k, "title": v} for k, v in data.items()]
+
+
 @mcp.resource(uri="elicitation://event-registration")
 async def event_registration() -> ReadResourceResult:
     """Register for a tech conference event."""
+    workshop_names = {
+        "ai_basics": "AI Fundamentals",
+        "llm_apps": "Building LLM Applications",
+        "prompt_eng": "Prompt Engineering",
+        "rag_systems": "RAG Systems",
+        "fine_tuning": "Model Fine-tuning",
+        "deployment": "Production Deployment",
+    }
 
     class EventRegistration(BaseModel):
         name: str = Field(description="Your full name", min_length=2, max_length=100)
@@ -44,12 +78,19 @@ async def event_registration() -> ReadResourceResult:
         event_date: str = Field(
             description="Which event date works for you?", json_schema_extra={"format": "date"}
         )
+        workshops: List[str] = Field(
+            description="Select workshops to attend (2-4 required)",
+            min_length=2,
+            max_length=4,
+            json_schema_extra={"items": {"anyOf": _serialize_enum(workshop_names)}},
+        )
         dietary_requirements: Optional[str] = Field(
             None, description="Any dietary requirements? (optional)", max_length=200
         )
 
-    result = await mcp.get_context().elicit(
-        "Register for the fast-agent conference - fill out your details",
+    result = await _elicit_skip_validation(
+        ctx=mcp.get_context(),
+        message="Register for the fast-agent conference - fill out your details",
         schema=EventRegistration,
     )
 
@@ -61,7 +102,10 @@ async def event_registration() -> ReadResourceResult:
                 f"🏢 Company: {data.company_website or 'Not provided'}",
                 f"📅 Event Date: {data.event_date}",
                 f"🍽️ Dietary Requirements: {data.dietary_requirements or 'None'}",
+                f"🎓 Workshops ({len(data.workshops)} selected):",
             ]
+            for workshop in data.workshops:
+                lines.append(f"   • {workshop_names.get(workshop, workshop)}")
             response = "\n".join(lines)
         case DeclinedElicitation():
             response = "Registration declined - no ticket reserved"
@@ -80,6 +124,13 @@ async def event_registration() -> ReadResourceResult:
 @mcp.resource(uri="elicitation://product-review")
 async def product_review() -> ReadResourceResult:
     """Submit a product review with rating and comments."""
+    categories = {
+        "electronics": "Electronics",
+        "books": "Books & Media",
+        "clothing": "Clothing",
+        "home": "Home & Garden",
+        "sports": "Sports & Outdoors",
+    }
 
     class ProductReview(BaseModel):
         rating: int = Field(description="Rate this product (1-5 stars)", ge=1, le=5)
@@ -88,23 +139,16 @@ async def product_review() -> ReadResourceResult:
         )
         category: str = Field(
             description="What type of product is this?",
-            json_schema_extra={
-                "enum": ["electronics", "books", "clothing", "home", "sports"],
-                "enumNames": [
-                    "Electronics",
-                    "Books & Media",
-                    "Clothing",
-                    "Home & Garden",
-                    "Sports & Outdoors",
-                ],
-            },
+            json_schema_extra={"oneOf": _serialize_enum(categories)},
         )
         review_text: str = Field(
             description="Tell us about your experience", min_length=10, max_length=1000
         )
 
-    result = await mcp.get_context().elicit(
-        "Share your product review - Help others make informed decisions!", schema=ProductReview
+    result = await _elicit_skip_validation(
+        mcp.get_context(),
+        "Share your product review - Help others make informed decisions!",
+        schema=ProductReview,
     )
 
     match result:
@@ -114,7 +158,7 @@ async def product_review() -> ReadResourceResult:
                 "🎯 Product Review Submitted!",
                 f"⭐ Rating: {stars} ({data.rating}/5)",
                 f"📊 Satisfaction: {data.satisfaction}/10.0",
-                f"📦 Category: {data.category.replace('_', ' ').title()}",
+                f"📦 Category: {categories.get(data.category, data.category)}",
                 f"💬 Review: {data.review_text}",
             ]
             response = "\n".join(lines)
@@ -136,20 +180,21 @@ async def product_review() -> ReadResourceResult:
 async def account_settings() -> ReadResourceResult:
     """Configure your account settings and preferences."""
 
+    themes = {"light": "Light Theme", "dark": "Dark Theme", "auto": "Auto (System)"}
+
     class AccountSettings(BaseModel):
         email_notifications: bool = Field(True, description="Receive email notifications?")
         marketing_emails: bool = Field(False, description="Subscribe to marketing emails?")
         theme: str = Field(
             description="Choose your preferred theme",
-            json_schema_extra={
-                "enum": ["light", "dark", "auto"],
-                "enumNames": ["Light Theme", "Dark Theme", "Auto (System)"],
-            },
+            json_schema_extra={"oneOf": [_serialize_enum(themes)]},
         )
         privacy_public: bool = Field(False, description="Make your profile public?")
         items_per_page: int = Field(description="Items to show per page (10-100)", ge=10, le=100)
 
-    result = await mcp.get_context().elicit("Update your account settings", schema=AccountSettings)
+    result = await _elicit_skip_validation(
+        mcp.get_context(), "Update your account settings", schema=AccountSettings
+    )
 
     match result:
         case AcceptedElicitation(data=data):
@@ -157,7 +202,7 @@ async def account_settings() -> ReadResourceResult:
                 "⚙️ Account Settings Updated!",
                 f"📧 Email notifications: {'On' if data.email_notifications else 'Off'}",
                 f"📬 Marketing emails: {'On' if data.marketing_emails else 'Off'}",
-                f"🎨 Theme: {data.theme.title()}",
+                f"🎨 Theme: {themes.get(data.theme, data.theme)}",
                 f"👥 Public profile: {'Yes' if data.privacy_public else 'No'}",
                 f"📄 Items per page: {data.items_per_page}",
             ]
