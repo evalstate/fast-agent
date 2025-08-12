@@ -46,7 +46,7 @@ class GroqAugmentedLLM(OpenAIAugmentedLLM):
         assert self.default_request_params
         llm_model = self.default_request_params.model or DEFAULT_GROQ_MODEL
         json_mode: str | None = ModelDatabase.get_json_mode(llm_model)
-        if "json_object" == json_mode:
+        if "object" == json_mode:
             request_params.response_format = {"type": "json_object"}
 
         # Get the full schema and extract just the properties
