@@ -19,7 +19,7 @@ class AliyunAugmentedLLM(GroqAugmentedLLM):
         # Override with Aliyun-specific settings
         chosen_model = kwargs.get("model", DEFAULT_QWEN_MODEL)
         base_params.model = chosen_model
-        base_params.parallel_tool_calls = False
+        base_params.parallel_tool_calls = True
 
         return base_params
 
