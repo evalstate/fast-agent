@@ -49,35 +49,22 @@ class GroqAugmentedLLM(OpenAIAugmentedLLM):
         if "object" == json_mode:
             request_params.response_format = {"type": "json_object"}
 
-        # Get the full schema and extract just the properties
-        full_schema = model.model_json_schema()
-        properties = full_schema.get("properties", {})
-        required_fields = full_schema.get("required", [])
+            # Create a cleaner format description from full schema
+            full_schema = model.model_json_schema()
+            format_description = self._schema_to_json_object(
+                full_schema, full_schema.get("$defs")
+            )
 
-        # Create a cleaner format description
-        format_description = "{\n"
-        for field_name, field_info in properties.items():
-            field_type = field_info.get("type", "string")
-            description = field_info.get("description", "")
-            format_description += f'  "{field_name}": "{field_type}"'
-            if description:
-                format_description += f"  // {description}"
-            if field_name in required_fields:
-                format_description += "  // REQUIRED"
-            format_description += "\n"
-        format_description += "}"
+            multipart_messages[-1].add_text(
+                f"""YOU MUST RESPOND WITH A JSON OBJECT IN EXACTLY THIS FORMAT:
+{format_description}
 
-        multipart_messages[-1].add_text(
-            f"""YOU MUST RESPOND WITH A JSON OBJECT IN EXACTLY THIS FORMAT:
-            {format_description}
-
-            IMPORTANT RULES:
-            - Respond ONLY with the JSON object, no other text
-            - Do NOT include "properties" or "schema" wrappers
-            - Do NOT use code fences or markdown
-            - The response must be valid JSON that matches the format above
-            - All required fields must be included"""
-        )
+IMPORTANT RULES:
+- Respond ONLY with the JSON object, no other text
+- Do NOT include "properties" or "schema" wrappers
+- Do NOT use code fences or markdown
+- The response must be valid JSON that matches the format above
+- All required fields must be included""")
 
         result: PromptMessageMultipart = await self._apply_prompt_provider_specific(
             multipart_messages, request_params
@@ -101,3 +88,45 @@ class GroqAugmentedLLM(OpenAIAugmentedLLM):
             base_url = self.context.config.groq.base_url
 
         return base_url if base_url else GROQ_BASE_URL
+
+    def _schema_to_json_object(
+        self, schema: dict, defs: dict | None = None, visited: set | None = None
+    ) -> str:
+        visited = visited or set()
+
+        if id(schema) in visited:
+            return '"<recursive>"'
+        visited.add(id(schema))
+
+        if "$ref" in schema:
+            ref = schema.get("$ref", "")
+            if ref.startswith("#/$defs/"):
+                target = ref.split("/")[-1]
+                if defs and target in defs:
+                    return self._schema_to_json_object(defs[target], defs, visited)
+            return f'"<ref:{ref}>"'
+
+        schema_type = schema.get("type")
+        description = schema.get("description", "")
+        required = schema.get("required", [])
+
+        if schema_type == "object":
+            props = schema.get("properties", {})
+            result = "{\n"
+            for prop_name, prop_schema in props.items():
+                is_required = prop_name in required
+                prop_str = self._schema_to_json_object(prop_schema, defs, visited)
+                if is_required:
+                    prop_str += " // REQUIRED"
+                result += f'  "{prop_name}": {prop_str},\n'
+            result += "}"
+            return result
+        elif schema_type == "array":
+            items = schema.get("items", {})
+            items_str = self._schema_to_json_object(items, defs, visited)
+            return f"[{items_str}]"
+        elif schema_type:
+            comment = f" // {description}" if description else ""
+            return f'"{schema_type}"' + comment
+
+        return '"<unknown>"'
