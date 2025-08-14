@@ -698,3 +698,66 @@ class ConsoleDisplay:
         summary_text = " • ".join(summary_parts)
         console.console.print(f"[dim]{summary_text}[/dim]")
         console.console.print()
+
+    def show_dynamic_agent_results(self, agent_responses: dict, original_message: str = None) -> None:
+        """Display dynamic agent results in a clean, organized format like parallel agents.
+
+        Args:
+            agent_responses: Dictionary mapping agent_id to response content
+            original_message: Optional original message that was sent to agents
+        """
+        from rich.markdown import Markdown
+        from rich.text import Text
+
+        if self.config and not self.config.logger.show_chat:
+            return
+
+        if not agent_responses:
+            return
+
+        # Display header
+        console.console.print()
+        console.console.print("[dim]Dynamic agent execution complete[/dim]")
+        console.console.print()
+
+        # Display results for each agent
+        agent_ids = list(agent_responses.keys())
+        for i, agent_id in enumerate(agent_ids):
+            if i > 0:
+                # Simple full-width separator
+                console.console.print()
+                console.console.print("─" * console.console.size.width, style="dim")
+                console.console.print()
+
+            content = agent_responses[agent_id]
+            
+            # Extract agent name from agent_id (format: name_hexid)
+            agent_name = agent_id.rsplit('_', 1)[0] if '_' in agent_id else agent_id
+
+            # Two column header: agent name (yellow for dynamic) + agent ID (dim)
+            left = f"[yellow]▎[/yellow] [bold yellow]{agent_name}[/bold yellow]"
+            right = f"[dim]{agent_id}[/dim]"
+
+            # Calculate padding to right-align agent ID
+            width = console.console.size.width
+            left_text = Text.from_markup(left)
+            right_text = Text.from_markup(right)
+            padding = max(1, width - left_text.cell_len - right_text.cell_len)
+
+            console.console.print(left + " " * padding + right, markup=self._markup)
+            console.console.print()
+
+            # Display content as markdown if it looks like markdown, otherwise as text
+            if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                md = Markdown(content, code_theme=CODE_STYLE)
+                console.console.print(md, markup=self._markup)
+            else:
+                console.console.print(content, markup=self._markup)
+
+        # Summary
+        console.console.print()
+        console.console.print("─" * console.console.size.width, style="dim")
+
+        summary_text = f"{len(agent_responses)} dynamic agents"
+        console.console.print(f"[dim]{summary_text}[/dim]")
+        console.console.print()
