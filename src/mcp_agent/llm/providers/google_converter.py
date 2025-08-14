@@ -31,7 +31,8 @@ class GoogleConverter:
     Converts between fast-agent and google.genai data structures.
     """
 
-    def _clean_schema_for_google(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+    @staticmethod
+    def _clean_schema_for_google(schema: Dict[str, Any]) -> Dict[str, Any]:
         """
         Recursively removes unsupported JSON schema keywords for google.genai.types.Schema.
         Specifically removes 'additionalProperties', '$schema', 'exclusiveMaximum', and 'exclusiveMinimum'.
@@ -57,19 +58,18 @@ class GoogleConverter:
                 continue  # Remove unsupported string formats
 
             if isinstance(value, dict):
-                cleaned_schema[key] = self._clean_schema_for_google(value)
+                cleaned_schema[key] = GoogleConverter._clean_schema_for_google(value)
             elif isinstance(value, list):
                 cleaned_schema[key] = [
-                    self._clean_schema_for_google(item) if isinstance(item, dict) else item
+                    GoogleConverter._clean_schema_for_google(item) if isinstance(item, dict) else item
                     for item in value
                 ]
             else:
                 cleaned_schema[key] = value
         return cleaned_schema
 
-    def convert_to_google_content(
-        self, messages: List[PromptMessageMultipart]
-    ) -> List[types.Content]:
+    @staticmethod
+    def convert_to_google_content(messages: List[PromptMessageMultipart]) -> List[types.Content]:
         """
         Converts a list of fast-agent PromptMessageMultipart to google.genai types.Content.
         Handles different roles and content types (text, images, etc.).
@@ -142,13 +142,14 @@ class GoogleConverter:
                 google_contents.append(types.Content(role=google_role, parts=parts))
         return google_contents
 
-    def convert_to_google_tools(self, tools: List[ToolDefinition]) -> List[types.Tool]:
+    @staticmethod
+    def convert_to_google_tools(tools: List[ToolDefinition]) -> List[types.Tool]:
         """
         Converts a list of fast-agent ToolDefinition to google.genai types.Tool.
         """
         google_tools: List[types.Tool] = []
         for tool in tools:
-            cleaned_input_schema = self._clean_schema_for_google(tool.inputSchema)
+            cleaned_input_schema = GoogleConverter._clean_schema_for_google(tool.inputSchema)
             function_declaration = types.FunctionDeclaration(
                 name=tool.name,
                 description=tool.description if tool.description else "",
@@ -157,9 +158,8 @@ class GoogleConverter:
             google_tools.append(types.Tool(function_declarations=[function_declaration]))
         return google_tools
 
-    def convert_from_google_content(
-        self, content: types.Content
-    ) -> List[ContentBlock | CallToolRequestParams]:
+    @staticmethod
+    def convert_from_google_content(content: types.Content) -> List[ContentBlock | CallToolRequestParams]:
         """
         Converts google.genai types.Content from a model response to a list of
         fast-agent content types or tool call requests.
@@ -181,9 +181,8 @@ class GoogleConverter:
                 )
         return fast_agent_parts
 
-    def convert_from_google_function_call(
-        self, function_call: types.FunctionCall
-    ) -> CallToolRequest:
+    @staticmethod
+    def convert_from_google_function_call(function_call: types.FunctionCall) -> CallToolRequest:
         """
         Converts a single google.genai types.FunctionCall to a fast-agent CallToolRequest.
         """
@@ -195,9 +194,8 @@ class GoogleConverter:
             ),
         )
 
-    def convert_function_results_to_google(
-        self, tool_results: List[Tuple[str, CallToolResult]]
-    ) -> List[types.Content]:
+    @staticmethod
+    def convert_function_results_to_google(tool_results: List[Tuple[str, CallToolResult]]) -> List[types.Content]:
         """
         Converts a list of fast-agent tool results to google.genai types.Content
         with role 'tool'. Handles multimodal content in tool results.
@@ -293,9 +291,8 @@ class GoogleConverter:
             )
         return google_tool_response_contents
 
-    def convert_request_params_to_google_config(
-        self, request_params: RequestParams
-    ) -> types.GenerateContentConfig:
+    @staticmethod
+    def convert_request_params_to_google_config(request_params: RequestParams) -> types.GenerateContentConfig:
         """
         Converts fast-agent RequestParams to google.genai types.GenerateContentConfig.
         """
@@ -324,15 +321,15 @@ class GoogleConverter:
             config_args["system_instruction"] = request_params.systemPrompt
         return types.GenerateContentConfig(**config_args)
 
-    def convert_from_google_content_list(
-        self, contents: List[types.Content]
-    ) -> List[PromptMessageMultipart]:
+    @staticmethod
+    def convert_from_google_content_list(contents: List[types.Content]) -> List[PromptMessageMultipart]:
         """
         Converts a list of google.genai types.Content to a list of fast-agent PromptMessageMultipart.
         """
-        return [self._convert_from_google_content(content) for content in contents]
+        return [GoogleConverter._convert_from_google_content(content) for content in contents]
 
-    def _convert_from_google_content(self, content: types.Content) -> PromptMessageMultipart:
+    @staticmethod
+    def _convert_from_google_content(content: types.Content) -> PromptMessageMultipart:
         """
         Converts a single google.genai types.Content to a fast-agent PromptMessageMultipart.
         """

@@ -1,5 +1,9 @@
+# region Internal Imports
+import json
 from typing import List, Sequence, Union
 
+# endregion
+# region External imports
 from anthropic.types import (
     Base64ImageSourceParam,
     Base64PDFSourceParam,
@@ -41,6 +45,8 @@ from mcp_agent.mcp.mime_utils import (
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.resource_utils import extract_title_from_uri
 
+# endregion
+
 _logger = get_logger("multipart_converter_anthropic")
 
 # List of image MIME types supported by Anthropic API
@@ -79,26 +85,134 @@ class AnthropicConverter:
         if not multipart_msg.content:
             return MessageParam(role=role, content=[])
 
-        # Convert content blocks
+        # 1. Convert MCP content blocks to Anthropic content blocks
         anthropic_blocks = AnthropicConverter._convert_content_items(
-            multipart_msg.content, document_mode=True
+            multipart_msg.content, 
+            document_mode=True,
         )
 
-        # Filter blocks based on role (assistant can only have text blocks)
+        # 2. If the role is assistant, filter out any non-text/tool_use blocks
         if role == "assistant":
-            text_blocks = []
+            filtered_blocks = []
             for block in anthropic_blocks:
-                if block.get("type") == "text":
-                    text_blocks.append(block)
+                # In Anthropic, assistant messages can contain text or tool_use blocks.
+                if block.get("type") in ("text", "tool_use"):
+                    filtered_blocks.append(block)
                 else:
                     _logger.warning(
-                        f"Removing non-text block from assistant message: {block.get('type')}"
+                        f"Removing non-text/tool_use block from assistant message: {block.get('type')}"
                     )
-            anthropic_blocks = text_blocks
+            final_blocks = filtered_blocks
+        else:
+            # For user/tool roles, all converted blocks are fine.
+            final_blocks = anthropic_blocks
 
-        # Create the Anthropic message
-        return MessageParam(role=role, content=anthropic_blocks)
+        return MessageParam(role=role, content=final_blocks)
 
+    @staticmethod
+    def convert_from_multipart_to_anthropic_list(messages: List[PromptMessageMultipart]) -> List[MessageParam]:
+        anthropic_messages: List[MessageParam] = []
+        for message in messages:
+            anthropic_messages.append(
+                AnthropicConverter.convert_to_anthropic(multipart_msg=message)
+            )
+        
+        return anthropic_messages
+
+    @staticmethod
+    def convert_from_anthropic_list_to_multipart(messages: List[MessageParam]) -> List[PromptMessageMultipart]:
+        multipart_messages: List[PromptMessageMultipart] = []
+        for message in messages:
+            multipart_messages.append(
+                AnthropicConverter.convert_from_anthropic_to_multipart(message=message) 
+            )
+        
+        return multipart_messages
+
+    @staticmethod
+    def convert_from_anthropic_to_multipart(message: MessageParam) -> PromptMessageMultipart:
+        """
+        Converts a single Anthropic MessageParam to an MCP PromptMessageMultipart.
+        Handles text, image, and document content blocks.
+        """
+        role = message["role"]
+        anthropic_content = message["content"]
+        mcp_content: List[ContentBlock] = []
+
+        # Handle simple string content for convenience
+        if isinstance(anthropic_content, str):
+            mcp_content.append(TextContent(type="text", text=anthropic_content))
+            return PromptMessageMultipart(role=role, content=mcp_content)
+
+        # Handle a list of content blocks
+        for block in anthropic_content:
+            block_type = block.get("type")
+
+            if block_type == "text":
+                mcp_content.append(TextContent(type="text", text=block["text"]))
+
+            elif block_type == "image":
+                source = block.get("source", {})
+                if source.get("type") == "base64":
+                    mcp_content.append(
+                        ImageContent(
+                            type="image",
+                            mimeType=source.get("media_type", "application/octet-stream"),
+                            data=source.get("data", ""),
+                        )
+                    )
+                else:
+                    _logger.warning(f"Skipping unsupported Anthropic image source type: {source.get('type')}")
+
+            elif block_type == "document":
+                source = block.get("source", {})
+                resource_name = block.get('name', 'document.bin')
+                
+                if source.get("type") == "text":
+                    resource = TextResourceContents(
+                        uri=f"file:///{resource_name}",
+                        mimeType=source.get("media_type", "text/plain"),
+                        text=source.get("data", "")
+                    )
+                    mcp_content.append(EmbeddedResource(type="resource", resource=resource))
+                elif source.get("type") == "base64":
+                    resource = BlobResourceContents(
+                        uri=f"file:///{resource_name}",
+                        mimeType=source.get("media_type", "application/octet-stream"),
+                        blob=source.get("data", "")
+                    )
+                    mcp_content.append(EmbeddedResource(type="resource", resource=resource))
+                else:
+                     _logger.warning(f"Skipping unsupported Anthropic document source type: {source.get('type')}")
+            
+
+            elif block_type == "tool_use":
+                # For now, convert to text representation since MCP doesn't have native tool_use
+                text_repr = f"[Tool Use: {block.get('name')} with args {json.dumps(block.get('input', {}))}]"
+                mcp_content.append(TextContent(type="text", text=text_repr))
+
+            elif block_type == "tool_result":
+                # Handle tool result blocks
+                tool_id = block.get("tool_use_id")
+                is_error = block.get("is_error", False)
+                result_content = block.get("content", [])
+                
+                # Convert tool result content to text representation
+                result_text = f"[Tool Result for {tool_id}{'(ERROR)' if is_error else ''}]:\n"
+                
+                for result_item in result_content:
+                    if result_item.get("type") == "text":
+                        result_text += result_item.get("text", "")
+                    # Handle other content types as needed
+                
+                mcp_content.append(TextContent(type="text", text=result_text))
+
+
+            else:
+                _logger.warning(f"Skipping unknown Anthropic block type: {block_type}")
+
+        return PromptMessageMultipart(role=role, content=mcp_content)
+        
     @staticmethod
     def convert_prompt_message_to_anthropic(message: PromptMessage) -> MessageParam:
         """
@@ -110,10 +224,13 @@ class AnthropicConverter:
         Returns:
             An Anthropic API MessageParam object
         """
-        # Convert the PromptMessage to a PromptMessageMultipart containing a single content item
-        multipart = PromptMessageMultipart(role=message.role, content=[message.content])
-
-        # Use the existing conversion method
+        # Directly construct the multipart message. This is clearer and safer.
+        # A PromptMessage's content is a single item, so it must be wrapped in a list
+        # for the PromptMessageMultipart.
+        multipart = PromptMessageMultipart(
+            role=message.role, 
+            content=[message.content]
+        )
         return AnthropicConverter.convert_to_anthropic(multipart)
 
     @staticmethod
@@ -122,14 +239,14 @@ class AnthropicConverter:
         document_mode: bool = True,
     ) -> List[ContentBlockParam]:
         """
-        Convert a list of content items to Anthropic content blocks.
+        Convert a list of content items to content blocks.
 
         Args:
             content_items: Sequence of MCP content items
             document_mode: Whether to convert text resources to document blocks (True) or text blocks (False)
 
         Returns:
-            List of Anthropic content blocks
+            List of content blocks
         """
         anthropic_blocks: List[ContentBlockParam] = []
 
@@ -168,6 +285,9 @@ class AnthropicConverter:
                 # Handle embedded resource
                 block = AnthropicConverter._convert_embedded_resource(content_item, document_mode)
                 anthropic_blocks.append(block)
+
+            else:
+                raise ValueError(f"content_item has no known type: {str(content_item)[:1000]}")
 
         return anthropic_blocks
 

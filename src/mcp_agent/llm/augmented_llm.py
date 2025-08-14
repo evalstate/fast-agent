@@ -38,7 +38,11 @@ from mcp_agent.llm.sampling_format_converter import (
     BasicFormatConverter,
     ProviderFormatConverter,
 )
-from mcp_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
+from mcp_agent.llm.usage_tracking import (
+    TurnUsage,
+    UsageAccumulator,
+    create_turn_usage_from_messages,
+)
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.helpers.content_helpers import get_text
 from mcp_agent.mcp.interfaces import (
@@ -90,6 +94,14 @@ def deep_merge(dict1: Dict[Any, Any], dict2: Dict[Any, Any]) -> Dict[Any, Any]:
 
 
 class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT, MessageT]):
+    """
+    The basic building block of agentic systems is an LLM enhanced with augmentations
+    such as retrieval, tools, and memory provided from a collection of MCP servers.
+    Our current models can actively use these capabilities—generating their own search queries,
+    selecting appropriate tools, and determining what information to retain.
+    """
+
+
     # Common parameter names used across providers
     PARAM_MESSAGES = "messages"
     PARAM_MODEL = "model"
@@ -101,16 +113,22 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_USE_HISTORY = "use_history"
     PARAM_MAX_ITERATIONS = "max_iterations"
     PARAM_TEMPLATE_VARS = "template_vars"
+    PARAM_CONTEXT_TRUNCATION_MODE = "context_truncation_mode"
+    PARAM_CONTEXT_TRUNCATION_LENGTH_LIMIT = "context_truncation_length_limit"
+    PARAM_REQUEST_DELAY_SECONDS = "request_delay_seconds"
 
     # Base set of fields that should always be excluded
-    BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
+    BASE_EXCLUDE_FIELDS = {
+        PARAM_METADATA,
+        PARAM_CONTEXT_TRUNCATION_MODE,
+        PARAM_CONTEXT_TRUNCATION_LENGTH_LIMIT,
+        PARAM_REQUEST_DELAY_SECONDS,
+    }
 
-    """
-    The basic building block of agentic systems is an LLM enhanced with augmentations
-    such as retrieval, tools, and memory provided from a collection of MCP servers.
-    Our current models can actively use these capabilities—generating their own search queries,
-    selecting appropriate tools, and determining what information to retain.
-    """
+    class _Actions:
+        STOP = "Stop"  # Making the actions available like so: self.ACTIONS.STOP
+        CONTINUE_WITH_TOOLS = "CONTINUE_WITH_TOOLS"
+    ACTIONS = _Actions()
 
     provider: Provider | None = None
 
@@ -204,6 +222,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             parallel_tool_calls=True,
             max_iterations=20,
             use_history=True,
+            context_truncation_mode=None,
+            context_truncation_length_limit=None,
+            request_delay_seconds=0.0,
         )
 
     async def generate(
@@ -270,6 +291,143 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             String representation of the assistant's response if generated,
             or the last assistant message in the prompt
         """
+
+    def get_token_count(
+        self, 
+        messages: List["PromptMessageMultipart"], 
+        system_prompt: Optional[str] = None
+    ) -> int:
+        """
+        Get token count for messages using existing usage tracking functionality.
+        
+        This method leverages the existing create_turn_usage_from_messages() function
+        to convert message content to tokens, eliminating duplicate token counting code.
+        
+        Args:
+            messages: List of PromptMessageMultipart objects to count tokens for
+            system_prompt: Optional system prompt to include in count
+            
+        Returns:
+            Total token count for the messages
+        """
+        # 🔍 DEBUG: Start detailed logging
+        logger = get_logger(__name__)
+        logger.warning(f"🧮 TOKEN COUNT DEBUG: Starting get_token_count() with {len(messages)} messages")
+        
+        # Convert messages to combined text content for token counting
+        combined_content = ""
+        
+        # Add system prompt if provided
+        if system_prompt:
+            system_chars = len(system_prompt)
+            combined_content += system_prompt + "\n\n"
+            logger.warning(f"📝 System prompt: {system_chars} chars")
+        else:
+            logger.warning("📝 No system prompt")
+        
+        # Convert each message to text
+        for msg_idx, message in enumerate(messages):
+            msg_start_len = len(combined_content)
+            # Add role prefix
+            combined_content += f"{message.role}: "
+            
+            logger.warning(f"📨 Processing message {msg_idx}: role={message.role}, blocks={len(message.content) if message.content else 0}")
+            
+            # Extract text from each content block
+            if message.content:
+                for block_idx, block in enumerate(message.content):
+
+                    block_type = getattr(block, 'type', '').lower()
+                    
+                    if block_type == "text":
+                        text = getattr(block, 'text', '')
+                        if text:
+                            combined_content += text
+                            text_chars = len(text)
+                            logger.warning(f"   📄 Block {block_idx}: TEXT, {text_chars} chars")
+                            if text_chars > 10000:  # Log preview for very large text blocks
+                                logger.warning(f"      Preview: {text[:200]}...")
+                        else:
+                            logger.warning(f"   📄 Block {block_idx}: TEXT (empty)")
+                    
+                    
+                    elif block_type == "tool_use":
+                        tool_name = getattr(block, 'name', '')
+                        tool_args = getattr(block, 'input', {})
+                        tool_id = getattr(block, 'id', '')
+                        
+                        combined_content += f"[tool_use: {tool_name}"
+                        if tool_args:
+                            import json
+                            combined_content += f" with args: {json.dumps(tool_args)}"
+                        if tool_id:
+                            combined_content += f" id: {tool_id}"
+                        combined_content += "]"
+                    
+                    elif block_type == "tool_result":
+                        tool_use_id = getattr(block, 'tool_use_id', '')
+                        tool_content = getattr(block, 'content', [])
+                        
+                        combined_content += "[tool_result"
+                        if tool_use_id:
+                            combined_content += f" for {tool_use_id}"
+                        combined_content += ": "
+                        
+                        if isinstance(tool_content, str):
+                            combined_content += tool_content
+                            tool_chars = len(tool_content)
+                            logger.warning(f"   🔧 Block {block_idx}: TOOL_RESULT (string), {tool_chars} chars")
+                            if tool_chars > 10000:
+                                logger.warning(f"      Preview: {tool_content[:200]}...")
+                        elif isinstance(tool_content, list):
+                            nested_chars = 0
+                            for nested_block in tool_content:
+                                nested_type = getattr(nested_block, 'type', '').lower()
+                                if nested_type == "text":
+                                    nested_text = getattr(nested_block, 'text', '')
+                                    if nested_text:
+                                        combined_content += nested_text
+                                        nested_chars += len(nested_text)
+                            logger.warning(f"   🔧 Block {block_idx}: TOOL_RESULT (list), {nested_chars} chars from nested blocks")
+                            if nested_chars > 10000:
+                                logger.warning("      Large tool result detected!")
+                        else:
+                            logger.warning(f"   🔧 Block {block_idx}: TOOL_RESULT (other type: {type(tool_content)})")
+                        combined_content += "]"
+                    
+                    elif block_type == "image":
+                        # Images add fixed token overhead
+                        combined_content += "[image]"
+                    
+                    else:
+                        # Unknown block types
+                        logger.warning(f"   ❓ Block {block_idx}: UNKNOWN TYPE ({block_type})")
+                        combined_content += f"[{block_type}]"
+            
+            msg_chars = len(combined_content) - msg_start_len
+            logger.warning(f"   📏 Message {msg_idx} total: {msg_chars} chars")
+            combined_content += "\n"
+        
+        total_combined_chars = len(combined_content)
+        logger.warning(f"📊 COMBINED CONTENT: {total_combined_chars} total characters")
+        logger.warning(f"🔍 Combined content preview: {combined_content[:500]}...")
+        
+        # Use existing usage tracking to get token count
+        # Create a fake turn usage to extract token count
+        logger.warning(f"🧮 Calling create_turn_usage_from_messages() with {total_combined_chars} chars...")
+        turn_usage = create_turn_usage_from_messages(
+            input_content=combined_content,
+            output_content="",  # Empty output for counting input only
+            model=self.default_request_params.model,
+            model_type="token_counting"
+        )
+        
+        result_tokens = turn_usage.input_tokens
+        ratio = result_tokens / total_combined_chars if total_combined_chars > 0 else 0
+        logger.warning(f"🎯 TOKEN COUNT RESULT: {result_tokens} tokens")
+        logger.warning(f"📈 Ratio: {ratio:.4f} tokens/char (expected ~0.25-0.33)")
+        
+        return result_tokens
 
     async def structured(
         self,
@@ -622,6 +780,21 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         self.logger.info("Streaming progress", data=data)
 
         return new_total
+
+    def _log_final_streaming_progress(
+            self,
+            actual_tokens: int,
+            model: str,
+    ) -> None:
+        token_str = str(actual_tokens).rjust(5)
+        data = {
+            "progress_action": ProgressAction.STREAMING,
+            "model": model,
+            "agent_name": self.name,
+            "chat_turn": self.chat_turn(),
+            "details": token_str.strip(),
+        }
+        self.logger.info("Streaming progress", data=data)
 
     def _log_chat_finished(self, model: Optional[str] = None) -> None:
         """Log a chat finished event"""

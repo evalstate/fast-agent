@@ -7,6 +7,12 @@ import pytest
 from mcp_agent.core.fastagent import FastAgent
 
 
+# Override the anyio_backend fixture to only use asyncio
+@pytest.fixture(scope="module", params=["asyncio"])
+def anyio_backend(request):
+    return request.param
+
+
 # Keep the auto-cleanup fixture
 @pytest.fixture(scope="function", autouse=True)
 def cleanup_event_bus():
