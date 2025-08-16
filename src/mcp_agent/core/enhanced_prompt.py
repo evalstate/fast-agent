@@ -428,9 +428,14 @@ def create_keybindings(on_toggle_multiline=None, app=None, agent_provider=None, 
         """Enter: accept input when not in multiline mode."""
         event.current_buffer.validate_and_handle()
 
+    @kb.add("c-j", filter=Condition(lambda: not in_multiline_mode))
+    def _(event) -> None:
+        """Ctrl+J: Insert newline when in normal mode."""
+        event.current_buffer.insert_text("\n")
+
     @kb.add("c-m", filter=Condition(lambda: in_multiline_mode))
     def _(event) -> None:
-        """Enter: insert newline when in multiline mode."""
+        """Enter: Insert newline when in multiline mode."""
         event.current_buffer.insert_text("\n")
 
     # Use c-j (Ctrl+J) as an alternative to represent Ctrl+Enter in multiline mode
@@ -581,6 +586,7 @@ async def get_enhanced_input(
 
         shortcuts = [
             ("Ctrl+T", toggle_text),
+            ("Ctrl+J", "Newline" if not in_multiline_mode else None),
             ("Ctrl+E", "External"),
             ("Ctrl+Y", "Copy"),
             ("Ctrl+L", "Clear"),
@@ -588,7 +594,7 @@ async def get_enhanced_input(
             ("EXIT", "Exit")
         ]
 
-        newline = "Ctrl+&lt;Enter&gt;:Submit" if in_multiline_mode else "&lt;Enter&gt;:Submit"
+        newline = "Ctrl+J:Submit" if in_multiline_mode else "&lt;Enter&gt;:Submit"
 
         # Only show relevant shortcuts based on mode
         shortcuts = [(k, v) for k, v in shortcuts if v]
@@ -670,6 +676,8 @@ async def get_enhanced_input(
     def pre_process_input(text):
         # Command processing
         if text and text.startswith("/"):
+            if text == "/": 
+                return ""
             cmd_parts = text[1:].strip().split(maxsplit=1)
             cmd = cmd_parts[0].lower()
 
