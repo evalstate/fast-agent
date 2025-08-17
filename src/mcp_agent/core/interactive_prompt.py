@@ -193,6 +193,10 @@ class InteractivePrompt:
                         # Handle markdown display
                         await self._show_markdown(prompt_provider, agent)
                         continue
+                    elif "compact_history" in command_result:
+                        # Handle history compaction
+                        await self._compact_history(prompt_provider, agent)
+                        continue
 
                 # Skip further processing if:
                 # 1. The command was handled (command_result is truthy)
@@ -772,3 +776,103 @@ class InteractivePrompt:
 
         except Exception as e:
             rich_print(f"[red]Error showing markdown: {e}[/red]")
+
+    async def _compact_history(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+        """
+        Compact the conversation history using summarization.
+
+        Args:
+            prompt_provider: Provider that has access to agents
+            agent_name: Name of the current agent
+        """
+        try:
+            # Get agent to compact history for
+            if hasattr(prompt_provider, "_agent"):
+                # This is an AgentApp - get the specific agent
+                agent = prompt_provider._agent(agent_name)
+            else:
+                # This is a single agent
+                agent = prompt_provider
+
+            # Check if agent has message history
+            if not hasattr(agent, "_llm") or not agent._llm:
+                rich_print("[yellow]No message history available to compact[/yellow]")
+                return
+
+            message_history = agent._llm.message_history
+            if not message_history or len(message_history) <= 2:
+                rich_print("[yellow]Insufficient message history to compact (need more than 2 messages)[/yellow]")
+                return
+
+            rich_print(f"[bold]Compacting conversation history for agent [cyan]{agent_name}[/cyan]...[/bold]")
+            rich_print(f"Current history: {len(message_history)} messages")
+
+            # Import the ContextTruncation class
+            from mcp_agent.core.agent_types import ContextTruncationMode
+            from mcp_agent.llm.context_truncation_and_summarization import ContextTruncation
+
+            # Message history is already in PromptMessageMultipart format
+            multipart_messages = message_history
+
+            # Apply summarization-based compaction
+            # Use a reasonable token limit - this could be made configurable
+            token_limit = 4000  # Conservative limit to trigger compaction
+            model_name = agent._llm.default_request_params.model or 'gpt-4'
+            system_prompt = ""  # System prompt is part of message history, not separate
+
+            compacted_messages = await ContextTruncation.truncate_if_required(
+                messages=multipart_messages,
+                truncation_mode=ContextTruncationMode.SUMMARIZE,
+                limit=token_limit,
+                model_name=model_name,
+                system_prompt=system_prompt,
+                provider=agent._llm
+            )
+
+            # Update both histories to keep them in sync
+            
+            # 1. Update universal history (PromptMessageMultipart format)
+            agent._llm._message_history = compacted_messages
+            
+            # 2. Update provider-specific history
+            # Need to convert PromptMessageMultipart to provider format and update provider history
+            # This ensures next API calls work correctly
+            try:
+                # Check if this is Anthropic provider
+                if hasattr(agent._llm, 'history') and 'anthropic' in str(type(agent._llm)).lower():
+                    from mcp_agent.llm.providers.multipart_converter_anthropic import (
+                        AnthropicConverter,
+                    )
+                    provider_messages = AnthropicConverter.convert_from_multipart_to_anthropic_list(compacted_messages)
+                    agent._llm.history.set(provider_messages)
+                
+                # Check if this is OpenAI provider  
+                elif hasattr(agent._llm, 'history') and 'openai' in str(type(agent._llm)).lower():
+                    from mcp_agent.llm.providers.multipart_converter_openai import OpenAIConverter
+                    # Convert each message individually since there's no bulk converter
+                    provider_messages = []
+                    for msg in compacted_messages:
+                        openai_msg = OpenAIConverter.convert_to_openai(msg)
+                        provider_messages.append(openai_msg)
+                    agent._llm.history.set(provider_messages)
+                
+                # Check if this is Google provider
+                elif hasattr(agent._llm, 'history') and 'google' in str(type(agent._llm)).lower():
+                    from mcp_agent.llm.providers.google_converter import GoogleConverter
+                    provider_messages = GoogleConverter.convert_to_google_content(compacted_messages)
+                    agent._llm.history.set(provider_messages)
+                
+                # Add other providers as needed
+                else:
+                    rich_print("[yellow]Warning: Unknown provider type, only universal history updated[/yellow]")
+                    
+            except Exception as provider_error:
+                rich_print(f"[yellow]Warning: Could not update provider-specific history: {provider_error}[/yellow]")
+                rich_print("[yellow]Universal history was updated, but next API calls might have issues[/yellow]")
+
+            rich_print(f"[green]✓ History compacted from {len(message_history)} to {len(compacted_messages)} messages[/green]")
+
+        except Exception as e:
+            import traceback
+            rich_print(f"[red]Error compacting history: {e}[/red]")
+            rich_print(f"[dim]{traceback.format_exc()}[/dim]")

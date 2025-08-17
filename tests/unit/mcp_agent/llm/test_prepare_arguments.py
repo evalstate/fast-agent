@@ -13,6 +13,7 @@ class StubLLM(AugmentedLLM):
     """Minimal implementation of AugmentedLLM for testing purposes"""
 
     def __init__(self, *args, **kwargs):
+        # The __init__ is now safe to use.
         super().__init__(provider=Provider.FAST_AGENT, *args, **kwargs)
 
     async def _apply_prompt_provider_specific(
@@ -22,6 +23,7 @@ class StubLLM(AugmentedLLM):
         is_template: bool = False,
     ) -> PromptMessageMultipart:
         """Implement the abstract method with minimal functionality"""
+        # Return the last message for simplicity, or None if the list is empty.
         return multipart_messages[-1] if multipart_messages else None
 
 
@@ -108,12 +110,12 @@ class TestRequestParamsInLLM:
         params = RequestParams(
             model="gpt-4.1",
             temperature=0.7,
-            maxTokens=2000,  # This should be excluded and not conflict with max_tokens
-            systemPrompt="You are a helpful assistant",  # This should be excluded
+            maxTokens=2000,
+            systemPrompt="You are a helpful assistant",
             response_format={"type": "json_object"},
-            use_history=True,  # This should be excluded
-            max_iterations=5,  # This should be excluded
-            parallel_tool_calls=True,  # This should be excluded
+            use_history=True,
+            max_iterations=5,
+            parallel_tool_calls=True,
             metadata={"seed": 42},
         )
 
@@ -121,20 +123,25 @@ class TestRequestParamsInLLM:
         result = llm.prepare_provider_arguments(base_args, params, llm.OPENAI_EXCLUDE_FIELDS)
 
         # Verify results
-        assert result["model"] == "gpt-4.1"  # From base_args
-        assert result["max_tokens"] == 1000  # From base_args
-        assert result["temperature"] == 0.7  # From params
-        assert result["response_format"] == {"type": "json_object"}  # From params
-        assert result["seed"] == 42  # From metadata
-        assert "maxTokens" not in result  # Should be excluded
-        assert "systemPrompt" not in result  # Should be excluded
-        assert "use_history" not in result  # Should be excluded
-        assert "max_iterations" not in result  # Should be excluded
-        assert "parallel_tool_calls" not in result  # Should be excluded
+        assert result["model"] == "gpt-4.1"
+        assert result["max_tokens"] == 1000
+        assert result["temperature"] == 0.7
+        assert result["response_format"] == {"type": "json_object"}
+        assert result["seed"] == 42
+        assert "maxTokens" not in result
+        assert "systemPrompt" not in result
+        assert "use_history" not in result
+        assert "max_iterations" not in result
+        assert "parallel_tool_calls" not in result
 
-    def test_anthropic_provider_arguments(self):
+    def test_anthropic_provider_arguments(self, mocker):
         """Test prepare_provider_arguments with Anthropic provider"""
-        # Create an Anthropic LLM instance without initializing provider connections
+        mocker.patch(
+            'mcp_agent.llm.providers.augmented_llm_anthropic.AnthropicAugmentedLLM._initialize_client',
+            return_value=mocker.MagicMock()
+        )
+
+        # Create an Anthropic LLM instance
         llm = AnthropicAugmentedLLM()
 
         # Basic setup
@@ -149,11 +156,11 @@ class TestRequestParamsInLLM:
         params = RequestParams(
             model="claude-3-7-sonnet",
             temperature=0.7,
-            maxTokens=2000,  # This should be excluded
-            systemPrompt="You are a helpful assistant",  # This should be excluded
-            use_history=True,  # This should be excluded
-            max_iterations=5,  # This should be excluded
-            parallel_tool_calls=True,  # This should be excluded
+            maxTokens=2000,
+            systemPrompt="You are a helpful assistant",
+            use_history=True,
+            max_iterations=5,
+            parallel_tool_calls=True,
             metadata={"top_k": 10},
         )
 
@@ -161,16 +168,16 @@ class TestRequestParamsInLLM:
         result = llm.prepare_provider_arguments(base_args, params, llm.ANTHROPIC_EXCLUDE_FIELDS)
 
         # Verify results
-        assert result["model"] == "claude-3-7-sonnet"  # From base_args
-        assert result["max_tokens"] == 1000  # From base_args
-        assert result["system"] == "You are a helpful assistant"  # From base_args
-        assert result["temperature"] == 0.7  # From params
-        assert result["top_k"] == 10  # From metadata
-        assert "maxTokens" not in result  # Should be excluded
-        assert "systemPrompt" not in result  # Should be excluded
-        assert "use_history" not in result  # Should be excluded
-        assert "max_iterations" not in result  # Should be excluded
-        assert "parallel_tool_calls" not in result  # Should be excluded
+        assert result["model"] == "claude-3-7-sonnet"
+        assert result["max_tokens"] == 1000
+        assert result["system"] == "You are a helpful assistant"
+        assert result["temperature"] == 0.7
+        assert result["top_k"] == 10
+        assert "maxTokens" not in result
+        assert "systemPrompt" not in result
+        assert "use_history" not in result
+        assert "max_iterations" not in result
+        assert "parallel_tool_calls" not in result
 
     def test_params_dont_overwrite_base_args(self):
         """Test that params don't overwrite base_args with the same key"""

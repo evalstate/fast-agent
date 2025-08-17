@@ -27,6 +27,7 @@ from mcp_agent.llm.augmented_llm import (
     AugmentedLLM,
     RequestParams,
 )
+from mcp_agent.llm.context_truncation_and_summarization import ContextTruncation
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.providers.multipart_converter_openai import OpenAIConverter, OpenAIMessage
 from mcp_agent.llm.providers.sampling_converter_openai import (
@@ -522,8 +523,39 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         messages_to_add = (
             multipart_messages[:-1] if last_message.role == "user" else multipart_messages
         )
+        
+        # 🔧 APPLY TRUNCATION LOGIC BEFORE CONVERSION
+        messages_to_process = messages_to_add
+        # Use default request params if none provided (like other providers do)
+        effective_params = request_params or self.default_request_params
+        
+        self.logger.warning(f"🔍 OPENAI TRUNCATION CHECK: request_params={request_params}")
+        self.logger.warning(f"🔍 OPENAI TRUNCATION CHECK: effective_params={effective_params}")
+        self.logger.warning(f"🔍 OPENAI TRUNCATION CHECK: hasattr={hasattr(effective_params, 'context_truncation_mode')}")
+        if hasattr(effective_params, 'context_truncation_mode'):
+            self.logger.warning(f"🔍 OPENAI TRUNCATION CHECK: context_truncation_mode={getattr(effective_params, 'context_truncation_mode', 'NOT_FOUND')}")
+        
+        if hasattr(effective_params, "context_truncation_mode") and effective_params.context_truncation_mode:
+            self.logger.warning("🚨 OPENAI TRUNCATION: Truncation parameters detected!")
+            token_limit_for_truncation = effective_params.context_truncation_length_limit or effective_params.maxTokens
+            
+            self.logger.warning(f"🎯 OPENAI TRUNCATION: Applying truncation with limit={token_limit_for_truncation}, mode={effective_params.context_truncation_mode}")
+            
+            truncated_multipart = await ContextTruncation.truncate_if_required(
+                messages=list(messages_to_add),  # Convert to list to ensure it's mutable
+                truncation_mode=effective_params.context_truncation_mode,
+                limit=token_limit_for_truncation,
+                model_name=effective_params.model or self.default_request_params.model,
+                system_prompt=effective_params.systemPrompt or self.instruction,
+                provider=self,
+            )
+            
+            if len(truncated_multipart) < len(messages_to_add):
+                self.logger.warning(f"🎯 OPENAI TRUNCATION: History truncated from {len(messages_to_add)} to {len(truncated_multipart)} messages.")
+                messages_to_process = truncated_multipart
+        
         converted = []
-        for msg in messages_to_add:
+        for msg in messages_to_process:
             converted.append(OpenAIConverter.convert_to_openai(msg))
 
         # TODO -- this looks like a defect from previous apply_prompt implementation.
@@ -590,3 +622,4 @@ class OpenAIAugmentedLLM(AugmentedLLM[ChatCompletionMessageParam, ChatCompletion
         result = inputSchema.copy()
         result["properties"] = {}
         return result
+

@@ -232,6 +232,7 @@ class ModelDatabase:
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
         # DeepSeek Models
         "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
+        "deepseek-reasoner": DEEPSEEK_REASONER,
         # Google Gemini Models (vanilla aliases and versioned)
         "gemini-2.0-flash": GEMINI_FLASH,
         "gemini-2.5-flash-preview": GEMINI_FLASH,

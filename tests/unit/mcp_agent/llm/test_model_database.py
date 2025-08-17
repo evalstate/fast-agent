@@ -37,8 +37,13 @@ def test_model_database_tokenizes():
     assert ModelDatabase.get_tokenizes("unknown-model") is None
 
 
-def test_llm_uses_model_database_for_max_tokens():
+def test_llm_uses_model_database_for_max_tokens(mocker):
     """Test that LLM instances use ModelDatabase for maxTokens defaults"""
+
+    mocker.patch(
+        'mcp_agent.llm.providers.augmented_llm_anthropic.AnthropicAugmentedLLM._initialize_client',
+        return_value=mocker.MagicMock()
+    )
 
     # Test with a model that has 8192 max_output_tokens (should get full amount)
     factory = ModelFactory.create_factory("claude-sonnet-4-0")

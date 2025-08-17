@@ -1,0 +1,30 @@
+default_model: passthrough
+
+# Logging Configuration for testing
+logger:
+  level: "warning"
+  progress_display: false
+  show_chat: false
+  show_tools: false
+  truncate_tools: false
+
+models:
+  # Test models with passthrough for deterministic behavior
+  anthropic_test:
+    provider: anthropic
+    model: passthrough
+    
+  openai_test:
+    provider: openai  
+    model: passthrough
+    
+  google_test:
+    provider: google_native
+    model: passthrough
+
+mcp:
+  servers:
+    # Simple test server that generates predictable large content
+    large_content_server:
+      command: "uv"
+      args: ["run", "large_content_test_server.py"]

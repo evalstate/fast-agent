@@ -173,7 +173,7 @@ def load_events(path: Path) -> List[Event]:
                         events.append(event)
                     except Exception as e:
                         print(f"Error on line {line_num}: {e}")
-                        print(f"Line content: {line.strip()}")
+                        print(f"Line content: {line.strip()[:500]}")
                         raise
     except Exception as e:
         print(f"Error loading file: {e}")

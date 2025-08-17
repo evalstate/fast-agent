@@ -48,7 +48,7 @@ def test_openai_client_with_base_url_only():
     cfg.resource_name = None
     ctx = DummyContext(azure_cfg=cfg)
     llm = AzureOpenAIAugmentedLLM(context=ctx)
-    client = llm._openai_client()
+    client = llm._initialize_client()
     assert hasattr(client, "chat")
     # Should be AzureOpenAI instance
 
@@ -103,6 +103,6 @@ async def test_openai_client_with_default_azure_credential(monkeypatch):
     dacfg = DACfg()
     ctx = DummyContext(azure_cfg=dacfg)
     llm = AzureOpenAIAugmentedLLM(context=ctx)
-    client = llm._openai_client()
+    client = llm._initialize_client()
     # Just checking that the client is created and has chat
     assert hasattr(client, "chat")
