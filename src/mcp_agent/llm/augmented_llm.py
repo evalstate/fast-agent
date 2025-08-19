@@ -90,6 +90,14 @@ def deep_merge(dict1: Dict[Any, Any], dict2: Dict[Any, Any]) -> Dict[Any, Any]:
 
 
 class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT, MessageT]):
+    """
+    The basic building block of agentic systems is an LLM enhanced with augmentations
+    such as retrieval, tools, and memory provided from a collection of MCP servers.
+    Our current models can actively use these capabilities—generating their own search queries,
+    selecting appropriate tools, and determining what information to retain.
+    """
+
+
     # Common parameter names used across providers
     PARAM_MESSAGES = "messages"
     PARAM_MODEL = "model"
@@ -105,12 +113,10 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
 
-    """
-    The basic building block of agentic systems is an LLM enhanced with augmentations
-    such as retrieval, tools, and memory provided from a collection of MCP servers.
-    Our current models can actively use these capabilities—generating their own search queries,
-    selecting appropriate tools, and determining what information to retain.
-    """
+    class _Actions:
+        STOP = "Stop"  # Making the actions available like so: self.ACTIONS.STOP
+        CONTINUE_WITH_TOOLS = "CONTINUE_WITH_TOOLS"
+    ACTIONS = _Actions()
 
     provider: Provider | None = None
 
