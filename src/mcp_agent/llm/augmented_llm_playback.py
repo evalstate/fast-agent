@@ -8,9 +8,12 @@ from mcp_agent.llm.augmented_llm import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
+from mcp_agent.mcp.helpers.content_helpers import normalize_to_multipart_list
 from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
+
+# TODO -- support tool usage/replay
 
 
 class PlaybackLLM(PassthroughLLM):
@@ -53,7 +56,12 @@ class PlaybackLLM(PassthroughLLM):
 
     async def generate(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
         request_params: RequestParams | None = None,
     ) -> PromptMessageMultipart:
         """
@@ -61,6 +69,9 @@ class PlaybackLLM(PassthroughLLM):
         1. First call: store messages for playback and return "HISTORY LOADED"
         2. Subsequent calls: return the next assistant message
         """
+        # Normalize all input types to a list of PromptMessageMultipart
+        multipart_messages = normalize_to_multipart_list(messages)
+
         # If this is the first call (initialization) or we're loading a prompt template
         # with multiple messages (comes from apply_prompt)
         if -1 == self._current_index:
@@ -108,13 +119,21 @@ class PlaybackLLM(PassthroughLLM):
 
     async def structured(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageMultipart]:
         """
         Handle structured requests by returning the next assistant message.
         """
+        # Normalize all input types to a list of PromptMessageMultipart
+        # (though we don't use multipart_messages in this method, we normalize for consistency)
+        _ = normalize_to_multipart_list(messages)
 
         if -1 == self._current_index:
             raise ModelConfigError("Use generate() to load playback history")

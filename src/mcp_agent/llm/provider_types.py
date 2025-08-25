@@ -8,6 +8,8 @@ from enum import Enum
 class Provider(Enum):
     """Supported LLM providers"""
 
+    display_name: str
+
     def __new__(cls, config_name, display_name=None):
         obj = object.__new__(cls)
         obj._value_ = config_name

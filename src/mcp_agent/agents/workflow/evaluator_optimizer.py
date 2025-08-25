@@ -104,16 +104,16 @@ class EvaluatorOptimizerAgent(BaseAgent):
         self.max_refinements = max_refinements
         self.refinement_history = []
 
-    async def generate(
+    async def _generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        normalized_messages: List[PromptMessageMultipart],
         request_params: Optional[RequestParams] = None,
     ) -> PromptMessageMultipart:
         """
         Generate a response through evaluation-guided refinement.
 
         Args:
-            multipart_messages: Messages to process
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional request parameters
 
         Returns:
@@ -126,10 +126,10 @@ class EvaluatorOptimizerAgent(BaseAgent):
         self.refinement_history = []
 
         # Extract the user request
-        request = multipart_messages[-1].all_text() if multipart_messages else ""
+        request = normalized_messages[-1].all_text() if normalized_messages else ""
 
         # Initial generation
-        response = await self.generator_agent.generate(multipart_messages, request_params)
+        response = await self.generator_agent.generate(normalized_messages, request_params)
         best_response = response
 
         # Refinement loop
@@ -206,7 +206,7 @@ class EvaluatorOptimizerAgent(BaseAgent):
 
     async def structured(
         self,
-        prompt: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -214,7 +214,7 @@ class EvaluatorOptimizerAgent(BaseAgent):
         Generate an optimized response and parse it into a structured format.
 
         Args:
-            prompt: List of messages to process
+            messages: List of messages to process
             model: Pydantic model to parse the response into
             request_params: Optional request parameters
 
@@ -222,7 +222,7 @@ class EvaluatorOptimizerAgent(BaseAgent):
             The parsed response, or None if parsing fails
         """
         # Generate optimized response
-        response = await self.generate(prompt, request_params)
+        response = await self.generate(messages, request_params)
 
         # Delegate structured parsing to the generator agent
         structured_prompt = Prompt.user(response.all_text())

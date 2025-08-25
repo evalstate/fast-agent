@@ -15,6 +15,7 @@ from mcp_agent.core.request_params import RequestParams
 class AgentType(Enum):
     """Enumeration of supported agent types."""
 
+    LLM = "llm"  # simple llm delegator
     BASIC = "agent"
     CUSTOM = "custom"
     ORCHESTRATOR = "orchestrator"

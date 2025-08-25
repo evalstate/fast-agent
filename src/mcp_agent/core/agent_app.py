@@ -8,12 +8,12 @@ from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 
+from fast_agent.progress_display import progress_display
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.interactive_prompt import InteractivePrompt
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.progress_display import progress_display
 
 
 class AgentApp:
@@ -75,7 +75,9 @@ class AgentApp:
         if message:
             return await self._agent(agent_name).send(message, request_params)
 
-        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt, request_params=request_params)
+        return await self.interactive(
+            agent_name=agent_name, default_prompt=default_prompt, request_params=request_params
+        )
 
     async def send(
         self,
@@ -239,15 +241,17 @@ class AgentApp:
 
     @deprecated
     async def prompt(
-        self, 
-        agent_name: str | None = None, 
+        self,
+        agent_name: str | None = None,
         default_prompt: str = "",
-        request_params: RequestParams | None = None
+        request_params: RequestParams | None = None,
     ) -> str:
         """
         Deprecated - use interactive() instead.
         """
-        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt, request_params=request_params)
+        return await self.interactive(
+            agent_name=agent_name, default_prompt=default_prompt, request_params=request_params
+        )
 
     async def interactive(
         self,

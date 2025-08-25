@@ -48,16 +48,16 @@ class ParallelAgent(BaseAgent):
         self.fan_out_agents = fan_out_agents
         self.include_request = include_request
 
-    async def generate(
+    async def _generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        normalized_messages: List[PromptMessageMultipart],
         request_params: Optional[RequestParams] = None,
     ) -> PromptMessageMultipart:
         """
         Execute fan-out agents in parallel and aggregate their results with the fan-in agent.
 
         Args:
-            multipart_messages: List of messages to send to the fan-out agents
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional parameters to configure the request
 
         Returns:
@@ -65,18 +65,18 @@ class ParallelAgent(BaseAgent):
         """
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"Parallel: '{self.name}' generate"):
+        with tracer.start_as_current_span(f"Parallel: '{self._name}' generate"):
             # Execute all fan-out agents in parallel
             responses: List[PromptMessageMultipart] = await asyncio.gather(
                 *[
-                    agent.generate(multipart_messages, request_params)
+                    agent.generate(normalized_messages, request_params)
                     for agent in self.fan_out_agents
                 ]
             )
 
             # Extract the received message from the input
             received_message: Optional[str] = (
-                multipart_messages[-1].all_text() if multipart_messages else None
+                normalized_messages[-1].all_text() if normalized_messages else None
             )
 
             # Convert responses to strings for aggregation
@@ -115,7 +115,7 @@ class ParallelAgent(BaseAgent):
 
         # Format each agent's response
         for i, response in enumerate(responses):
-            agent_name = self.fan_out_agents[i].name
+            agent_name = self.fan_out_agents[i]._name
             formatted.append(
                 f'<fastagent:response agent="{agent_name}">\n{response}\n</fastagent:response>'
             )
@@ -123,7 +123,7 @@ class ParallelAgent(BaseAgent):
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         model: type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -133,7 +133,7 @@ class ParallelAgent(BaseAgent):
         This implementation delegates to the fan-in agent's structured method.
 
         Args:
-            prompt: List of PromptMessageMultipart objects
+            messages: List of PromptMessageMultipart objects
             model: The Pydantic model class to parse the result into
             request_params: Optional parameters to configure the LLM request
 
@@ -142,19 +142,14 @@ class ParallelAgent(BaseAgent):
         """
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"Parallel: '{self.name}' generate"):
+        with tracer.start_as_current_span(f"Parallel: '{self._name}' generate"):
             # Generate parallel responses first
             responses: List[PromptMessageMultipart] = await asyncio.gather(
-                *[
-                    agent.generate(multipart_messages, request_params)
-                    for agent in self.fan_out_agents
-                ]
+                *[agent.generate(messages, request_params) for agent in self.fan_out_agents]
             )
 
             # Extract the received message
-            received_message: Optional[str] = (
-                multipart_messages[-1].all_text() if multipart_messages else None
-            )
+            received_message: Optional[str] = messages[-1].all_text() if messages else None
 
             # Convert responses to strings
             string_responses = [response.all_text() for response in responses]
@@ -200,4 +195,4 @@ class ParallelAgent(BaseAgent):
             try:
                 await agent.shutdown()
             except Exception as e:
-                self.logger.warning(f"Error shutting down fan-out agent {agent.name}: {str(e)}")
+                self.logger.warning(f"Error shutting down fan-out agent {agent._name}: {str(e)}")

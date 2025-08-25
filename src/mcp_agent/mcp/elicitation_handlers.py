@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
-
 from mcp_agent.human_input.elicitation_handler import elicitation_input_callback
 from mcp_agent.human_input.types import HumanInputRequest
 from mcp_agent.logging.logger import get_logger

@@ -1,13 +1,14 @@
+from enum import Enum
 from json import JSONDecodeError
-from typing import Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 from mcp.types import CallToolResult
-from rich.json import JSON
 from rich.panel import Panel
 from rich.text import Text
 
-from mcp_agent import console
+from fast_agent import console
 from mcp_agent.core.mermaid_utils import (
+    MermaidDiagram,
     create_mermaid_live_link,
     detect_diagram_type,
     extract_mermaid_diagrams,
@@ -19,7 +20,51 @@ from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 CODE_STYLE = "native"
 
-HTML_ESCAPE_CHARS = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}
+
+class MessageType(Enum):
+    """Types of messages that can be displayed."""
+
+    USER = "user"
+    ASSISTANT = "assistant"
+    TOOL_CALL = "tool_call"
+    TOOL_RESULT = "tool_result"
+
+
+# Configuration for each message type
+MESSAGE_CONFIGS = {
+    MessageType.USER: {
+        "block_color": "blue",
+        "arrow": "▶",
+        "arrow_style": "dim blue",
+        "highlight_color": "blue",
+    },
+    MessageType.ASSISTANT: {
+        "block_color": "green",
+        "arrow": "◀",
+        "arrow_style": "dim green",
+        "highlight_color": "bright_green",
+    },
+    MessageType.TOOL_CALL: {
+        "block_color": "magenta",
+        "arrow": "◀",
+        "arrow_style": "dim magenta",
+        "highlight_color": "magenta",
+    },
+    MessageType.TOOL_RESULT: {
+        "block_color": "magenta",  # Can be overridden to red if error
+        "arrow": "▶",
+        "arrow_style": "dim magenta",
+        "highlight_color": "magenta",
+    },
+}
+
+HTML_ESCAPE_CHARS = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;",
+}
 
 
 def _prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
@@ -134,6 +179,295 @@ class ConsoleDisplay:
             md = Markdown(prepared_content, code_theme=CODE_STYLE)
             console.console.print(md, markup=self._markup)
 
+    def display_message(
+        self,
+        content: Any,
+        message_type: MessageType,
+        name: str | None = None,
+        right_info: str = "",
+        bottom_metadata: List[str] | None = None,
+        highlight_items: str | List[str] | None = None,
+        is_error: bool = False,
+        model: str | None = None,
+        truncate_content: bool = True,
+    ) -> None:
+        """
+        Unified method to display formatted messages to the console.
+
+        Args:
+            content: The main content to display (str, Text, JSON, etc.)
+            message_type: Type of message (USER, ASSISTANT, TOOL_CALL, TOOL_RESULT)
+            name: Optional name to display (agent name, user name, etc.)
+            right_info: Information to display on the right side of the header
+            bottom_metadata: Optional list of items for bottom separator
+            highlight_items: Item(s) to highlight in bottom metadata
+            is_error: For tool results, whether this is an error (uses red color)
+            model: Optional model name to include in right info
+            truncate_content: Whether to truncate long content
+        """
+        # Get configuration for this message type
+        config = MESSAGE_CONFIGS[message_type]
+
+        # Override colors for error states
+        if is_error and message_type == MessageType.TOOL_RESULT:
+            block_color = "red"
+        else:
+            block_color = config["block_color"]
+
+        # Build the left side of the header
+        arrow = config["arrow"]
+        arrow_style = config["arrow_style"]
+        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        if name:
+            left += f" [{block_color if not is_error else 'red'}]{name}[/{block_color if not is_error else 'red'}]"
+
+        # Create combined separator and status line
+        self._create_combined_separator_status(left, right_info)
+
+        # Display the content
+        self._display_content(content, truncate_content, is_error, message_type)
+
+        # Handle bottom separator with optional metadata
+        console.console.print()
+
+        if bottom_metadata:
+            # Normalize highlight_items
+            if highlight_items is None:
+                highlight_items = []
+            elif isinstance(highlight_items, str):
+                highlight_items = [highlight_items]
+
+            # Format the metadata with highlighting
+            metadata_text = self._format_bottom_metadata(
+                bottom_metadata, highlight_items, config["highlight_color"]
+            )
+
+            # Create the separator line with metadata
+            line = Text()
+            line.append("─| ", style="dim")
+            line.append_text(metadata_text)
+            line.append(" |", style="dim")
+            remaining = console.console.size.width - line.cell_len
+            if remaining > 0:
+                line.append("─" * remaining, style="dim")
+            console.console.print(line, markup=self._markup)
+        else:
+            # No metadata - continuous bar
+            console.console.print("─" * console.console.size.width, style="dim")
+
+        console.console.print()
+
+    def _display_content(
+        self,
+        content: Any,
+        truncate: bool = True,
+        is_error: bool = False,
+        message_type: Optional[MessageType] = None,
+    ) -> None:
+        """
+        Display content in the appropriate format.
+
+        Args:
+            content: Content to display
+            truncate: Whether to truncate long content
+            is_error: Whether this is error content (affects styling)
+            message_type: Type of message to determine appropriate styling
+        """
+        import json
+
+        from rich.markdown import Markdown
+        from rich.pretty import Pretty
+
+        from mcp_agent.mcp.helpers.content_helpers import get_text, is_text_content
+
+        # Determine the style based on message type
+        # USER and ASSISTANT messages should display in normal style
+        # TOOL_CALL and TOOL_RESULT should be dimmed
+        if is_error:
+            style = "dim red"
+        elif message_type in [MessageType.USER, MessageType.ASSISTANT]:
+            style = None  # No style means default/normal white
+        else:
+            style = "dim"
+
+        # Handle different content types
+        if isinstance(content, str):
+            # Try to detect and handle different string formats
+            try:
+                # Try as JSON first
+                json_obj = json.loads(content)
+                if truncate and self.config and self.config.logger.truncate_tools:
+                    pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
+                else:
+                    pretty_obj = Pretty(json_obj)
+                # Apply style only if specified
+                if style:
+                    console.console.print(pretty_obj, style=style, markup=self._markup)
+                else:
+                    console.console.print(pretty_obj, markup=self._markup)
+            except (JSONDecodeError, TypeError, ValueError):
+                # Check if it looks like markdown
+                if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                    # Escape HTML/XML tags while preserving code blocks
+                    prepared_content = _prepare_markdown_content(content, self._escape_xml)
+                    md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                    # Markdown handles its own styling, don't apply style
+                    console.console.print(md, markup=self._markup)
+                else:
+                    # Plain text
+                    if (
+                        truncate
+                        and self.config
+                        and self.config.logger.truncate_tools
+                        and len(content) > 360
+                    ):
+                        content = content[:360] + "..."
+                    # Apply style only if specified (None means default white)
+                    if style:
+                        console.console.print(content, style=style, markup=self._markup)
+                    else:
+                        console.console.print(content, markup=self._markup)
+        elif isinstance(content, Text):
+            # Rich Text object - check if it contains markdown
+            plain_text = content.plain
+
+            # Check if the plain text contains markdown markers
+            if any(marker in plain_text for marker in ["##", "**", "*", "`", "---", "###"]):
+                # Split the Text object into segments
+                # We need to handle the main content (which may have markdown)
+                # and any styled segments that were appended
+
+                # For now, we'll render the entire content with markdown support
+                # This means extracting each span and handling it appropriately
+                from rich.markdown import Markdown
+
+                # If the Text object has multiple spans with different styles,
+                # we need to be careful about how we render them
+                if len(content._spans) > 1:
+                    # Complex case: Text has multiple styled segments
+                    # We'll render the first part as markdown if it contains markers
+                    # and append other styled parts separately
+
+                    # Find where the markdown content ends (usually the first span)
+                    markdown_end = content._spans[0].end if content._spans else len(plain_text)
+                    markdown_part = plain_text[:markdown_end]
+
+                    # Check if the first part has markdown
+                    if any(
+                        marker in markdown_part for marker in ["##", "**", "*", "`", "---", "###"]
+                    ):
+                        # Render markdown part
+                        prepared_content = _prepare_markdown_content(
+                            markdown_part, self._escape_xml
+                        )
+                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                        console.console.print(md, markup=self._markup)
+
+                        # Then render any additional styled segments
+                        if markdown_end < len(plain_text):
+                            remaining_text = Text()
+                            for span in content._spans:
+                                if span.start >= markdown_end:
+                                    segment_text = plain_text[span.start : span.end]
+                                    remaining_text.append(segment_text, style=span.style)
+                            if remaining_text.plain:
+                                console.console.print(remaining_text, markup=self._markup)
+                    else:
+                        # No markdown in first part, just print the whole Text object
+                        console.console.print(content, markup=self._markup)
+                else:
+                    # Simple case: entire text should be rendered as markdown
+                    prepared_content = _prepare_markdown_content(plain_text, self._escape_xml)
+                    md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                    console.console.print(md, markup=self._markup)
+            else:
+                # No markdown markers, print as regular Rich Text
+                console.console.print(content, markup=self._markup)
+        elif isinstance(content, list):
+            # Handle content blocks (for tool results)
+            if len(content) == 1 and is_text_content(content[0]):
+                # Single text block - display directly
+                text_content = get_text(content[0])
+                if text_content:
+                    if (
+                        truncate
+                        and self.config
+                        and self.config.logger.truncate_tools
+                        and len(text_content) > 360
+                    ):
+                        text_content = text_content[:360] + "..."
+                    # Apply style only if specified
+                    if style:
+                        console.console.print(text_content, style=style, markup=self._markup)
+                    else:
+                        console.console.print(text_content, markup=self._markup)
+                else:
+                    # Apply style only if specified
+                    if style:
+                        console.console.print("(empty text)", style=style, markup=self._markup)
+                    else:
+                        console.console.print("(empty text)", markup=self._markup)
+            else:
+                # Multiple blocks or non-text content
+                if truncate and self.config and self.config.logger.truncate_tools:
+                    pretty_obj = Pretty(content, max_length=10, max_string=50)
+                else:
+                    pretty_obj = Pretty(content)
+                # Apply style only if specified
+                if style:
+                    console.console.print(pretty_obj, style=style, markup=self._markup)
+                else:
+                    console.console.print(pretty_obj, markup=self._markup)
+        else:
+            # Any other type - use Pretty
+            if truncate and self.config and self.config.logger.truncate_tools:
+                pretty_obj = Pretty(content, max_length=10, max_string=50)
+            else:
+                pretty_obj = Pretty(content)
+            # Apply style only if specified
+            if style:
+                console.console.print(pretty_obj, style=style, markup=self._markup)
+            else:
+                console.console.print(pretty_obj, markup=self._markup)
+
+    def _format_bottom_metadata(
+        self, items: List[str], highlight_items: List[str], highlight_color: str
+    ) -> Text:
+        """
+        Format a list of items with pipe separators and highlighting.
+
+        Args:
+            items: List of items to display
+            highlight_items: List of items to highlight
+            highlight_color: Color to use for highlighting
+
+        Returns:
+            Formatted Text object with proper separators and highlighting
+        """
+        formatted = Text()
+
+        for i, item in enumerate(items):
+            if i > 0:
+                formatted.append(" | ", style="dim")
+
+            # Check if this item should be highlighted
+            # For tools, we might need to check both the full name and the shortened version
+            should_highlight = False
+            if item in highlight_items:
+                should_highlight = True
+            else:
+                # Check if any highlight item matches the beginning of this item
+                # (useful for namespaced tools)
+                for highlight in highlight_items:
+                    if item.startswith(highlight) or highlight.endswith(item):
+                        should_highlight = True
+                        break
+
+            style = highlight_color if should_highlight else "dim"
+            formatted.append(item, style)
+
+        return formatted
+
     def show_tool_result(self, result: CallToolResult, name: str | None = None) -> None:
         """Display a tool result in the new visual style."""
         if not self.config or not self.config.logger.show_tools:
@@ -141,10 +475,6 @@ class ConsoleDisplay:
 
         # Import content helpers
         from mcp_agent.mcp.helpers.content_helpers import get_text, is_text_content
-
-        # Use red for errors, magenta for success (keep block bright)
-        block_color = "red" if result.isError else "magenta"
-        text_color = "dim red" if result.isError else "dim magenta"
 
         # Analyze content to determine display format and status
         content = result.content
@@ -167,124 +497,58 @@ class ConsoleDisplay:
                         f"{len(content)} Content Blocks" if len(content) > 1 else "1 Content Block"
                     )
 
-        # Combined separator and status line
-        left = f"[{block_color}]▎[/{block_color}][{text_color}]▶[/{text_color}]{f' [{block_color}]{name}[/{block_color}]' if name else ''}"
-        right = f"[dim]tool result - {status}[/dim]"
-        self._create_combined_separator_status(left, right)
+        # Build right info
+        right_info = f"[dim]tool result - {status}[/dim]"
 
-        # Display tool result content
-        content = result.content
-
-        # Handle special case: single text content block
-        if isinstance(content, list) and len(content) == 1 and is_text_content(content[0]):
-            # Display just the text content directly
-            text_content = get_text(content[0])
-            if text_content:
-                if self.config and self.config.logger.truncate_tools and len(text_content) > 360:
-                    text_content = text_content[:360] + "..."
-                console.console.print(text_content, style="dim", markup=self._markup)
-            else:
-                console.console.print("(empty text)", style="dim", markup=self._markup)
-        else:
-            # Use Rich pretty printing for everything else
-            try:
-                import json
-
-                from rich.pretty import Pretty
-
-                # Try to parse as JSON for pretty printing
-                if isinstance(content, str):
-                    json_obj = json.loads(content)
-                else:
-                    json_obj = content
-
-                # Use Rich's built-in truncation with dimmed styling
-                if self.config and self.config.logger.truncate_tools:
-                    pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
-                else:
-                    pretty_obj = Pretty(json_obj)
-
-                # Print with dim styling
-                console.console.print(pretty_obj, style="dim", markup=self._markup)
-
-            except (json.JSONDecodeError, TypeError, ValueError, AttributeError):
-                # Fall back to string representation if not valid JSON
-                content_str = str(content)
-                if self.config and self.config.logger.truncate_tools and len(content_str) > 360:
-                    content_str = content_str[:360] + "..."
-                console.console.print(content_str, style="dim", markup=self._markup)
-
-        # Bottom separator (no additional info for tool results)
-        console.console.print()
-        console.console.print("─" * console.console.size.width, style="dim")
-        console.console.print()
+        # Display using unified method
+        self.display_message(
+            content=content,
+            message_type=MessageType.TOOL_RESULT,
+            name=name,
+            right_info=right_info,
+            is_error=result.isError,
+            truncate_content=True,
+        )
 
     def show_tool_call(
-        self, available_tools, tool_name, tool_args, name: str | None = None
+        self,
+        available_tools: List[str],
+        tool_name: str,
+        tool_args: Dict[str, Any] | None,
+        name: str | None = None,
     ) -> None:
         """Display a tool call in the new visual style."""
         if not self.config or not self.config.logger.show_tools:
             return
 
-        display_tool_list = self._format_tool_list(available_tools, tool_name)
+        # Get the list of matching tools for the bottom separator
+        #        tool_list = self._get_matching_tools(available_tools, tool_name)
 
-        # Combined separator and status line
-        left = f"[magenta]▎[/magenta][dim magenta]◀[/dim magenta]{f' [magenta]{name}[/magenta]' if name else ''}"
-        right = f"[dim]tool request - {tool_name}[/dim]"
-        self._create_combined_separator_status(left, right)
+        # Build right info
+        right_info = f"[dim]tool request - {tool_name}[/dim]"
 
-        # Display tool arguments using Rich JSON pretty printing (dimmed)
-        try:
-            import json
+        shortened_names: List[str] = [
+            tool_name[:11] + "…" if len(tool_name) > 12 else tool_name 
+            for tool_name in available_tools
+        ]
 
-            from rich.pretty import Pretty
+        # Get the shortened name of the selected tool for highlighting
+        # Extract just the tool name part (after SEP) for highlighting
+        highlight_tool = tool_name.split(SEP)[1] if SEP in tool_name else tool_name
+        # Shorten it if needed to match what's displayed
+        if len(highlight_tool) > 12:
+            highlight_tool = highlight_tool[:11] + "…"
 
-            # Try to parse as JSON for pretty printing
-            if isinstance(tool_args, str):
-                json_obj = json.loads(tool_args)
-            else:
-                json_obj = tool_args
-
-            # Use Rich's built-in truncation with dimmed styling
-            if self.config and self.config.logger.truncate_tools:
-                pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
-            else:
-                pretty_obj = Pretty(json_obj)
-
-            # Print with dim styling
-            console.console.print(pretty_obj, style="dim", markup=self._markup)
-
-        except (json.JSONDecodeError, TypeError, ValueError):
-            # Fall back to string representation if not valid JSON
-            content = str(tool_args)
-            if self.config and self.config.logger.truncate_tools and len(content) > 360:
-                content = content[:360] + "..."
-            console.console.print(content, style="dim", markup=self._markup)
-
-        # Bottom separator with tool list using pipe separators (matching server style)
-        console.console.print()
-
-        # Use existing tool list formatting with pipe separators
-        if display_tool_list and len(display_tool_list) > 0:
-            # Truncate tool list if needed (leave space for "─| " prefix and " |" suffix)
-            max_tool_width = console.console.size.width - 10  # Reserve space for separators
-            truncated_tool_list = self._truncate_list_if_needed(display_tool_list, max_tool_width)
-
-            # Create the separator line: ─| [tools] |──────
-            line1 = Text()
-            line1.append("─| ", style="dim")
-            line1.append_text(truncated_tool_list)
-            line1.append(" |", style="dim")
-            remaining = console.console.size.width - line1.cell_len
-            if remaining > 0:
-                line1.append("─" * remaining, style="dim")
-        else:
-            # No tools - continuous bar
-            line1 = Text()
-            line1.append("─" * console.console.size.width, style="dim")
-
-        console.console.print(line1, markup=self._markup)
-        console.console.print()
+        # Display using unified method
+        self.display_message(
+            content=tool_args,
+            message_type=MessageType.TOOL_CALL,
+            name=name,
+            right_info=right_info,
+            bottom_metadata=shortened_names,
+            highlight_items=highlight_tool,
+            truncate_content=True,
+        )
 
     async def show_tool_update(self, aggregator: MCPAggregator | None, updated_server: str) -> None:
         """Show a tool update for a server in the new visual style."""
@@ -324,10 +588,16 @@ class ConsoleDisplay:
         except:  # noqa: E722
             pass  # No active prompt_toolkit session
 
-    def _format_tool_list(self, available_tools, selected_tool_name):
-        """Format the list of available tools, highlighting the selected one."""
-        display_tool_list = Text()
+    def _get_matching_tools(
+        self,
+        available_tools: List[Union[Dict[str, Any], object]],
+        selected_tool_name: str,
+    ) -> List[str]:
+        """Get list of matching tool names for the selected tool's namespace."""
         matching_tools = []
+        selected_namespace = (
+            selected_tool_name.split(SEP)[0] if SEP in selected_tool_name else selected_tool_name
+        )
 
         for display_tool in available_tools:
             # Handle both OpenAI and Anthropic tool formats
@@ -346,48 +616,21 @@ class ConsoleDisplay:
                     else display_tool.name
                 )
 
-            parts = (
-                tool_call_name.split(SEP)
-                if SEP in tool_call_name
-                else [tool_call_name, tool_call_name]
+            # Check if this tool is in the same namespace
+            tool_namespace = (
+                tool_call_name.split(SEP)[0] if SEP in tool_call_name else tool_call_name
             )
-
-            if selected_tool_name.split(SEP)[0] == parts[0]:
+            if tool_namespace == selected_namespace:
+                # Get the display name (shortened if needed)
+                parts = (
+                    tool_call_name.split(SEP)
+                    if SEP in tool_call_name
+                    else [tool_call_name, tool_call_name]
+                )
                 shortened_name = parts[1] if len(parts[1]) <= 12 else parts[1][:11] + "…"
-                matching_tools.append((shortened_name, tool_call_name))
+                matching_tools.append(shortened_name)
 
-        # Format with pipe separators instead of brackets
-        for i, (shortened_name, tool_call_name) in enumerate(matching_tools):
-            if i > 0:
-                display_tool_list.append(" | ", style="dim")
-            style = "magenta" if tool_call_name == selected_tool_name else "dim"
-            display_tool_list.append(shortened_name, style)
-
-        return display_tool_list
-
-    def _truncate_list_if_needed(self, text_list: Text, max_width: int) -> Text:
-        """Truncate a Text list if it exceeds the maximum width."""
-        if text_list.cell_len <= max_width:
-            return text_list
-
-        # Create a new truncated version
-        truncated = Text()
-        current_width = 0
-
-        for span in text_list._spans:
-            text_part = text_list.plain[span.start : span.end]
-            if current_width + len(text_part) <= max_width - 1:  # -1 for ellipsis
-                truncated.append(text_part, style=span.style)
-                current_width += len(text_part)
-            else:
-                # Add what we can fit and ellipsis
-                remaining = max_width - current_width - 1
-                if remaining > 0:
-                    truncated.append(text_part[:remaining], style=span.style)
-                truncated.append("…", style="dim")
-                break
-
-        return truncated
+        return matching_tools
 
     def _create_combined_separator_status(self, left_content: str, right_info: str = "") -> None:
         """
@@ -432,151 +675,88 @@ class ConsoleDisplay:
     async def show_assistant_message(
         self,
         message_text: Union[str, Text],
-        aggregator=None,
+        aggregator: Optional["MCPAggregator"] = None,
         highlight_namespaced_tool: str = "",
         title: str = "ASSISTANT",
         name: str | None = None,
         model: str | None = None,
     ) -> None:
         """Display an assistant message in a formatted panel."""
-
         if not self.config or not self.config.logger.show_chat:
             return
 
-        # Build server list for bottom separator (using same logic as legacy)
-        display_server_list = Text()
+        # Build server list for bottom separator
+        servers = []
+        # if aggregator:
+        #     for server_name in await aggregator.list_servers():
+        #         servers.append(server_name)
 
-        if aggregator:
-            # Add human input tool if available
-            tools = await aggregator.list_tools()
-            if any(tool.name == HUMAN_INPUT_TOOL_NAME for tool in tools.tools):
-                style = (
-                    "green" if highlight_namespaced_tool == HUMAN_INPUT_TOOL_NAME else "dim white"
-                )
-                display_server_list.append("[human] ", style)
+        # Determine which server to highlight
+        highlight_server = None
+        if highlight_namespaced_tool:
+            if SEP in highlight_namespaced_tool:
+                highlight_server = highlight_namespaced_tool.split(SEP)[0]
+            else:
+                highlight_server = highlight_namespaced_tool
 
-            # Add all available servers
-            mcp_server_name = (
-                highlight_namespaced_tool.split(SEP)[0]
-                if SEP in highlight_namespaced_tool
-                else highlight_namespaced_tool
-            )
+        # Build right info
+        right_info = f"[dim]{model}[/dim]" if model else ""
 
-            for server_name in await aggregator.list_servers():
-                style = "green" if server_name == mcp_server_name else "dim white"
-                display_server_list.append(f"[{server_name}] ", style)
+        # Display main message using unified method
+        self.display_message(
+            content=message_text,
+            message_type=MessageType.ASSISTANT,
+            name=name,
+            right_info=right_info,
+            bottom_metadata=servers if servers else None,
+            highlight_items=highlight_server,
+            truncate_content=False,  # Assistant messages shouldn't be truncated
+        )
 
-        # Combined separator and status line
-        left = f"[green]▎[/green][dim green]◀[/dim green]{f' [bold green]{name}[/bold green]' if name else ''}"
-        right = f"[dim]{model}[/dim]" if model else ""
-        self._create_combined_separator_status(left, right)
-
-        if isinstance(message_text, str):
-            content = message_text
-
-            # Try to detect and pretty print JSON
-            try:
-                import json
-
-                json.loads(content)
-                json = JSON(message_text)
-                console.console.print(json, markup=self._markup)
-            except (JSONDecodeError, TypeError, ValueError):
-                # Use the smart rendering helper to handle XML vs Markdown
-                self._render_content_smartly(content)
-        else:
-            # Handle Rich Text objects directly
-            console.console.print(message_text, markup=self._markup)
-
-        # Bottom separator with server list and diagrams
-        console.console.print()
-
-        # Check for mermaid diagrams in the message content
-        diagrams = []
+        # Handle mermaid diagrams separately (after the main message)
         if isinstance(message_text, str):
             diagrams = extract_mermaid_diagrams(message_text)
+            if diagrams:
+                self._display_mermaid_diagrams(diagrams)
 
-        # Create server list with pipe separators (no "mcp:" prefix)
-        server_content = Text()
-        if display_server_list and len(display_server_list) > 0:
-            # Convert the existing server list to pipe-separated format
-            servers = []
-            if aggregator:
-                for server_name in await aggregator.list_servers():
-                    servers.append(server_name)
+    def _display_mermaid_diagrams(self, diagrams: List[MermaidDiagram]) -> None:
+        """Display mermaid diagram links."""
+        diagram_content = Text()
+        # Add bullet at the beginning
+        diagram_content.append("● ", style="dim")
 
-            # Create pipe-separated server list
-            for i, server_name in enumerate(servers):
-                if i > 0:
-                    server_content.append(" | ", style="dim")
-                # Highlight active server, dim inactive ones
-                mcp_server_name = (
-                    highlight_namespaced_tool.split(SEP)[0]
-                    if SEP in highlight_namespaced_tool
-                    else highlight_namespaced_tool
-                )
-                style = "bright_green" if server_name == mcp_server_name else "dim"
-                server_content.append(server_name, style)
+        for i, diagram in enumerate(diagrams, 1):
+            if i > 1:
+                diagram_content.append(" • ", style="dim")
 
-        # Create main separator line
-        line1 = Text()
-        if server_content.cell_len > 0:
-            line1.append("─| ", style="dim")
-            line1.append_text(server_content)
-            line1.append(" |", style="dim")
-            remaining = console.console.size.width - line1.cell_len
-            if remaining > 0:
-                line1.append("─" * remaining, style="dim")
-        else:
-            # No servers - continuous bar (no break)
-            line1.append("─" * console.console.size.width, style="dim")
+            # Generate URL
+            url = create_mermaid_live_link(diagram.content)
 
-        console.console.print(line1, markup=self._markup)
-
-        # Add diagram links in panel if any diagrams found
-        if diagrams:
-            diagram_content = Text()
-            # Add bullet at the beginning
-            diagram_content.append("● ", style="dim")
-
-            for i, diagram in enumerate(diagrams, 1):
-                if i > 1:
-                    diagram_content.append(" • ", style="dim")
-
-                # Generate URL
-                url = create_mermaid_live_link(diagram.content)
-
-                # Format: "1 - Title" or "1 - Flowchart" or "Diagram 1"
-                if diagram.title:
-                    diagram_content.append(
-                        f"{i} - {diagram.title}", style=f"bright_blue link {url}"
-                    )
+            # Format: "1 - Title" or "1 - Flowchart" or "Diagram 1"
+            if diagram.title:
+                diagram_content.append(f"{i} - {diagram.title}", style=f"bright_blue link {url}")
+            else:
+                # Try to detect diagram type, fallback to "Diagram N"
+                diagram_type = detect_diagram_type(diagram.content)
+                if diagram_type != "Diagram":
+                    diagram_content.append(f"{i} - {diagram_type}", style=f"bright_blue link {url}")
                 else:
-                    # Try to detect diagram type, fallback to "Diagram N"
-                    diagram_type = detect_diagram_type(diagram.content)
-                    if diagram_type != "Diagram":
-                        diagram_content.append(
-                            f"{i} - {diagram_type}", style=f"bright_blue link {url}"
-                        )
-                    else:
-                        diagram_content.append(f"Diagram {i}", style=f"bright_blue link {url}")
+                    diagram_content.append(f"Diagram {i}", style=f"bright_blue link {url}")
 
-            # Display diagrams on a simple new line (more space efficient)
-            console.console.print()
-            console.console.print(diagram_content, markup=self._markup)
-
+        # Display diagrams on a simple new line (more space efficient)
         console.console.print()
+        console.console.print(diagram_content, markup=self._markup)
 
     def show_user_message(
-        self, message, model: str | None = None, chat_turn: int = 0, name: str | None = None
+        self,
+        message: Union[str, Text],
+        model: str | None = None,
+        chat_turn: int = 0,
+        name: str | None = None,
     ) -> None:
         """Display a user message in the new visual style."""
-
         if not self.config or not self.config.logger.show_chat:
             return
-
-        # Combined separator and status line
-        left = f"[blue]▎[/blue][dim blue]▶[/dim blue]{f' [bold blue]{name}[/bold blue]' if name else ''}"
 
         # Build right side with model and turn
         right_parts = []
@@ -585,21 +765,15 @@ class ConsoleDisplay:
         if chat_turn > 0:
             right_parts.append(f"turn {chat_turn}")
 
-        right = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
-        self._create_combined_separator_status(left, right)
+        right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
-        # Display content as markdown if it looks like markdown, otherwise as text
-        if isinstance(message, str):
-            # Use the smart rendering helper to handle XML vs Markdown
-            self._render_content_smartly(message)
-        else:
-            # Handle Text objects directly
-            console.console.print(message, markup=self._markup)
-
-        # Bottom separator (no server list for user messages)
-        console.console.print()
-        console.console.print("─" * console.console.size.width, style="dim")
-        console.console.print()
+        self.display_message(
+            content=message,
+            message_type=MessageType.USER,
+            name=name,
+            right_info=right_info,
+            truncate_content=False,  # User messages typically shouldn't be truncated
+        )
 
     async def show_prompt_loaded(
         self,

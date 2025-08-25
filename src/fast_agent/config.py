@@ -84,10 +84,10 @@ class MCPServerSettings(BaseModel):
     """The timeout in seconds for the server connection."""
 
     url: str | None = None
-    """The URL for the server (e.g. for SSE transport)."""
+    """The URL for the server (e.g. for SSE/SHTTP transport)."""
 
     headers: Dict[str, str] | None = None
-    """Headers dictionary for SSE connections"""
+    """Headers dictionary for HTTP connections"""
 
     auth: MCPServerAuthSettings | None = None
     """The authentication configuration for the server."""

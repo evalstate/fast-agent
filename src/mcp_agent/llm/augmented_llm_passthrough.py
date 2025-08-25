@@ -1,12 +1,13 @@
 import json  # Import at the module level
-from typing import Any, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
-from mcp.types import PromptMessage
+from mcp import CallToolRequest, Tool
+from mcp.types import CallToolRequestParams, PromptMessage
 
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.llm.augmented_llm import (
     AugmentedLLM,
-    MessageParamT,
     RequestParams,
 )
 from mcp_agent.llm.provider_types import Provider
@@ -34,70 +35,10 @@ class PassthroughLLM(AugmentedLLM):
         self.logger = get_logger(__name__)
         self._messages = [PromptMessage]
         self._fixed_response: str | None = None
-
-    async def generate_str(
-        self,
-        message: Union[str, MessageParamT, List[MessageParamT]],
-        request_params: Optional[RequestParams] = None,
-    ) -> str:
-        """Return the input message as a string."""
-        # Check if this is a special command to call a tool
-        if isinstance(message, str) and message.startswith("***CALL_TOOL "):
-            return await self._call_tool_and_return_result(message)
-
-        self.show_user_message(message, model="fastagent-passthrough", chat_turn=0)
-        await self.show_assistant_message(message, title="ASSISTANT/PASSTHROUGH")
-
-        # Handle PromptMessage by concatenating all parts
-        result = ""
-        if isinstance(message, PromptMessage):
-            parts_text = []
-            for part in message.content:
-                parts_text.append(str(part))
-            result = "\n".join(parts_text)
-        else:
-            result = str(message)
-
-        # Track usage for this passthrough "turn"
-        try:
-            input_content = str(message)
-            output_content = result
-            tool_calls = 1 if input_content.startswith("***CALL_TOOL") else 0
-
-            turn_usage = create_turn_usage_from_messages(
-                input_content=input_content,
-                output_content=output_content,
-                model="passthrough",
-                model_type="passthrough",
-                tool_calls=tool_calls,
-                delay_seconds=0.0,
-            )
-            self.usage_accumulator.add_turn(turn_usage)
-        except Exception as e:
-            self.logger.warning(f"Failed to track usage: {e}")
-
-        return result
+        self._correlation_id: int = 0
 
     async def initialize(self) -> None:
         pass
-
-    async def _call_tool_and_return_result(self, command: str) -> str:
-        """
-        Call a tool based on the command and return its result as a string.
-
-        Args:
-            command: The command string, expected format: "***CALL_TOOL <server>-<tool_name> [arguments_json]"
-
-        Returns:
-            Tool result as a string
-        """
-        try:
-            tool_name, arguments = self._parse_tool_command(command)
-            result = await self.aggregator.call_tool(tool_name, arguments)
-            return self._format_tool_result(tool_name, result)
-        except Exception as e:
-            self.logger.error(f"Error calling tool: {str(e)}")
-            return f"Error calling tool: {str(e)}"
 
     def _parse_tool_command(self, command: str) -> tuple[str, Optional[dict]]:
         """
@@ -128,103 +69,58 @@ class PassthroughLLM(AugmentedLLM):
         self.logger.info(f"Calling tool {tool_name} with arguments {arguments}")
         return tool_name, arguments
 
-    def _format_tool_result(self, tool_name: str, result) -> str:
-        """
-        Format tool execution result as a string.
-
-        Args:
-            tool_name: The name of the tool that was called
-            result: The result returned from the tool
-
-        Returns:
-            Formatted result as a string
-        """
-        if result.isError:
-            error_text = []
-            for content_item in result.content:
-                if hasattr(content_item, "text"):
-                    error_text.append(content_item.text)
-                else:
-                    error_text.append(str(content_item))
-            error_message = "\n".join(error_text) if error_text else "Unknown error"
-            return f"Error calling tool '{tool_name}': {error_message}"
-
-        result_text = []
-        for content_item in result.content:
-            if hasattr(content_item, "text"):
-                result_text.append(content_item.text)
-            else:
-                result_text.append(str(content_item))
-
-        return "\n".join(result_text)
-
     async def _apply_prompt_provider_specific(
         self,
         multipart_messages: List["PromptMessageMultipart"],
         request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageMultipart:
         # Add messages to history with proper is_prompt flag
         self.history.extend(multipart_messages, is_prompt=is_template)
 
         last_message = multipart_messages[-1]
-
+        tool_calls: Dict[str, CallToolRequest] = {}
+        stop_reason: LlmStopReason = LlmStopReason.END_TURN
         if self.is_tool_call(last_message):
-            result = Prompt.assistant(await self.generate_str(last_message.first_text()))
-            await self.show_assistant_message(result.first_text())
-
-            # Track usage for this tool call "turn"
-            try:
-                input_content = "\n".join(message.all_text() for message in multipart_messages)
-                output_content = result.first_text()
-
-                turn_usage = create_turn_usage_from_messages(
-                    input_content=input_content,
-                    output_content=output_content,
-                    model="passthrough",
-                    model_type="passthrough",
-                    tool_calls=1,  # This is definitely a tool call
-                    delay_seconds=0.0,
-                )
-                self.usage_accumulator.add_turn(turn_usage)
-
-            except Exception as e:
-                self.logger.warning(f"Failed to track usage: {e}")
-
-            return result
+            tool_name, arguments = self._parse_tool_command(last_message.first_text())
+            tool_calls["correlationId" + str(self._correlation_id)] = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name=tool_name, arguments=arguments),
+            )
+            self._correlation_id += 1
+            stop_reason = LlmStopReason.TOOL_USE
 
         if last_message.first_text().startswith(FIXED_RESPONSE_INDICATOR):
             self._fixed_response = (
                 last_message.first_text().split(FIXED_RESPONSE_INDICATOR, 1)[1].strip()
             )
 
-        if self._fixed_response:
-            await self.show_assistant_message(self._fixed_response)
-            result = Prompt.assistant(self._fixed_response)
-        else:
-            # TODO -- improve when we support Audio/Multimodal gen models e.g. gemini . This should really just return the input as "assistant"...
-            concatenated: str = "\n".join(message.all_text() for message in multipart_messages)
-            await self.show_assistant_message(concatenated)
-            result = Prompt.assistant(concatenated)
-
-        # Track usage for this passthrough "turn"
-        try:
-            input_content = "\n".join(message.all_text() for message in multipart_messages)
-            output_content = result.first_text()
-            tool_calls = 1 if self.is_tool_call(last_message) else 0
-
-            turn_usage = create_turn_usage_from_messages(
-                input_content=input_content,
-                output_content=output_content,
-                model="passthrough",
-                model_type="passthrough",
-                tool_calls=tool_calls,
-                delay_seconds=0.0,
+        if len(last_message.tool_results or {}) > 0:
+            assert last_message.tool_results
+            concatenated_content = " ".join(
+                [str(tool_result.content) for tool_result in last_message.tool_results.values()]
             )
-            self.usage_accumulator.add_turn(turn_usage)
+            result = Prompt.assistant(concatenated_content, stop_reason=stop_reason)
 
-        except Exception as e:
-            self.logger.warning(f"Failed to track usage: {e}")
+        elif self._fixed_response:
+            result = Prompt.assistant(
+                self._fixed_response, tool_calls=tool_calls, stop_reason=stop_reason
+            )
+        else:
+            result = Prompt.assistant(
+                multipart_messages[-1], tool_calls=tool_calls, stop_reason=stop_reason
+            )
+
+        turn_usage = create_turn_usage_from_messages(
+            input_content=multipart_messages[-1].all_text(),
+            output_content=result.all_text(),
+            model="passthrough",
+            model_type="passthrough",
+            tool_calls=len(tool_calls),
+            delay_seconds=0.0,
+        )
+        self.usage_accumulator.add_turn(turn_usage)
 
         return result
 

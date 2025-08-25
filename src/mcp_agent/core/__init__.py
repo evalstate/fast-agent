@@ -4,7 +4,6 @@ Core components and utilities for MCP Agent.
 
 from .mcp_content import (
     Assistant,
-    MCPContentType,
     MCPFile,
     MCPImage,
     MCPPrompt,
@@ -22,5 +21,4 @@ __all__ = [
     "User",
     "Assistant",
     "create_message",
-    "MCPContentType",
 ]

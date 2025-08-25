@@ -5,7 +5,6 @@ This module defines protocols (interfaces) that can be used to break circular de
 
 from datetime import timedelta
 from typing import (
-    TYPE_CHECKING,
     Any,
     AsyncContextManager,
     Callable,
@@ -23,18 +22,15 @@ from typing import (
 
 from a2a.types import AgentCard
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
-from deprecated import deprecated
-from mcp import ClientSession
-from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult, Tool
 from pydantic import BaseModel
 
+from mcp import ClientSession, Tool
+from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.request_params import RequestParams
+from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.usage_tracking import UsageAccumulator
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-
-if TYPE_CHECKING:
-    from mcp_agent.llm.usage_tracking import UsageAccumulator
-
 
 __all__ = [
     "MCPConnectionManagerProtocol",
@@ -42,7 +38,8 @@ __all__ = [
     "ServerConnection",
     "AugmentedLLMProtocol",
     "AgentProtocol",
-    "ModelFactoryClassProtocol",
+    "LLMFactoryProtocol",
+    "ModelFactoryFunctionProtocol",
     "ModelT",
 ]
 
@@ -91,7 +88,6 @@ class ServerRegistryProtocol(Protocol):
                 ClientSession,
             ]
         ] = None,
-        init_hook: Optional[Callable] = None,
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...
@@ -107,36 +103,97 @@ class ServerConnection(Protocol):
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
+class LLMFactoryProtocol(Protocol):
+    """Protocol for LLM factory functions that create AugmentedLLM instances.
+
+    This protocol defines the standard signature for factory functions that
+    create LLM instances for agents. The factory takes an agent, optional
+    request parameters, and additional keyword arguments, and returns an
+    AugmentedLLMProtocol instance.
+    """
+
+    def __call__(self, agent: "LlmAgentProtocol", **kwargs: Any) -> "AugmentedLLMProtocol":
+        """Create and return an AugmentedLLM instance.
+
+        Args:
+            agent: The agent that will use this LLM
+            request_params: Optional parameters to configure the LLM
+            **kwargs: Additional implementation-specific parameters
+
+        Returns:
+            An instance implementing AugmentedLLMProtocol
+        """
+        ...
+
+
+class ModelFactoryFunctionProtocol(Protocol):
+    """
+    Returns an LLM Model Factory for the specified model string
+
+    """
+
+    def __call__(self, model: str | None = None) -> LLMFactoryProtocol:
+        """Create and return an LLM factory.
+
+        Args:
+            model: Optional model specification string
+
+        Returns:
+            An LLMFactoryProtocol that can create LLM instances
+        """
+        ...
+
+
 class AugmentedLLMProtocol(Protocol):
     """Protocol defining the interface for augmented LLMs"""
 
     async def structured(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
-        """Apply the prompt and return the result as a Pydantic model, or None if coercion fails"""
+        """
+        Generate a structured response using normalized message lists.
+
+        This is the primary LLM interface for structured output that works directly with
+        List[PromptMessageMultipart] for efficient internal usage.
+        Tool Use is not supported with this Structured Outputs - use a "Chain" agent to combine
+        tools and structured outputs.
+
+        Args:
+            messages: List of PromptMessageMultipart objects
+            model: The Pydantic model class to parse the response into
+            request_params: Optional parameters to configure the LLM request
+
+        Returns:
+            Tuple of (parsed model instance or None, assistant response message)
+        """
         ...
 
     async def generate(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: List[PromptMessageMultipart],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageMultipart:
         """
-        Apply a list of PromptMessageMultipart messages directly to the LLM.
+        Generate a completion using normalized message lists.
 
+        This is the primary LLM interface that works directly with
+        List[PromptMessageMultipart] for efficient internal usage.
 
         Args:
-            multipart_messages: List of PromptMessageMultipart objects
+            messages: List of PromptMessageMultipart objects
             request_params: Optional parameters to configure the LLM request
+            tools: Optional list of tools available to the LLM
 
         Returns:
-            A PromptMessageMultipart containing the Assistant response, including Tool Content
+            A PromptMessageMultipart containing the Assistant response
         """
         ...
 
+    # TODO -- prompt_name and display should probably be at agent level.
     async def apply_prompt_template(
         self, prompt_result: "GetPromptResult", prompt_name: str
     ) -> str:
@@ -162,25 +219,147 @@ class AugmentedLLMProtocol(Protocol):
         """
         ...
 
-    usage_accumulator: "UsageAccumulator"
+    @property
+    def usage_accumulator(self) -> UsageAccumulator | None:
+        """
+        Return the LLM's usage information
+        """
+        ...
+
+    @property
+    def provider(self) -> Provider:
+        """
+        Return the LLM provider type.
+
+        Returns:
+            The Provider enum value representing the LLM provider
+        """
+        ...
 
 
-class AgentProtocol(AugmentedLLMProtocol, Protocol):
-    """Protocol defining the standard agent interface"""
+class LlmAgentProtocol(Protocol):
+    """Protocol defining the minimal interface for LLM agents.
 
-    name: str
+    This is a base protocol for agents that have an LLM but don't necessarily
+    expose all the agent methods. Workflow agents might implement this without
+    implementing the full AgentProtocol.
+    """
+
+    @property
+    def llm(self) -> AugmentedLLMProtocol:
+        """Return the LLM instance used by this agent, or a runtime error if not attached"""
+        ...
+
+    @property
+    def name(self) -> str:
+        """Agent name"""
+        ...
 
     @property
     def agent_type(self) -> AgentType:
         """Return the type of this agent"""
         ...
 
-    async def __call__(self, message: Union[str, PromptMessage, PromptMessageMultipart]) -> str:
+    async def initialize(self) -> None:
+        """Initialize the LLM agent"""
+        ...
+
+    async def shutdown(self) -> None:
+        """Shut down the LLM agent"""
+        ...
+
+
+class AgentProtocol(Protocol):
+    """Protocol defining the standard agent interface with flexible input types.
+
+    This protocol does NOT extend AugmentedLLMProtocol. Instead, agents
+    have an llm property that provides access to the underlying LLM.
+    The Agent methods accept flexible input types and handle normalization,
+    while the LLM methods have strict signatures.
+    """
+
+    @property
+    def llm(self) -> AugmentedLLMProtocol:
+        """Return the LLM instance used by this agent"""
+        ...
+
+    @property
+    def name(self) -> str:
+        """Agent name"""
+        ...
+
+    @property
+    def agent_type(self) -> AgentType:
+        """Return the type of this agent"""
+        ...
+
+    async def __call__(
+        self,
+        message: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
+    ) -> str:
         """Make the agent callable for sending messages directly."""
         ...
 
-    async def send(self, message: Union[str, PromptMessage, PromptMessageMultipart]) -> str:
-        """Send a message to the agent and get a response"""
+    async def send(
+        self,
+        message: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
+    ) -> str:
+        """Send a message and get a string response."""
+        ...
+
+    async def generate(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageMultipart:
+        """Generate a completion with flexible input types.
+
+        This method accepts various input formats and normalizes them
+        before delegating to the LLM.
+        """
+        ...
+
+    async def structured(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
+        model: Type[ModelT],
+        request_params: RequestParams | None = None,
+    ) -> Tuple[ModelT | None, PromptMessageMultipart]:
+        """Generate structured output with flexible input types.
+
+        This method accepts various input formats and normalizes them
+        before delegating to the LLM.
+        """
+        ...
+
+    @property
+    def message_history(self) -> List[PromptMessageMultipart]:
+        """Return the agent's message history."""
+        ...
+
+    @property
+    def usage_accumulator(self) -> UsageAccumulator | None:
+        """Return the agent's usage information."""
         ...
 
     async def apply_prompt(
@@ -211,16 +390,6 @@ class AgentProtocol(AugmentedLLMProtocol, Protocol):
         """Get a resource from a specific server or search all servers"""
         ...
 
-    @deprecated
-    async def generate_str(self, message: str, request_params: RequestParams | None = None) -> str:
-        """Generate a response. Deprecated: Use send(), generate() or structured()  instead"""
-        ...
-
-    @deprecated
-    async def prompt(self, default_prompt: str = "") -> str:
-        """Start an interactive prompt session with the agent. Deprecated. Use agent_app.interactive() instead."""
-        ...
-
     async def with_resource(
         self,
         prompt_content: Union[str, PromptMessage, PromptMessageMultipart],
@@ -235,32 +404,9 @@ class AgentProtocol(AugmentedLLMProtocol, Protocol):
         ...
 
     async def initialize(self) -> None:
-        """Initialize the agent and connect to MCP servers"""
+        """Initialize the agent"""
         ...
 
     async def shutdown(self) -> None:
-        """Shut down the agent and close connections"""
-        ...
-
-
-class ModelFactoryClassProtocol(Protocol):
-    """
-    Protocol defining the minimal interface of the ModelFactory class needed by sampling.
-    This allows sampling.py to depend on this protocol rather than the concrete ModelFactory class.
-    """
-
-    @classmethod
-    def create_factory(
-        cls, model_string: str, request_params: Optional[RequestParams] = None
-    ) -> Callable[..., Any]:
-        """
-        Creates a factory function that can be used to construct an LLM instance.
-
-        Args:
-            model_string: The model specification string
-            request_params: Optional parameters to configure LLM behavior
-
-        Returns:
-            A factory function that can create an LLM instance
-        """
+        """Shut down the agent"""
         ...

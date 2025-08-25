@@ -463,34 +463,3 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
             # If the last message is not from the user (e.g., assistant), no completion is needed for this step
             # The messages have already been added to history by the calling code/framework
             return multipart_messages[-1]  # Return the last message as is
-
-    async def pre_tool_call(self, tool_call_id: str | None, request: CallToolRequest):
-        """
-        Hook called before a tool call.
-
-        Args:
-            tool_call_id: The ID of the tool call.
-            request: The CallToolRequest object.
-
-        Returns:
-            The modified CallToolRequest object.
-        """
-        # Currently a pass-through, can add Google-specific logic if needed
-        return request
-
-    async def post_tool_call(
-        self, tool_call_id: str | None, request: CallToolRequest, result: CallToolResult
-    ):
-        """
-        Hook called after a tool call.
-
-        Args:
-            tool_call_id: The ID of the tool call.
-            request: The original CallToolRequest object.
-            result: The CallToolResult object.
-
-        Returns:
-            The modified CallToolResult object.
-        """
-        # Currently a pass-through, can add Google-specific logic if needed
-        return result

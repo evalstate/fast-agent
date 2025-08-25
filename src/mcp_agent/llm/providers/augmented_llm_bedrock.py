@@ -4,18 +4,31 @@ import re
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Type, Union
 
-from mcp.types import ContentBlock, TextContent
+from mcp.types import (
+    CallToolRequest,
+    CallToolRequestParams,
+    ContentBlock,
+    TextContent,
+)
 from rich.text import Text
 
+from fast_agent.event_progress import ProgressAction
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.request_params import RequestParams
-from mcp_agent.event_progress import ProgressAction
 from mcp_agent.llm.augmented_llm import AugmentedLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.usage_tracking import TurnUsage
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+
+# Mapping from Bedrock's snake_case stop reasons to MCP's camelCase
+BEDROCK_TO_MCP_STOP_REASON = {
+    "end_turn": LlmStopReason.END_TURN.value,
+    "stop_sequence": LlmStopReason.STOP_SEQUENCE.value,
+    "max_tokens": LlmStopReason.MAX_TOKENS.value,
+}
 
 if TYPE_CHECKING:
     from mcp import ListToolsResult
@@ -34,10 +47,6 @@ try:
 except ImportError:
     ToolParam = None
 
-from mcp.types import (
-    CallToolRequest,
-    CallToolRequestParams,
-)
 
 DEFAULT_BEDROCK_MODEL = "amazon.nova-lite-v1:0"
 

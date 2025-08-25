@@ -12,6 +12,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp_agent.mcp.interfaces import RequestParams
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -77,7 +78,7 @@ class SamplingConverter:
             role="assistant",
             content=TextContent(type="text", text=error_message),
             model=model or "unknown",
-            stopReason="error",
+            stopReason=LlmStopReason.ERROR.value,
         )
 
     @staticmethod

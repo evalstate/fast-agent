@@ -10,11 +10,12 @@ from mcp_agent.llm.providers.augmented_llm_tensorzero_openai import TensorZeroOp
 
 # --- Fixtures ---
 
+
 @pytest.fixture
 def mock_agent():
     """Provides a mocked Agent object with a default, empty config."""
     agent = MagicMock(spec=Agent)
-    agent.name = "mock_agent"
+    agent._name = "mock_agent"
     agent.instruction = "mock_instruction"
     agent.context = MagicMock()
     agent.context.config = MagicMock()  # Base config mock
@@ -25,14 +26,11 @@ def mock_agent():
 @pytest.fixture
 def t0_llm(mock_agent):
     """Provides a standard instance of the class under test."""
-    return TensorZeroOpenAIAugmentedLLM(
-        agent=mock_agent,
-        model="test_chat",
-        episode_id="ep-12345"
-    )
+    return TensorZeroOpenAIAugmentedLLM(agent=mock_agent, model="test_chat", episode_id="ep-12345")
 
 
 # --- Tests for _initialize_default_params ---
+
 
 def test_initialize_default_params_adds_prefix(t0_llm):
     """Tests that the model name is correctly prefixed if it doesn't have it."""
@@ -68,7 +66,8 @@ def test_base_url_uses_default_when_config_missing(mock_agent):
 
 # --- Tests for _prepare_api_request ---
 
-@patch('mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request')
+
+@patch("mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request")
 def test_prepare_api_request_with_template_vars(mock_super_prepare, t0_llm):
     """Tests injection of template_vars into a new system message."""
     messages: List[ChatCompletionMessageParam] = []
@@ -86,10 +85,12 @@ def test_prepare_api_request_with_template_vars(mock_super_prepare, t0_llm):
     assert system_message["content"] == [{"var1": "value1"}]
 
 
-@patch('mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request')
+@patch("mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request")
 def test_prepare_api_request_merges_metadata(mock_super_prepare, t0_llm):
     """Tests merging of tensorzero_arguments from metadata."""
-    initial_system_message = ChatCompletionSystemMessageParam(role="system", content=[{"var1": "original"}])
+    initial_system_message = ChatCompletionSystemMessageParam(
+        role="system", content=[{"var1": "original"}]
+    )
     messages: List[ChatCompletionMessageParam] = [initial_system_message]
     mock_super_prepare.return_value = {"model": "test_chat", "messages": messages}
     request_params = RequestParams(metadata={"tensorzero_arguments": {"var2": "metadata_val"}})
@@ -101,7 +102,7 @@ def test_prepare_api_request_merges_metadata(mock_super_prepare, t0_llm):
     assert system_message["content"] == [{"var1": "original", "var2": "metadata_val"}]
 
 
-@patch('mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request')
+@patch("mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request")
 def test_prepare_api_request_adds_episode_id(mock_super_prepare, t0_llm):
     """Tests that episode_id is added to extra_body."""
     mock_super_prepare.return_value = {"model": "test_chat", "messages": []}
@@ -113,15 +114,21 @@ def test_prepare_api_request_adds_episode_id(mock_super_prepare, t0_llm):
     assert arguments["extra_body"]["tensorzero::episode_id"] == "ep-12345"
 
 
-@patch('mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request')
+@patch("mcp_agent.llm.providers.augmented_llm_openai.OpenAIAugmentedLLM._prepare_api_request")
 def test_prepare_api_request_all_features(mock_super_prepare, t0_llm):
     """Tests all features working together."""
-    initial_system_message = ChatCompletionSystemMessageParam(role="system", content="Original prompt")
+    initial_system_message = ChatCompletionSystemMessageParam(
+        role="system", content="Original prompt"
+    )
     messages: List[ChatCompletionMessageParam] = [initial_system_message]
-    mock_super_prepare.return_value = {"model": "test_chat", "messages": messages, "extra_body": {"existing": "val"}}
+    mock_super_prepare.return_value = {
+        "model": "test_chat",
+        "messages": messages,
+        "extra_body": {"existing": "val"},
+    }
     request_params = RequestParams(
         template_vars={"var1": "value1"},
-        metadata={"tensorzero_arguments": {"var2": "metadata_val"}}
+        metadata={"tensorzero_arguments": {"var2": "metadata_val"}},
     )
 
     arguments = t0_llm._prepare_api_request(messages, [], request_params)

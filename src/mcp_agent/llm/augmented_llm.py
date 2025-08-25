@@ -10,10 +10,10 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
-    Union,
     cast,
 )
 
+from mcp import Tool
 from mcp.types import (
     CallToolRequest,
     CallToolResult,
@@ -26,11 +26,11 @@ from openai.lib._parsing import type_to_response_format_param as _type_to_respon
 from pydantic_core import from_json
 from rich.text import Text
 
-from mcp_agent.context_dependent import ContextDependent
+from fast_agent.context_dependent import ContextDependent
+from fast_agent.event_progress import ProgressAction
 from mcp_agent.core.exceptions import PromptExitError
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.core.request_params import RequestParams
-from mcp_agent.event_progress import ProgressAction
 from mcp_agent.llm.memory import Memory, SimpleMemory
 from mcp_agent.llm.model_database import ModelDatabase
 from mcp_agent.llm.provider_types import Provider
@@ -45,9 +45,7 @@ from mcp_agent.mcp.interfaces import (
     AugmentedLLMProtocol,
     ModelT,
 )
-from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.mcp.prompt_render import render_multipart_message
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
@@ -55,15 +53,14 @@ MessageT = TypeVar("MessageT")
 
 # Forward reference for type annotations
 if TYPE_CHECKING:
-    from mcp_agent.agents.agent import Agent
-    from mcp_agent.context import Context
+    from fast_agent.context import Context
 
 
 # TODO -- move this to a constant
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 
 # Context variable for storing MCP metadata
-_mcp_metadata_var: ContextVar[Dict[str, Any] | None] = ContextVar('mcp_metadata', default=None)
+_mcp_metadata_var: ContextVar[Dict[str, Any] | None] = ContextVar("mcp_metadata", default=None)
 
 
 def deep_merge(dict1: Dict[Any, Any], dict2: Dict[Any, Any]) -> Dict[Any, Any]:
@@ -113,13 +110,9 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     selecting appropriate tools, and determining what information to retain.
     """
 
-    provider: Provider | None = None
-
     def __init__(
         self,
         provider: Provider,
-        agent: Optional["Agent"] = None,
-        server_names: List[str] | None = None,
         instruction: str | None = None,
         name: str | None = None,
         request_params: RequestParams | None = None,
@@ -152,20 +145,17 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         super().__init__(context=context, **kwargs)
         self.logger = get_logger(__name__)
         self.executor = self.context.executor
-        self.aggregator = agent if agent is not None else MCPAggregator(server_names or [])
-        self.name = agent.name if agent else name
-        self.instruction = agent.instruction if agent else instruction
-        self.provider = provider
+        self.name: str = name or "fast-agent"
+        self.instruction = instruction
+        self._provider = provider
         # memory contains provider specific API types.
         self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
 
         self._message_history: List[PromptMessageMultipart] = []
 
         # Initialize the display component
-        if self.context.config and self.context.config.logger.use_legacy_display:
-            from mcp_agent.ui.console_display_legacy import ConsoleDisplay
-        else:
-            from mcp_agent.ui.console_display import ConsoleDisplay
+        from mcp_agent.ui.console_display import ConsoleDisplay
+
         self.display = ConsoleDisplay(config=self.context.config)
 
         # Tool call counter for current turn
@@ -189,7 +179,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         self._init_api_key = api_key
 
         # Initialize usage tracking
-        self.usage_accumulator = UsageAccumulator()
+        self._usage_accumulator = UsageAccumulator()
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -209,23 +199,28 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     async def generate(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: List[PromptMessageMultipart],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageMultipart:
         """
-        Create a completion with the LLM using the provided messages.
+        Generate a completion using normalized message lists.
+
+        This is the primary LLM interface that works directly with
+        List[PromptMessageMultipart] for efficient internal usage.
+
+        Args:
+            messages: List of PromptMessageMultipart objects
+            request_params: Optional parameters to configure the LLM request
+            tools: Optional list of tools available to the LLM
+
+        Returns:
+            A PromptMessageMultipart containing the Assistant response
         """
-        # note - check changes here are mirrored in structured(). i've thought hard about
-        # a strategy to reduce duplication etc, but aiming for simple but imperfect for the moment
-
-        # Convert PromptMessage to PromptMessageMultipart if needed
-        if multipart_messages and isinstance(multipart_messages[0], PromptMessage):
-            multipart_messages = PromptMessageMultipart.to_multipart(multipart_messages)
-
         # TODO -- create a "fast-agent" control role rather than magic strings
 
-        if multipart_messages[-1].first_text().startswith("***SAVE_HISTORY"):
-            parts: list[str] = multipart_messages[-1].first_text().split(" ", 1)
+        if messages[-1].first_text().startswith("***SAVE_HISTORY"):
+            parts: list[str] = messages[-1].first_text().split(" ", 1)
             filename: str = (
                 parts[1].strip() if len(parts) > 1 else f"{self.name or 'assistant'}_prompts.txt"
             )
@@ -235,7 +230,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             )
             return Prompt.assistant(f"History saved to {filename}")
 
-        self._precall(multipart_messages)
+        self._precall(messages)
 
         # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
@@ -243,8 +238,12 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
         assistant_response: PromptMessageMultipart = await self._apply_prompt_provider_specific(
-            multipart_messages, request_params
+            messages, request_params, tools
         )
+
+        # Count tool calls from the response for usage tracking
+        if assistant_response.tool_calls:
+            self._current_turn_tool_calls = len(assistant_response.tool_calls)
 
         # add generic error and termination reason handling/rollback
         self._message_history.append(assistant_response)
@@ -256,6 +255,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         self,
         multipart_messages: List["PromptMessageMultipart"],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageMultipart:
         """
@@ -274,25 +274,36 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     async def structured(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
-        """Return a structured response from the LLM using the provided messages."""
+        """
+        Generate a structured response using normalized message lists.
 
-        # Convert PromptMessage to PromptMessageMultipart if needed
-        if multipart_messages and isinstance(multipart_messages[0], PromptMessage):
-            multipart_messages = PromptMessageMultipart.to_multipart(multipart_messages)
+        This is the primary LLM interface for structured output that works directly with
+        List[PromptMessageMultipart] for efficient internal usage.
 
-        self._precall(multipart_messages)
-        
+        Args:
+            messages: List of PromptMessageMultipart objects
+            model: The Pydantic model class to parse the response into
+            request_params: Optional parameters to configure the LLM request
+
+        Returns:
+            Tuple of (parsed model instance or None, assistant response message)
+        """
+
+        self._precall(messages)
+
         # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
+
+        # TODO -- this doesn't need to go here anymore.
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
-            
+
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
-            multipart_messages, model, request_params
+            messages, model, request_params
         )
 
         self._message_history.append(assistant_response)
@@ -373,13 +384,8 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     def _precall(self, multipart_messages: List[PromptMessageMultipart]) -> None:
         """Pre-call hook to modify the message before sending it to the provider."""
+        # Ensure all messages are PromptMessageMultipart before extending history
         self._message_history.extend(multipart_messages)
-        if multipart_messages[-1].role == "user":
-            self.show_user_message(
-                render_multipart_message(multipart_messages[-1]),
-                model=self.default_request_params.model,
-                chat_turn=self.chat_turn(),
-            )
 
     def chat_turn(self) -> int:
         """Return the current chat turn number"""
@@ -487,7 +493,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     def _finalize_turn_usage(self, turn_usage: "TurnUsage") -> None:
         """Set tool call count on TurnUsage and add to accumulator."""
         turn_usage.set_tool_calls(self._current_turn_tool_calls)
-        self.usage_accumulator.add_turn(turn_usage)
+        self._usage_accumulator.add_turn(turn_usage)
 
     async def show_assistant_message(
         self,
@@ -500,7 +506,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         """Display an assistant message in a formatted panel."""
         await self.display.show_assistant_message(
             message_text,
-            aggregator=self.aggregator,
+            #            aggregator=self.aggregator,
             highlight_namespaced_tool=highlight_namespaced_tool,
             title=title,
             name=self.name,
@@ -509,70 +515,6 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     def show_user_message(self, message, model: str | None, chat_turn: int) -> None:
         """Display a user message in a formatted panel."""
         self.display.show_user_message(message, model, chat_turn, name=self.name)
-
-    async def pre_tool_call(
-        self, tool_call_id: str | None, request: CallToolRequest
-    ) -> CallToolRequest | bool:
-        """Called before a tool is executed. Return False to prevent execution."""
-        return request
-
-    async def post_tool_call(
-        self, tool_call_id: str | None, request: CallToolRequest, result: CallToolResult
-    ) -> CallToolResult:
-        """Called after a tool execution. Can modify the result before it's returned."""
-        return result
-
-    async def call_tool(
-        self,
-        request: CallToolRequest,
-        tool_call_id: str | None = None,
-    ) -> CallToolResult:
-        """Call a tool with the given parameters and optional ID"""
-
-        try:
-            preprocess = await self.pre_tool_call(
-                tool_call_id=tool_call_id,
-                request=request,
-            )
-
-            if isinstance(preprocess, bool):
-                if not preprocess:
-                    return CallToolResult(
-                        isError=True,
-                        content=[
-                            TextContent(
-                                type="text",
-                                text=f"Error: Tool '{request.params.name}' was not allowed to run.",
-                            )
-                        ],
-                    )
-            else:
-                request = preprocess
-
-            tool_name = request.params.name
-            tool_args = request.params.arguments
-            result = await self.aggregator.call_tool(tool_name, tool_args)
-
-            postprocess = await self.post_tool_call(
-                tool_call_id=tool_call_id, request=request, result=result
-            )
-
-            if isinstance(postprocess, CallToolResult):
-                result = postprocess
-
-            return result
-        except PromptExitError:
-            raise
-        except Exception as e:
-            return CallToolResult(
-                isError=True,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=f"Error executing tool '{request.params.name}': {str(e)}",
-                    )
-                ],
-            )
 
     def _log_chat_progress(
         self, chat_turn: Optional[int] = None, model: Optional[str] = None
@@ -661,7 +603,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             description=description,
             message_count=message_count,
             agent_name=self.name,
-            aggregator=self.aggregator,
+            # aggregator=self.aggregator,
             arguments=arguments,
         )
 
@@ -739,6 +681,10 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         assert self.provider
         return ProviderKeyManager.get_api_key(self.provider.value, self.context.config)
 
+    @property
+    def usage_accumulator(self):
+        return self._usage_accumulator
+
     def get_usage_summary(self) -> dict:
         """
         Get a summary of usage statistics for this LLM instance.
@@ -747,4 +693,14 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             Dictionary containing usage statistics including tokens, cache metrics,
             and context window utilization.
         """
-        return self.usage_accumulator.get_summary()
+        return self._usage_accumulator.get_summary()
+
+    @property
+    def provider(self) -> Provider:
+        """
+        Return the LLM provider type.
+
+        Returns:
+            The Provider enum value representing the LLM provider
+        """
+        return self._provider

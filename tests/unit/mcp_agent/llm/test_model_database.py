@@ -1,3 +1,6 @@
+
+from fast_agent.agents.llm_agent import LlmAgent
+from mcp_agent.core.agent_types import AgentConfig
 from mcp_agent.llm.model_database import ModelDatabase
 from mcp_agent.llm.model_factory import ModelFactory
 
@@ -40,19 +43,20 @@ def test_model_database_tokenizes():
 def test_llm_uses_model_database_for_max_tokens():
     """Test that LLM instances use ModelDatabase for maxTokens defaults"""
 
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
     # Test with a model that has 8192 max_output_tokens (should get full amount)
     factory = ModelFactory.create_factory("claude-sonnet-4-0")
-    llm = factory(agent=None)
+    llm = factory(agent=agent)
     assert llm.default_request_params.maxTokens == 64000
 
     # Test with a model that has high max_output_tokens (should get full amount)
     factory2 = ModelFactory.create_factory("o1")
-    llm2 = factory2(agent=None)
+    llm2 = factory2(agent=agent)
     assert llm2.default_request_params.maxTokens == 100000
 
     # Test with passthrough model (should get its configured max tokens)
     factory3 = ModelFactory.create_factory("passthrough")
-    llm3 = factory3(agent=None)
+    llm3 = factory3(agent=agent)
     expected_max_tokens = ModelDatabase.get_default_max_tokens("passthrough")
     assert llm3.default_request_params.maxTokens == expected_max_tokens
 
@@ -60,7 +64,8 @@ def test_llm_uses_model_database_for_max_tokens():
 def test_llm_usage_tracking_uses_model_database():
     """Test that usage tracking uses ModelDatabase for context windows"""
     factory = ModelFactory.create_factory("passthrough")
-    llm = factory(agent=None, model="claude-sonnet-4-0")
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+    llm = factory(agent=agent, model="claude-sonnet-4-0")
 
     # The usage_accumulator should be able to get context window from ModelDatabase
     # when it has a model set (this happens when turns are added)
@@ -76,7 +81,9 @@ def test_llm_usage_tracking_uses_model_database():
 def test_openai_provider_preserves_all_settings():
     """Test that OpenAI provider doesn't lose any original settings"""
     factory = ModelFactory.create_factory("gpt-4o")
-    llm = factory(agent=None, instruction="You are a helpful assistant")
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+
+    llm = factory(agent=agent, instruction="You are a helpful assistant")
 
     # Verify all the original OpenAI settings are preserved
     params = llm.default_request_params

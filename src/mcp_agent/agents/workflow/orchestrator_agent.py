@@ -81,30 +81,30 @@ class OrchestratorAgent(BaseAgent):
         # Store agents by name for easier lookup
         self.agents: Dict[str, Agent] = {}
         for agent in agents:
-            agent_name = agent.name
+            agent_name = agent._name
             self.logger.info(f"Adding agent '{agent_name}' to orchestrator")
             self.agents[agent_name] = agent
         self.plan_iterations = plan_iterations
         # For tracking state during execution
         self.plan_result: Optional[PlanResult] = None
 
-    async def generate(
+    async def _generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        normalized_messages: List[PromptMessageMultipart],
         request_params: Optional[RequestParams] = None,
     ) -> PromptMessageMultipart:
         """
         Execute an orchestrated plan to process the input.
 
         Args:
-            multipart_messages: Messages to process
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional request parameters
 
         Returns:
             The final synthesized response from the orchestration
         """
         # Extract user request
-        objective = multipart_messages[-1].all_text() if multipart_messages else ""
+        objective = normalized_messages[-1].all_text() if normalized_messages else ""
 
         # Initialize execution parameters
         params = self._merge_request_params(request_params)
@@ -121,7 +121,7 @@ class OrchestratorAgent(BaseAgent):
 
     async def structured(
         self,
-        prompt: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -129,7 +129,7 @@ class OrchestratorAgent(BaseAgent):
         Execute an orchestration plan and parse the result into a structured format.
 
         Args:
-            prompt: List of messages to process
+            messages: List of messages to process
             model: Pydantic model to parse the response into
             request_params: Optional request parameters
 
@@ -137,7 +137,7 @@ class OrchestratorAgent(BaseAgent):
             The parsed final response, or None if parsing fails
         """
         # Generate orchestration result
-        response = await self.generate(prompt, request_params)
+        response = await self.generate(messages, request_params)
 
         # Try to parse the response into the specified model
         try:

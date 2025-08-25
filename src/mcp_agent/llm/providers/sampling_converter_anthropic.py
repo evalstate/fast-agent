@@ -40,18 +40,3 @@ def mcp_stop_reason_to_anthropic_stop_reason(stop_reason: StopReason):
         return "tool_use"
     else:
         return stop_reason
-
-
-def anthropic_stop_reason_to_mcp_stop_reason(stop_reason: str) -> StopReason:
-    if not stop_reason:
-        return "end_turn"
-    elif stop_reason == "end_turn":
-        return "endTurn"
-    elif stop_reason == "max_tokens":
-        return "maxTokens"
-    elif stop_reason == "stop_sequence":
-        return "stopSequence"
-    elif stop_reason == "tool_use":
-        return "toolUse"
-    else:
-        return stop_reason

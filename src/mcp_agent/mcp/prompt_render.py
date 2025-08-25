@@ -5,7 +5,6 @@ Utilities for rendering PromptMessageMultipart objects for display.
 from typing import List
 
 from mcp.types import BlobResourceContents, TextResourceContents
-
 from mcp_agent.mcp.helpers.content_helpers import (
     get_resource_uri,
     get_text,
