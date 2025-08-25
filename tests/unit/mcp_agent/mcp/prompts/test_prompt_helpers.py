@@ -20,6 +20,7 @@ from mcp_agent.mcp.helpers.content_helpers import (
     is_image_content,
     is_resource_content,
     is_text_content,
+    split_thinking_content,
 )
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
@@ -212,3 +213,46 @@ def test_text_at_first_position(text_content, image_content):
     empty_multipart = PromptMessageMultipart(role="user", content=[])
     assert MessageContent.has_text_at_first_position(empty_multipart) is False
     assert MessageContent.get_text_at_first_position(empty_multipart) is None
+
+
+# Test split_thinking_content function
+def test_split_thinking_content():
+    # Test with thinking block
+    message_with_thinking = "<think>This is my thought process</think>This is the actual content"
+    thinking, content = split_thinking_content(message_with_thinking)
+    assert thinking == "This is my thought process"
+    assert content == "This is the actual content"
+
+    # Test with multiline thinking block
+    multiline_message = """<think>
+    Line 1 of thinking
+    Line 2 of thinking
+    </think>
+    The main content here"""
+    thinking, content = split_thinking_content(multiline_message)
+    assert thinking == "Line 1 of thinking\n    Line 2 of thinking"
+    assert content == "The main content here"
+
+    # Test without thinking block
+    plain_message = "Just regular content without thinking"
+    thinking, content = split_thinking_content(plain_message)
+    assert thinking is None
+    assert content == "Just regular content without thinking"
+
+    # Test with malformed thinking tag (no closing tag)
+    malformed_message = "<think>Unclosed thinking block\nSome content"
+    thinking, content = split_thinking_content(malformed_message)
+    assert thinking is None
+    assert content == malformed_message
+
+    # Test with empty thinking block
+    empty_thinking = "<think></think>Main content"
+    thinking, content = split_thinking_content(empty_thinking)
+    assert thinking == ""
+    assert content == "Main content"
+
+    # Test with thinking block not at start
+    middle_thinking = "Some text <think>thoughts</think> more text"
+    thinking, content = split_thinking_content(middle_thinking)
+    assert thinking is None
+    assert content == middle_thinking

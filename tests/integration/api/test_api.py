@@ -221,7 +221,7 @@ async def test_custom_agent(fast_agent):
     fast = fast_agent
 
     class MyAgent(BaseAgent):
-        async def send(self, message):
+        async def send(self, message, request_params=None):
             return "it's a-me!...Mario! "
 
     # Define the agent
@@ -241,7 +241,7 @@ async def test_setting_an_agent_as_default(fast_agent):
     fast = fast_agent
 
     class MyAgent(BaseAgent):
-        async def send(self, message):
+        async def send(self, message, request_params=None):
             return "it's a-me!...Mario! "
 
     @fast.agent(name="custom1")

@@ -336,6 +336,10 @@ class GoogleConverter:
         """
         Converts a single google.genai types.Content to a fast-agent PromptMessageMultipart.
         """
+        # Official fix for GitHub issue #207: Handle None content or content.parts
+        if content is None or not hasattr(content, "parts") or content.parts is None:
+            return PromptMessageMultipart(role="assistant", content=[])
+
         if content.role == "model" and any(part.function_call for part in content.parts):
             return PromptMessageMultipart(role="assistant", content=[])
 

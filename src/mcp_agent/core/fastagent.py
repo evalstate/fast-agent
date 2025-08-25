@@ -87,6 +87,7 @@ class FastAgent:
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
+        **kwargs
     ) -> None:
         """
         Initialize the fast-agent application.
@@ -203,6 +204,7 @@ class FastAgent:
             self.app = MCPApp(
                 name=name,
                 settings=config.Settings(**self.config) if hasattr(self, "config") else None,
+                **kwargs
             )
 
             # Stop progress display immediately if quiet mode is requested

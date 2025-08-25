@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.core.request_params import RequestParams
+from mcp_agent.mcp.helpers.content_helpers import split_thinking_content
 
 
 class FormattedResponse(BaseModel):
@@ -34,8 +35,10 @@ class FormattedResponse(BaseModel):
         "openrouter.google/gemini-2.0-flash-001",
         "gemini25",
         "groq.moonshotai/kimi-k2-instruct",
-        # "groq.deepseek-r1-distill-llama-70b",
-        # "groq.qwen/qwen3-32b",
+        "groq.deepseek-r1-distill-llama-70b",
+        "groq.qwen/qwen3-32b",
+        "gpt-oss",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_structured_output_with_automatic_format_for_model(fast_agent, model_name):
@@ -54,7 +57,8 @@ async def test_structured_output_with_automatic_format_for_model(fast_agent, mod
                 model=FormattedResponse,
             )
             assert isinstance(thinking, FormattedResponse)
-            assert FormattedResponse.model_validate_json(response.first_text())
+            _, json_part = split_thinking_content(response.first_text())
+            assert FormattedResponse.model_validate_json(json_part)
 
             assert "guitar" in thinking.message.lower()
 

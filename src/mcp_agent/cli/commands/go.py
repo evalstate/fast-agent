@@ -121,9 +121,9 @@ async def _run_agent(
                     print(response)
                 elif prompt_file:
                     prompt = load_prompt_multipart(Path(prompt_file))
-                    response = await agent.generate(prompt)
-                    # Print the response text and exit
-                    print(response.last_text())
+                    response = await agent.agent.generate(prompt)
+                    print(f"\nLoaded {len(prompt)} messages from prompt file '{prompt_file}'")
+                    await agent.interactive()
                 else:
                     await agent.interactive()
 

@@ -160,6 +160,7 @@ class GoogleNativeAugmentedLLM(AugmentedLLM[types.Content, types.Content]):
         AugmentedLLM.PARAM_USE_HISTORY,  # Handled by AugmentedLLM base / this class's logic
         AugmentedLLM.PARAM_MAX_ITERATIONS,  # Handled by this class's loop
         # Add any other OpenAI-specific params not applicable to google.genai
+        AugmentedLLM.PARAM_MCP_METADATA,
     }.union(AugmentedLLM.BASE_EXCLUDE_FIELDS)
 
     def __init__(self, *args, **kwargs) -> None:

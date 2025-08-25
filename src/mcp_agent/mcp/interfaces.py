@@ -25,7 +25,7 @@ from a2a.types import AgentCard
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from deprecated import deprecated
 from mcp import ClientSession
-from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
+from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult, Tool
 from pydantic import BaseModel
 
 from mcp_agent.core.agent_types import AgentType
@@ -202,6 +202,8 @@ class AgentProtocol(AugmentedLLMProtocol, Protocol):
     async def list_prompts(self, server_name: str | None = None) -> Mapping[str, List[Prompt]]: ...
 
     async def list_resources(self, server_name: str | None = None) -> Mapping[str, List[str]]: ...
+
+    async def list_mcp_tools(self, server_name: str | None = None) -> Mapping[str, List[Tool]]: ...
 
     async def get_resource(
         self, resource_uri: str, server_name: str | None = None

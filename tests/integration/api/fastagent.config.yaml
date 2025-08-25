@@ -49,6 +49,12 @@ mcp:
     card_test:
       command: "uv"
       args: ["run", "mcp_tools_server.py"]
+    spoof_test:
+      command: "uv"
+      args: ["run", "mcp_tools_server.py"]
+      implementation:
+        name: "spoof"
+        version: "9.9.9"
     hyphen-test:
       command: "uv"
       args: ["run", "mcp_tools_server.py"]
@@ -60,3 +66,6 @@ mcp:
     dynamic_tool:
       command: "uv"
       args: ["run", "mcp_dynamic_tools.py"]
+    progress_test:
+      command: "uv"
+      args: ["run", "mcp_progress_server.py"]
