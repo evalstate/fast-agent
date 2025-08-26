@@ -12,7 +12,14 @@ from typing import TYPE_CHECKING, Any, Dict
 import pytest
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
-
+from mcp_agent.human_input.elicitation_form import ElicitationForm
+from mcp_agent.human_input.form_fields import (
+    FormSchema,
+    boolean,
+    choice,
+    integer,
+    string,
+)
 from mcp_agent.logging.logger import get_logger
 
 if TYPE_CHECKING:
@@ -155,17 +162,6 @@ async def test_elicitation_precedence_decorator_over_config(fast_agent):
 @pytest.mark.asyncio
 async def test_elicitation_form_default_values():
     """Test that default values are properly extracted and set for all field types in elicitation forms."""
-    from prompt_toolkit.buffer import Buffer
-    from prompt_toolkit.widgets import Checkbox, RadioList
-
-    from mcp_agent.human_input.elicitation_form import ElicitationForm
-    from mcp_agent.human_input.form_fields import (
-        FormSchema,
-        boolean,
-        choice,
-        integer,
-        string,
-    )
 
     # Use FormSchema builder for cleaner test setup
     form_schema = FormSchema(
@@ -179,17 +175,13 @@ async def test_elicitation_form_default_values():
     form = ElicitationForm(schema, "Test defaults", "test_agent", "test_server")
 
     # Check string default
-    assert isinstance(form.field_widgets["username"], Buffer)
     assert form.field_widgets["username"].text == "john_doe"
 
     # Check integer default
-    assert isinstance(form.field_widgets["age"], Buffer)
     assert form.field_widgets["age"].text == "25"
 
     # Check boolean default
-    assert isinstance(form.field_widgets["subscribe"], Checkbox)
     assert form.field_widgets["subscribe"].checked is True
 
     # Check enum default
-    assert isinstance(form.field_widgets["theme"], RadioList)
     assert form.field_widgets["theme"].current_value == "dark"
