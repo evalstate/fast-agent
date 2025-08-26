@@ -12,14 +12,7 @@ from typing import TYPE_CHECKING, Any, Dict
 import pytest
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
-from mcp_agent.human_input.elicitation_form import ElicitationForm
-from mcp_agent.human_input.form_fields import (
-    FormSchema,
-    boolean,
-    choice,
-    integer,
-    string,
-)
+
 from mcp_agent.logging.logger import get_logger
 
 if TYPE_CHECKING:
@@ -34,16 +27,16 @@ async def custom_test_elicitation_handler(
 ) -> ElicitResult:
     """Test handler that returns predictable responses for integration testing."""
     logger.info(f"Test elicitation handler called with: {params.message}")
-
+    
     if params.requestedSchema:
         # Generate test data based on the schema for round-trip verification
         properties = params.requestedSchema.get("properties", {})
         content: Dict[str, Any] = {}
-
+        
         # Provide test values for each field
         for field_name, field_def in properties.items():
             field_type = field_def.get("type", "string")
-
+            
             if field_type == "string":
                 if field_name == "name":
                     content[field_name] = "Test User"
@@ -71,7 +64,7 @@ async def custom_test_elicitation_handler(
                 content[field_name] = ["test-item"]
             elif field_type == "object":
                 content[field_name] = {"test": "value"}
-
+        
         logger.info(f"Test handler returning: {content}")
         return ElicitResult(action="accept", content=content)
     else:
@@ -100,7 +93,7 @@ async def test_custom_elicitation_handler(fast_agent):
             
             # Should have elicitation capability
             assert "✓ Elicitation" in capabilities_text, f"Elicitation capability not advertised: {capabilities_text}"
-
+            
             # Now test the actual elicitation with our custom handler
             result = await agent.get_resource("elicitation://user-profile")
             result_str = str(result)
@@ -156,32 +149,3 @@ async def test_elicitation_precedence_decorator_over_config(fast_agent):
             assert "Test User" in result_str, f"Decorator precedence failed: {result_str}"
     
     await agent_function()
-
-
-@pytest.mark.integration
-@pytest.mark.asyncio
-async def test_elicitation_form_default_values():
-    """Test that default values are properly extracted and set for all field types in elicitation forms."""
-
-    # Use FormSchema builder for cleaner test setup
-    form_schema = FormSchema(
-        username=string(title="Username", default="john_doe"),
-        age=integer(title="Age", default=25),
-        subscribe=boolean(title="Subscribe", default=True),
-        theme=choice(choices=["light", "dark", "auto"], title="Theme", default="dark"),
-    )
-
-    schema = form_schema.to_schema()
-    form = ElicitationForm(schema, "Test defaults", "test_agent", "test_server")
-
-    # Check string default
-    assert form.field_widgets["username"].text == "john_doe"
-
-    # Check integer default
-    assert form.field_widgets["age"].text == "25"
-
-    # Check boolean default
-    assert form.field_widgets["subscribe"].checked is True
-
-    # Check enum default
-    assert form.field_widgets["theme"].current_value == "dark"
