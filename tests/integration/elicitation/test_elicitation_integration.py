@@ -79,7 +79,7 @@ async def custom_test_elicitation_handler(
 async def test_custom_elicitation_handler(fast_agent):
     """Test that custom elicitation handler works (highest precedence)."""
     fast = fast_agent
-
+    
     @fast.agent(
         "custom-handler-agent",
         servers=["resource_forms"],
@@ -90,29 +90,27 @@ async def test_custom_elicitation_handler(fast_agent):
             # First check that elicitation capability is advertised
             capabilities_result = await agent.get_resource("elicitation://client-capabilities")
             capabilities_text = str(capabilities_result)
-
+            
             # Should have elicitation capability
-            assert "✓ Elicitation" in capabilities_text, (
-                f"Elicitation capability not advertised: {capabilities_text}"
-            )
+            assert "✓ Elicitation" in capabilities_text, f"Elicitation capability not advertised: {capabilities_text}"
 
             # Now test the actual elicitation with our custom handler
             result = await agent.get_resource("elicitation://user-profile")
             result_str = str(result)
-
+            
             # Verify we got expected test data from our custom handler
             assert "Test User" in result_str, f"Custom handler not used, got: {result_str}"
             assert "test@example.com" in result_str, f"Custom handler not used, got: {result_str}"
-
+    
     await agent_function()
 
 
-@pytest.mark.integration
+@pytest.mark.integration  
 @pytest.mark.asyncio
 async def test_forms_mode_capability_advertisement(fast_agent):
     """Test that forms mode advertises elicitation capability when no custom handler provided."""
     fast = fast_agent
-
+    
     @fast.agent(
         "forms-agent",
         servers=["resource_forms"],
@@ -123,23 +121,21 @@ async def test_forms_mode_capability_advertisement(fast_agent):
             # Check capabilities - should have elicitation capability
             capabilities_result = await agent.get_resource("elicitation://client-capabilities")
             capabilities_text = str(capabilities_result)
-
+            
             # Should advertise elicitation capability in forms mode
-            assert "✓ Elicitation" in capabilities_text, (
-                f"Forms mode should advertise elicitation: {capabilities_text}"
-            )
-
+            assert "✓ Elicitation" in capabilities_text, f"Forms mode should advertise elicitation: {capabilities_text}"
+    
     await agent_function()
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio
+@pytest.mark.asyncio  
 async def test_elicitation_precedence_decorator_over_config(fast_agent):
     """Test that decorator-provided handler takes precedence over config."""
     fast = fast_agent
-
+    
     @fast.agent(
-        "precedence-test-agent",
+        "precedence-test-agent", 
         servers=["resource_forms"],
         elicitation_handler=custom_test_elicitation_handler,  # Should override config
     )
@@ -148,10 +144,10 @@ async def test_elicitation_precedence_decorator_over_config(fast_agent):
             # Test actual elicitation behavior
             result = await agent.get_resource("elicitation://user-profile")
             result_str = str(result)
-
+            
             # Should get test data from our custom handler, not config behavior
             assert "Test User" in result_str, f"Decorator precedence failed: {result_str}"
-
+    
     await agent_function()
 
 
