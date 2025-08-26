@@ -435,19 +435,6 @@ class ElicitationForm:
 
         return constraints
 
-    def _extract_default_value(self, field_def: Dict[str, Any]) -> Any:
-        """Extract default value from field definition, handling anyOf schemas."""
-        # Check direct default
-        if "default" in field_def:
-            return field_def["default"]
-
-        # Check anyOf variants (for Optional fields with defaults)
-        if "anyOf" in field_def:
-            for variant in field_def["anyOf"]:
-                if "default" in variant:
-                    return variant["default"]
-
-        return None
 
     def _create_field(self, field_name: str, field_def: Dict[str, Any]):
         """Create a field widget."""
@@ -524,7 +511,7 @@ class ElicitationForm:
             enum_names = field_def.get("enumNames", enum_values)
             values = [(val, name) for val, name in zip(enum_values, enum_names)]
 
-            default_value = self._extract_default_value(field_def)
+            default_value = field_def.get("default")
             radio_list = RadioList(values=values, default=default_value)
             self.field_widgets[field_name] = radio_list
 
@@ -556,11 +543,17 @@ class ElicitationForm:
             else:
                 constraints = {}
 
-            # Determine if field should be multiline based on max_length
+            default_value = field_def.get("default")
+
+            # Determine if field should be multiline based on max_length or default value length
             if field_type == "string":
                 max_length = constraints.get("maxLength")
+                # Check default value length if maxLength not specified
+                if not max_length and default_value is not None:
+                    max_length = len(str(default_value))
             else:
                 max_length = None
+
             if max_length and max_length > 100:
                 # Use multiline for longer fields
                 multiline = True
@@ -574,11 +567,6 @@ class ElicitationForm:
                 multiline = False
                 height = 1
 
-            default_value = self._extract_default_value(field_def)
-            initial_text = ""
-            if default_value is not None:
-                initial_text = str(default_value)
-
             buffer = Buffer(
                 validator=validator,
                 multiline=multiline,
@@ -586,8 +574,8 @@ class ElicitationForm:
                 complete_while_typing=False,  # Disable completion for cleaner experience
                 enable_history_search=False,  # Disable history for cleaner experience
             )
-            if initial_text:
-                buffer.text = initial_text
+            if default_value is not None:
+                buffer.text = str(default_value)
             self.field_widgets[field_name] = buffer
 
             # Create dynamic style function for focus highlighting and validation errors
