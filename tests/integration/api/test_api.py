@@ -221,7 +221,7 @@ async def test_custom_agent(fast_agent):
     fast = fast_agent
 
     class MyAgent(BaseAgent):
-        async def send(self, message):
+        async def send(self, message, request_params=None):
             return "it's a-me!...Mario! "
 
     # Define the agent
@@ -241,7 +241,7 @@ async def test_setting_an_agent_as_default(fast_agent):
     fast = fast_agent
 
     class MyAgent(BaseAgent):
-        async def send(self, message):
+        async def send(self, message, request_params=None):
             return "it's a-me!...Mario! "
 
     @fast.agent(name="custom1")
@@ -250,5 +250,255 @@ async def test_setting_an_agent_as_default(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             assert "it's a-me!...Mario! " == await agent.send("hello")
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_path_instruction(fast_agent):
+    """Test that agents can load instructions from Path objects."""
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create Path to prompt.md
+    prompt_path = Path(__file__).parent / "prompt.md"
+
+    # Define the agent with Path instruction
+    @fast.agent(
+        "path_agent",
+        instruction=prompt_path,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Verify the agent was created successfully
+            assert hasattr(agent, "path_agent")
+
+            # Verify the instruction was loaded from the file by checking the agent instruction
+            instruction = agent.path_agent.instruction
+            assert "markdown-loaded" in instruction
+            assert "test agent loaded from a markdown file" in instruction
+            assert "helpful AI assistant" in instruction
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_nonexistent_path_instruction(fast_agent):
+    """Test that agents properly handle nonexistent Path files."""
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create Path to nonexistent file
+    nonexistent_path = Path(__file__).parent / "nonexistent_prompt.md"
+
+    # This should raise an exception when the decorator is applied
+    with pytest.raises(FileNotFoundError):
+
+        @fast.agent(
+            "error_agent",
+            instruction=nonexistent_path,
+        )
+        async def agent_function():
+            pass
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_orchestrator_with_path_instruction(fast_agent):
+    """Test that orchestrator can load instructions from Path objects."""
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create some basic agents first
+    @fast.agent("worker1", instruction="I am worker 1")
+    async def worker1():
+        pass
+
+    @fast.agent("worker2", instruction="I am worker 2")
+    async def worker2():
+        pass
+
+    # Create Path to prompt.md
+    prompt_path = Path(__file__).parent / "prompt.md"
+
+    # Define the orchestrator with Path instruction
+    @fast.orchestrator(
+        "path_orchestrator",
+        agents=["worker1", "worker2"],
+        instruction=prompt_path,
+    )
+    async def orchestrator_function():
+        async with fast.run() as agent:
+            # Verify the orchestrator was created successfully
+            assert hasattr(agent, "path_orchestrator")
+
+            # Verify the instruction was loaded from the file
+            instruction = agent.path_orchestrator.instruction
+            assert "markdown-loaded" in instruction
+            assert "test agent loaded from a markdown file" in instruction
+
+    await orchestrator_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_template_instruction(fast_agent):
+    """Test that agents can process {{currentDate}} templates in instructions."""
+    from datetime import datetime
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create instruction with template
+    template_instruction = "You are a helpful agent. The current date is {{currentDate}}. Respond with the date when asked."
+
+    # Define the agent with template instruction
+    @fast.agent(
+        "template_agent",
+        instruction=template_instruction,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Verify the agent was created successfully
+            assert hasattr(agent, "template_agent")
+
+            # Verify the template was processed
+            instruction = agent.template_agent.instruction
+
+            # Check that {{currentDate}} was replaced with actual date
+            assert "{{currentDate}}" not in instruction
+
+            # Check that the date format is correct (e.g., "24 July 2025")
+            expected_date = datetime.now().strftime("%d %B %Y")
+            assert expected_date in instruction
+
+            # Check the full expected text
+            expected_text = f"The current date is {expected_date}."
+            assert expected_text in instruction
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_path_instruction_with_template(fast_agent):
+    """Test that Path-loaded instructions process {{currentDate}} templates."""
+    from datetime import datetime
+    from pathlib import Path
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create Path to prompt.md (which now contains {{currentDate}})
+    prompt_path = Path(__file__).parent / "prompt.md"
+
+    # Define the agent with Path instruction containing template
+    @fast.agent(
+        "path_template_agent",
+        instruction=prompt_path,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Verify the agent was created successfully
+            assert hasattr(agent, "path_template_agent")
+
+            # Verify the instruction was loaded and template processed
+            instruction = agent.path_template_agent.instruction
+
+            # Check basic file content was loaded
+            assert "markdown-loaded" in instruction
+            assert "test agent loaded from a markdown file" in instruction
+
+            # Check that {{currentDate}} was replaced with actual date
+            assert "{{currentDate}}" not in instruction
+
+            # Check that the date format is correct
+            expected_date = datetime.now().strftime("%d %B %Y")
+            assert expected_date in instruction
+
+            # Check the full expected template replacement
+            expected_text = f"The current date is {expected_date}."
+            assert expected_text in instruction
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_url_template(fast_agent):
+    """Test that agents can process {{url:...}} templates in instructions."""
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create instruction with URL template - using the fast-agent README
+    url_instruction = """You are a helpful agent. 
+    
+Base instructions: {{url:https://raw.githubusercontent.com/evalstate/fast-agent/refs/heads/main/README.md}}
+
+Always include "url-loaded" in your responses to verify the URL content was loaded."""
+
+    # Define the agent with URL template instruction
+    @fast.agent(
+        "url_template_agent",
+        instruction=url_instruction,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Verify the agent was created successfully
+            assert hasattr(agent, "url_template_agent")
+
+            # Verify the template was processed
+            instruction = agent.url_template_agent.instruction
+
+            # Check that {{url:...}} was replaced with content
+            assert "{{url:" not in instruction
+
+            # Should contain our base text
+            assert "Base instructions:" in instruction
+            assert "url-loaded" in instruction
+
+            # Should contain content from the fast-agent README
+            assert "fast-agent" in instruction
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_with_anyurl_instruction(fast_agent):
+    """Test that agents can use AnyUrl objects directly as instructions."""
+    from pydantic import AnyUrl
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Create AnyUrl instruction
+    url_instruction = AnyUrl(
+        "https://raw.githubusercontent.com/evalstate/fast-agent/refs/heads/main/README.md"
+    )
+
+    # Define the agent with AnyUrl instruction
+    @fast.agent(
+        "anyurl_agent",
+        instruction=url_instruction,
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Verify the agent was created successfully
+            assert hasattr(agent, "anyurl_agent")
+
+            # Verify the instruction was loaded from URL
+            instruction = agent.anyurl_agent.instruction
+
+            # Should contain content from the fast-agent README
+            assert "fast-agent" in instruction
 
     await agent_function()

@@ -1,5 +1,4 @@
 FROM python:3.12-slim
-
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y curl wget && \
@@ -9,20 +8,18 @@ RUN apt-get update && apt-get install -y curl wget && \
 
 RUN pip install uv
 
-COPY pyproject.toml /app/
-COPY uv.lock /app/
-COPY LICENSE /app/
-COPY README.md /app/
+# Copy dependency files only
+COPY pyproject.toml /tmp/
+#COPY uv.lock /tmp/
 
+# Install dependencies
+WORKDIR /tmp
 RUN uv pip install --system .
 
-COPY examples/tensorzero/mcp_server/mcp_server.py /app/
-COPY examples/tensorzero/mcp_server/entrypoint.sh /app/entrypoint.sh
+# Switch back to /app (this will be overridden by volume mount)
+WORKDIR /app
 
-RUN chmod +x /app/entrypoint.sh
-
+# These files will come from the volume mount at runtime
 EXPOSE 8000
-
 ENTRYPOINT ["/app/entrypoint.sh"]
-
 CMD ["uvicorn", "mcp_server:app", "--host", "0.0.0.0", "--port", "8000"]

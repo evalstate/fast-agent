@@ -441,9 +441,6 @@ class OpenAIConverter:
         # Convert to OpenAI format
         user_message = OpenAIConverter.convert_to_openai(non_text_multipart)
 
-        # We need to add tool_call_id manually
-        user_message["tool_call_id"] = tool_call_id
-
         return (tool_message, [user_message])
 
     @staticmethod
@@ -461,22 +458,42 @@ class OpenAIConverter:
         Returns:
             List of OpenAI API messages for tool responses
         """
-        messages = []
+        tool_messages = []
+        user_messages = []
+        has_mixed_content = False
 
         for tool_call_id, result in results:
-            converted = OpenAIConverter.convert_tool_result_to_openai(
-                tool_result=result,
-                tool_call_id=tool_call_id,
-                concatenate_text_blocks=concatenate_text_blocks,
-            )
+            try:
+                converted = OpenAIConverter.convert_tool_result_to_openai(
+                    tool_result=result,
+                    tool_call_id=tool_call_id,
+                    concatenate_text_blocks=concatenate_text_blocks,
+                )
 
-            # Handle the case where we have mixed content and get back a tuple
-            if isinstance(converted, tuple):
-                tool_message, additional_messages = converted
-                messages.append(tool_message)
-                messages.extend(additional_messages)
-            else:
-                # Single message case (text-only)
-                messages.append(converted)
+                # Handle the case where we have mixed content and get back a tuple
+                if isinstance(converted, tuple):
+                    tool_message, additional_messages = converted
+                    tool_messages.append(tool_message)
+                    user_messages.extend(additional_messages)
+                    has_mixed_content = True
+                else:
+                    # Single message case (text-only)
+                    tool_messages.append(converted)
+            except Exception as e:
+                _logger.error(f"Failed to convert tool_call_id={tool_call_id}: {e}")
+                # Create a basic tool response to prevent missing tool_call_id error
+                fallback_message = {
+                    "role": "tool",
+                    "tool_call_id": tool_call_id,
+                    "content": f"[Conversion error: {str(e)}]",
+                }
+                tool_messages.append(fallback_message)
 
+        # CONDITIONAL REORDERING: Only reorder if there are user messages (mixed content)
+        if has_mixed_content and user_messages:
+            # Reorder: All tool messages first (OpenAI sequence), then user messages (vision context)
+            messages = tool_messages + user_messages
+        else:
+            # Pure tool responses - keep original order to preserve context (snapshots, etc.)
+            messages = tool_messages
         return messages

@@ -25,7 +25,7 @@ from a2a.types import AgentCard
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from deprecated import deprecated
 from mcp import ClientSession
-from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
+from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult, Tool
 from pydantic import BaseModel
 
 from mcp_agent.core.agent_types import AgentType
@@ -34,6 +34,17 @@ from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 if TYPE_CHECKING:
     from mcp_agent.llm.usage_tracking import UsageAccumulator
+
+
+__all__ = [
+    "MCPConnectionManagerProtocol",
+    "ServerRegistryProtocol",
+    "ServerConnection",
+    "AugmentedLLMProtocol",
+    "AgentProtocol",
+    "ModelFactoryClassProtocol",
+    "ModelT",
+]
 
 
 @runtime_checkable
@@ -101,7 +112,7 @@ class AugmentedLLMProtocol(Protocol):
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -110,7 +121,7 @@ class AugmentedLLMProtocol(Protocol):
 
     async def generate(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         request_params: RequestParams | None = None,
     ) -> PromptMessageMultipart:
         """
@@ -191,6 +202,8 @@ class AgentProtocol(AugmentedLLMProtocol, Protocol):
     async def list_prompts(self, server_name: str | None = None) -> Mapping[str, List[Prompt]]: ...
 
     async def list_resources(self, server_name: str | None = None) -> Mapping[str, List[str]]: ...
+
+    async def list_mcp_tools(self, server_name: str | None = None) -> Mapping[str, List[Tool]]: ...
 
     async def get_resource(
         self, resource_uri: str, server_name: str | None = None

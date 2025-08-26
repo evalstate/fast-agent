@@ -11,6 +11,7 @@ from rich import print as rich_print
 from mcp_agent.agents.agent import Agent
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.interactive_prompt import InteractivePrompt
+from mcp_agent.core.request_params import RequestParams
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.progress_display import progress_display
 
@@ -53,6 +54,7 @@ class AgentApp:
         message: Union[str, PromptMessage, PromptMessageMultipart] | None = None,
         agent_name: str | None = None,
         default_prompt: str = "",
+        request_params: RequestParams | None = None,
     ) -> str:
         """
         Make the object callable to send messages or start interactive prompt.
@@ -65,19 +67,21 @@ class AgentApp:
                 - PromptMessageMultipart: Used directly
             agent_name: Optional name of the agent to send to (defaults to first agent)
             default_prompt: Default message to use in interactive prompt mode
+            request_params: Optional request parameters including MCP metadata
 
         Returns:
             The agent's response as a string or the result of the interactive session
         """
         if message:
-            return await self._agent(agent_name).send(message)
+            return await self._agent(agent_name).send(message, request_params)
 
-        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
+        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt, request_params=request_params)
 
     async def send(
         self,
         message: Union[str, PromptMessage, PromptMessageMultipart],
         agent_name: Optional[str] = None,
+        request_params: RequestParams | None = None,
     ) -> str:
         """
         Send a message to the specified agent (or to all agents).
@@ -88,11 +92,12 @@ class AgentApp:
                 - PromptMessage: Converted to PromptMessageMultipart
                 - PromptMessageMultipart: Used directly
             agent_name: Optional name of the agent to send to
+            request_params: Optional request parameters including MCP metadata
 
         Returns:
             The agent's response as a string
         """
-        return await self._agent(agent_name).send(message)
+        return await self._agent(agent_name).send(message, request_params)
 
     def _agent(self, agent_name: str | None) -> Agent:
         if agent_name:
@@ -233,17 +238,23 @@ class AgentApp:
         )
 
     @deprecated
-    async def prompt(self, agent_name: str | None = None, default_prompt: str = "") -> str:
+    async def prompt(
+        self, 
+        agent_name: str | None = None, 
+        default_prompt: str = "",
+        request_params: RequestParams | None = None
+    ) -> str:
         """
         Deprecated - use interactive() instead.
         """
-        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt)
+        return await self.interactive(agent_name=agent_name, default_prompt=default_prompt, request_params=request_params)
 
     async def interactive(
         self,
         agent_name: str | None = None,
         default_prompt: str = "",
         pretty_print_parallel: bool = False,
+        request_params: RequestParams | None = None,
     ) -> str:
         """
         Interactive prompt for sending messages with advanced features.
@@ -252,6 +263,7 @@ class AgentApp:
             agent_name: Optional target agent name (uses default if not specified)
             default: Default message to use when user presses enter
             pretty_print_parallel: Enable clean parallel results display for parallel agents
+            request_params: Optional request parameters including MCP metadata
 
         Returns:
             The result of the interactive session
@@ -285,7 +297,7 @@ class AgentApp:
 
         # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
-            result = await self.send(message, agent_name)
+            result = await self.send(message, agent_name, request_params)
 
             # Show parallel results if enabled and this is a parallel agent
             if pretty_print_parallel:

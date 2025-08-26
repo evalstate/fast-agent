@@ -76,6 +76,25 @@ EXAMPLE_TYPES = {
         ],
         "create_subdir": True,
     },
+    "tensorzero": {
+        "description": "A complete example showcasing the TensorZero integration.\n"
+        "Includes the T0 Gateway, an MCP server, an interactive agent, and \n"
+        "multi-modal functionality.",
+        "files": [
+            ".env.sample",
+            "Makefile",
+            "README.md",
+            "agent.py",
+            "docker-compose.yml",
+            "fastagent.config.yaml",
+            "image_demo.py",
+            "simple_agent.py",
+            "mcp_server/",
+            "demo_images/",
+            "tensorzero_config/"
+        ],
+        "create_subdir": True,
+    },
 }
 
 
@@ -223,6 +242,27 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
                 console.print(f"[red]Error copying mount-point/{filename}: {str(e)}[/red]")
 
     return created
+
+
+def copy_project_template(source_dir: Path, dest_dir: Path, console: Console, force: bool = False):
+    """
+    Recursively copies a project template directory.
+    This is a helper to handle project-based quickstarts like TensorZero.
+    """
+    if dest_dir.exists():
+        if force:
+            console.print(f"[yellow]--force specified. Removing existing directory: {dest_dir}[/yellow]")
+            shutil.rmtree(dest_dir)
+        else:
+            console.print(f"[bold yellow]Directory '{dest_dir.name}' already exists.[/bold yellow] Use --force to overwrite.")
+            return False
+
+    try:
+        shutil.copytree(source_dir, dest_dir)
+        return True
+    except Exception as e:
+        console.print(f"[red]Error copying project template: {e}[/red]")
+        return False
 
 
 def show_overview() -> None:
@@ -395,6 +435,73 @@ def _show_completion_message(example_type: str, created: list[str]) -> None:
             )
     else:
         console.print("\n[yellow]No files were created.[/yellow]")
+
+
+@app.command(name="tensorzero", help="Create the TensorZero integration example project.")
+def tensorzero(
+    directory: Path = typer.Argument(
+        Path("."),
+        help="Directory where the 'tensorzero' project folder will be created.",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Force overwrite if project directory exists"),
+):
+    """Create the TensorZero project example."""
+    console.print("[bold green]Setting up the TensorZero quickstart example...[/bold green]")
+
+    dest_project_dir = directory.resolve() / "tensorzero"
+
+    # --- Find Source Directory ---
+    from importlib.resources import files
+    try:
+        # This path MUST match the "to" path from hatch_build.py
+        source_dir = files("mcp_agent").joinpath("resources").joinpath("examples").joinpath("tensorzero")
+        if not source_dir.is_dir():
+            raise FileNotFoundError  # Fallback to dev mode if resource isn't a dir
+    except (ImportError, ModuleNotFoundError, FileNotFoundError):
+        console.print("[yellow]Package resources not found. Falling back to development mode.[/yellow]")
+        # This path is relative to the project root in a development environment
+        source_dir = Path(__file__).parent.parent.parent.parent / "examples" / "tensorzero"
+
+    if not source_dir.exists() or not source_dir.is_dir():
+        console.print(f"[red]Error: Source project directory not found at '{source_dir}'[/red]")
+        raise typer.Exit(1)
+
+    console.print(f"Source directory: [dim]{source_dir}[/dim]")
+    console.print(f"Destination: [dim]{dest_project_dir}[/dim]")
+
+    # --- Copy Project and Show Message ---
+    if copy_project_template(source_dir, dest_project_dir, console, force):
+        console.print(
+            f"\n[bold green]✅ Success![/bold green] Your TensorZero project has been created in: [cyan]{dest_project_dir}[/cyan]"
+        )
+        console.print("\n[bold yellow]Next Steps:[/bold yellow]")
+        console.print("\n1. [bold]Navigate to your new project directory:[/bold]")
+        console.print(f"   [cyan]cd {dest_project_dir.relative_to(Path.cwd())}[/cyan]")
+
+        console.print("\n2. [bold]Set up your API keys:[/bold]")
+        console.print("   [cyan]cp .env.sample .env[/cyan]")
+        console.print(
+            "   [dim]Then, open the new '.env' file and add your OpenAI or Anthropic API key.[/dim]"
+        )
+
+        console.print("\n3. [bold]Start the required services (TensorZero Gateway & MCP Server):[/bold]")
+        console.print("   [cyan]docker compose up --build -d[/cyan]")
+        console.print(
+            "   [dim](This builds and starts the necessary containers in the background)[/dim]"
+        )
+
+        console.print("\n4. [bold]Run the interactive agent:[/bold]")
+        console.print("   [cyan]make agent[/cyan]  (or `uv run agent.py`)")
+        console.print("\nEnjoy exploring the TensorZero integration with fast-agent! ✨")
+
+
+@app.command(name="t0", help="Alias for the TensorZero quickstart.", hidden=True)
+def t0_alias(
+    directory: Path = typer.Argument(Path("."), help="Directory for the 'tensorzero' project folder."),
+    force: bool = typer.Option(False, "--force", "-f", help="Force overwrite"),
+):
+    """Alias for the `tensorzero` command."""
+    tensorzero(directory, force)
 
 
 @app.callback(invoke_without_command=True)

@@ -7,12 +7,72 @@ from rich.panel import Panel
 from rich.text import Text
 
 from mcp_agent import console
+from mcp_agent.core.mermaid_utils import (
+    create_mermaid_live_link,
+    detect_diagram_type,
+    extract_mermaid_diagrams,
+)
 from mcp_agent.mcp.common import SEP
 from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 
 # Constants
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 CODE_STYLE = "native"
+
+HTML_ESCAPE_CHARS = {"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}
+
+
+def _prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
+    """Prepare content for markdown rendering by escaping HTML/XML tags
+    while preserving code blocks and inline code.
+
+    This ensures XML/HTML tags are displayed as visible text rather than
+    being interpreted as markup by the markdown renderer.
+
+    Note: This method does not handle overlapping code blocks (e.g., if inline
+    code appears within a fenced code block range). In practice, this is not
+    an issue since markdown syntax doesn't support such overlapping.
+    """
+    if not escape_xml or not isinstance(content, str):
+        return content
+
+    protected_ranges = []
+    import re
+
+    # Protect fenced code blocks (don't escape anything inside these)
+    code_block_pattern = r"```[\s\S]*?```"
+    for match in re.finditer(code_block_pattern, content):
+        protected_ranges.append((match.start(), match.end()))
+
+    # Protect inline code (don't escape anything inside these)
+    inline_code_pattern = r"(?<!`)`(?!``)[^`\n]+`(?!`)"
+    for match in re.finditer(inline_code_pattern, content):
+        protected_ranges.append((match.start(), match.end()))
+
+    protected_ranges.sort(key=lambda x: x[0])
+
+    # Build the escaped content
+    result = []
+    last_end = 0
+
+    for start, end in protected_ranges:
+        # Escape everything outside protected ranges
+        unprotected_text = content[last_end:start]
+        for char, replacement in HTML_ESCAPE_CHARS.items():
+            unprotected_text = unprotected_text.replace(char, replacement)
+        result.append(unprotected_text)
+
+        # Keep protected ranges (code blocks) as-is
+        result.append(content[start:end])
+        last_end = end
+
+    # Escape any remaining content after the last protected range
+    remainder_text = content[last_end:]
+    for char, replacement in HTML_ESCAPE_CHARS.items():
+        remainder_text = remainder_text.replace(char, replacement)
+    result.append(remainder_text)
+
+    return "".join(result)
 
 
 class ConsoleDisplay:
@@ -30,6 +90,49 @@ class ConsoleDisplay:
         """
         self.config = config
         self._markup = config.logger.enable_markup if config else True
+        self._escape_xml = True
+
+    def _render_content_smartly(self, content: str, check_markdown_markers: bool = False) -> None:
+        """
+        Helper method to intelligently render content based on its type.
+
+        - Pure XML: Use syntax highlighting for readability
+        - Markdown (with markers): Use markdown rendering with proper escaping
+        - Plain text: Display as-is (when check_markdown_markers=True and no markers found)
+
+        Args:
+            content: The text content to render
+            check_markdown_markers: If True, only use markdown rendering when markers are present
+        """
+        import re
+
+        from rich.markdown import Markdown
+
+        # Check if content appears to be primarily XML
+        xml_pattern = r"^<[a-zA-Z_][a-zA-Z0-9_-]*[^>]*>"
+        is_xml_content = bool(re.match(xml_pattern, content.strip())) and content.count("<") > 5
+
+        if is_xml_content:
+            # Display XML content with syntax highlighting for better readability
+            from rich.syntax import Syntax
+
+            syntax = Syntax(content, "xml", theme=CODE_STYLE, line_numbers=False)
+            console.console.print(syntax, markup=self._markup)
+        elif check_markdown_markers:
+            # Check for markdown markers before deciding to use markdown rendering
+            if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                # Has markdown markers - render as markdown with escaping
+                prepared_content = _prepare_markdown_content(content, self._escape_xml)
+                md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                console.console.print(md, markup=self._markup)
+            else:
+                # Plain text - display as-is
+                console.console.print(content, markup=self._markup)
+        else:
+            # Always treat as markdown with proper escaping
+            prepared_content = _prepare_markdown_content(content, self._escape_xml)
+            md = Markdown(prepared_content, code_theme=CODE_STYLE)
+            console.console.print(md, markup=self._markup)
 
     def show_tool_result(self, result: CallToolResult, name: str | None = None) -> None:
         """Display a tool result in the new visual style."""
@@ -158,29 +261,29 @@ class ConsoleDisplay:
                 content = content[:360] + "..."
             console.console.print(content, style="dim", markup=self._markup)
 
-        # Bottom separator with tool list: ─ [tool1] [tool2] ────────
+        # Bottom separator with tool list using pipe separators (matching server style)
         console.console.print()
+
+        # Use existing tool list formatting with pipe separators
         if display_tool_list and len(display_tool_list) > 0:
-            # Truncate tool list if needed (leave space for "─ " prefix and some separator)
+            # Truncate tool list if needed (leave space for "─| " prefix and " |" suffix)
             max_tool_width = console.console.size.width - 10  # Reserve space for separators
             truncated_tool_list = self._truncate_list_if_needed(display_tool_list, max_tool_width)
-            tool_width = truncated_tool_list.cell_len
 
-            # Calculate how much space is left for separator line on the right
-            total_width = console.console.size.width
-            remaining_width = max(0, total_width - tool_width - 2)  # -2 for "─ " prefix
-            right_sep = "─" * remaining_width if remaining_width > 0 else ""
-
-            # Create the separator line: ─ [tools] ────────
-            combined = Text()
-            combined.append("─ ", style="dim")
-            combined.append_text(truncated_tool_list)
-            combined.append(right_sep, style="dim")
-
-            console.console.print(combined, markup=self._markup)
+            # Create the separator line: ─| [tools] |──────
+            line1 = Text()
+            line1.append("─| ", style="dim")
+            line1.append_text(truncated_tool_list)
+            line1.append(" |", style="dim")
+            remaining = console.console.size.width - line1.cell_len
+            if remaining > 0:
+                line1.append("─" * remaining, style="dim")
         else:
-            # Full separator if no tools
-            console.console.print("─" * console.console.size.width, style="dim")
+            # No tools - continuous bar
+            line1 = Text()
+            line1.append("─" * console.console.size.width, style="dim")
+
+        console.console.print(line1, markup=self._markup)
         console.console.print()
 
     async def show_tool_update(self, aggregator: MCPAggregator | None, updated_server: str) -> None:
@@ -224,6 +327,8 @@ class ConsoleDisplay:
     def _format_tool_list(self, available_tools, selected_tool_name):
         """Format the list of available tools, highlighting the selected one."""
         display_tool_list = Text()
+        matching_tools = []
+
         for display_tool in available_tools:
             # Handle both OpenAI and Anthropic tool formats
             if isinstance(display_tool, dict):
@@ -248,9 +353,15 @@ class ConsoleDisplay:
             )
 
             if selected_tool_name.split(SEP)[0] == parts[0]:
-                style = "magenta" if tool_call_name == selected_tool_name else "dim white"
                 shortened_name = parts[1] if len(parts[1]) <= 12 else parts[1][:11] + "…"
-                display_tool_list.append(f"[{shortened_name}] ", style)
+                matching_tools.append((shortened_name, tool_call_name))
+
+        # Format with pipe separators instead of brackets
+        for i, (shortened_name, tool_call_name) in enumerate(matching_tools):
+            if i > 0:
+                display_tool_list.append(" | ", style="dim")
+            style = "magenta" if tool_call_name == selected_tool_name else "dim"
+            display_tool_list.append(shortened_name, style)
 
         return display_tool_list
 
@@ -328,7 +439,6 @@ class ConsoleDisplay:
         model: str | None = None,
     ) -> None:
         """Display an assistant message in a formatted panel."""
-        from rich.markdown import Markdown
 
         if not self.config or not self.config.logger.show_chat:
             return
@@ -372,45 +482,95 @@ class ConsoleDisplay:
                 json = JSON(message_text)
                 console.console.print(json, markup=self._markup)
             except (JSONDecodeError, TypeError, ValueError):
-                # Not JSON, treat as markdown
-                md = Markdown(content, code_theme=CODE_STYLE)
-                console.console.print(md, markup=self._markup)
+                # Use the smart rendering helper to handle XML vs Markdown
+                self._render_content_smartly(content)
         else:
             # Handle Rich Text objects directly
             console.console.print(message_text, markup=self._markup)
 
-        # Bottom separator with server list: ─ [server1] [server2] ────────
+        # Bottom separator with server list and diagrams
         console.console.print()
+
+        # Check for mermaid diagrams in the message content
+        diagrams = []
+        if isinstance(message_text, str):
+            diagrams = extract_mermaid_diagrams(message_text)
+
+        # Create server list with pipe separators (no "mcp:" prefix)
+        server_content = Text()
         if display_server_list and len(display_server_list) > 0:
-            # Truncate server list if needed (leave space for "─ " prefix and some separator)
-            max_server_width = console.console.size.width - 10  # Reserve space for separators
-            truncated_server_list = self._truncate_list_if_needed(
-                display_server_list, max_server_width
-            )
-            server_width = truncated_server_list.cell_len
+            # Convert the existing server list to pipe-separated format
+            servers = []
+            if aggregator:
+                for server_name in await aggregator.list_servers():
+                    servers.append(server_name)
 
-            # Calculate how much space is left for separator line on the right
-            total_width = console.console.size.width
-            remaining_width = max(0, total_width - server_width - 2)  # -2 for "─ " prefix
-            right_sep = "─" * remaining_width if remaining_width > 0 else ""
+            # Create pipe-separated server list
+            for i, server_name in enumerate(servers):
+                if i > 0:
+                    server_content.append(" | ", style="dim")
+                # Highlight active server, dim inactive ones
+                mcp_server_name = (
+                    highlight_namespaced_tool.split(SEP)[0]
+                    if SEP in highlight_namespaced_tool
+                    else highlight_namespaced_tool
+                )
+                style = "bright_green" if server_name == mcp_server_name else "dim"
+                server_content.append(server_name, style)
 
-            # Create the separator line: ─ [servers] ────────
-            combined = Text()
-            combined.append("─ ", style="dim")
-            combined.append_text(truncated_server_list)
-            combined.append(right_sep, style="dim")
-
-            console.console.print(combined, markup=self._markup)
+        # Create main separator line
+        line1 = Text()
+        if server_content.cell_len > 0:
+            line1.append("─| ", style="dim")
+            line1.append_text(server_content)
+            line1.append(" |", style="dim")
+            remaining = console.console.size.width - line1.cell_len
+            if remaining > 0:
+                line1.append("─" * remaining, style="dim")
         else:
-            # Full separator if no servers
-            console.console.print("─" * console.console.size.width, style="dim")
+            # No servers - continuous bar (no break)
+            line1.append("─" * console.console.size.width, style="dim")
+
+        console.console.print(line1, markup=self._markup)
+
+        # Add diagram links in panel if any diagrams found
+        if diagrams:
+            diagram_content = Text()
+            # Add bullet at the beginning
+            diagram_content.append("● ", style="dim")
+
+            for i, diagram in enumerate(diagrams, 1):
+                if i > 1:
+                    diagram_content.append(" • ", style="dim")
+
+                # Generate URL
+                url = create_mermaid_live_link(diagram.content)
+
+                # Format: "1 - Title" or "1 - Flowchart" or "Diagram 1"
+                if diagram.title:
+                    diagram_content.append(
+                        f"{i} - {diagram.title}", style=f"bright_blue link {url}"
+                    )
+                else:
+                    # Try to detect diagram type, fallback to "Diagram N"
+                    diagram_type = detect_diagram_type(diagram.content)
+                    if diagram_type != "Diagram":
+                        diagram_content.append(
+                            f"{i} - {diagram_type}", style=f"bright_blue link {url}"
+                        )
+                    else:
+                        diagram_content.append(f"Diagram {i}", style=f"bright_blue link {url}")
+
+            # Display diagrams on a simple new line (more space efficient)
+            console.console.print()
+            console.console.print(diagram_content, markup=self._markup)
+
         console.console.print()
 
     def show_user_message(
         self, message, model: str | None = None, chat_turn: int = 0, name: str | None = None
     ) -> None:
         """Display a user message in the new visual style."""
-        from rich.markdown import Markdown
 
         if not self.config or not self.config.logger.show_chat:
             return
@@ -430,9 +590,8 @@ class ConsoleDisplay:
 
         # Display content as markdown if it looks like markdown, otherwise as text
         if isinstance(message, str):
-            content = message
-            md = Markdown(content, code_theme=CODE_STYLE)
-            console.console.print(md, markup=self._markup)
+            # Use the smart rendering helper to handle XML vs Markdown
+            self._render_content_smartly(message)
         else:
             # Handle Text objects directly
             console.console.print(message, markup=self._markup)
@@ -522,7 +681,7 @@ class ConsoleDisplay:
         Args:
             parallel_agent: The parallel agent containing fan_out_agents with results
         """
-        from rich.markdown import Markdown
+
         from rich.text import Text
 
         if self.config and not self.config.logger.show_chat:
@@ -609,13 +768,9 @@ class ConsoleDisplay:
             console.console.print(left + " " * padding + right, markup=self._markup)
             console.console.print()
 
-            # Display content as markdown if it looks like markdown, otherwise as text
+            # Display content based on its type (check for markdown markers in parallel results)
             content = result["content"]
-            if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
-                md = Markdown(content, code_theme=CODE_STYLE)
-                console.console.print(md, markup=self._markup)
-            else:
-                console.console.print(content, markup=self._markup)
+            self._render_content_smartly(content, check_markdown_markers=True)
 
         # Summary
         console.console.print()

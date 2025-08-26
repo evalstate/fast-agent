@@ -22,6 +22,12 @@ class ModelParameters(BaseModel):
     tokenizes: List[str]
     """List of supported content types for tokenization"""
 
+    json_mode: None | str = "schema"
+    """Structured output style. 'schema', 'object' or None for unsupported """
+
+    reasoning: None | str = None
+    """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -85,7 +91,17 @@ class ModelDatabase:
     )
 
     QWEN_STANDARD = ModelParameters(
-        context_window=32000, max_output_tokens=8192, tokenizes=QWEN_MULTIMODAL
+        context_window=32000,
+        max_output_tokens=8192,
+        tokenizes=QWEN_MULTIMODAL,
+        json_mode="object",
+    )
+    QWEN3_REASONER = ModelParameters(
+        context_window=131072,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="tags",
     )
 
     FAST_AGENT_STANDARD = ModelParameters(
@@ -107,6 +123,12 @@ class ModelDatabase:
     OPENAI_O3_MINI_SERIES = ModelParameters(
         context_window=200000, max_output_tokens=100000, tokenizes=TEXT_ONLY
     )
+    OPENAI_GPT_OSS_SERIES = ModelParameters(
+        context_window=131072, max_output_tokens=32766, tokenizes=TEXT_ONLY, json_mode="object"
+    )
+    OPENAI_GPT_5 = ModelParameters(
+        context_window=400000, max_output_tokens=128000, tokenizes=OPENAI_MULTIMODAL
+    )
 
     # TODO update to 32000
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -125,20 +147,27 @@ class ModelDatabase:
         context_window=65536, max_output_tokens=32768, tokenizes=TEXT_ONLY
     )
 
+    DEEPSEEK_DISTILL = ModelParameters(
+        context_window=131072,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="tags",
+    )
     GEMINI_2_5_PRO = ModelParameters(
         context_window=2097152, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
     )
 
-    # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
-    GROK_4 = ModelParameters(
-        context_window=256000, max_output_tokens=16385, tokenizes=XAI_VISION
+    KIMI_MOONSHOT = ModelParameters(
+        context_window=131072, max_output_tokens=16384, tokenizes=TEXT_ONLY
     )
+
+    # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
+    GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=XAI_VISION)
 
     # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
     # xAI does not document Grok 3 max output tokens, using the above source as a reference.
-    GROK_3 = ModelParameters(
-        context_window=131072, max_output_tokens=16385, tokenizes=TEXT_ONLY
-    )
+    GROK_3 = ModelParameters(context_window=131072, max_output_tokens=16385, tokenizes=TEXT_ONLY)
 
     # Model configuration database
     MODELS: Dict[str, ModelParameters] = {
@@ -175,6 +204,9 @@ class ModelDatabase:
         "o3-2025-04-16": OPENAI_O3_SERIES,
         "o3-mini-2025-01-31": OPENAI_O3_MINI_SERIES,
         "o4-mini-2025-04-16": OPENAI_O3_SERIES,
+        "gpt-5": OPENAI_GPT_5,
+        "gpt-5-mini": OPENAI_GPT_5,
+        "gpt-5-nano": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
         "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
@@ -193,11 +225,10 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES,
-        "claude-sonnet-4": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-opus-4": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
         # DeepSeek Models
         "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
@@ -214,6 +245,11 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
+        "moonshotai/kimi-k2-instruct": KIMI_MOONSHOT,
+        "qwen/qwen3-32b": QWEN3_REASONER,
+        "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
+        "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
+        "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
     }
 
     @classmethod
@@ -238,6 +274,18 @@ class ModelDatabase:
         """Get supported tokenization types for a model"""
         params = cls.get_model_params(model)
         return params.tokenizes if params else None
+
+    @classmethod
+    def get_json_mode(cls, model: str) -> str | None:
+        """Get supported json mode (structured output) for a model"""
+        params = cls.get_model_params(model)
+        return params.json_mode if params else None
+
+    @classmethod
+    def get_reasoning(cls, model: str) -> str | None:
+        """Get supported reasoning output style for a model"""
+        params = cls.get_model_params(model)
+        return params.reasoning if params else None
 
     @classmethod
     def get_default_max_tokens(cls, model: str) -> int:

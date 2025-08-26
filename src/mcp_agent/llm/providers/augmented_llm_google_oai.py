@@ -18,7 +18,7 @@ class GoogleOaiAugmentedLLM(OpenAIAugmentedLLM):
             model=chosen_model,
             systemPrompt=self.instruction,
             parallel_tool_calls=False,
-            max_iterations=10,
+            max_iterations=20,
             use_history=True,
         )
 

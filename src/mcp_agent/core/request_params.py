@@ -52,3 +52,8 @@ class RequestParams(CreateMessageRequestParams):
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
     """
+
+    mcp_metadata: Dict[str, Any] | None = None
+    """
+    Metadata to pass through to MCP tool calls via the _meta field.
+    """

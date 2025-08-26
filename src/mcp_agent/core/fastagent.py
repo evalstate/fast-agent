@@ -32,6 +32,9 @@ from mcp_agent.core.direct_decorators import (
     evaluator_optimizer as evaluator_optimizer_decorator,
 )
 from mcp_agent.core.direct_decorators import (
+    iterative_planner as orchestrator2_decorator,
+)
+from mcp_agent.core.direct_decorators import (
     orchestrator as orchestrator_decorator,
 )
 from mcp_agent.core.direct_decorators import (
@@ -84,6 +87,7 @@ class FastAgent:
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
+        **kwargs
     ) -> None:
         """
         Initialize the fast-agent application.
@@ -200,6 +204,7 @@ class FastAgent:
             self.app = MCPApp(
                 name=name,
                 settings=config.Settings(**self.config) if hasattr(self, "config") else None,
+                **kwargs
             )
 
             # Stop progress display immediately if quiet mode is requested
@@ -249,6 +254,7 @@ class FastAgent:
     agent = agent_decorator
     custom = custom_decorator
     orchestrator = orchestrator_decorator
+    iterative_planner = orchestrator2_decorator
     router = router_decorator
     chain = chain_decorator
     parallel = parallel_decorator

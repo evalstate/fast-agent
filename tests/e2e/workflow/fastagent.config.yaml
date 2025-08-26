@@ -27,8 +27,15 @@ logger:
   show_tools: true
   # Truncate long tool responses on the console
   truncate_tools: true
-# mcp:
-#   servers:
-#     test_server:
-#       command: "uv"
-#       args: ["run", "test_routing_server.py"]
+
+mcp:
+  servers:
+    puzzle_1:
+      command: "uv"
+      args: ["run", "puzzle_server.py", "47"]
+    puzzle_2:
+      command: "uv"
+      args: ["run", "puzzle_server.py", "12"]
+    puzzle_validator:
+      command: "uv"
+      args: ["run", "puzzle_validator.py", "4712"]

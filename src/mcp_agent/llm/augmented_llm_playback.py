@@ -1,4 +1,6 @@
-from typing import Any, List, Type
+from typing import Any, List, Type, Union
+
+from mcp.types import PromptMessage
 
 from mcp_agent.core.exceptions import ModelConfigError
 from mcp_agent.core.prompt import Prompt
@@ -51,7 +53,7 @@ class PlaybackLLM(PassthroughLLM):
 
     async def generate(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         request_params: RequestParams | None = None,
     ) -> PromptMessageMultipart:
         """
@@ -106,7 +108,7 @@ class PlaybackLLM(PassthroughLLM):
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageMultipart]:

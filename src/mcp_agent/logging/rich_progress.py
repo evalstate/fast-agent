@@ -21,7 +21,7 @@ class RichProgressDisplay:
         self._progress = Progress(
             SpinnerColumn(spinner_name="simpleDotsScrolling"),
             TextColumn(
-                "[progress.description]{task.description}|",
+                "[progress.description]{task.description}▎",
                 #                table_column=Column(max_width=16),
             ),
             TextColumn(text_format="{task.fields[target]:<16}", style="Bold Blue"),
@@ -77,11 +77,12 @@ class RichProgressDisplay:
             ProgressAction.LOADED: "dim green",
             ProgressAction.INITIALIZED: "dim green",
             ProgressAction.CHATTING: "bold blue",
-            ProgressAction.STREAMING: "bold blue",  # Same color as chatting
+            ProgressAction.STREAMING: "bold green",  # Assistant Colour
             ProgressAction.ROUTING: "bold blue",
             ProgressAction.PLANNING: "bold blue",
             ProgressAction.READY: "dim green",
             ProgressAction.CALLING_TOOL: "bold magenta",
+            ProgressAction.TOOL_PROGRESS: "bold magenta",
             ProgressAction.FINISHED: "black on green",
             ProgressAction.SHUTDOWN: "black on red",
             ProgressAction.AGGREGATOR_INITIALIZED: "bold green",
@@ -107,18 +108,49 @@ class RichProgressDisplay:
         # Ensure no None values in the update
         # For streaming, use custom description immediately to avoid flashing
         if event.action == ProgressAction.STREAMING and event.streaming_tokens:
-            formatted_tokens = f"↓ {event.streaming_tokens.strip()}".ljust(15)
+            # Account for [dim][/dim] tags (11 characters) in padding calculation
+            formatted_tokens = f"▎[dim]◀[/dim] {event.streaming_tokens.strip()}".ljust(17 + 11)
             description = f"[{self._get_action_style(event.action)}]{formatted_tokens}"
+        elif event.action == ProgressAction.CHATTING:
+            # Add special formatting for chatting with dimmed arrow
+            formatted_text = f"▎[dim]▶[/dim] {event.action.value.strip()}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+        elif event.action == ProgressAction.CALLING_TOOL:
+            # Add special formatting for calling tool with dimmed arrow
+            formatted_text = f"▎[dim]◀[/dim] {event.action.value}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
+        elif event.action == ProgressAction.TOOL_PROGRESS:
+            # Format similar to streaming - show progress numbers
+            if event.progress is not None:
+                if event.total is not None:
+                    progress_display = f"{int(event.progress)}/{int(event.total)}"
+                else:
+                    progress_display = str(int(event.progress))
+            else:
+                progress_display = "Processing"
+            formatted_text = f"▎[dim]▶[/dim] {progress_display}".ljust(17 + 11)
+            description = f"[{self._get_action_style(event.action)}]{formatted_text}"
         else:
-            description = f"[{self._get_action_style(event.action)}]{event.action.value:<15}"
+            description = f"[{self._get_action_style(event.action)}]▎ {event.action.value:<15}"
 
-        self._progress.update(
-            task_id,
-            description=description,
-            target=event.target or task_name,  # Use task_name as fallback for target
-            details=event.details or "",
-            task_name=task_name,
-        )
+        # Update basic task information
+        update_kwargs = {
+            "description": description,
+            "target": event.target or task_name,  # Use task_name as fallback for target
+            "details": event.details or "",
+            "task_name": task_name,
+        }
+        
+        # For TOOL_PROGRESS events, update progress if available
+        if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
+            if event.total is not None:
+                update_kwargs["completed"] = event.progress
+                update_kwargs["total"] = event.total
+            else:
+                # If no total, just show as indeterminate progress
+                self._progress.reset(task_id)
+        
+        self._progress.update(task_id, **update_kwargs)
 
         if (
             event.action == ProgressAction.INITIALIZED

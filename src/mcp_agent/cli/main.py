@@ -8,7 +8,7 @@ from mcp_agent.cli.commands import check_config, go, quickstart, setup
 from mcp_agent.cli.terminal import Application
 
 app = typer.Typer(
-    help="FastAgent CLI - Build effective agents using Model Context Protocol",
+    help="fast-agent - Build effective agents using Model Context Protocol",
     add_completion=False,  # We'll add this later when we have more commands
 )
 
@@ -60,7 +60,7 @@ def main(
     color: bool = typer.Option(True, "--color/--no-color", help="Enable/disable color output"),
     version: bool = typer.Option(False, "--version", help="Show version and exit"),
 ) -> None:
-    """FastAgent CLI - Build effective agents using Model Context Protocol (MCP).
+    """fast-agent - Build effective agents using Model Context Protocol (MCP).
 
     Use --help with any command for detailed usage information.
     """

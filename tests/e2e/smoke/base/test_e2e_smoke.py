@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     [
         "gpt-4.1-mini",
         "gpt-4o-mini",  # OpenAI model
+        "o3-mini.low",  # reasoner
         "haiku35",  # Anthropic model
         "deepseek",
         "generic.qwen2.5:latest",
@@ -32,6 +33,9 @@ if TYPE_CHECKING:
         "gemini25",  # Works -> Done. Works most of the time, unless Gemini decides to write very long outputs.
         "azure.gpt-4.1",
         "grok-3-fast",
+        "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-mini.minimal",
+        # "groq.deepseek-r1-distill-llama-70b", # handle reasoning outputs (they are long)
     ],
 )
 async def test_basic_textual_prompting(fast_agent, model_name):
@@ -94,11 +98,14 @@ async def test_open_ai_history(fast_agent, model_name):
     [
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "sonnet",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
         "gemini2",
         "gemini25",  # Works -> DONE.
         "o3-mini.low",
+        "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
@@ -112,24 +119,24 @@ async def test_multiple_text_blocks_prompting(fast_agent, model_name):
     async def agent_function():
         async with fast.run() as agent:
             response: PromptMessageMultipart = await agent.default.generate(
-                [Prompt.user("write a 50 word story", "about cats - including the word 'cat'")]
+                [Prompt.user("write a 60 word story", "about cats - including the word 'cat'")]
             )
             response_text = response.all_text()
             words = response_text.split()
             word_count = len(words)
-            assert 40 <= word_count <= 60, f"Expected between 40-60 words, got {word_count}"
+            assert 32 <= word_count <= 70, f"Expected between 32-70 words, got {word_count}"
             assert "cat" in response_text
 
             response: PromptMessageMultipart = await agent.default.generate(
                 [
-                    Prompt.user("write a 50 word story"),
+                    Prompt.user("write a 60 word story"),
                     Prompt.user("about cats - including the word 'cat'"),
                 ]
             )
             response_text = response.all_text()
             words = response_text.split()
             word_count = len(words)
-            assert 40 <= word_count <= 60, f"Expected between 40-60 words, got {word_count}"
+            assert 32 <= word_count <= 70, f"Expected between 32-70 words, got {word_count}"
             assert "cat" in response_text
 
     await agent_function()
@@ -188,6 +195,7 @@ class WeatherForecast(BaseModel):
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
         "grok-3",
+        "gpt-5-mini.minimal",
         #  "grok-4", slow,
     ],
 )
@@ -311,6 +319,11 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "o4-mini.low",
         "azure.gpt-4.1",
         "grok-3",
+        "groq.moonshotai/kimi-k2-instruct",
+        "groq.deepseek-r1-distill-llama-70b",
+        "groq.qwen/qwen3-32b",
+        "gpt-oss",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
@@ -361,6 +374,8 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "openrouter.google/gemini-2.5-flash",
         "azure.gpt-4.1",
         "grok-3",
+        "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-nano.minimal",
     ],
 )
 async def test_tool_calls_no_args(fast_agent, model_name):

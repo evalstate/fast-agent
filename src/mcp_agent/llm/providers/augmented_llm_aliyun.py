@@ -1,26 +1,27 @@
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.llm.provider_types import Provider
+from mcp_agent.llm.providers.augmented_llm_groq import GroqAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 
 ALIYUN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DEFAULT_QWEN_MODEL = "qwen-turbo"
 
 
-class AliyunAugmentedLLM(OpenAIAugmentedLLM):
+class AliyunAugmentedLLM(GroqAugmentedLLM):
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.ALIYUN, **kwargs)
+        OpenAIAugmentedLLM.__init__(self, *args, provider=Provider.ALIYUN, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Aliyun-specific default parameters"""
-        chosen_model = kwargs.get("model", DEFAULT_QWEN_MODEL)
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
 
-        return RequestParams(
-            model=chosen_model,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=10,
-            use_history=True,
-        )
+        # Override with Aliyun-specific settings
+        chosen_model = kwargs.get("model", DEFAULT_QWEN_MODEL)
+        base_params.model = chosen_model
+        base_params.parallel_tool_calls = True
+
+        return base_params
 
     def _base_url(self) -> str:
         base_url = None
@@ -28,3 +29,4 @@ class AliyunAugmentedLLM(OpenAIAugmentedLLM):
             base_url = self.context.config.aliyun.base_url
 
         return base_url if base_url else ALIYUN_BASE_URL
+

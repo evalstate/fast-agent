@@ -19,9 +19,10 @@ from mcp_agent.llm.providers.augmented_llm_deepseek import DeepSeekAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_generic import GenericAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_native import GoogleNativeAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_google_oai import GoogleOaiAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_groq import GroqAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
-from mcp_agent.llm.providers.augmented_llm_tensorzero import TensorZeroAugmentedLLM
+from mcp_agent.llm.providers.augmented_llm_tensorzero_openai import TensorZeroOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_xai import XAIAugmentedLLM
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
 
@@ -38,17 +39,19 @@ LLMClass = Union[
     Type[SlowLLM],
     Type[DeepSeekAugmentedLLM],
     Type[OpenRouterAugmentedLLM],
-    Type[TensorZeroAugmentedLLM],
+    Type[TensorZeroOpenAIAugmentedLLM],
     Type[GoogleNativeAugmentedLLM],
     Type[GenericAugmentedLLM],
     Type[AzureOpenAIAugmentedLLM],
     Type[BedrockAugmentedLLM],
+    Type[GroqAugmentedLLM],
 ]
 
 
 class ReasoningEffort(Enum):
     """Optional reasoning effort levels"""
 
+    MINIMAL = "minimal"
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -66,7 +69,9 @@ class ModelFactory:
     """Factory for creating LLM instances based on model specifications"""
 
     # Mapping of effort strings to enum values
+    # TODO -- move this to the model database
     EFFORT_MAP = {
+        "minimal": ReasoningEffort.MINIMAL,  # Alias for low effort
         "low": ReasoningEffort.LOW,
         "medium": ReasoningEffort.MEDIUM,
         "high": ReasoningEffort.HIGH,
@@ -88,6 +93,9 @@ class ModelFactory:
         "gpt-4.1": Provider.OPENAI,
         "gpt-4.1-mini": Provider.OPENAI,
         "gpt-4.1-nano": Provider.OPENAI,
+        "gpt-5": Provider.OPENAI,
+        "gpt-5-mini": Provider.OPENAI,
+        "gpt-5-nano": Provider.OPENAI,
         "o1-mini": Provider.OPENAI,
         "o1": Provider.OPENAI,
         "o1-preview": Provider.OPENAI,
@@ -105,6 +113,7 @@ class ModelFactory:
         "claude-3-opus-20240229": Provider.ANTHROPIC,
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "claude-opus-4-0": Provider.ANTHROPIC,
+        "claude-opus-4-1": Provider.ANTHROPIC,
         "claude-opus-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
@@ -122,7 +131,6 @@ class ModelFactory:
         "qwen-plus": Provider.ALIYUN,
         "qwen-max": Provider.ALIYUN,
         "qwen-long": Provider.ALIYUN,
-
     }
 
     MODEL_ALIASES = {
@@ -134,14 +142,17 @@ class ModelFactory:
         "haiku": "claude-3-5-haiku-latest",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
-        "opus": "claude-opus-4-0",
-        "opus4": "claude-opus-4-0",
+        "opus": "claude-opus-4-1",
+        "opus4": "claude-opus-4-1",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-05-20",
         "gemini25pro": "gemini-2.5-pro-preview-05-06",
+        "kimi": "groq.moonshotai/kimi-k2-instruct",
+        "gpt-oss": "groq.openai/gpt-oss-120b",
+        "gpt-oss-20b": "groq.openai/gpt-oss-20b",
     }
 
     # Mapping of providers to their LLM classes
@@ -155,10 +166,11 @@ class ModelFactory:
         Provider.GOOGLE: GoogleNativeAugmentedLLM,
         Provider.XAI: XAIAugmentedLLM,
         Provider.OPENROUTER: OpenRouterAugmentedLLM,
-        Provider.TENSORZERO: TensorZeroAugmentedLLM,
+        Provider.TENSORZERO: TensorZeroOpenAIAugmentedLLM,
         Provider.AZURE: AzureOpenAIAugmentedLLM,
         Provider.ALIYUN: AliyunAugmentedLLM,
         Provider.BEDROCK: BedrockAugmentedLLM,
+        Provider.GROQ: GroqAugmentedLLM,
     }
 
     # Mapping of special model names to their specific LLM classes
@@ -213,11 +225,11 @@ class ModelFactory:
         # If provider still None, try to get from DEFAULT_PROVIDERS using the model_name_str
         if provider is None:
             provider = cls.DEFAULT_PROVIDERS.get(model_name_str)
-            
+
             # If still None, try pattern matching for Bedrock models
             if provider is None and BedrockAugmentedLLM.matches_model_pattern(model_name_str):
                 provider = Provider.BEDROCK
-            
+
             if provider is None:
                 raise ModelConfigError(
                     f"Unknown model or provider for: {model_string}. Model name parsed as '{model_name_str}'"

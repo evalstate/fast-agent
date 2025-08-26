@@ -272,6 +272,7 @@ class MCPConnectionManager(ContextDependent):
         # Manage our own task group - independent of task context
         self._task_group = None
         self._task_group_active = False
+        self._mcp_sse_filter_added = False
 
     async def __aenter__(self):
         # Create a task group that isn't tied to a specific task
@@ -299,6 +300,21 @@ class MCPConnectionManager(ContextDependent):
                 self._tg = None
         except Exception as e:
             logger.error(f"Error during connection manager shutdown: {e}")
+
+    def _suppress_mcp_sse_errors(self) -> None:
+        """Suppress MCP library's 'Error in sse_reader' messages."""
+        if self._mcp_sse_filter_added:
+            return
+            
+        import logging
+        
+        class MCPSSEErrorFilter(logging.Filter):
+            def filter(self, record):
+                return not (record.name == "mcp.client.sse" and "Error in sse_reader" in record.getMessage())
+        
+        mcp_sse_logger = logging.getLogger("mcp.client.sse")
+        mcp_sse_logger.addFilter(MCPSSEErrorFilter())
+        self._mcp_sse_filter_added = True
 
     async def launch_server(
         self,
@@ -341,6 +357,9 @@ class MCPConnectionManager(ContextDependent):
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
                 return _add_none_to_context(stdio_client(server_params, errlog=error_handler))
             elif config.transport == "sse":
+                # Suppress MCP library error spam
+                self._suppress_mcp_sse_errors()
+                
                 return _add_none_to_context(
                     sse_client(
                         config.url,

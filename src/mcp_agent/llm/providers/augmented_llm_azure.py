@@ -18,7 +18,7 @@ def _extract_resource_name(url: str) -> str | None:
     return host.replace(suffix, "") if host.endswith(suffix) else None
 
 
-DEFAULT_AZURE_API_VERSION = "2023-05-15"
+DEFAULT_AZURE_API_VERSION = "2024-10-21"
 
 
 class AzureOpenAIAugmentedLLM(OpenAIAugmentedLLM):

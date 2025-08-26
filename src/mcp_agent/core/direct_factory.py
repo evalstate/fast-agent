@@ -10,6 +10,7 @@ from mcp_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
     QualityRating,
 )
+from mcp_agent.agents.workflow.iterative_planner import IterativePlanner
 from mcp_agent.agents.workflow.orchestrator_agent import OrchestratorAgent
 from mcp_agent.agents.workflow.parallel_agent import ParallelAgent
 from mcp_agent.agents.workflow.router_agent import RouterAgent
@@ -21,9 +22,10 @@ from mcp_agent.event_progress import ProgressAction
 from mcp_agent.llm.augmented_llm import RequestParams
 from mcp_agent.llm.model_factory import ModelFactory
 from mcp_agent.logging.logger import get_logger
+from mcp_agent.mcp.interfaces import AgentProtocol
 
 # Type aliases for improved readability and IDE support
-AgentDict = Dict[str, Agent]
+AgentDict = Dict[str, AgentProtocol]
 AgentConfigDict = Dict[str, Dict[str, Any]]
 T = TypeVar("T")  # For generic types
 
@@ -153,7 +155,7 @@ async def create_agents_by_type(
                 await agent.attach_llm(
                     llm_factory,
                     request_params=config.default_request_params,
-                    api_key=config.api_key
+                    api_key=config.api_key,
                 )
                 result_agents[name] = agent
 
@@ -172,11 +174,11 @@ async def create_agents_by_type(
                 await agent.attach_llm(
                     llm_factory,
                     request_params=config.default_request_params,
-                    api_key=config.api_key
+                    api_key=config.api_key,
                 )
                 result_agents[name] = agent
 
-            elif agent_type == AgentType.ORCHESTRATOR:
+            elif agent_type == AgentType.ORCHESTRATOR or agent_type == AgentType.ITERATIVE_PLANNER:
                 # Get base params configured with model settings
                 base_params = (
                     config.default_request_params.model_copy()
@@ -193,24 +195,35 @@ async def create_agents_by_type(
                     agent = active_agents[agent_name]
                     child_agents.append(agent)
 
-                # Create the orchestrator
-                orchestrator = OrchestratorAgent(
-                    config=config,
-                    context=app_instance.context,
-                    agents=child_agents,
-                    plan_iterations=agent_data.get("plan_iterations", 5),
-                    plan_type=agent_data.get("plan_type", "full"),
-                )
+                if AgentType.ORCHESTRATOR == agent_type:
+                    # Create the orchestrator
+                    orchestrator = OrchestratorAgent(
+                        config=config,
+                        context=app_instance.context,
+                        agents=child_agents,
+                        plan_iterations=agent_data.get("plan_iterations", 5),
+                        plan_type=agent_data.get("plan_type", "full"),
+                    )
+                else:
+                    orchestrator = IterativePlanner(
+                        config=config,
+                        context=app_instance.context,
+                        agents=child_agents,
+                        plan_iterations=agent_data.get("plan_iterations", 5),
+                        plan_type=agent_data.get("plan_type", "full"),
+                    )
 
                 # Initialize the orchestrator
                 await orchestrator.initialize()
 
                 # Attach LLM to the orchestrator
                 llm_factory = model_factory_func(model=config.model)
+
+                #                print("************", config.default_request_params.instruction)
                 await orchestrator.attach_llm(
                     llm_factory,
                     request_params=config.default_request_params,
-                    api_key=config.api_key
+                    api_key=config.api_key,
                 )
 
                 result_agents[name] = orchestrator
@@ -274,7 +287,7 @@ async def create_agents_by_type(
                 await router.attach_llm(
                     llm_factory,
                     request_params=config.default_request_params,
-                    api_key=config.api_key
+                    api_key=config.api_key,
                 )
                 result_agents[name] = router
 
@@ -461,7 +474,6 @@ async def create_agents_in_dependency_order(
             )
             active_agents.update(evaluator_agents)
 
-        # Create orchestrator agents last since they might depend on other agents
         if AgentType.ORCHESTRATOR.value in [agents_dict[name]["type"] for name in group]:
             orchestrator_agents = await create_agents_by_type(
                 app_instance,
@@ -475,6 +487,21 @@ async def create_agents_in_dependency_order(
                 model_factory_func,
             )
             active_agents.update(orchestrator_agents)
+
+        # Create orchestrator2 agents last since they might depend on other agents
+        if AgentType.ITERATIVE_PLANNER.value in [agents_dict[name]["type"] for name in group]:
+            orchestrator2_agents = await create_agents_by_type(
+                app_instance,
+                {
+                    name: agents_dict[name]
+                    for name in group
+                    if agents_dict[name]["type"] == AgentType.ITERATIVE_PLANNER.value
+                },
+                AgentType.ITERATIVE_PLANNER,
+                active_agents,
+                model_factory_func,
+            )
+            active_agents.update(orchestrator2_agents)
 
     return active_agents
 

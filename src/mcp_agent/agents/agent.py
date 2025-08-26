@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 from mcp_agent.agents.base_agent import BaseAgent
 from mcp_agent.core.agent_types import AgentConfig
 from mcp_agent.core.interactive_prompt import InteractivePrompt
+from mcp_agent.core.request_params import RequestParams
 from mcp_agent.human_input.types import HumanInputCallback
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
@@ -51,13 +52,19 @@ class Agent(BaseAgent):
             **kwargs,
         )
 
-    async def prompt(self, default_prompt: str = "", agent_name: Optional[str] = None) -> str:
+    async def prompt(
+        self, 
+        default_prompt: str = "", 
+        agent_name: Optional[str] = None,
+        request_params: RequestParams | None = None
+    ) -> str:
         """
         Start an interactive prompt session with this agent.
 
         Args:
             default: Default message to use when user presses enter
             agent_name: Ignored for single agents, included for API compatibility
+            request_params: Optional request parameters
 
         Returns:
             The result of the interactive session
@@ -66,14 +73,14 @@ class Agent(BaseAgent):
         agent_name_str = str(self.name)
 
         # Create agent_types dictionary with just this agent
-        agent_types = {agent_name_str: self.agent_type.value}
+        agent_types = {agent_name_str: self.agent_type}
 
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
 
         # Define wrapper for send function
         async def send_wrapper(message, agent_name):
-            return await self.send(message)
+            return await self.send(message, request_params)
 
         # Start the prompt loop with just this agent
         return await prompt.prompt_loop(

@@ -12,6 +12,7 @@ from typing import (
 
 from mcp import GetPromptResult, ReadResourceResult
 from mcp.client.session import ClientSession
+from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
     ListToolsResult,
@@ -135,6 +136,28 @@ class MCPAggregator(ContextDependent):
 
         # Lock for refreshing tools from a server
         self._refresh_lock = Lock()
+
+    def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
+        """Create a progress callback function for tool execution."""
+
+        async def progress_callback(
+            progress: float, total: float | None, message: str | None
+        ) -> None:
+            """Handle progress notifications from MCP tool execution."""
+            logger.info(
+                "Tool progress update",
+                data={
+                    "progress_action": ProgressAction.TOOL_PROGRESS,
+                    "tool_name": tool_name,
+                    "server_name": server_name,
+                    "agent_name": self.agent_name,
+                    "progress": progress,
+                    "total": total,
+                    "details": message or "",  # Put the message in details column
+                },
+            )
+
+        return progress_callback
 
     async def close(self) -> None:
         """
@@ -468,6 +491,7 @@ class MCPAggregator(ContextDependent):
         method_name: str,
         method_args: Dict[str, Any] = None,
         error_factory: Callable[[str], R] = None,
+        progress_callback: ProgressFnT | None = None,
     ) -> R:
         """
         Generic method to execute operations on a specific server.
@@ -479,6 +503,7 @@ class MCPAggregator(ContextDependent):
             method_name: Name of the method to call on the client session
             method_args: Arguments to pass to the method
             error_factory: Function to create an error return value if the operation fails
+            progress_callback: Optional progress callback for operations that support it
 
         Returns:
             Result from the operation or an error result
@@ -487,7 +512,28 @@ class MCPAggregator(ContextDependent):
         async def try_execute(client: ClientSession):
             try:
                 method = getattr(client, method_name)
-                return await method(**method_args)
+
+                # Get metadata from context for tool, resource, and prompt calls
+                metadata = None
+                if method_name in ["call_tool", "read_resource", "get_prompt"]:
+                    from mcp_agent.llm.augmented_llm import _mcp_metadata_var
+
+                    metadata = _mcp_metadata_var.get()
+
+                # Prepare kwargs
+                kwargs = method_args or {}
+                if metadata:
+                    kwargs["_meta"] = metadata
+
+                # For call_tool method, check if we need to add progress_callback
+                if method_name == "call_tool" and progress_callback:
+                    # The call_tool method signature includes progress_callback parameter
+                    return await method(progress_callback=progress_callback, **kwargs)
+                else:
+                    return await method(**(kwargs or {}))
+            except ConnectionError:
+                # Let ConnectionError pass through for reconnection logic
+                raise
             except Exception as e:
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
@@ -499,33 +545,76 @@ class MCPAggregator(ContextDependent):
                     # Re-raise the original exception to propagate it
                     raise e
 
-        if self.connection_persistence:
-            server_connection = await self._persistent_connection_manager.get_server(
-                server_name, client_session_factory=MCPAgentClientSession
-            )
-            return await try_execute(server_connection.session)
-        else:
-            logger.debug(
-                f"Creating temporary connection to server: {server_name}",
-                data={
-                    "progress_action": ProgressAction.STARTING,
-                    "server_name": server_name,
-                    "agent_name": self.agent_name,
-                },
-            )
-            async with gen_client(
-                server_name, server_registry=self.context.server_registry
-            ) as client:
-                result = await try_execute(client)
+        # Try initial execution
+        try:
+            if self.connection_persistence:
+                server_connection = await self._persistent_connection_manager.get_server(
+                    server_name, client_session_factory=MCPAgentClientSession
+                )
+                return await try_execute(server_connection.session)
+            else:
                 logger.debug(
-                    f"Closing temporary connection to server: {server_name}",
+                    f"Creating temporary connection to server: {server_name}",
                     data={
-                        "progress_action": ProgressAction.SHUTDOWN,
+                        "progress_action": ProgressAction.STARTING,
                         "server_name": server_name,
                         "agent_name": self.agent_name,
                     },
                 )
+                async with gen_client(
+                    server_name, server_registry=self.context.server_registry
+                ) as client:
+                    result = await try_execute(client)
+                    logger.debug(
+                        f"Closing temporary connection to server: {server_name}",
+                        data={
+                            "progress_action": ProgressAction.SHUTDOWN,
+                            "server_name": server_name,
+                            "agent_name": self.agent_name,
+                        },
+                    )
+                    return result
+        except ConnectionError:
+            # Server offline - attempt reconnection
+            from mcp_agent import console
+
+            console.console.print(
+                f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
+            )
+
+            try:
+                if self.connection_persistence:
+                    # Force disconnect and create fresh connection
+                    await self._persistent_connection_manager.disconnect_server(server_name)
+                    import asyncio
+
+                    await asyncio.sleep(0.1)
+
+                    server_connection = await self._persistent_connection_manager.get_server(
+                        server_name, client_session_factory=MCPAgentClientSession
+                    )
+                    result = await try_execute(server_connection.session)
+                else:
+                    # For non-persistent connections, just try again
+                    async with gen_client(
+                        server_name, server_registry=self.context.server_registry
+                    ) as client:
+                        result = await try_execute(client)
+
+                # Success!
+                console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
                 return result
+
+            except Exception:
+                # Reconnection failed
+                console.console.print(
+                    f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
+                )
+                error_msg = f"MCP server {server_name} offline - failed to reconnect"
+                if error_factory:
+                    return error_factory(error_msg)
+                else:
+                    raise Exception(error_msg)
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
         """
@@ -546,14 +635,13 @@ class MCPAggregator(ContextDependent):
 
         # Next, attempt to interpret as a namespaced name
         if is_namespaced_name(name):
-            parts = name.split(SEP, 1)
-            server_name, local_name = parts[0], parts[1]
+            # Try to match against known server names, handling server names with hyphens
+            for server_name in self.server_names:
+                if name.startswith(f"{server_name}{SEP}"):
+                    local_name = name[len(server_name) + len(SEP) :]
+                    return server_name, local_name
 
-            # Validate that the parsed server actually exists
-            if server_name in self.server_names:
-                return server_name, local_name
-
-            # If the server name doesn't exist, it might be a tool with a hyphen in its name
+            # If no server name matched, it might be a tool with a hyphen in its name
             # Fall through to the next checks
 
         # For tools, search all servers for the tool by exact name match
@@ -597,6 +685,10 @@ class MCPAggregator(ContextDependent):
         with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
+
+            # Create progress callback for this tool execution
+            progress_callback = self._create_progress_callback(server_name, local_tool_name)
+
             return await self._execute_on_server(
                 server_name=server_name,
                 operation_type="tool",
@@ -609,6 +701,7 @@ class MCPAggregator(ContextDependent):
                 error_factory=lambda msg: CallToolResult(
                     isError=True, content=[TextContent(type="text", text=msg)]
                 ),
+                progress_callback=progress_callback,
             )
 
     async def get_prompt(
@@ -1199,5 +1292,57 @@ class MCPAggregator(ContextDependent):
 
             except Exception as e:
                 logger.error(f"Error fetching resources from {s_name}: {e}")
+
+        return results
+
+    async def list_mcp_tools(self, server_name: str | None = None) -> Dict[str, List[Tool]]:
+        """
+        List available tools from one or all servers, grouped by server name.
+
+        Args:
+            server_name: Optional server name to list tools from. If not provided,
+                        lists tools from all servers.
+
+        Returns:
+            Dictionary mapping server names to lists of Tool objects (with original names, not namespaced)
+        """
+        if not self.initialized:
+            await self.load_servers()
+
+        results: Dict[str, List[Tool]] = {}
+
+        # Get the list of servers to check
+        servers_to_check = [server_name] if server_name else self.server_names
+
+        # For each server, try to list its tools
+        for s_name in servers_to_check:
+            if s_name not in self.server_names:
+                logger.error(f"Server '{s_name}' not found")
+                continue
+
+            # Initialize empty list for this server
+            results[s_name] = []
+
+            # Check if server supports tools capability
+            if not await self.server_supports_feature(s_name, "tools"):
+                logger.debug(f"Server '{s_name}' does not support tools")
+                continue
+
+            try:
+                # Use the _execute_on_server method to call list_tools on the server
+                result = await self._execute_on_server(
+                    server_name=s_name,
+                    operation_type="tools-list",
+                    operation_name="",
+                    method_name="list_tools",
+                    method_args={},
+                )
+
+                # Get tools from result (these have original names, not namespaced)
+                tools = getattr(result, "tools", [])
+                results[s_name] = tools
+
+            except Exception as e:
+                logger.error(f"Error fetching tools from {s_name}: {e}")
 
         return results

@@ -46,7 +46,7 @@ from mcp_agent.llm.augmented_llm import (
 )
 from mcp_agent.logging.logger import get_logger
 
-DEFAULT_ANTHROPIC_MODEL = "claude-3-7-sonnet-latest"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 
 
 class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
@@ -69,6 +69,7 @@ class AnthropicAugmentedLLM(AugmentedLLM[MessageParam, Message]):
         AugmentedLLM.PARAM_MAX_ITERATIONS,
         AugmentedLLM.PARAM_PARALLEL_TOOL_CALLS,
         AugmentedLLM.PARAM_TEMPLATE_VARS,
+        AugmentedLLM.PARAM_MCP_METADATA,
     }
 
     def __init__(self, *args, **kwargs) -> None:

@@ -22,15 +22,14 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Deepseek-specific default parameters"""
+        # Get base defaults from parent (includes ModelDatabase lookup)
+        base_params = super()._initialize_default_params(kwargs)
+        
+        # Override with Deepseek-specific settings
         chosen_model = kwargs.get("model", DEFAULT_DEEPSEEK_MODEL)
-
-        return RequestParams(
-            model=chosen_model,
-            systemPrompt=self.instruction,
-            parallel_tool_calls=True,
-            max_iterations=10,
-            use_history=True,
-        )
+        base_params.model = chosen_model
+        
+        return base_params
 
     def _base_url(self) -> str:
         base_url = None
@@ -85,7 +84,9 @@ class DeepSeekAugmentedLLM(OpenAIAugmentedLLM):
         return self._structured_from_multipart(result, model)
 
     @classmethod
-    def convert_message_to_message_param(cls, message: ChatCompletionMessage, **kwargs) -> ChatCompletionAssistantMessageParam:
+    def convert_message_to_message_param(
+        cls, message: ChatCompletionMessage, **kwargs
+    ) -> ChatCompletionAssistantMessageParam:
         """Convert a response object to an input parameter object to allow LLM calls to be chained."""
         if hasattr(message, "reasoning_content"):
             message = copy(message)

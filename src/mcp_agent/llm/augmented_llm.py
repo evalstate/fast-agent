@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -9,6 +10,7 @@ from typing import (
     Tuple,
     Type,
     TypeVar,
+    Union,
     cast,
 )
 
@@ -60,6 +62,9 @@ if TYPE_CHECKING:
 # TODO -- move this to a constant
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 
+# Context variable for storing MCP metadata
+_mcp_metadata_var: ContextVar[Dict[str, Any] | None] = ContextVar('mcp_metadata', default=None)
+
 
 def deep_merge(dict1: Dict[Any, Any], dict2: Dict[Any, Any]) -> Dict[Any, Any]:
     """
@@ -96,6 +101,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
     PARAM_USE_HISTORY = "use_history"
     PARAM_MAX_ITERATIONS = "max_iterations"
     PARAM_TEMPLATE_VARS = "template_vars"
+    PARAM_MCP_METADATA = "mcp_metadata"
 
     # Base set of fields that should always be excluded
     BASE_EXCLUDE_FIELDS = {PARAM_METADATA}
@@ -203,7 +209,7 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     async def generate(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         request_params: RequestParams | None = None,
     ) -> PromptMessageMultipart:
         """
@@ -211,6 +217,10 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
         """
         # note - check changes here are mirrored in structured(). i've thought hard about
         # a strategy to reduce duplication etc, but aiming for simple but imperfect for the moment
+
+        # Convert PromptMessage to PromptMessageMultipart if needed
+        if multipart_messages and isinstance(multipart_messages[0], PromptMessage):
+            multipart_messages = PromptMessageMultipart.to_multipart(multipart_messages)
 
         # TODO -- create a "fast-agent" control role rather than magic strings
 
@@ -226,6 +236,11 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
             return Prompt.assistant(f"History saved to {filename}")
 
         self._precall(multipart_messages)
+
+        # Store MCP metadata in context variable
+        final_request_params = self.get_request_params(request_params)
+        if final_request_params.mcp_metadata:
+            _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
         assistant_response: PromptMessageMultipart = await self._apply_prompt_provider_specific(
             multipart_messages, request_params
@@ -259,13 +274,23 @@ class AugmentedLLM(ContextDependent, AugmentedLLMProtocol, Generic[MessageParamT
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
         """Return a structured response from the LLM using the provided messages."""
 
+        # Convert PromptMessage to PromptMessageMultipart if needed
+        if multipart_messages and isinstance(multipart_messages[0], PromptMessage):
+            multipart_messages = PromptMessageMultipart.to_multipart(multipart_messages)
+
         self._precall(multipart_messages)
+        
+        # Store MCP metadata in context variable
+        final_request_params = self.get_request_params(request_params)
+        if final_request_params.mcp_metadata:
+            _mcp_metadata_var.set(final_request_params.mcp_metadata)
+            
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
             multipart_messages, model, request_params
         )

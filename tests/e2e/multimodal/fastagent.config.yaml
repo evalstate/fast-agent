@@ -34,3 +34,6 @@ mcp:
     image_server:
       command: "uv"
       args: ["run", "image_server.py", "image.png"]
+    mixed_content_server:
+      command: "uv"
+      args: ["run", "mixed_content_server.py"]

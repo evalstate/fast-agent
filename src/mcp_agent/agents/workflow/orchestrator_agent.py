@@ -12,8 +12,8 @@ from mcp.types import TextContent
 from mcp_agent.agents.agent import Agent
 from mcp_agent.agents.base_agent import BaseAgent
 from mcp_agent.agents.workflow.orchestrator_models import (
-    NextStep,
     Plan,
+    PlanningStep,
     PlanResult,
     Step,
     TaskWithResult,
@@ -443,7 +443,7 @@ class OrchestratorAgent(BaseAgent):
 
     async def _get_next_step(
         self, objective: str, plan_result: PlanResult, request_params: RequestParams
-    ) -> Optional[NextStep]:
+    ) -> Optional[PlanningStep]:
         """
         Generate just the next step for iterative planning.
 
@@ -490,7 +490,7 @@ class OrchestratorAgent(BaseAgent):
             plan_msg = PromptMessageMultipart(
                 role="user", content=[TextContent(type="text", text=prompt)]
             )
-            next_step, _ = await self._llm.structured([plan_msg], NextStep, request_params)
+            next_step, _ = await self._llm.structured([plan_msg], PlanningStep, request_params)
             return next_step
         except Exception as e:
             self.logger.error(f"Failed to parse next step: {str(e)}")

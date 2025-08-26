@@ -9,8 +9,8 @@ from mcp.types import TextContent
 from mcp_agent.agents.workflow.orchestrator_agent import OrchestratorAgent
 from mcp_agent.agents.workflow.orchestrator_models import (
     AgentTask,
-    NextStep,
     Plan,
+    PlanningStep,
     PlanResult,
     Step,
 )
@@ -189,13 +189,13 @@ async def test_iterative_planning(orchestrator_fixture):
     orchestrator, agent1, agent2, _ = orchestrator_fixture
 
     # Create test steps
-    step1 = NextStep(
+    step1 = PlanningStep(
         description="First iterative step",
         tasks=[AgentTask(description="Task for agent1", agent="agent1")],
         is_complete=False,
     )
 
-    step2 = NextStep(
+    step2 = PlanningStep(
         description="Second iterative step",
         tasks=[AgentTask(description="Task for agent2", agent="agent2")],
         is_complete=True,
