@@ -27,16 +27,16 @@ async def custom_test_elicitation_handler(
 ) -> ElicitResult:
     """Test handler that returns predictable responses for integration testing."""
     logger.info(f"Test elicitation handler called with: {params.message}")
-    
+
     if params.requestedSchema:
         # Generate test data based on the schema for round-trip verification
         properties = params.requestedSchema.get("properties", {})
         content: Dict[str, Any] = {}
-        
+
         # Provide test values for each field
         for field_name, field_def in properties.items():
             field_type = field_def.get("type", "string")
-            
+
             if field_type == "string":
                 if field_name == "name":
                     content[field_name] = "Test User"
@@ -64,7 +64,7 @@ async def custom_test_elicitation_handler(
                 content[field_name] = ["test-item"]
             elif field_type == "object":
                 content[field_name] = {"test": "value"}
-        
+
         logger.info(f"Test handler returning: {content}")
         return ElicitResult(action="accept", content=content)
     else:
@@ -79,7 +79,7 @@ async def custom_test_elicitation_handler(
 async def test_custom_elicitation_handler(fast_agent):
     """Test that custom elicitation handler works (highest precedence)."""
     fast = fast_agent
-    
+
     @fast.agent(
         "custom-handler-agent",
         servers=["resource_forms"],
@@ -90,27 +90,29 @@ async def test_custom_elicitation_handler(fast_agent):
             # First check that elicitation capability is advertised
             capabilities_result = await agent.get_resource("elicitation://client-capabilities")
             capabilities_text = str(capabilities_result)
-            
+
             # Should have elicitation capability
-            assert "✓ Elicitation" in capabilities_text, f"Elicitation capability not advertised: {capabilities_text}"
-            
+            assert "✓ Elicitation" in capabilities_text, (
+                f"Elicitation capability not advertised: {capabilities_text}"
+            )
+
             # Now test the actual elicitation with our custom handler
             result = await agent.get_resource("elicitation://user-profile")
             result_str = str(result)
-            
+
             # Verify we got expected test data from our custom handler
             assert "Test User" in result_str, f"Custom handler not used, got: {result_str}"
             assert "test@example.com" in result_str, f"Custom handler not used, got: {result_str}"
-    
+
     await agent_function()
 
 
-@pytest.mark.integration  
+@pytest.mark.integration
 @pytest.mark.asyncio
 async def test_forms_mode_capability_advertisement(fast_agent):
     """Test that forms mode advertises elicitation capability when no custom handler provided."""
     fast = fast_agent
-    
+
     @fast.agent(
         "forms-agent",
         servers=["resource_forms"],
@@ -121,21 +123,23 @@ async def test_forms_mode_capability_advertisement(fast_agent):
             # Check capabilities - should have elicitation capability
             capabilities_result = await agent.get_resource("elicitation://client-capabilities")
             capabilities_text = str(capabilities_result)
-            
+
             # Should advertise elicitation capability in forms mode
-            assert "✓ Elicitation" in capabilities_text, f"Forms mode should advertise elicitation: {capabilities_text}"
-    
+            assert "✓ Elicitation" in capabilities_text, (
+                f"Forms mode should advertise elicitation: {capabilities_text}"
+            )
+
     await agent_function()
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio  
+@pytest.mark.asyncio
 async def test_elicitation_precedence_decorator_over_config(fast_agent):
     """Test that decorator-provided handler takes precedence over config."""
     fast = fast_agent
-    
+
     @fast.agent(
-        "precedence-test-agent", 
+        "precedence-test-agent",
         servers=["resource_forms"],
         elicitation_handler=custom_test_elicitation_handler,  # Should override config
     )
@@ -159,22 +163,23 @@ async def test_elicitation_form_default_values():
     from prompt_toolkit.widgets import Checkbox, RadioList
 
     from mcp_agent.human_input.elicitation_form import ElicitationForm
+    from mcp_agent.human_input.form_fields import (
+        FormSchema,
+        boolean,
+        choice,
+        integer,
+        string,
+    )
 
-    schema = {
-        "properties": {
-            "username": {"type": "string", "title": "Username", "default": "john_doe"},
-            "age": {"type": "integer", "title": "Age", "default": 25},
-            "subscribe": {"type": "boolean", "title": "Subscribe", "default": True},
-            "theme": {
-                "type": "string",
-                "title": "Theme",
-                "enum": ["light", "dark", "auto"],
-                "default": "dark",
-            },
-        },
-        "required": [],
-    }
+    # Use FormSchema builder for cleaner test setup
+    form_schema = FormSchema(
+        username=string(title="Username", default="john_doe"),
+        age=integer(title="Age", default=25),
+        subscribe=boolean(title="Subscribe", default=True),
+        theme=choice(choices=["light", "dark", "auto"], title="Theme", default="dark"),
+    )
 
+    schema = form_schema.to_schema()
     form = ElicitationForm(schema, "Test defaults", "test_agent", "test_server")
 
     # Check string default
