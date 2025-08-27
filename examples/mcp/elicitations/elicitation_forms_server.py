@@ -7,7 +7,7 @@ different form types and validation patterns.
 
 import logging
 import sys
-from typing import List, Optional
+from typing import List, Optional, TypedDict
 
 from mcp import ReadResourceResult
 from mcp.server.elicitation import (
@@ -31,29 +31,26 @@ logger = logging.getLogger("elicitation_forms_server")
 mcp = FastMCP("Elicitation Forms Demo Server", log_level="INFO")
 
 
-async def _elicit_skip_validation(ctx, message: str, schema: type[BaseModel]):
-    """Helper to use session.elicit directly to bypass type validation.
+class TitledEnumOption(TypedDict):
+    """Type definition for oneOf/anyOf schema options."""
 
-    Note: This is just a temporary workound until we update the SDK."""
-    json_schema = schema.model_json_schema()
-
-    elicit_result = await ctx.request_context.session.elicit(
-        message=message, requestedSchema=json_schema, related_request_id=ctx.request_id
-    )
-
-    # Convert the result to match the expected format
-    if elicit_result.action == "accept" and elicit_result.content:
-        logger.info(f"Elicit result content: {elicit_result.content}")
-        logger.info(f"Content type: {type(elicit_result.content)}")
-        validated_data = schema.model_validate(elicit_result.content)
-        return AcceptedElicitation(data=validated_data)
-    elif elicit_result.action == "decline":
-        return DeclinedElicitation()
-    else:
-        return CancelledElicitation()
+    const: str
+    title: str
 
 
-def _serialize_enum(data: dict[str, str]) -> list[dict[str, str]]:
+def _create_enum_schema_options(data: dict[str, str]) -> list[TitledEnumOption]:
+    """Convert a dictionary to oneOf/anyOf schema format.
+
+    Args:
+        data: Dictionary mapping enum values to display titles
+
+    Returns:
+        List of schema options with 'const' and 'title' fields
+
+    Example:
+        >>> _create_enum_schema_options({"dark": "Dark Mode", "light": "Light Mode"})
+        [{"const": "dark", "title": "Dark Mode"}, {"const": "light", "title": "Light Mode"}]
+    """
     return [{"const": k, "title": v} for k, v in data.items()]
 
 
@@ -79,18 +76,18 @@ async def event_registration() -> ReadResourceResult:
             description="Which event date works for you?", json_schema_extra={"format": "date"}
         )
         workshops: List[str] = Field(
+            default=["ai_basics", "llm_apps"],
             description="Select workshops to attend (2-4 required)",
             min_length=2,
             max_length=4,
-            json_schema_extra={"items": {"anyOf": _serialize_enum(workshop_names)}},
+            json_schema_extra={"items": {"anyOf": _create_enum_schema_options(workshop_names)}},
         )
         dietary_requirements: Optional[str] = Field(
             None, description="Any dietary requirements? (optional)", max_length=200
         )
 
-    result = await _elicit_skip_validation(
-        ctx=mcp.get_context(),
-        message="Register for the fast-agent conference - fill out your details",
+    result = await mcp.get_context().elicit(
+        "Register for the fast-agent conference - fill out your details",
         schema=EventRegistration,
     )
 
@@ -139,14 +136,13 @@ async def product_review() -> ReadResourceResult:
         )
         category: str = Field(
             description="What type of product is this?",
-            json_schema_extra={"oneOf": _serialize_enum(categories)},
+            json_schema_extra={"oneOf": _create_enum_schema_options(categories)},
         )
         review_text: str = Field(
             description="Tell us about your experience", min_length=10, max_length=1000
         )
 
-    result = await _elicit_skip_validation(
-        mcp.get_context(),
+    result = await mcp.get_context().elicit(
         "Share your product review - Help others make informed decisions!",
         schema=ProductReview,
     )
@@ -188,16 +184,14 @@ async def account_settings() -> ReadResourceResult:
         theme: str = Field(
             "dark",
             description="Choose your preferred theme",
-            json_schema_extra={"oneOf": [_serialize_enum(themes)]},
+            json_schema_extra={"oneOf": _create_enum_schema_options(themes)},
         )
         privacy_public: bool = Field(False, description="Make your profile public?")
         items_per_page: int = Field(
             25, description="Items to show per page (10-100)", ge=10, le=100
         )
 
-    result = await _elicit_skip_validation(
-        mcp.get_context(), "Update your account settings", schema=AccountSettings
-    )
+    result = await mcp.get_context().elicit("Update your account settings", schema=AccountSettings)
 
     match result:
         case AcceptedElicitation(data=data):

@@ -1,7 +1,7 @@
 """Simplified, robust elicitation form dialog."""
 
 from datetime import date, datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
@@ -414,6 +414,28 @@ class ElicitationForm:
         self.app.invalidate()  # Ensure layout is built
         set_initial_focus()
 
+    def _extract_enum_schema_options(self, schema_def: Dict[str, Any]) -> List[Tuple[str, str]]:
+        """Extract options from oneOf/anyOf schema patterns.
+
+        Args:
+            schema_def: Schema definition potentially containing oneOf/anyOf
+
+        Returns:
+            List of (value, title) tuples for the options
+        """
+        values = []
+        options = schema_def.get("oneOf", [])
+        if not options:
+            options = schema_def.get("anyOf", [])
+
+        for option in options:
+            if "const" in option:
+                value = option["const"]
+                title = option.get("title", str(value))
+                values.append((value, title))
+
+        return values
+
     def _extract_string_constraints(self, field_def: Dict[str, Any]) -> Dict[str, Any]:
         """Extract string constraints from field definition, handling anyOf schemas."""
         constraints = {}
@@ -435,7 +457,6 @@ class ElicitationForm:
                     break
 
         return constraints
-
 
     def _create_field(self, field_name: str, field_def: Dict[str, Any]):
         """Create a field widget."""
@@ -539,40 +560,28 @@ class ElicitationForm:
 
         elif field_type == "string" and "oneOf" in field_def:
             # Handle oneOf pattern for single selection enums
-            values = []
-            for option in field_def["oneOf"]:
-                if "const" in option:
-                    value = option["const"]
-                    title = option.get("title", str(value))
-                    values.append((value, title))
-
+            values = self._extract_enum_schema_options(field_def)
             if values:
-                radio_list = RadioList(values=values)
+                default_value = field_def.get("default")
+                radio_list = RadioList(values=values, default=default_value)
                 self.field_widgets[field_name] = radio_list
                 return HSplit([label, Frame(radio_list, height=min(len(values) + 2, 6))])
 
         elif field_type == "array" and "items" in field_def:
             # Handle array types with enum/oneOf/anyOf items
             items_def = field_def["items"]
-            values = []
-            # oneOf/anyOf pattern
-            options = items_def.get("oneOf", [])
-            if not options:
-                options = items_def.get("anyOf", [])
-
-            for option in options:
-                if "const" in option:
-                    value = option["const"]
-                    title = option.get("title", str(value))
-                    values.append((value, title))
-
+            values = self._extract_enum_schema_options(items_def)
             if values:
                 # Create checkbox list for multi-selection
                 min_items = field_def.get("minItems")
                 max_items = field_def.get("maxItems")
+                default_values = field_def.get("default", [])
 
                 checkbox_list = ValidatedCheckboxList(
-                    values=values, min_items=min_items, max_items=max_items
+                    values=values,
+                    default_values=default_values,
+                    min_items=min_items,
+                    max_items=max_items,
                 )
 
                 # Store the widget directly (consistent with other widgets)
