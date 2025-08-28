@@ -415,15 +415,25 @@ class ElicitationForm:
         set_initial_focus()
 
     def _extract_enum_schema_options(self, schema_def: Dict[str, Any]) -> List[Tuple[str, str]]:
-        """Extract options from oneOf/anyOf schema patterns.
+        """Extract options from oneOf/anyOf/enum schema patterns.
 
         Args:
-            schema_def: Schema definition potentially containing oneOf/anyOf
+            schema_def: Schema definition potentially containing oneOf/anyOf/enum
 
         Returns:
             List of (value, title) tuples for the options
         """
         values = []
+        
+        # First check for bare enum (most common pattern for arrays)
+        if "enum" in schema_def:
+            enum_values = schema_def["enum"]
+            enum_names = schema_def.get("enumNames", enum_values)
+            for val, name in zip(enum_values, enum_names):
+                values.append((val, str(name)))
+            return values
+        
+        # Then check for oneOf/anyOf patterns
         options = schema_def.get("oneOf", [])
         if not options:
             options = schema_def.get("anyOf", [])
