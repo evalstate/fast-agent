@@ -5,9 +5,7 @@ from typing import Any, Dict, Optional
 
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
-from prompt_toolkit.application.current import get_app
 from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
@@ -327,16 +325,21 @@ class ElicitationForm:
         def focus_previous_left(event):
             focus_previous(event)
 
-        # Create filter for non-multiline fields
-        not_in_multiline = Condition(lambda: not self._is_in_multiline_field())
-
-        @kb.add("c-m", filter=not_in_multiline)  # Enter to submit only when not in multiline
+        # Enter always submits
+        @kb.add("c-m")
         def submit(event):
             self._accept()
 
-        @kb.add("c-j")  # Ctrl+J as alternative submit for multiline fields
-        def submit_alt(event):
-            self._accept()
+        # Ctrl+J inserts newlines
+        @kb.add("c-j")
+        def insert_newline(event):
+            # Insert a newline at the cursor position
+            event.current_buffer.insert_text('\n')
+            # Mark this field as multiline when user adds a newline
+            for field_name, widget in self.field_widgets.items():
+                if isinstance(widget, Buffer) and widget == event.current_buffer:
+                    self.multiline_fields.add(field_name)
+                    break
 
         # ESC should ALWAYS cancel immediately, no matter what
         @kb.add("escape", eager=True, is_global=True)
@@ -353,7 +356,7 @@ class ElicitationForm:
                 [
                     (
                         "class:bottom-toolbar.text",
-                        " <TAB> or ↑↓→← to navigate. <ENTER> submit (<Ctrl+J> in multiline). <ESC> to cancel. ",
+                        " <TAB>/↑↓→← navigate. <ENTER> submit. <Ctrl+J> insert new line. <ESC> cancel. ",
                     ),
                     (
                         "class:bottom-toolbar.text",
@@ -554,18 +557,24 @@ class ElicitationForm:
             else:
                 max_length = None
 
-            if max_length and max_length > 100:
+            # Check if default value contains newlines
+            if field_type == "string" and default_value is not None and '\n' in str(default_value):
+                multiline = True
+                self.multiline_fields.add(field_name)  # Track multiline fields
+                # Set height to actual line count for fields with newlines in default
+                initial_height = str(default_value).count('\n') + 1
+            elif max_length and max_length > 100:
                 # Use multiline for longer fields
                 multiline = True
                 self.multiline_fields.add(field_name)  # Track multiline fields
                 if max_length <= 300:
-                    height = 3
+                    initial_height = 3
                 else:
-                    height = 5
+                    initial_height = 5
             else:
                 # Single line for shorter fields
                 multiline = False
-                height = 1
+                initial_height = 1
 
             buffer = Buffer(
                 validator=validator,
@@ -591,30 +600,23 @@ class ElicitationForm:
                 else:
                     return "class:input-field"
 
+            # Create a dynamic height function based on content
+            def get_dynamic_height():
+                if not buffer.text:
+                    return initial_height
+                # Calculate height based on number of newlines in buffer
+                line_count = buffer.text.count('\n') + 1
+                # Use initial height as minimum, grow up to 20 lines
+                return min(max(line_count, initial_height), 20)
+            
             text_input = Window(
                 BufferControl(buffer=buffer),
-                height=height,
+                height=get_dynamic_height,  # Use dynamic height function
                 style=get_field_style,  # Use dynamic style function
                 wrap_lines=True if multiline else False,  # Enable word wrap for multiline
             )
 
             return HSplit([label, Frame(text_input)])
-
-    def _is_in_multiline_field(self) -> bool:
-        """Check if currently focused field is a multiline field."""
-
-        focused = get_app().layout.current_control
-
-        # Find which field this control belongs to
-        # Only Buffer widgets can be multiline, so only check those
-        for field_name, widget in self.field_widgets.items():
-            if (
-                isinstance(widget, Buffer)
-                and hasattr(focused, "buffer")
-                and widget == focused.buffer
-            ):
-                return field_name in self.multiline_fields
-        return False
 
     def _validate_form(self) -> tuple[bool, Optional[str]]:
         """Validate the entire form."""
