@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "invalid-server": {
+      "command": "test-command",
+      "roots": [
+        {
+          "uri": "invalid://path",
+          "name": "invalid"
+        },
+        {
+          "uri": "ftp://example.com/files",
+          "name": "ftp"
+        }
+      ]
+    }
+  }
+}
