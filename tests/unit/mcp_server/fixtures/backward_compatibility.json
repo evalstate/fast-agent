@@ -1,0 +1,22 @@
+{
+  "mcp": {
+    "servers": {
+      "test-server": {
+        "command": "test-command",
+        "args": [
+          "arg1",
+          "arg2"
+        ],
+        "transport": "stdio"
+      },
+      "another-server": {
+        "command": "another-command",
+        "args": [
+          "--config",
+          "config.json"
+        ],
+        "transport": "stdio"
+      }
+    }
+  }
+}
