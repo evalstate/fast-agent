@@ -502,3 +502,89 @@ async def test_agent_with_anyurl_instruction(fast_agent):
             assert "fast-agent" in instruction
 
     await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_mixed_prompt_message_and_multipart(fast_agent):
+    """Test that the agent can process a mixed list of PromptMessage and PromptMessageMultipart."""
+    from mcp.types import PromptMessage, TextContent
+
+    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(
+        "mixed_agent",
+        instruction="You are a helpful AI Agent that echoes back messages",
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Create a mixed list with PromptMessage and PromptMessageMultipart
+            messages = [
+                # First message as PromptMessage
+                PromptMessage(role="user", content=TextContent(type="text", text="a")),
+                # Second message as PromptMessageMultipart
+                PromptMessageMultipart(role="user", content=[TextContent(type="text", text="b")]),
+            ]
+
+            # Send the mixed list and verify both messages are processed
+            result = await agent.mixed_agent.generate(messages)
+            result_text = result.first_text()
+
+            # The stub LLM should echo back both messages
+            assert "a" in result_text, f"Expected 'a' in response but got: {result_text}"
+            assert "b" in result_text, f"Expected 'b' in response but got: {result_text}"
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_generate_with_various_input_types(fast_agent):
+    """Test that generate() accepts strings, PromptMessage, PromptMessageMultipart, and lists."""
+    from mcp.types import PromptMessage, TextContent
+
+    from mcp_agent.core.prompt import Prompt
+
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(
+        "input_test_agent",
+        instruction="You are a helpful AI Agent that echoes back messages",
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Test 1: String input
+            result = await agent.input_test_agent.generate("test_string")
+            assert "test_string" in result.first_text()
+
+            # Test 2: PromptMessage input
+            prompt_msg = PromptMessage(
+                role="user", content=TextContent(type="text", text="test_prompt_message")
+            )
+            result = await agent.input_test_agent.generate(prompt_msg)
+            assert "test_prompt_message" in result.first_text()
+
+            # Test 3: PromptMessageMultipart input
+            multipart_msg = Prompt.user("test_multipart")
+            result = await agent.input_test_agent.generate(multipart_msg)
+            assert "test_multipart" in result.first_text()
+
+            # Test 4: List with mixed types including strings
+            mixed_list = [
+                "string_msg",
+                PromptMessage(role="user", content=TextContent(type="text", text="prompt_msg")),
+                Prompt.user("multipart_msg"),
+            ]
+            result = await agent.input_test_agent.generate(mixed_list)
+            result_text = result.first_text()
+            assert "string_msg" in result_text
+            assert "prompt_msg" in result_text
+            assert "multipart_msg" in result_text
+
+    await agent_function()

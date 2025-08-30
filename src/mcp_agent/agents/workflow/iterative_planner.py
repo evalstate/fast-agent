@@ -188,7 +188,7 @@ class IterativePlanner(BaseAgent):
         # Store agents by name for easier lookup
         self.agents: Dict[str, Agent] = {}
         for agent in agents:
-            agent_name = agent.name
+            agent_name = agent._name
             self.agents[agent_name] = agent
 
         super().__init__(config, context=context, **kwargs)
@@ -235,23 +235,23 @@ class IterativePlanner(BaseAgent):
             except Exception as e:
                 self.logger.warning(f"Error shutting down agent {agent_name}: {str(e)}")
 
-    async def generate(
+    async def _generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        normalized_messages: List[PromptMessageMultipart],
         request_params: Optional[RequestParams] = None,
     ) -> PromptMessageMultipart:
         """
         Execute an orchestrated plan to process the input.
 
         Args:
-            multipart_messages: Messages to process
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional request parameters
 
         Returns:
             The final synthesized response from the orchestration
         """
         # Extract user request
-        objective = multipart_messages[-1].all_text() if multipart_messages else ""
+        objective = normalized_messages[-1].all_text() if normalized_messages else ""
         plan_result = await self._execute_plan(objective, request_params)
 
         # Return the result
@@ -262,7 +262,7 @@ class IterativePlanner(BaseAgent):
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -270,7 +270,7 @@ class IterativePlanner(BaseAgent):
         Execute an orchestration plan and parse the result into a structured format.
 
         Args:
-            prompt: List of messages to process
+            messages: List of messages to process
             model: Pydantic model to parse the response into
             request_params: Optional request parameters
 
@@ -278,7 +278,7 @@ class IterativePlanner(BaseAgent):
             The parsed final response, or None if parsing fails
         """
         # Generate orchestration result
-        response = await self.generate(multipart_messages, request_params)
+        response = await self.generate(messages, request_params)
 
         # Try to parse the response into the specified model
         try:

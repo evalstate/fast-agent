@@ -7,10 +7,11 @@ dynamically planning, delegating to specialized agents, and synthesizing results
 
 from typing import Any, Dict, List, Literal, Optional, Tuple, Type
 
+from mcp import Tool
 from mcp.types import TextContent
 
+from fast_agent.agents.llm_agent import LlmAgent
 from mcp_agent.agents.agent import Agent
-from mcp_agent.agents.base_agent import BaseAgent
 from mcp_agent.agents.workflow.orchestrator_models import (
     Plan,
     PlanningStep,
@@ -38,7 +39,7 @@ from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 logger = get_logger(__name__)
 
 
-class OrchestratorAgent(BaseAgent):
+class OrchestratorAgent(LlmAgent):
     """
     An agent that implements the orchestrator workflow pattern.
 
@@ -81,33 +82,35 @@ class OrchestratorAgent(BaseAgent):
         # Store agents by name for easier lookup
         self.agents: Dict[str, Agent] = {}
         for agent in agents:
-            agent_name = agent.name
+            agent_name = agent._name
             self.logger.info(f"Adding agent '{agent_name}' to orchestrator")
             self.agents[agent_name] = agent
         self.plan_iterations = plan_iterations
         # For tracking state during execution
         self.plan_result: Optional[PlanResult] = None
+        self.initialized = False
 
-    async def generate(
+    async def generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         request_params: Optional[RequestParams] = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageMultipart:
         """
         Execute an orchestrated plan to process the input.
 
         Args:
-            multipart_messages: Messages to process
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional request parameters
 
         Returns:
             The final synthesized response from the orchestration
         """
         # Extract user request
-        objective = multipart_messages[-1].all_text() if multipart_messages else ""
+        objective = messages[-1].all_text() if messages else ""
 
         # Initialize execution parameters
-        params = self._merge_request_params(request_params)
+        params = self._merge_request_params(request_params, None)
 
         # Execute the plan
         plan_result = await self._execute_plan(objective, params)
@@ -119,9 +122,9 @@ class OrchestratorAgent(BaseAgent):
             content=[TextContent(type="text", text=plan_result.result or "No result available")],
         )
 
-    async def structured(
+    async def structured_impl(
         self,
-        prompt: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -129,7 +132,7 @@ class OrchestratorAgent(BaseAgent):
         Execute an orchestration plan and parse the result into a structured format.
 
         Args:
-            prompt: List of messages to process
+            messages: List of messages to process
             model: Pydantic model to parse the response into
             request_params: Optional request parameters
 
@@ -137,7 +140,7 @@ class OrchestratorAgent(BaseAgent):
             The parsed final response, or None if parsing fails
         """
         # Generate orchestration result
-        response = await self.generate(prompt, request_params)
+        response = await self.generate_impl(messages, request_params)
 
         # Try to parse the response into the specified model
         try:
@@ -562,12 +565,19 @@ class OrchestratorAgent(BaseAgent):
         response = await self._llm.generate([prompt], request_params)
         return response.all_text()
 
-    def _merge_request_params(self, request_params: Optional[RequestParams]) -> RequestParams:
+    def _merge_request_params(
+        self,
+        base_params: RequestParams | None,
+        override_params: RequestParams | None,
+        model_override: str | None = None,
+    ) -> RequestParams | None:
         """
         Merge provided request parameters with defaults.
 
         Args:
-            request_params: Optional request parameters to merge
+            base_params: Optional base request parameters to merge
+            override_params: Optional dictionary of parameters to override
+            model_override: Optional dictionary for model-specific overrides
 
         Returns:
             Merged request parameters
@@ -580,18 +590,23 @@ class OrchestratorAgent(BaseAgent):
             parallel_tool_calls=True,
         )
 
-        # If base params provided, merge with defaults
-        if request_params:
-            # Create copy of defaults
-            params = defaults.model_copy()
-            # Update with provided params
-            if isinstance(request_params, dict):
-                params = params.model_copy(update=request_params)
-            else:
-                params = params.model_copy(update=request_params.model_dump())
+        # Start with defaults
+        params = defaults.model_copy()
 
-            # Force specific settings
-            params.use_history = False
-            return params
+        # Merge base_params if provided
+        if base_params:
+            params = params.model_copy(update=base_params.model_dump())
 
-        return defaults
+        # Merge override_params if provided
+        if override_params:
+            params = params.model_copy(update=override_params.model_dump())
+
+        # Merge model_override if provided
+        if model_override:
+            params = params.model_copy(update=model_override)
+
+        # Force orchestrator-specific settings
+        params.use_history = False
+        params.max_iterations = 5
+
+        return params

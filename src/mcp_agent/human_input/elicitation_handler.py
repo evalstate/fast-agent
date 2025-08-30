@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional
 
+from fast_agent.progress_display import progress_display
 from mcp_agent.human_input.elicitation_form import (
     show_simple_elicitation_form,
 )
@@ -11,7 +12,6 @@ from mcp_agent.human_input.types import (
     HumanInputRequest,
     HumanInputResponse,
 )
-from mcp_agent.progress_display import progress_display
 
 
 async def elicitation_input_callback(

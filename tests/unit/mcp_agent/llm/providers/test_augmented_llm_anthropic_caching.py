@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from mcp.types import TextContent
 
-from mcp_agent.config import AnthropicSettings, Settings
+from fast_agent.config import AnthropicSettings, Settings
 from mcp_agent.llm.providers.augmented_llm_anthropic import AnthropicAugmentedLLM
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -261,9 +261,43 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
         # Let's just verify we have messages and the structure is correct
         self.assertGreaterEqual(len(messages), 4)  # At least the history + new message
 
-    async def test_template_caching_prompt_mode(self):
+    @patch("mcp_agent.llm.providers.augmented_llm_anthropic.AsyncAnthropic")
+    async def test_template_caching_prompt_mode(self, mock_anthropic_class):
         """Test that template messages are cached in 'prompt' mode."""
         llm = self._create_llm(cache_mode="prompt")
+
+        # Mock the Anthropic client
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+
+        # Create a proper async context manager for the stream
+        class MockStream:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            def __aiter__(self):
+                return iter([])
+
+        # Mock the stream method
+        mock_client.messages.stream = lambda **kwargs: MockStream()
+
+        # Mock the _process_stream method to return a response
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 100
+        mock_usage.output_tokens = 50
+        mock_usage.cache_creation_input_tokens = None
+        mock_usage.cache_read_input_tokens = None
+        mock_usage.trafficType = None
+
+        mock_response = MagicMock(
+            content=[MagicMock(type="text", text="Response")],
+            stop_reason="end_turn",
+            usage=mock_usage,
+        )
+        llm._process_stream = AsyncMock(return_value=mock_response)
 
         # Create template messages
         template_messages = [
@@ -278,21 +312,9 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
             ),
         ]
 
-        # Mock generate_messages to capture the message_param
-        captured_message_param = None
-
-        async def mock_generate_messages(message_param, request_params=None):
-            nonlocal captured_message_param
-            captured_message_param = message_param
-            return PromptMessageMultipart(
-                role="assistant", content=[TextContent(type="text", text="Response")]
-            )
-
-        llm.generate_messages = mock_generate_messages
-
         # Apply template with is_template=True
         await llm._apply_prompt_provider_specific(
-            template_messages, request_params=None, is_template=True
+            template_messages, request_params=None, tools=None, is_template=True
         )
 
         # Check that template messages in history have cache control
@@ -309,9 +331,43 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(found_cache_control, "No cache control found in template messages")
 
-    async def test_template_caching_off_mode(self):
+    @patch("mcp_agent.llm.providers.augmented_llm_anthropic.AsyncAnthropic")
+    async def test_template_caching_off_mode(self, mock_anthropic_class):
         """Test that template messages are NOT cached in 'off' mode."""
         llm = self._create_llm(cache_mode="off")
+
+        # Mock the Anthropic client
+        mock_client = MagicMock()
+        mock_anthropic_class.return_value = mock_client
+
+        # Create a proper async context manager for the stream
+        class MockStream:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return None
+
+            def __aiter__(self):
+                return iter([])
+
+        # Mock the stream method
+        mock_client.messages.stream = lambda **kwargs: MockStream()
+
+        # Mock the _process_stream method to return a response
+        mock_usage = MagicMock()
+        mock_usage.input_tokens = 100
+        mock_usage.output_tokens = 50
+        mock_usage.cache_creation_input_tokens = None
+        mock_usage.cache_read_input_tokens = None
+        mock_usage.trafficType = None
+
+        mock_response = MagicMock(
+            content=[MagicMock(type="text", text="Response")],
+            stop_reason="end_turn",
+            usage=mock_usage,
+        )
+        llm._process_stream = AsyncMock(return_value=mock_response)
 
         # Create template messages
         template_messages = [
@@ -322,14 +378,6 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
                 role="user", content=[TextContent(type="text", text="Current question")]
             ),
         ]
-
-        # Mock generate_messages
-        async def mock_generate_messages(message_param, request_params=None):
-            return PromptMessageMultipart(
-                role="assistant", content=[TextContent(type="text", text="Response")]
-            )
-
-        llm.generate_messages = mock_generate_messages
 
         # Apply template with is_template=True
         await llm._apply_prompt_provider_specific(

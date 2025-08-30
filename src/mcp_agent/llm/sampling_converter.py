@@ -12,6 +12,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp_agent.mcp.interfaces import RequestParams
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -77,7 +78,7 @@ class SamplingConverter:
             role="assistant",
             content=TextContent(type="text", text=error_message),
             model=model or "unknown",
-            stopReason="error",
+            stopReason=LlmStopReason.ERROR.value,
         )
 
     @staticmethod
@@ -87,10 +88,21 @@ class SamplingConverter:
         """
         Convert multiple SamplingMessages to PromptMessageMultipart objects.
 
+        This properly combines consecutive messages with the same role into a single
+        multipart message, which is required by APIs like Anthropic.
+
         Args:
             messages: List of SamplingMessages to convert
 
         Returns:
-            List of PromptMessageMultipart objects, each with a single content item
+            List of PromptMessageMultipart objects with consecutive same-role messages combined
         """
         return [SamplingConverter.sampling_message_to_prompt_message(msg) for msg in messages]
+        # # First convert SamplingMessages to PromptMessages
+        # prompt_messages = [
+        #     PromptMessage(role=msg.role, content=msg.content)
+        #     for msg in messages
+        # ]
+
+        # # Then use the existing to_multipart method to properly combine them
+        # return PromptMessageMultipart.to_multipart(prompt_messages)

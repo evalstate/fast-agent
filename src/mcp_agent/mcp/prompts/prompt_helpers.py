@@ -12,7 +12,6 @@ from mcp.types import (
     PromptMessage,
     TextContent,
 )
-
 from mcp_agent.mcp.helpers.content_helpers import get_image_data, get_text
 
 # Forward reference for PromptMessageMultipart, actual import happens at runtime

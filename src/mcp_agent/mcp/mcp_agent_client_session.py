@@ -6,6 +6,9 @@ It adds logging and supports sampling requests.
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
+from pydantic import FileUrl
+
+from fast_agent.context_dependent import ContextDependent
 from mcp import ClientSession, ServerNotification
 from mcp.shared.message import MessageMetadata
 from mcp.shared.session import (
@@ -28,15 +31,12 @@ from mcp.types import (
     Root,
     ToolListChangedNotification,
 )
-from pydantic import FileUrl
-
-from mcp_agent.context_dependent import ContextDependent
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.helpers.server_config_helpers import get_server_config
 from mcp_agent.mcp.sampling import sample
 
 if TYPE_CHECKING:
-    from mcp_agent.config import MCPServerSettings
+    from fast_agent.config import MCPServerSettings
 
 logger = get_logger(__name__)
 
@@ -119,7 +119,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             # Try to resolve using factory
             elicitation_handler = None
             try:
-                from mcp_agent.context import get_current_context
+                from fast_agent.context import get_current_context
                 from mcp_agent.core.agent_types import AgentConfig
                 from mcp_agent.mcp.elicitation_factory import resolve_elicitation_handler
 
@@ -157,7 +157,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     def _should_enable_auto_sampling(self) -> bool:
         """Check if auto_sampling is enabled at the application level."""
         try:
-            from mcp_agent.context import get_current_context
+            from fast_agent.context import get_current_context
 
             context = get_current_context()
             if context and context.config:
@@ -190,12 +190,16 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             return result
         except Exception as e:
             # Handle connection errors cleanly
+            # Looking at the MCP SDK, this should probably handle MCPError
             from anyio import ClosedResourceError
-            
+
             if isinstance(e, ClosedResourceError):
                 # Show clean offline message and convert to ConnectionError
-                from mcp_agent import console
-                console.console.print(f"[dim red]MCP server {self.session_server_name} offline[/dim red]")
+                from fast_agent import console
+
+                console.console.print(
+                    f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
+                )
                 raise ConnectionError(f"MCP server {self.session_server_name} offline") from e
             else:
                 logger.error(f"send_request failed: {str(e)}")
@@ -206,7 +210,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         Can be overridden by subclasses to handle a notification without needing
         to listen on the message stream.
         """
-        logger.info(
+        logger.debug(
             "_received_notification: notification=",
             data=notification.model_dump(),
         )
@@ -245,86 +249,85 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         except Exception as e:
             logger.error(f"Error in tool list changed callback: {e}")
 
+    # TODO -- decide whether to make this override type safe or not (modify SDK)
     async def call_tool(
-        self, 
-        name: str, 
-        arguments: dict | None = None, 
-        _meta: dict | None = None,
-        **kwargs
+        self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
     ) -> CallToolResult:
         """Call a tool with optional metadata support."""
         if _meta:
             from mcp.types import RequestParams
-            
+
             # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get('meta')
+            existing_meta = kwargs.get("meta")
             if existing_meta:
-                meta_dict = existing_meta.model_dump() if hasattr(existing_meta, 'model_dump') else {}
+                meta_dict = (
+                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
+                )
                 meta_dict.update(_meta)
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
                 meta_obj = RequestParams.Meta(**_meta)
-                
+
             # Create CallToolRequestParams without meta, then add _meta via model_dump
             params = CallToolRequestParams(name=name, arguments=arguments)
             params_dict = params.model_dump(by_alias=True)
             params_dict["_meta"] = meta_obj.model_dump()
-            
+
             # Create request with proper types
             request = CallToolRequest(
-                method="tools/call",
-                params=CallToolRequestParams.model_validate(params_dict)
+                method="tools/call", params=CallToolRequestParams.model_validate(params_dict)
             )
-            
+
             return await self.send_request(request, CallToolResult)
         else:
             return await super().call_tool(name, arguments, **kwargs)
 
-    async def read_resource(self, uri: str, _meta: dict | None = None, **kwargs) -> ReadResourceResult:
+    async def read_resource(
+        self, uri: str, _meta: dict | None = None, **kwargs
+    ) -> ReadResourceResult:
         """Read a resource with optional metadata support."""
         if _meta:
             from mcp.types import RequestParams
-            
+
             # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get('meta')
+            existing_meta = kwargs.get("meta")
             if existing_meta:
-                meta_dict = existing_meta.model_dump() if hasattr(existing_meta, 'model_dump') else {}
+                meta_dict = (
+                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
+                )
                 meta_dict.update(_meta)
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
                 meta_obj = RequestParams.Meta(**_meta)
-                
+
             request = ReadResourceRequest(
-                method="resources/read",
-                params=ReadResourceRequestParams(uri=uri, meta=meta_obj)
+                method="resources/read", params=ReadResourceRequestParams(uri=uri, meta=meta_obj)
             )
             return await self.send_request(request, ReadResourceResult)
         else:
             return await super().read_resource(uri, **kwargs)
 
     async def get_prompt(
-        self, 
-        name: str, 
-        arguments: dict | None = None, 
-        _meta: dict | None = None,
-        **kwargs
+        self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
     ) -> GetPromptResult:
         """Get a prompt with optional metadata support."""
         if _meta:
             from mcp.types import RequestParams
-            
+
             # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get('meta')
+            existing_meta = kwargs.get("meta")
             if existing_meta:
-                meta_dict = existing_meta.model_dump() if hasattr(existing_meta, 'model_dump') else {}
+                meta_dict = (
+                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
+                )
                 meta_dict.update(_meta)
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
                 meta_obj = RequestParams.Meta(**_meta)
-                
+
             request = GetPromptRequest(
                 method="prompts/get",
-                params=GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj)
+                params=GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj),
             )
             return await self.send_request(request, GetPromptResult)
         else:

@@ -4,6 +4,7 @@ Unit tests for the router agent, covering models and core functionality.
 
 import pytest
 
+from fast_agent.agents.llm_agent import LlmAgent
 from mcp_agent.agents.agent import Agent
 from mcp_agent.agents.workflow.router_agent import RouterAgent, RoutingResponse
 from mcp_agent.core.agent_types import AgentConfig
@@ -46,10 +47,10 @@ async def test_disallows_empty_agents():
 async def test_invalid_llm_response():
     """Test router handles invalid LLM responses gracefully."""
     # Create simple agents
-    agent1 = Agent(
+    agent1 = LlmAgent(
         config=AgentConfig(name="agent1", instruction="Test agent 1"),
     )
-    agent2 = Agent(
+    agent2 = LlmAgent(
         config=AgentConfig(name="agent2", instruction="Test agent 2"),
     )
 

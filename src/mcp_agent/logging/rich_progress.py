@@ -7,8 +7,8 @@ from typing import Optional
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
-from mcp_agent.console import console as default_console
-from mcp_agent.event_progress import ProgressAction, ProgressEvent
+from fast_agent.console import console as default_console
+from fast_agent.event_progress import ProgressAction, ProgressEvent
 
 
 class RichProgressDisplay:
@@ -140,7 +140,7 @@ class RichProgressDisplay:
             "details": event.details or "",
             "task_name": task_name,
         }
-        
+
         # For TOOL_PROGRESS events, update progress if available
         if event.action == ProgressAction.TOOL_PROGRESS and event.progress is not None:
             if event.total is not None:
@@ -149,7 +149,7 @@ class RichProgressDisplay:
             else:
                 # If no total, just show as indeterminate progress
                 self._progress.reset(task_id)
-        
+
         self._progress.update(task_id, **update_kwargs)
 
         if (

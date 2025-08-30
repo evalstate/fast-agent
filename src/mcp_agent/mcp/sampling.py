@@ -4,9 +4,9 @@ This simplified implementation directly converts between MCP types and PromptMes
 
 from typing import TYPE_CHECKING
 
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp import ClientSession
 from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
-
 from mcp_agent.core.agent_types import AgentConfig
 from mcp_agent.llm.sampling_converter import SamplingConverter
 from mcp_agent.logging.logger import get_logger
@@ -38,7 +38,7 @@ def create_sampling_llm(
 
     app_context = None
     try:
-        from mcp_agent.context import get_current_context
+        from fast_agent.context import get_current_context
 
         app_context = get_current_context()
     except Exception:
@@ -82,30 +82,33 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
     try:
         # Extract model from server config using type-safe helper
         server_config = get_server_config(mcp_ctx)
-        
+
         # First priority: explicitly configured sampling model
         if server_config and hasattr(server_config, "sampling") and server_config.sampling:
             model = server_config.sampling.model
-        
+
         # Second priority: auto_sampling fallback (if enabled at application level)
         if model is None:
             # Check if auto_sampling is enabled
             auto_sampling_enabled = False
             try:
-                from mcp_agent.context import get_current_context
+                from fast_agent.context import get_current_context
+
                 app_context = get_current_context()
                 if app_context and app_context.config:
-                    auto_sampling_enabled = getattr(app_context.config, 'auto_sampling', True)
+                    auto_sampling_enabled = getattr(app_context.config, "auto_sampling", True)
             except Exception as e:
                 logger.debug(f"Could not get application config: {e}")
                 auto_sampling_enabled = True  # Default to enabled
-            
+
             if auto_sampling_enabled:
                 # Import here to avoid circular import
                 from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-                
+
                 # Try agent's model first (from the session)
-                if hasattr(mcp_ctx, "session") and isinstance(mcp_ctx.session, MCPAgentClientSession):
+                if hasattr(mcp_ctx, "session") and isinstance(
+                    mcp_ctx.session, MCPAgentClientSession
+                ):
                     if mcp_ctx.session.agent_model:
                         model = mcp_ctx.session.agent_model
                         logger.debug(f"Using agent's model for sampling: {model}")
@@ -123,7 +126,9 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
                         logger.debug(f"Could not get system default model: {e}")
 
         if model is None:
-            raise ValueError("No model configured for sampling (server config, agent model, or system default)")
+            raise ValueError(
+                "No model configured for sampling (server config, agent model, or system default)"
+            )
 
         # Create an LLM instance
         llm = create_sampling_llm(params, model, api_key)
@@ -145,7 +150,7 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
             role=llm_response.role,
             content=TextContent(type="text", text=llm_response.first_text()),
             model=model,
-            stopReason="endTurn",
+            stopReason=LlmStopReason.END_TURN.value,
         )
     except Exception as e:
         logger.error(f"Error in sampling: {str(e)}")

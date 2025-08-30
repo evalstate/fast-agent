@@ -1,5 +1,6 @@
 from typing import Any, List, Type, Union
 
+from mcp import Tool
 from mcp.types import PromptMessage
 
 from mcp_agent.core.exceptions import ModelConfigError
@@ -8,9 +9,12 @@ from mcp_agent.llm.augmented_llm import RequestParams
 from mcp_agent.llm.augmented_llm_passthrough import PassthroughLLM
 from mcp_agent.llm.provider_types import Provider
 from mcp_agent.llm.usage_tracking import create_turn_usage_from_messages
+from mcp_agent.mcp.helpers.content_helpers import normalize_to_multipart_list
 from mcp_agent.mcp.interfaces import ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
+
+# TODO -- support tool usage/replay
 
 
 class PlaybackLLM(PassthroughLLM):
@@ -53,14 +57,23 @@ class PlaybackLLM(PassthroughLLM):
 
     async def generate(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageMultipart:
         """
         Handle playback of messages in two modes:
         1. First call: store messages for playback and return "HISTORY LOADED"
         2. Subsequent calls: return the next assistant message
         """
+        # Normalize all input types to a list of PromptMessageMultipart
+        multipart_messages = normalize_to_multipart_list(messages)
+
         # If this is the first call (initialization) or we're loading a prompt template
         # with multiple messages (comes from apply_prompt)
         if -1 == self._current_index:
@@ -72,24 +85,16 @@ class PlaybackLLM(PassthroughLLM):
             # Reset the index to the beginning for proper playback
             self._current_index = 0
 
-            await self.show_assistant_message(
-                message_text=f"HISTORY LOADED ({len(self._messages)} messages)",
-                title="ASSISTANT/PLAYBACK",
-            )
-
             # In PlaybackLLM, we always return "HISTORY LOADED" on initialization,
             # regardless of the prompt content. The next call will return messages.
-            return Prompt.assistant("HISTORY LOADED")
+            return Prompt.assistant(f"HISTORY LOADED ({len(self._messages)}) messages")
 
         response = self._get_next_assistant_message()
-        await self.show_assistant_message(
-            message_text=MessageContent.get_first_text(response), title="ASSISTANT/PLAYBACK"
-        )
 
         # Track usage for this playback "turn"
         try:
             input_content = str(multipart_messages) if multipart_messages else ""
-            output_content = MessageContent.get_first_text(response)
+            output_content = MessageContent.get_first_text(response) or ""
 
             turn_usage = create_turn_usage_from_messages(
                 input_content=input_content,
@@ -108,7 +113,7 @@ class PlaybackLLM(PassthroughLLM):
 
     async def structured(
         self,
-        multipart_messages: List[Union[PromptMessageMultipart, PromptMessage]],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageMultipart]:

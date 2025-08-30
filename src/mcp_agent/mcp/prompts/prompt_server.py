@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
+from pydantic import AnyUrl
+
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import (
     AssistantMessage,
@@ -21,8 +23,6 @@ from mcp.server.fastmcp.prompts.base import (
 )
 from mcp.server.fastmcp.resources import FileResource
 from mcp.types import PromptMessage
-from pydantic import AnyUrl
-
 from mcp_agent.mcp import mime_utils, resource_utils
 from mcp_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER as DEFAULT_ASSISTANT_DELIMITER,
@@ -146,7 +146,6 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
         if file_str.endswith(".json"):
             # Simple JSON handling - just load and register directly
             from mcp.server.fastmcp.prompts.base import Prompt, PromptArgument
-
             from mcp_agent.mcp.prompts.prompt_load import load_prompt
 
             # Create metadata with minimal information

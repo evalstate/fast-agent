@@ -8,10 +8,10 @@ and delegates operations to an attached AugmentedLLMProtocol instance.
 import asyncio
 import fnmatch
 import uuid
+from abc import ABC
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
     Dict,
     List,
     Mapping,
@@ -22,7 +22,7 @@ from typing import (
     Union,
 )
 
-from a2a.types import AgentCapabilities, AgentCard, AgentSkill
+from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
     EmbeddedResource,
@@ -33,9 +33,10 @@ from mcp.types import (
     TextContent,
     Tool,
 )
-from opentelemetry import trace
 from pydantic import BaseModel
 
+from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
+from fast_agent.agents.tool_agent import ToolAgent
 from mcp_agent.core.agent_types import AgentConfig, AgentType
 from mcp_agent.core.exceptions import PromptExitError
 from mcp_agent.core.prompt import Prompt
@@ -47,7 +48,8 @@ from mcp_agent.human_input.types import (
     HumanInputResponse,
 )
 from mcp_agent.logging.logger import get_logger
-from mcp_agent.mcp.interfaces import AgentProtocol, AugmentedLLMProtocol
+from mcp_agent.mcp.helpers.content_helpers import normalize_to_multipart_list
+from mcp_agent.mcp.interfaces import AugmentedLLMProtocol, LLMFactoryProtocol
 from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
@@ -59,16 +61,11 @@ LLM = TypeVar("LLM", bound=AugmentedLLMProtocol)
 
 HUMAN_INPUT_TOOL_NAME = "__human_input__"
 if TYPE_CHECKING:
-    from mcp_agent.context import Context
+    from fast_agent.context import Context
     from mcp_agent.llm.usage_tracking import UsageAccumulator
 
 
-DEFAULT_CAPABILITIES = AgentCapabilities(
-    streaming=False, pushNotifications=False, stateTransitionHistory=False
-)
-
-
-class BaseAgent(MCPAggregator, AgentProtocol):
+class BaseAgent(ABC, ToolAgent):
     """
     A base Agent class that implements the AgentProtocol interface.
 
@@ -79,38 +76,36 @@ class BaseAgent(MCPAggregator, AgentProtocol):
     def __init__(
         self,
         config: AgentConfig,
-        functions: Optional[List[Callable]] = None,
         connection_persistence: bool = True,
-        human_input_callback: Optional[HumanInputCallback] = None,
-        context: Optional["Context"] = None,
-        **kwargs: Dict[str, Any],
+        human_input_callback: HumanInputCallback | None = None,
+        context: "Context | None" = None,
+        **kwargs,
     ) -> None:
-        self.config = config
-
         super().__init__(
+            config=config,
             context=context,
-            server_names=self.config.servers,
-            connection_persistence=connection_persistence,
-            name=self.config.name,
             **kwargs,
         )
 
-        self._context = context
-        self.tracer = trace.get_tracer(__name__)
-        self.name = self.config.name
+        # Create aggregator with composition
+        self._aggregator = MCPAggregator(
+            server_names=self.config.servers,
+            connection_persistence=connection_persistence,
+            name=self.config.name,
+            context=context,
+            config=self.config,  # Pass the full config for access to elicitation_handler
+            **kwargs,
+        )
+
         self.instruction = self.config.instruction
-        self.functions = functions or []
-        self.executor = self.context.executor if context and hasattr(context, "executor") else None
-        self.logger = get_logger(f"{__name__}.{self.name}")
+        self.executor = context.executor if context else None
+        self.logger = get_logger(f"{__name__}.{self._name}")
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
 
-        # Initialize the LLM to None (will be set by attach_llm)
-        self._llm: Optional[AugmentedLLMProtocol] = None
-
-        # Map function names to tools
-        self._function_tool_map: Dict[str, Any] = {}
+        # set with the "attach" method
+        self._llm: AugmentedLLMProtocol | None = None
 
         if not self.config.human_input:
             self.human_input_callback = None
@@ -119,16 +114,25 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             if not human_input_callback and context and hasattr(context, "human_input_handler"):
                 self.human_input_callback = context.human_input_handler
 
+    async def __aenter__(self):
+        """Initialize the agent and its MCP aggregator."""
+        await self._aggregator.__aenter__()
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Clean up the agent and its MCP aggregator."""
+        await self._aggregator.__aexit__(exc_type, exc_val, exc_tb)
+
     async def initialize(self) -> None:
         """
         Initialize the agent and connect to the MCP servers.
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
-        await self.__aenter__()  # This initializes the connection manager and loads the servers
+        await self.__aenter__()
 
     async def attach_llm(
         self,
-        llm_factory: Union[Type[AugmentedLLMProtocol], Callable[..., AugmentedLLMProtocol]],
+        llm_factory: LLMFactoryProtocol,
         model: Optional[str] = None,
         request_params: Optional[RequestParams] = None,
         **additional_kwargs,
@@ -142,7 +146,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         3. LLM's default values
 
         Args:
-            llm_factory: A class or callable that constructs an AugmentedLLM
+            llm_factory: A factory function that constructs an AugmentedLLM
             model: Optional model name override
             request_params: Optional request parameters override
             **additional_kwargs: Additional parameters passed to the LLM constructor
@@ -181,37 +185,33 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Shutdown the agent and close all MCP server connections.
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
-        await super().close()
+        await self._aggregator.close()
+
+    @property
+    def initialized(self) -> bool:
+        """Check if the aggregator is initialized."""
+        return self._aggregator.initialized
 
     async def __call__(
         self,
-        message: Union[str, PromptMessageMultipart] | None = None,
-        agent_name: Optional[str] = None,
-        default_prompt: str = "",
+        message: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
     ) -> str:
-        """
-        Make the agent callable to send messages or start an interactive prompt.
-
-        Args:
-            message: Optional message to send to the agent
-            agent_name: Optional name of the agent (for consistency with DirectAgentApp)
-            default: Default message to use in interactive prompt mode
-
-        Returns:
-            The agent's response as a string or the result of the interactive session
-        """
-        if message:
-            return await self.send(message)
-        return await self.prompt(default_prompt=default_prompt)
-
-    async def generate_str(self, message: str, request_params: RequestParams | None) -> str:
-        result: PromptMessageMultipart = await self.generate([Prompt.user(message)], request_params)
-        return result.first_text()
+        return await self.send(message)
 
     async def send(
-        self, 
-        message: Union[str, PromptMessage, PromptMessageMultipart],
-        request_params: RequestParams | None = None
+        self,
+        message: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
+        request_params: RequestParams | None = None,
     ) -> str:
         """
         Send a message to the agent and get a response.
@@ -226,47 +226,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Returns:
             The agent's response as a string
         """
-        # Convert the input to a PromptMessageMultipart
-        prompt = self._normalize_message_input(message)
-
-        # Use the LLM to generate a response
-        response = await self.generate([prompt], request_params)
-        return response.all_text()
-
-    def _normalize_message_input(
-        self, message: Union[str, PromptMessage, PromptMessageMultipart]
-    ) -> PromptMessageMultipart:
-        """
-        Convert a message of any supported type to PromptMessageMultipart.
-
-        Args:
-            message: Message in various formats (string, PromptMessage, or PromptMessageMultipart)
-
-        Returns:
-            A PromptMessageMultipart object
-        """
-        # Handle single message
-        if isinstance(message, str):
-            return Prompt.user(message)
-        elif isinstance(message, PromptMessage):
-            return PromptMessageMultipart(role=message.role, content=[message.content])
-        elif isinstance(message, PromptMessageMultipart):
-            return message
-        else:
-            # Try to convert to string as fallback
-            return Prompt.user(str(message))
-
-    async def prompt(self, default_prompt: str = "") -> str:
-        """
-        Start an interactive prompt session with the agent.
-
-        Args:
-            default_prompt: The initial prompt to send to the agent
-
-        Returns:
-            The result of the interactive session
-        """
-        ...
+        response = await self.generate(message, request_params)
+        return response.last_text()
 
     async def request_human_input(self, request: HumanInputRequest) -> str:
         """
@@ -285,10 +246,10 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             raise ValueError("Human input callback not set")
 
         # Generate a unique ID for this request to avoid signal collisions
-        request_id = f"{HUMAN_INPUT_SIGNAL_NAME}_{self.name}_{uuid.uuid4()}"
+        request_id = f"{HUMAN_INPUT_SIGNAL_NAME}_{self._name}_{uuid.uuid4()}"
         request.request_id = request_id
         # Use metadata as a dictionary to pass agent name
-        request.metadata = {"agent_name": self.name}
+        request.metadata = {"agent_name": self._name}
         self.logger.debug("Requesting human input:", data=request)
 
         if not self.executor:
@@ -359,11 +320,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Returns:
             ListToolsResult with available tools
         """
-        if not self.initialized:
-            await self.initialize()
-
-        # Get all tools from the parent class
-        result = await super().list_tools()
+        # Get all tools from the aggregator
+        result = await self._aggregator.list_tools()
 
         # Apply filtering if tools are specified in config
         if self.config.tools is not None:
@@ -378,11 +336,11 @@ class BaseAgent(MCPAggregator, AgentProtocol):
 
                 # Check if this server has tool filters
                 if server_name and server_name in self.config.tools:
-                        # Check if tool matches any pattern for this server
-                        for pattern in self.config.tools[server_name]:
-                            if self._matches_pattern(tool.name, pattern, server_name):
-                                filtered_tools.append(tool)
-                                break
+                    # Check if tool matches any pattern for this server
+                    for pattern in self.config.tools[server_name]:
+                        if self._matches_pattern(tool.name, pattern, server_name):
+                            filtered_tools.append(tool)
+                            break
             result.tools = filtered_tools
 
         if not self.human_input_callback:
@@ -417,7 +375,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             # Call the human input tool
             return await self._call_human_input_tool(arguments)
         else:
-            return await super().call_tool(name, arguments)
+            return await self._aggregator.call_tool(name, arguments)
 
     async def _call_human_input_tool(
         self, arguments: Dict[str, Any] | None = None
@@ -499,7 +457,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Returns:
             GetPromptResult containing the prompt information
         """
-        return await super().get_prompt(prompt_name, arguments, server_name)
+        return await self._aggregator.get_prompt(prompt_name, arguments, server_name)
 
     async def apply_prompt(
         self,
@@ -585,7 +543,7 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             ValueError: If the server doesn't exist or the resource couldn't be found
         """
         # Get the raw resource result
-        result: ReadResourceResult = await self.get_resource(resource_uri, server_name)
+        result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, server_name)
 
         # Convert each resource content to an EmbeddedResource
         embedded_resources: List[EmbeddedResource] = []
@@ -596,6 +554,26 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             embedded_resources.append(embedded_resource)
 
         return embedded_resources
+
+    async def get_resource(
+        self, resource_uri: str, server_name: str | None = None
+    ) -> ReadResourceResult:
+        """
+        Get a resource from an MCP server.
+
+        Args:
+            resource_uri: URI of the resource to retrieve
+            server_name: Optional name of the MCP server to retrieve the resource from
+
+        Returns:
+            ReadResourceResult containing the resource data
+
+        Raises:
+            ValueError: If the server doesn't exist or the resource couldn't be found
+        """
+        # Get the raw resource result
+        result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, server_name)
+        return result
 
     async def with_resource(
         self,
@@ -646,25 +624,98 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         response: PromptMessageMultipart = await self.generate([prompt], None)
         return response.first_text()
 
-    async def generate(
+    async def generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageMultipart:
         """
-        Create a completion with the LLM using the provided messages.
-        Delegates to the attached LLM.
+        Override ToolAgent's generate_impl to provide MCP tools dynamically.
+        """
+        if tools is None:
+            # Get tools from our aggregator instead of ToolAgent's _tool_schemas
+            tools_result = await self.list_tools()
+            tools = tools_result.tools
+
+        return await super().generate_impl(messages, request_params, tools=tools)
+
+    async def _generate_impl(
+        self,
+        normalized_messages: List[PromptMessageMultipart],
+        request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
+    ) -> PromptMessageMultipart:
+        """
+        Default implementation for regular agents - delegates to attached LLM.
+
+        Workflow agents should override this method to implement custom logic.
 
         Args:
-            multipart_messages: List of multipart messages to send to the LLM
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional parameters to configure the request
+            tools: Optional tools to pass to the LLM
 
         Returns:
             The LLM's response as a PromptMessageMultipart
         """
-        assert self._llm
-        with self.tracer.start_as_current_span(f"Agent: '{self.name}' generate"):
-            return await self._llm.generate(multipart_messages, request_params)
+        assert self._llm, (
+            "No LLM attached to agent. Workflow agents should override _generate_impl()."
+        )
+        with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
+            return await self._llm.generate(normalized_messages, request_params, tools=tools)
+
+    async def run_tools(self, request: PromptMessageMultipart) -> PromptMessageMultipart:
+        """Override ToolAgent's run_tools to use MCP tools via aggregator."""
+        if not request.tool_calls:
+            self.logger.warning("No tool calls found in request", data=request)
+            return PromptMessageMultipart(role="user", tool_results={})
+
+        tool_results: dict[str, CallToolResult] = {}
+
+        # Cache available tool names (original, not namespaced) for display
+        available_tools = [
+            namespaced_tool.tool.name
+            for namespaced_tool in self._aggregator._namespaced_tool_map.values()
+        ]
+
+        # Process each tool call using our aggregator
+        for correlation_id, tool_request in request.tool_calls.items():
+            tool_name = tool_request.params.name
+            tool_args = tool_request.params.arguments or {}
+
+            # Get the original tool name for display (not namespaced)
+            namespaced_tool = self._aggregator._namespaced_tool_map.get(tool_name)
+            display_tool_name = namespaced_tool.tool.name if namespaced_tool else tool_name
+
+            self.display.show_tool_call(
+                name=self._name,
+                tool_args=tool_args,
+                bottom_items=available_tools,
+                tool_name=display_tool_name,
+            )
+
+            try:
+                # Use our aggregator to call the MCP tool
+                result = await self.call_tool(tool_name, tool_args)
+                tool_results[correlation_id] = result
+
+                # Show tool result (like ToolAgent does)
+                self.display.show_tool_result(name=self._name, result=result)
+
+                self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
+            except Exception as e:
+                self.logger.error(f"MCP tool {display_tool_name} failed: {e}")
+                error_result = CallToolResult(
+                    content=[TextContent(type="text", text=f"Error: {str(e)}")],
+                    isError=True,
+                )
+                tool_results[correlation_id] = error_result
+
+                # Show error result too
+                self.display.show_tool_result(name=self._name, result=error_result)
+
+        return PromptMessageMultipart(role="user", tool_results=tool_results)
 
     async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
         """
@@ -679,21 +730,30 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             String representation of the assistant's response if generated
         """
         assert self._llm
-        with self.tracer.start_as_current_span(f"Agent: '{self.name}' apply_prompt_template"):
+        with self._tracer.start_as_current_span(f"Agent: '{self._name}' apply_prompt_template"):
             return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
     async def structured(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageMultipart,
+            List[Union[str, PromptMessage, PromptMessageMultipart]],
+        ],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
         """
         Apply the prompt and return the result as a Pydantic model.
-        Delegates to the attached LLM.
+        Normalizes input messages and delegates to the attached LLM.
 
         Args:
-            prompt: List of PromptMessageMultipart objects
+            messages: Message(s) in various formats:
+                - String: Converted to a user PromptMessageMultipart
+                - PromptMessage: Converted to PromptMessageMultipart
+                - PromptMessageMultipart: Used directly
+                - List of any combination of the above
             model: The Pydantic model class to parse the result into
             request_params: Optional parameters to configure the LLM request
 
@@ -701,8 +761,11 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             An instance of the specified model, or None if coercion fails
         """
         assert self._llm
-        with self.tracer.start_as_current_span(f"Agent: '{self.name}' structured"):
-            return await self._llm.structured(multipart_messages, model, request_params)
+        # Normalize all input types to a list of PromptMessageMultipart
+        normalized_messages = normalize_to_multipart_list(messages)
+
+        with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
+            return await self._llm.structured(normalized_messages, model, request_params)
 
     async def apply_prompt_messages(
         self, prompts: List[PromptMessageMultipart], request_params: RequestParams | None = None
@@ -731,11 +794,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Returns:
             Dictionary mapping server names to lists of Prompt objects
         """
-        if not self.initialized:
-            await self.initialize()
-
-        # Get all prompts from the parent class
-        result = await super().list_prompts(server_name)
+        # Get all prompts from the aggregator
+        result = await self._aggregator.list_prompts(server_name)
 
         # Apply filtering if prompts are specified in config
         if self.config.prompts is not None:
@@ -766,11 +826,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Returns:
             Dictionary mapping server names to lists of resource URIs
         """
-        if not self.initialized:
-            await self.initialize()
-
-        # Get all resources from the parent class
-        result = await super().list_resources(server_name)
+        # Get all resources from the aggregator
+        result = await self._aggregator.list_resources(server_name)
 
         # Apply filtering if resources are specified in config
         if self.config.resources is not None:
@@ -801,11 +858,8 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         Returns:
             Dictionary mapping server names to lists of Tool objects (with original names, not namespaced)
         """
-        if not self.initialized:
-            await self.initialize()
-
-        # Get all tools from the parent class
-        result = await super().list_mcp_tools(server_name)
+        # Get all tools from the aggregator
+        result = await self._aggregator.list_mcp_tools(server_name)
 
         # Apply filtering if tools are specified in config
         if self.config.tools is not None:
@@ -830,11 +884,11 @@ class BaseAgent(MCPAggregator, AgentProtocol):
 
             human_input_tool: FastTool = FastTool.from_function(self.request_human_input)
             special_server_name = "__human_input__"
-            
+
             # If the special server doesn't exist in result, create it
             if special_server_name not in result:
                 result[special_server_name] = []
-            
+
             result[special_server_name].append(
                 Tool(
                     name=HUMAN_INPUT_TOOL_NAME,
@@ -863,18 +917,86 @@ class BaseAgent(MCPAggregator, AgentProtocol):
             skills.append(await self.convert(tool))
 
         return AgentCard(
-            name=self.name,
+            skills=skills,
+            name=self._name,
             description=self.instruction,
-            url=f"fast-agent://agents/{self.name}/",
+            url=f"fast-agent://agents/{self._name}/",
             version="0.1",
             capabilities=DEFAULT_CAPABILITIES,
-            defaultInputModes=["text/plain"],
-            defaultOutputModes=["text/plain"],
+            default_input_modes=["text/plain"],
+            default_output_modes=["text/plain"],
             provider=None,
-            documentationUrl=None,
-            authentication=None,
-            skills=skills,
+            documentation_url=None,
         )
+
+    async def show_assistant_message(
+        self,
+        message: PromptMessageMultipart,
+        bottom_items: List[str] | None = None,
+        highlight_items: str | List[str] | None = None,
+        max_item_length: int | None = None,
+    ) -> None:
+        """
+        Display an assistant message with MCP servers in the bottom bar.
+
+        This override adds the list of connected MCP servers to the bottom bar
+        and highlights servers that were used for tool calls in this message.
+        """
+        # Get the list of MCP servers (if not provided)
+        if bottom_items is None:
+            if self._aggregator and self._aggregator.server_names:
+                server_names = self._aggregator.server_names
+            else:
+                server_names = []
+        else:
+            server_names = bottom_items
+
+        # Extract servers from tool calls in the message for highlighting
+        if highlight_items is None:
+            highlight_servers = self._extract_servers_from_message(message)
+        else:
+            # Convert to list if needed
+            if isinstance(highlight_items, str):
+                highlight_servers = [highlight_items]
+            else:
+                highlight_servers = highlight_items
+
+        # Call parent's implementation with server information
+        await super().show_assistant_message(
+            message=message,
+            bottom_items=server_names,
+            highlight_items=highlight_servers,
+            max_item_length=max_item_length or 12,
+        )
+
+    def _extract_servers_from_message(self, message: PromptMessageMultipart) -> List[str]:
+        """
+        Extract server names from tool calls in the message.
+
+        Args:
+            message: The message containing potential tool calls
+
+        Returns:
+            List of server names that were called
+        """
+        servers = []
+
+        # Check if message has tool calls
+        if message.tool_calls:
+            for tool_request in message.tool_calls.values():
+                tool_name = tool_request.params.name
+
+                # Use aggregator's mapping to find the server for this tool
+                if tool_name in self._aggregator._namespaced_tool_map:
+                    namespaced_tool = self._aggregator._namespaced_tool_map[tool_name]
+                    if namespaced_tool.server_name not in servers:
+                        servers.append(namespaced_tool.server_name)
+
+        return servers
+
+    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
+        """Delegate resource name parsing to the aggregator."""
+        return await self._aggregator._parse_resource_name(name, resource_type)
 
     async def convert(self, tool: Tool) -> AgentSkill:
         """
@@ -885,14 +1007,14 @@ class BaseAgent(MCPAggregator, AgentProtocol):
         return AgentSkill(
             id=tool.name,
             name=tool_without_namespace,
-            description=tool.description,
+            description=tool.description or "",
             tags=["tool"],
             examples=None,
-            inputModes=None,  # ["text/plain"],
+            input_modes=None,  # ["text/plain"],
             # cover TextContent | ImageContent ->
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/223
             # https://github.com/modelcontextprotocol/modelcontextprotocol/pull/93
-            outputModes=None,  # ,["text/plain", "image/*"],
+            output_modes=None,  # ,["text/plain", "image/*"],
         )
 
     @property

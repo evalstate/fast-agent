@@ -1,7 +1,7 @@
 import pytest
 from pydantic import BaseModel
 
-from mcp_agent.agents.agent import Agent
+from fast_agent.agents.llm_agent import LlmAgent
 from mcp_agent.core.agent_types import AgentConfig
 from mcp_agent.core.exceptions import ModelConfigError
 from mcp_agent.core.prompt import Prompt
@@ -33,8 +33,9 @@ async def test_model_factory_creates_playback():
     assert callable(factory)
 
     # Create an instance using the factory
+
     instance = factory(
-        Agent(
+        LlmAgent(
             AgentConfig(name="playback_agent", instruction="Helpful AI Agent", servers=[]),
             context=None,
         )
@@ -47,7 +48,7 @@ async def test_model_factory_creates_playback():
 async def test_basic_playback_function(llm):
     """Test that ModelFactory correctly creates a PlaybackLLM instance"""
     result = await llm.generate([Prompt.user("hello, world!")])
-    assert "HISTORY LOADED" == result.first_text()
+    assert "HISTORY LOADED (1) messages" == result.first_text()
 
 
 @pytest.mark.asyncio

@@ -62,4 +62,6 @@ def prompt_message_multipart_to_openai_message_param(
     Returns:
         An OpenAI ChatCompletionMessageParam representation
     """
-    return OpenAIConverter.convert_to_openai(multipart)
+    # convert_to_openai now returns a list, return the first element for backward compatibility
+    messages = OpenAIConverter.convert_to_openai(multipart)
+    return messages[0] if messages else {"role": multipart.role, "content": ""}

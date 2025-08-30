@@ -39,7 +39,6 @@ from mcp_agent.mcp.mime_utils import (
     is_text_mime_type,
 )
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.mcp.resource_utils import extract_title_from_uri
 
 _logger = get_logger("multipart_converter_anthropic")
 
@@ -74,30 +73,44 @@ class AnthropicConverter:
             An Anthropic API MessageParam object
         """
         role = multipart_msg.role
+        all_content_blocks = []
 
-        # Handle empty content case - create an empty list instead of a text block
-        if not multipart_msg.content:
+        # Handle tool_results if present (for user messages with tool results)
+        # Tool results must come FIRST in the content array per Anthropic API requirements
+        if multipart_msg.tool_results:
+            # Convert dict to list of tuples for create_tool_results_message
+            tool_results_list = list(multipart_msg.tool_results.items())
+            tool_msg = AnthropicConverter.create_tool_results_message(tool_results_list)
+            # Extract the content blocks from the tool results message
+            all_content_blocks.extend(tool_msg["content"])
+
+        # Then handle regular content blocks if present
+        if multipart_msg.content:
+            # Convert content blocks
+            anthropic_blocks = AnthropicConverter._convert_content_items(
+                multipart_msg.content, document_mode=True
+            )
+
+            # Filter blocks based on role (assistant can only have text blocks)
+            if role == "assistant":
+                text_blocks = []
+                for block in anthropic_blocks:
+                    if block.get("type") == "text":
+                        text_blocks.append(block)
+                    else:
+                        _logger.warning(
+                            f"Removing non-text block from assistant message: {block.get('type')}"
+                        )
+                anthropic_blocks = text_blocks
+
+            all_content_blocks.extend(anthropic_blocks)
+
+        # Handle empty content case
+        if not all_content_blocks:
             return MessageParam(role=role, content=[])
 
-        # Convert content blocks
-        anthropic_blocks = AnthropicConverter._convert_content_items(
-            multipart_msg.content, document_mode=True
-        )
-
-        # Filter blocks based on role (assistant can only have text blocks)
-        if role == "assistant":
-            text_blocks = []
-            for block in anthropic_blocks:
-                if block.get("type") == "text":
-                    text_blocks.append(block)
-                else:
-                    _logger.warning(
-                        f"Removing non-text block from assistant message: {block.get('type')}"
-                    )
-            anthropic_blocks = text_blocks
-
         # Create the Anthropic message
-        return MessageParam(role=role, content=anthropic_blocks)
+        return MessageParam(role=role, content=all_content_blocks)
 
     @staticmethod
     def convert_prompt_message_to_anthropic(message: PromptMessage) -> MessageParam:
@@ -195,6 +208,8 @@ class AnthropicConverter:
         mime_type = AnthropicConverter._determine_mime_type(resource_content)
 
         # Extract title from URI
+        from mcp_agent.mcp.resource_utils import extract_title_from_uri
+
         title = extract_title_from_uri(uri) if uri else "resource"
 
         # Convert based on MIME type
@@ -344,47 +359,6 @@ class AnthropicConverter:
             return TextBlockParam(type="text", text=f"[{message}: {uri._url}]")
 
         return TextBlockParam(type="text", text=f"[{message}]")
-
-    @staticmethod
-    def convert_tool_result_to_anthropic(
-        tool_result: CallToolResult, tool_use_id: str
-    ) -> ToolResultBlockParam:
-        """
-        Convert an MCP CallToolResult to an Anthropic ToolResultBlockParam.
-
-        Args:
-            tool_result: The tool result from a tool call
-            tool_use_id: The ID of the associated tool use
-
-        Returns:
-            An Anthropic ToolResultBlockParam ready to be included in a user message
-        """
-        # For tool results, always use document_mode=False to get text blocks instead of document blocks
-        anthropic_content = []
-
-        for item in tool_result.content:
-            if isinstance(item, EmbeddedResource):
-                # For embedded resources, always use text mode in tool results
-                resource_block = AnthropicConverter._convert_embedded_resource(
-                    item, document_mode=False
-                )
-                anthropic_content.append(resource_block)
-            elif isinstance(item, (TextContent, ImageContent)):
-                # For text and image, use standard conversion
-                blocks = AnthropicConverter._convert_content_items([item], document_mode=False)
-                anthropic_content.extend(blocks)
-
-        # If we ended up with no valid content blocks, create a placeholder
-        if not anthropic_content:
-            anthropic_content = [TextBlockParam(type="text", text="[No content in tool result]")]
-
-        # Create the tool result block
-        return ToolResultBlockParam(
-            type="tool_result",
-            tool_use_id=tool_use_id,
-            content=anthropic_content,
-            is_error=tool_result.isError,
-        )
 
     @staticmethod
     def create_tool_results_message(

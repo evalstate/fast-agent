@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_agent.event_progress import ProgressAction
+from fast_agent.event_progress import ProgressAction
 from mcp_agent.logging.events import EventFilter
 from mcp_agent.logging.listeners import FilteredListener
 from mcp_agent.logging.transport import AsyncEventBus

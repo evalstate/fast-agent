@@ -2,15 +2,15 @@ import base64
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from pydantic import AnyUrl
+
+import mcp_agent.mcp.mime_utils as mime_utils
 from mcp.types import (
     BlobResourceContents,
     EmbeddedResource,
     ImageContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
-
-import mcp_agent.mcp.mime_utils as mime_utils
 
 HTTP_TIMEOUT = 10  # Default timeout for HTTP requests
 

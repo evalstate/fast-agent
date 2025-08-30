@@ -68,9 +68,7 @@ class TestUriNormalization(unittest.TestCase):
 
     def test_uri_extraction_edge_cases(self):
         """Test extraction of filenames from various URI formats."""
-        from mcp_agent.llm.providers.multipart_converter_openai import (
-            extract_title_from_uri,
-        )
+        from mcp_agent.mcp.resource_utils import extract_title_from_uri
 
         # Test different URI formats
         test_cases = [

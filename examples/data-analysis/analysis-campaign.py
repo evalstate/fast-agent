@@ -179,8 +179,9 @@ async def main() -> None:
     )
 
     async with fast.run() as agent:
-        await agent.research_campaign_creator.prompt(
-            default_prompt="Analyze the CSV file in the current directory and create a comprehensive multi-lingual social media campaign based on the findings. Save all campaign elements as separate files."
+        await agent.interactive(
+            "research_campaign_creator",
+            default_prompt="Analyze the CSV file in the current directory and create a comprehensive multi-lingual social media campaign based on the findings. Save all campaign elements as separate files.",
         )
 
 

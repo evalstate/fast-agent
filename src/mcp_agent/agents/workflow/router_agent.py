@@ -5,25 +5,26 @@ This provides a simplified implementation that routes messages to agents
 by determining the best agent for a request and dispatching to it.
 """
 
-from typing import TYPE_CHECKING, Callable, List, Optional, Tuple, Type
+from typing import TYPE_CHECKING, List, Optional, Tuple, Type
 
+from mcp import Tool
 from opentelemetry import trace
 from pydantic import BaseModel
 
+from fast_agent.agents.llm_agent import LlmAgent
 from mcp_agent.agents.agent import Agent
-from mcp_agent.agents.base_agent import BaseAgent
 from mcp_agent.core.agent_types import AgentConfig, AgentType
 from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.core.request_params import RequestParams
 from mcp_agent.logging.logger import get_logger
-from mcp_agent.mcp.interfaces import AugmentedLLMProtocol, ModelT
+from mcp_agent.mcp.interfaces import AugmentedLLMProtocol, LLMFactoryProtocol, ModelT
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 if TYPE_CHECKING:
     from a2a.types import AgentCard
 
-    from mcp_agent.context import Context
+    from fast_agent.context import Context
 
 logger = get_logger(__name__)
 
@@ -60,7 +61,7 @@ class RoutingResponse(BaseModel):
     reasoning: str | None = None
 
 
-class RouterAgent(BaseAgent):
+class RouterAgent(LlmAgent):
     """
     A simplified router that uses an LLM to determine the best agent for a request,
     then dispatches the request to that agent and returns the response.
@@ -75,9 +76,9 @@ class RouterAgent(BaseAgent):
         self,
         config: AgentConfig,
         agents: List[Agent],
-        routing_instruction: Optional[str] = None,
-        context: Optional["Context"] = None,
-        default_request_params: Optional[RequestParams] = None,
+        routing_instruction: str | None = None,
+        context: "Context | None" = None,
+        default_request_params: RequestParams | None = None,
         **kwargs,
     ) -> None:
         """
@@ -98,7 +99,8 @@ class RouterAgent(BaseAgent):
 
         self.agents = agents
         self.routing_instruction = routing_instruction
-        self.agent_map = {agent.name: agent for agent in agents}
+        self.agent_map = {agent._name: agent for agent in agents}
+        self.initialized = False
 
         # Set up base router request parameters with just the base instruction for now
         base_params = {"systemPrompt": ROUTING_SYSTEM_INSTRUCTION, "use_history": False}
@@ -117,7 +119,7 @@ class RouterAgent(BaseAgent):
 
             # Initialize all agents if not already initialized
             for agent in self.agents:
-                if not getattr(agent, "initialized", False):
+                if not agent.initialized:
                     await agent.initialize()
 
             complete_routing_instruction = await self._generate_routing_instruction(
@@ -130,7 +132,6 @@ class RouterAgent(BaseAgent):
             )
             self._default_request_params.systemPrompt = combined_system_prompt
             self.instruction = combined_system_prompt
-            self._routing_instruction_generated = True
 
             self.initialized = True
 
@@ -177,7 +178,7 @@ class RouterAgent(BaseAgent):
 
     async def attach_llm(
         self,
-        llm_factory: type[AugmentedLLMProtocol] | Callable[..., AugmentedLLMProtocol],
+        llm_factory: LLMFactoryProtocol,
         model: str | None = None,
         request_params: RequestParams | None = None,
         **additional_kwargs,
@@ -186,24 +187,29 @@ class RouterAgent(BaseAgent):
             llm_factory, model, request_params, verb="Routing", **additional_kwargs
         )
 
-    async def generate(
+    async def generate_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         request_params: Optional[RequestParams] = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageMultipart:
         """
         Route the request to the most appropriate agent and return its response.
 
         Args:
-            multipart_messages: Messages to route
+            normalized_messages: Already normalized list of PromptMessageMultipart
             request_params: Optional request parameters
 
         Returns:
             The response from the selected agent
         """
+
+        # implementation note. the duplication between generated and structured
+        # is probably the most readable. alt could be a _get_route_agent or
+        # some form of dynamic dispatch.. but only if this gets more complex
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"Routing: '{self.name}' generate"):
-            route, warn = await self._route_request(multipart_messages[-1])
+        with tracer.start_as_current_span(f"Routing: '{self._name}' generate"):
+            route, warn = await self._route_request(messages[-1])
 
             if not route:
                 return Prompt.assistant(warn or "No routing result or warning received")
@@ -212,11 +218,11 @@ class RouterAgent(BaseAgent):
             agent: Agent = self.agent_map[route.agent]
 
             # Dispatch the request to the selected agent
-            return await agent.generate(multipart_messages, request_params)
+            return await agent.generate_impl(messages, request_params)
 
-    async def structured(
+    async def structured_impl(
         self,
-        multipart_messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageMultipart],
         model: Type[ModelT],
         request_params: Optional[RequestParams] = None,
     ) -> Tuple[ModelT | None, PromptMessageMultipart]:
@@ -224,7 +230,7 @@ class RouterAgent(BaseAgent):
         Route the request to the most appropriate agent and parse its response.
 
         Args:
-            prompt: Messages to route
+            messages: Messages to route
             model: Pydantic model to parse the response into
             request_params: Optional request parameters
 
@@ -233,8 +239,8 @@ class RouterAgent(BaseAgent):
         """
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"Routing: '{self.name}' structured"):
-            route, warn = await self._route_request(multipart_messages[-1])
+        with tracer.start_as_current_span(f"Routing: '{self._name}' structured"):
+            route, warn = await self._route_request(messages[-1])
 
             if not route:
                 return None, Prompt.assistant(
@@ -245,7 +251,7 @@ class RouterAgent(BaseAgent):
             agent: Agent = self.agent_map[route.agent]
 
             # Dispatch the request to the selected agent
-            return await agent.structured(multipart_messages, model, request_params)
+            return await agent.structured_impl(messages, model, request_params)
 
     async def _route_request(
         self, message: PromptMessageMultipart
@@ -263,13 +269,16 @@ class RouterAgent(BaseAgent):
             logger.error("No agents available for routing")
             raise AgentConfigError("No agents available for routing - fatal error")
 
-        # If only one agent is available, use it directly
+        # go straight to agent if only one available
         if len(self.agents) == 1:
             return RoutingResponse(
-                agent=self.agents[0].name, confidence="high", reasoning="Only one agent available"
+                agent=self.agents[0]._name, confidence="high", reasoning="Only one agent available"
             ), None
 
         assert self._llm
+        # Display the user's routing request
+        self.display.show_user_message(message.first_text(), name=self._name)
+
         # No need to add routing instruction here - it's already in the system prompt
         response, _ = await self._llm.structured(
             [message],
@@ -290,6 +299,17 @@ class RouterAgent(BaseAgent):
             assert response
             logger.info(
                 f"Routing structured request to agent: {response.agent or 'error'} (confidence: {response.confidence or ''})"
+            )
+
+            routing_message = f"Routing to: {response.agent}"
+            if response.reasoning:
+                routing_message += f" ({response.reasoning})"
+
+            await self.display.show_assistant_message(
+                routing_message,
+                bottom_items=list(self.agent_map.keys()),
+                highlight_items=[response.agent],
+                name=self._name,
             )
 
             return response, None
