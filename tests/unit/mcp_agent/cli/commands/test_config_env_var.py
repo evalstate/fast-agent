@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from mcp_agent.config import get_settings
+from fast_agent.config import get_settings
 
 # Absolute path for the test directory to ensure files are created in a known location
 TEST_DIR = Path(__file__).parent.resolve()

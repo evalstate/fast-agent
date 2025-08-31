@@ -5,7 +5,6 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     PromptMessage,
-    ResourceLink,
     TextContent,
 )
 from openai.types.chat import ChatCompletionMessageParam
@@ -26,7 +25,6 @@ from mcp_agent.mcp.mime_utils import (
     is_text_mime_type,
 )
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.mcp.resource_utils import extract_title_from_uri
 
 _logger = get_logger("multipart_converter_openai")
 
@@ -56,7 +54,7 @@ class OpenAIConverter:
     @staticmethod
     def convert_to_openai(
         multipart_msg: PromptMessageMultipart, concatenate_text_blocks: bool = False
-    ) -> Dict[str, str | ContentBlock | List[ContentBlock]]:
+    ) -> List[Dict[str, Any]]:
         """
         Convert a PromptMessageMultipart message to OpenAI API format.
 
@@ -65,29 +63,72 @@ class OpenAIConverter:
             concatenate_text_blocks: If True, adjacent text blocks will be combined
 
         Returns:
-            An OpenAI API message object
+            A list of OpenAI API message objects
         """
-        role = multipart_msg.role
+        # Handle tool_results first if present
+        if multipart_msg.tool_results:
+            messages = OpenAIConverter.convert_function_results_to_openai(
+                multipart_msg.tool_results, concatenate_text_blocks
+            )
 
+            # If there's also content, convert and append it
+            if multipart_msg.content:
+                role = multipart_msg.role
+                content_msg = OpenAIConverter._convert_content_to_message(
+                    multipart_msg.content, role, concatenate_text_blocks
+                )
+                if content_msg:  # Only append if non-empty
+                    messages.append(content_msg)
+
+            return messages
+
+        # Regular content conversion (no tool_results)
+        role = multipart_msg.role
+        content_msg = OpenAIConverter._convert_content_to_message(
+            multipart_msg.content, role, concatenate_text_blocks
+        )
+        return [content_msg] if content_msg else []
+
+    @staticmethod
+    def _convert_content_to_message(
+        content: list, role: str, concatenate_text_blocks: bool = False
+    ) -> Dict[str, Any] | None:
+        """
+        Convert content blocks to a single OpenAI message.
+
+        Args:
+            content: List of content blocks
+            role: The message role
+            concatenate_text_blocks: If True, adjacent text blocks will be combined
+
+        Returns:
+            An OpenAI message dict or None if content is empty
+        """
         # Handle empty content
-        if not multipart_msg.content:
+        if not content:
             return {"role": role, "content": ""}
 
         # single text block
-        if 1 == len(multipart_msg.content) and is_text_content(multipart_msg.content[0]):
-            return {"role": role, "content": get_text(multipart_msg.content[0])}
+        if 1 == len(content) and is_text_content(content[0]):
+            return {"role": role, "content": get_text(content[0])}
 
         # For user messages, convert each content block
         content_blocks: List[ContentBlock] = []
 
-        for item in multipart_msg.content:
+        _logger.debug(f"Converting {len(content)} content items for role '{role}'")
+
+        for item in content:
             try:
                 if is_text_content(item):
                     text = get_text(item)
                     content_blocks.append({"type": "text", "text": text})
 
                 elif is_image_content(item):
-                    content_blocks.append(OpenAIConverter._convert_image_content(item))
+                    image_block = OpenAIConverter._convert_image_content(item)
+                    content_blocks.append(image_block)
+                    _logger.debug(
+                        f"Added image content block: {image_block.get('type', 'unknown')}"
+                    )
 
                 elif is_resource_content(item):
                     block = OpenAIConverter._convert_embedded_resource(item)
@@ -95,9 +136,9 @@ class OpenAIConverter:
                         content_blocks.append(block)
 
                 elif is_resource_link(item):
-                    block = OpenAIConverter._convert_resource_link(item)
-                    if block:
-                        content_blocks.append(block)
+                    text = get_text(item)
+                    if text:
+                        content_blocks.append({"type": "text", "text": text})
 
                 else:
                     _logger.warning(f"Unsupported content type: {type(item)}")
@@ -119,7 +160,9 @@ class OpenAIConverter:
             content_blocks = OpenAIConverter._concatenate_text_blocks(content_blocks)
 
         # Return user message with content blocks
-        return {"role": role, "content": content_blocks}
+        result = {"role": role, "content": content_blocks}
+        _logger.debug(f"Final message for role '{role}': {len(content_blocks)} content blocks")
+        return result
 
     @staticmethod
     def _concatenate_text_blocks(blocks: List[ContentBlock]) -> List[ContentBlock]:
@@ -177,7 +220,9 @@ class OpenAIConverter:
         multipart = PromptMessageMultipart(role=message.role, content=[message.content])
 
         # Use the existing conversion method with the specified concatenation option
-        return OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks)
+        # Since convert_to_openai now returns a list, we return the first element
+        messages = OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks)
+        return messages[0] if messages else {"role": message.role, "content": ""}
 
     @staticmethod
     def _convert_image_content(content: ImageContent) -> ContentBlock:
@@ -221,32 +266,6 @@ class OpenAIConverter:
         return "text/plain"
 
     @staticmethod
-    def _convert_resource_link(
-        resource: ResourceLink,
-    ) -> Optional[ContentBlock]:
-        """
-        Convert ResourceLink to OpenAI content block.
-
-        Args:
-            resource: The resource link to convert
-
-        Returns:
-            An OpenAI content block or None if conversion failed
-        """
-        name = resource.name or "unknown"
-        uri_str = str(resource.uri)
-        mime_type = resource.mimeType or "unknown"
-        description = resource.description or "No description"
-
-        # Create a text block with the resource link information
-        return {
-            "type": "text",
-            "text": f"Linked Resource ${name} MIME type {mime_type}>\n"
-            f"Resource Link: {uri_str}\n"
-            f"${description}\n",
-        }
-
-    @staticmethod
     def _convert_embedded_resource(
         resource: EmbeddedResource,
     ) -> Optional[ContentBlock]:
@@ -263,6 +282,8 @@ class OpenAIConverter:
         uri_str = get_resource_uri(resource)
         uri = getattr(resource_content, "uri", None)
         is_url = uri and str(uri).startswith(("http://", "https://"))
+        from mcp_agent.mcp.resource_utils import extract_title_from_uri
+
         title = extract_title_from_uri(uri) if uri else "resource"
         mime_type = OpenAIConverter._determine_mime_type(resource_content)
 
@@ -411,14 +432,15 @@ class OpenAIConverter:
         if text_content:
             # Convert text content to OpenAI format
             temp_multipart = PromptMessageMultipart(role="user", content=text_content)
-            converted = OpenAIConverter.convert_to_openai(
+            converted_messages = OpenAIConverter.convert_to_openai(
                 temp_multipart, concatenate_text_blocks=concatenate_text_blocks
             )
 
-            # Extract text from content blocks
-            tool_message_content = OpenAIConverter._extract_text_from_content_blocks(
-                converted.get("content", "")
-            )
+            # Extract text from content blocks (convert_to_openai now returns a list)
+            if converted_messages:
+                tool_message_content = OpenAIConverter._extract_text_from_content_blocks(
+                    converted_messages[0].get("content", "")
+                )
 
         # Ensure we always have non-empty content for compatibility
         if not tool_message_content or tool_message_content.strip() == "":
@@ -438,21 +460,31 @@ class OpenAIConverter:
         # Process non-text content as a separate user message
         non_text_multipart = PromptMessageMultipart(role="user", content=non_text_content)
 
-        # Convert to OpenAI format
-        user_message = OpenAIConverter.convert_to_openai(non_text_multipart)
+        # Convert to OpenAI format (returns a list now)
+        user_messages = OpenAIConverter.convert_to_openai(non_text_multipart)
 
-        return (tool_message, [user_message])
+        # Debug logging to understand what's happening with image conversion
+        _logger.debug(
+            f"Tool result conversion: non_text_content={len(non_text_content)} items, "
+            f"user_messages={len(user_messages)} messages"
+        )
+        if not user_messages:
+            _logger.warning(
+                f"No user messages generated for non-text content: {[type(item).__name__ for item in non_text_content]}"
+            )
+
+        return (tool_message, user_messages)
 
     @staticmethod
     def convert_function_results_to_openai(
-        results: List[Tuple[str, CallToolResult]],
+        results: Dict[str, CallToolResult],
         concatenate_text_blocks: bool = False,
     ) -> List[Dict[str, Any]]:
         """
-        Convert a list of function call results to OpenAI messages.
+        Convert function call results to OpenAI messages.
 
         Args:
-            results: List of (tool_call_id, result) tuples
+            results: Dictionary mapping tool_call_id to CallToolResult
             concatenate_text_blocks: If True, adjacent text blocks will be combined
 
         Returns:
@@ -462,7 +494,7 @@ class OpenAIConverter:
         user_messages = []
         has_mixed_content = False
 
-        for tool_call_id, result in results:
+        for tool_call_id, result in results.items():
             try:
                 converted = OpenAIConverter.convert_tool_result_to_openai(
                     tool_result=result,

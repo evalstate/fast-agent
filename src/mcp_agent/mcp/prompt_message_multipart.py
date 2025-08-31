@@ -1,14 +1,17 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
+from pydantic import BaseModel
+
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp.types import (
+    CallToolRequest,
+    CallToolResult,
     ContentBlock,
     GetPromptResult,
     PromptMessage,
     Role,
     TextContent,
 )
-from pydantic import BaseModel
-
 from mcp_agent.mcp.helpers.content_helpers import get_text
 
 
@@ -19,7 +22,11 @@ class PromptMessageMultipart(BaseModel):
     """
 
     role: Role
-    content: List[ContentBlock]
+    content: List[ContentBlock] = []
+    tool_calls: Dict[str, CallToolRequest] | None = None
+    tool_results: Dict[str, CallToolResult] | None = None
+    channels: Dict[str, ContentBlock] | None = None
+    stop_reason: LlmStopReason | None = None
 
     @classmethod
     def to_multipart(cls, messages: List[PromptMessage]) -> List["PromptMessageMultipart"]:
@@ -72,7 +79,7 @@ class PromptMessageMultipart(BaseModel):
 
         return "<no text>"
 
-    def last_text(self) -> str:
+    def last_text(self) -> str | None:
         """
         Get the last available text content from a message. This will usually be the final
         generation from the Assistant.
@@ -88,7 +95,7 @@ class PromptMessageMultipart(BaseModel):
             if text is not None:
                 return text
 
-        return "<no text>"
+        return None
 
     def all_text(self) -> str:
         """

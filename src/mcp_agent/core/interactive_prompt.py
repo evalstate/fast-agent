@@ -21,6 +21,7 @@ from rich import print as rich_print
 from rich.console import Console
 from rich.table import Table
 
+from fast_agent.progress_display import progress_display
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.enhanced_prompt import (
     _display_agent_info_helper,
@@ -32,7 +33,6 @@ from mcp_agent.core.enhanced_prompt import (
 from mcp_agent.core.usage_display import collect_agents_from_provider, display_usage_report
 from mcp_agent.mcp.mcp_aggregator import SEP
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-from mcp_agent.progress_display import progress_display
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageMultipart], str], Awaitable[str]]
@@ -764,7 +764,7 @@ class InteractivePrompt:
             rich_print("\n[bold blue]Last Assistant Response (Plain Text):[/bold blue]")
             rich_print("─" * 60)
             # Use console.print with markup=False to display raw text
-            from mcp_agent import console
+            from fast_agent import console
 
             console.console.print(content, markup=False)
             rich_print("─" * 60)

@@ -17,14 +17,22 @@ def debug_cache_at_end():
 
 
 def _bedrock_models_for_capability_tests() -> List[str]:
-    """Return the full Bedrock model list for testing dynamic capabilities."""
-    return all_bedrock_models(prefix="")
+    """Return Bedrock models if AWS is configured, otherwise return empty list."""
+    try:
+        return all_bedrock_models(prefix="")
+    except RuntimeError:
+        # AWS not configured - return empty list so tests are skipped
+        return []
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_system_prompt_fallback(fast_agent, model_name):
     """Test system prompt fallback: models that don't support system param should inject into first user message."""
 
@@ -51,7 +59,11 @@ async def test_bedrock_system_prompt_fallback(fast_agent, model_name):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_tool_schema_fallback(fast_agent, model_name):
     """Test tool schema fallback: should try different formats (anthropic/nova/system_prompt) until one works."""
 
@@ -87,7 +99,11 @@ async def test_bedrock_tool_schema_fallback(fast_agent, model_name):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_streaming_with_tools_fallback(fast_agent, model_name):
     """Test streaming fallback: should detect if streaming+tools fails and fallback to non-streaming."""
 
@@ -121,7 +137,11 @@ async def test_bedrock_streaming_with_tools_fallback(fast_agent, model_name):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_tool_name_policy_fallback(fast_agent, model_name):
     """Test tool name policy: should detect hyphenated tool names and apply underscore conversion."""
 
@@ -153,7 +173,11 @@ async def test_bedrock_tool_name_policy_fallback(fast_agent, model_name):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_structured_output_strategy_fallback(fast_agent, model_name):
     """Test structured output strategy: should try different strategies and retry on failures."""
 
@@ -196,7 +220,11 @@ async def test_bedrock_structured_output_strategy_fallback(fast_agent, model_nam
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_force_non_streaming_structured(fast_agent, model_name):
     """Test force non-streaming for structured output: should force non-streaming on first structured call."""
 
@@ -236,7 +264,11 @@ async def test_bedrock_force_non_streaming_structured(fast_agent, model_name):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_reasoning_fallback(fast_agent, model_name):
     """Test reasoning fallback: models that don't support reasoning should fallback gracefully."""
 
@@ -273,7 +305,11 @@ async def test_bedrock_reasoning_fallback(fast_agent, model_name):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_capability_tests())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_capability_tests()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_temperature_parameter(fast_agent, model_name):
     """Test temperature parameter: should be applied when reasoning is not enabled."""
 

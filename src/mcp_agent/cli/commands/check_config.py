@@ -24,7 +24,7 @@ console = Console()
 
 def find_config_files(start_path: Path) -> dict[str, Optional[Path]]:
     """Find FastAgent configuration files, preferring secrets file next to config file."""
-    from mcp_agent.config import find_fastagent_config_files
+    from fast_agent.config import find_fastagent_config_files
 
     config_path, secrets_path = find_fastagent_config_files(start_path)
     return {
@@ -145,7 +145,7 @@ def get_fastagent_version() -> str:
 
 def get_config_summary(config_path: Optional[Path]) -> dict:
     """Extract key information from the configuration file."""
-    from mcp_agent.config import Settings
+    from fast_agent.config import Settings
 
     # Get actual defaults from Settings class
     default_settings = Settings()

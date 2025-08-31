@@ -6,7 +6,7 @@ Environment variables are volatile and may be temporarily modified during test e
 
 import os
 
-from mcp_agent.config import HuggingFaceSettings, Settings
+from fast_agent.config import HuggingFaceSettings, Settings
 from mcp_agent.llm.provider_key_manager import ProviderKeyManager
 
 

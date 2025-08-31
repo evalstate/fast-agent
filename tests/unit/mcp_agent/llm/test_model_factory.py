@@ -1,5 +1,7 @@
 import pytest
 
+from fast_agent.agents.llm_agent import LlmAgent
+from mcp_agent.core.agent_types import AgentConfig
 from mcp_agent.core.exceptions import ModelConfigError
 from mcp_agent.llm.model_factory import (
     ModelFactory,
@@ -73,7 +75,7 @@ def test_llm_class_creation():
 
         # Instantiate with minimal params to check it creates the correct class
         # Note: You may need to adjust params based on what the factory requires
-        instance = factory(None)
+        instance = factory(LlmAgent(AgentConfig(name="Test Agent")))
         assert isinstance(instance, expected_class)
 
 
@@ -81,6 +83,6 @@ def test_allows_generic_model():
     """Test that generic model names are allowed"""
     generic_model = "generic.llama3.2:latest"
     factory = ModelFactory.create_factory(generic_model)
-    instance = factory(None)
+    instance = factory(LlmAgent(AgentConfig(name="test")))
     assert isinstance(instance, GenericAugmentedLLM)
     assert instance._base_url() == "http://localhost:11434/v1"

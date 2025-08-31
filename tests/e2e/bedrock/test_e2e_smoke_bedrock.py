@@ -20,8 +20,12 @@ def debug_cache_at_end():
 
 
 def _bedrock_models_for_smoke() -> List[str]:
-    """Return the full Bedrock model list for exhaustive smoke reporting."""
-    return all_bedrock_models(prefix="")
+    """Return Bedrock models if AWS is configured, otherwise return empty list."""
+    try:
+        return all_bedrock_models(prefix="")
+    except RuntimeError:
+        # AWS not configured - return empty list so tests are skipped
+        return []
 
 
 # ---------------- Structured output smoke tests (Bedrock) ----------------
@@ -37,7 +41,11 @@ class FormattedResponse(BaseModel):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", _bedrock_models_for_smoke())
+@pytest.mark.parametrize(
+    "model_name",
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
+)
 async def test_bedrock_basic_textual_prompting(fast_agent, model_name):
     """Bedrock-specific smoke test: simple textual generation."""
     fast = fast_agent
@@ -72,7 +80,8 @@ async def test_bedrock_basic_textual_prompting(fast_agent, model_name):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_open_ai_history_compat(fast_agent, model_name):
     """Bedrock models should maintain provider history with system prompt preserved."""
@@ -102,7 +111,8 @@ async def test_bedrock_open_ai_history_compat(fast_agent, model_name):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_multiple_text_blocks_prompting(fast_agent, model_name):
     fast = fast_agent
@@ -141,7 +151,8 @@ async def test_bedrock_multiple_text_blocks_prompting(fast_agent, model_name):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_basic_tool_calling(fast_agent, model_name):
     """Bedrock tool calling smoke: simple end-to-end tool invocation.
@@ -210,7 +221,8 @@ def _bedrock_models_for_structured() -> List[str]:
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_structured_output_auto_format(fast_agent, model_name):
     fast = fast_agent
@@ -243,7 +255,8 @@ async def test_bedrock_structured_output_auto_format(fast_agent, model_name):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_structured_output_parses_assistant_message_if_last(fast_agent, model_name):
     fast = fast_agent
@@ -300,7 +313,8 @@ response_format = {
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_structured_output_with_response_format_override(fast_agent, model_name):
     fast = fast_agent
@@ -332,7 +346,8 @@ async def test_bedrock_structured_output_with_response_format_override(fast_agen
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
-    _bedrock_models_for_smoke(),
+    _bedrock_models_for_smoke()
+    or [pytest.param("dummy", marks=pytest.mark.skip("AWS not configured"))],
 )
 async def test_bedrock_history_management_with_structured(fast_agent, model_name):
     fast = fast_agent

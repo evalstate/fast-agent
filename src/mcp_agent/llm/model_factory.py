@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Callable, Dict, Optional, Type, Union
+from typing import Dict, Optional, Type, Union
 
 from pydantic import BaseModel
 
@@ -24,7 +24,7 @@ from mcp_agent.llm.providers.augmented_llm_openai import OpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_openrouter import OpenRouterAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_tensorzero_openai import TensorZeroOpenAIAugmentedLLM
 from mcp_agent.llm.providers.augmented_llm_xai import XAIAugmentedLLM
-from mcp_agent.mcp.interfaces import AugmentedLLMProtocol
+from mcp_agent.mcp.interfaces import AugmentedLLMProtocol, LLMFactoryProtocol
 
 # from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
@@ -78,7 +78,6 @@ class ModelFactory:
     }
 
     """
-    TODO -- add context window size information for display/management
     TODO -- add audio supporting got-4o-audio-preview
     TODO -- bring model parameter configuration here
     Mapping of model names to their default providers
@@ -246,15 +245,12 @@ class ModelFactory:
         )
 
     @classmethod
-    def create_factory(
-        cls, model_string: str, request_params: Optional[RequestParams] = None
-    ) -> Callable[..., AugmentedLLMProtocol]:
+    def create_factory(cls, model_string: str) -> LLMFactoryProtocol:
         """
         Creates a factory function that follows the attach_llm protocol.
 
         Args:
             model_string: The model specification string (e.g. "gpt-4.1")
-            request_params: Optional parameters to configure LLM behavior
 
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
@@ -285,9 +281,10 @@ class ModelFactory:
             if config.reasoning_effort:
                 kwargs["reasoning_effort"] = config.reasoning_effort.value
             llm_args = {
-                "agent": agent,
                 "model": config.model_name,
                 "request_params": request_params,
+                "name": agent.name,
+                "instructions": agent.instruction,
                 **kwargs,
             }
             llm: AugmentedLLMProtocol = llm_class(**llm_args)

@@ -14,6 +14,7 @@ fast = FastAgent("Human Input")
 @fast.agent(
     instruction="An AI agent that assists with basic tasks. Request Human Input when needed.",
     human_input=True,
+    model="gemini25",
 )
 async def main() -> None:
     async with fast.run() as agent:

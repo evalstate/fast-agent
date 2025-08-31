@@ -36,7 +36,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[text_content])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -51,7 +53,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[image_content])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -74,7 +78,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[embedded_resource])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -99,7 +105,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[embedded_resource])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -123,7 +131,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[embedded_resource])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -147,7 +157,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[resource_link])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -172,7 +184,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         )
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
@@ -196,7 +210,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[embedded_resource])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Should be converted to a text block with the SVG in fastagent:file tags
         self.assertEqual(len(openai_msg["content"]), 1)
@@ -212,7 +228,9 @@ class TestOpenAIUserConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Should have empty content
         self.assertEqual(openai_msg["role"], "user")
@@ -232,8 +250,10 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         multipart = PromptMessageMultipart(role="user", content=[embedded_resource])
 
-        # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        # Convert to OpenAI format (now returns a list)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Check that proper fastagent:file tags are used
         self.assertEqual(len(openai_msg["content"]), 1)
@@ -259,7 +279,9 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="assistant", content=[text_content])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions - assistant should have string content in OpenAI
         self.assertEqual(openai_msg["role"], "assistant")
@@ -339,7 +361,9 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         multipart = PromptMessageMultipart(role="assistant", content=[])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions - should have empty content
         self.assertEqual(openai_msg["role"], "assistant")
@@ -391,8 +415,8 @@ class TestOpenAIToolConverter(unittest.TestCase):
         tool_call_id1 = "call_text_only"
         tool_call_id2 = "call_with_image"
 
-        # Create a list of (tool_call_id, result) tuples
-        results = [(tool_call_id1, text_result), (tool_call_id2, image_result)]
+        # Create a dict of tool_call_id -> result
+        results = {tool_call_id1: text_result, tool_call_id2: image_result}
 
         # Convert to OpenAI tool messages
         tool_messages = OpenAIConverter.convert_function_results_to_openai(results)
@@ -480,7 +504,9 @@ class TestTextConcatenation(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[text1, text2, text3])
 
         # Convert with concatenation enabled
-        openai_msg = OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks=True)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks=True)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions - should have combined all text blocks
         self.assertEqual(openai_msg["role"], "user")
@@ -505,7 +531,9 @@ class TestTextConcatenation(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[text1, image, text2, text3])
 
         # Convert with concatenation enabled
-        openai_msg = OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks=True)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart, concatenate_text_blocks=True)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions - should have concatenated adjacent text blocks but kept them separate from image
         self.assertEqual(openai_msg["role"], "user")
@@ -558,7 +586,9 @@ class TestTextConcatenation(unittest.TestCase):
         multipart = PromptMessageMultipart(role="user", content=[embedded_resource])
 
         # Convert to OpenAI format
-        openai_msg = OpenAIConverter.convert_to_openai(multipart)
+        openai_msgs = OpenAIConverter.convert_to_openai(multipart)
+        self.assertEqual(len(openai_msgs), 1)
+        openai_msg = openai_msgs[0]
 
         # Assertions - should create a text message mentioning the resource
         self.assertEqual(openai_msg["role"], "user")

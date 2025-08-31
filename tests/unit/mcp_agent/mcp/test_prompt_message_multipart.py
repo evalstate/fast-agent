@@ -193,7 +193,7 @@ class TestPromptMessageMultipart:
     def test_getting_last_text_empty(self):
         """Test from_get_prompt_result method with error handling."""
         # Test with valid GetPromptResult
-        assert "<no text>" == Prompt.user().last_text()
+        assert None is Prompt.user().last_text()
         assert "last" == Prompt.user("first", "last").last_text()
 
     def test_convenience_add_text(self):

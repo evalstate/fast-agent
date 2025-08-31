@@ -26,7 +26,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-
 from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,

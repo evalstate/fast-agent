@@ -17,26 +17,27 @@ from .helpers import (
 from .interfaces import (
     AgentProtocol,
     AugmentedLLMProtocol,
+    LlmAgentProtocol,
     MCPConnectionManagerProtocol,
-    ModelFactoryClassProtocol,
     ModelT,
     ServerConnection,
     ServerRegistryProtocol,
 )
-from .prompt_message_multipart import PromptMessageMultipart
+from .prompt_message_multipart import LlmStopReason, PromptMessageMultipart
 
 __all__ = [
     # Types from mcp.types
     "PromptMessage",
     # Multipart message handling
     "PromptMessageMultipart",
+    "LlmStopReason",
     # Protocol interfaces
     "AugmentedLLMProtocol",
+    "LlmAgentProtocol",
     "AgentProtocol",
     "MCPConnectionManagerProtocol",
     "ServerRegistryProtocol",
     "ServerConnection",
-    "ModelFactoryClassProtocol",
     "ModelT",
     # Helper functions
     "get_text",

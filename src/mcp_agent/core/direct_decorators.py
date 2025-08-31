@@ -24,11 +24,11 @@ from typing import (
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
-from mcp_agent.agents.agent import AgentConfig
-from mcp_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
-from mcp_agent.agents.workflow.router_agent import (
+from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
+from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
+from mcp_agent.agents.agent import AgentConfig
 from mcp_agent.core.agent_types import AgentType
 from mcp_agent.core.request_params import RequestParams
 

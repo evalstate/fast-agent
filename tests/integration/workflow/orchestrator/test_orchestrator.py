@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_agent.agents.workflow.orchestrator_models import (
+from fast_agent.agents.workflow.orchestrator_models import (
     AgentTask,
     Plan,
     PlanningStep,

@@ -32,7 +32,8 @@ async def test_load_simple_conversation_from_file(fast_agent):
 
             # Use the "default" agent directly
             response = await agent.default.generate(loaded)
-            assert "message 2" in response.first_text()
+            assert "message 2" in agent.default.message_history[-4].first_text()
+            assert "message 3" in response.first_text()
 
     await agent_function()
 

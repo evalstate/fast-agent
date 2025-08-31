@@ -158,8 +158,9 @@ class ModelDatabase:
         context_window=2097152, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
     )
 
+    # 31/08/25 switched to object mode (even though groq says schema supported and used to work..)
     KIMI_MOONSHOT = ModelParameters(
-        context_window=131072, max_output_tokens=16384, tokenizes=TEXT_ONLY
+        context_window=131072, max_output_tokens=16384, tokenizes=TEXT_ONLY, json_mode="object"
     )
 
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)

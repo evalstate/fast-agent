@@ -3,7 +3,7 @@ import json
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp_agent.agents.workflow.evaluator_optimizer import (
+from fast_agent.agents.workflow.evaluator_optimizer import (
     QualityRating,
 )
 from mcp_agent.core.prompt import Prompt

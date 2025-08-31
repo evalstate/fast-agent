@@ -10,6 +10,11 @@ from typing import (
     TypeVar,
 )
 
+from opentelemetry import trace
+from pydantic import AnyUrl, BaseModel, ConfigDict
+
+from fast_agent.context_dependent import ContextDependent
+from fast_agent.event_progress import ProgressAction
 from mcp import GetPromptResult, ReadResourceResult
 from mcp.client.session import ClientSession
 from mcp.shared.session import ProgressFnT
@@ -20,11 +25,6 @@ from mcp.types import (
     TextContent,
     Tool,
 )
-from opentelemetry import trace
-from pydantic import AnyUrl, BaseModel, ConfigDict
-
-from mcp_agent.context_dependent import ContextDependent
-from mcp_agent.event_progress import ProgressAction
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from mcp_agent.mcp.gen_client import gen_client
@@ -32,7 +32,7 @@ from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from mcp_agent.mcp.mcp_connection_manager import MCPConnectionManager
 
 if TYPE_CHECKING:
-    from mcp_agent.context import Context
+    from fast_agent.context import Context
 
 
 logger = get_logger(__name__)  # This will be replaced per-instance when agent_name is available
@@ -99,14 +99,16 @@ class MCPAggregator(ContextDependent):
     def __init__(
         self,
         server_names: List[str],
-        connection_persistence: bool = True,  # Default to True for better stability
+        connection_persistence: bool = True,
         context: Optional["Context"] = None,
         name: str = None,
+        config: Optional[Any] = None,  # Accept the agent config for elicitation_handler access
         **kwargs,
     ) -> None:
         """
         :param server_names: A list of server names to connect to.
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
+        :param config: Optional agent config containing elicitation_handler and other settings.
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -117,6 +119,7 @@ class MCPAggregator(ContextDependent):
         self.server_names = server_names
         self.connection_persistence = connection_persistence
         self.agent_name = name
+        self.config = config  # Store the config for access in session factory
         self._persistent_connection_manager: MCPConnectionManager = None
 
         # Set up logger with agent name in namespace if available
@@ -186,10 +189,6 @@ class MCPAggregator(ContextDependent):
     ) -> "MCPAggregator":
         """
         Factory method to create and initialize an MCPAggregator.
-        Use this instead of constructor since we need async initialization.
-        If connection_persistence is True, the aggregator will maintain a
-        persistent connection to the servers for as long as this aggregator is around.
-        By default we do not maintain a persistent connection.
         """
 
         logger.info(f"Creating MCPAggregator with servers: {server_names}")
@@ -210,6 +209,47 @@ class MCPAggregator(ContextDependent):
         except Exception as e:
             logger.error(f"Error creating MCPAggregator: {e}")
             await instance.__aexit__(None, None, None)
+
+    def _create_session_factory(self, server_name: str):
+        """
+        Create a session factory function for the given server.
+        This centralizes the logic for creating MCPAgentClientSession instances.
+
+        Args:
+            server_name: The name of the server to create a session for
+
+        Returns:
+            A factory function that creates MCPAgentClientSession instances
+        """
+
+        def session_factory(read_stream, write_stream, read_timeout, **kwargs):
+            # Get agent's model and name from config if available
+            agent_model: str | None = None
+            agent_name: str | None = None
+            elicitation_handler = None
+            api_key: str | None = None
+
+            # Access config directly if it was passed from BaseAgent
+            if self.config:
+                agent_model = self.config.model
+                agent_name = self.config.name
+                elicitation_handler = self.config.elicitation_handler
+                api_key = self.config.api_key
+
+            return MCPAgentClientSession(
+                read_stream,
+                write_stream,
+                read_timeout,
+                server_name=server_name,
+                agent_model=agent_model,
+                agent_name=agent_name,
+                api_key=api_key,
+                elicitation_handler=elicitation_handler,
+                tool_list_changed_callback=self._handle_tool_list_changed,
+                **kwargs,  # Pass through any additional kwargs like server_config
+            )
+
+        return session_factory
 
     async def load_servers(self) -> None:
         """
@@ -238,39 +278,8 @@ class MCPAggregator(ContextDependent):
                     },
                 )
 
-                # Create a wrapper to capture the parameters for the client session
-                def session_factory(read_stream, write_stream, read_timeout, **kwargs):
-                    # Get agent's model and name if this aggregator is part of an agent
-                    agent_model: str | None = None
-                    agent_name: str | None = None
-                    elicitation_handler = None
-                    api_key: str | None = None
-
-                    # Check if this aggregator is part of an Agent (which has config)
-                    # Import here to avoid circular dependency
-                    from mcp_agent.agents.base_agent import BaseAgent
-
-                    if isinstance(self, BaseAgent):
-                        agent_model = self.config.model
-                        agent_name = self.config.name
-                        elicitation_handler = self.config.elicitation_handler
-                        api_key = self.config.api_key
-
-                    return MCPAgentClientSession(
-                        read_stream,
-                        write_stream,
-                        read_timeout,
-                        server_name=server_name,
-                        agent_model=agent_model,
-                        agent_name=agent_name,
-                        api_key=api_key,
-                        elicitation_handler=elicitation_handler,
-                        tool_list_changed_callback=self._handle_tool_list_changed,
-                        **kwargs,  # Pass through any additional kwargs like server_config
-                    )
-
                 await self._persistent_connection_manager.get_server(
-                    server_name, client_session_factory=session_factory
+                    server_name, client_session_factory=self._create_session_factory(server_name)
                 )
 
             logger.info(
@@ -313,46 +322,15 @@ class MCPAggregator(ContextDependent):
 
             if self.connection_persistence:
                 server_connection = await self._persistent_connection_manager.get_server(
-                    server_name, client_session_factory=MCPAgentClientSession
+                    server_name, client_session_factory=self._create_session_factory(server_name)
                 )
                 tools = await fetch_tools(server_connection.session, server_name)
                 prompts = await fetch_prompts(server_connection.session, server_name)
             else:
-                # Create a factory function for the client session
-                def create_session(read_stream, write_stream, read_timeout, **kwargs):
-                    # Get agent's model and name if this aggregator is part of an agent
-                    agent_model: str | None = None
-                    agent_name: str | None = None
-                    elicitation_handler = None
-                    api_key: str | None = None
-
-                    # Check if this aggregator is part of an Agent (which has config)
-                    # Import here to avoid circular dependency
-                    from mcp_agent.agents.base_agent import BaseAgent
-
-                    if isinstance(self, BaseAgent):
-                        agent_model = self.config.model
-                        agent_name = self.config.name
-                        elicitation_handler = self.config.elicitation_handler
-                        api_key = self.config.api_key
-
-                    return MCPAgentClientSession(
-                        read_stream,
-                        write_stream,
-                        read_timeout,
-                        server_name=server_name,
-                        agent_model=agent_model,
-                        agent_name=agent_name,
-                        api_key=api_key,
-                        elicitation_handler=elicitation_handler,
-                        tool_list_changed_callback=self._handle_tool_list_changed,
-                        **kwargs,  # Pass through any additional kwargs like server_config
-                    )
-
                 async with gen_client(
                     server_name,
                     server_registry=self.context.server_registry,
-                    client_session_factory=create_session,
+                    client_session_factory=self._create_session_factory(server_name),
                 ) as client:
                     tools = await fetch_tools(client, server_name)
                     prompts = await fetch_prompts(client, server_name)
@@ -410,7 +388,7 @@ class MCPAggregator(ContextDependent):
 
         try:
             server_conn = await self._persistent_connection_manager.get_server(
-                server_name, client_session_factory=MCPAgentClientSession
+                server_name, client_session_factory=self._create_session_factory(server_name)
             )
             # server_capabilities is a property, not a coroutine
             return server_conn.server_capabilities
@@ -549,7 +527,7 @@ class MCPAggregator(ContextDependent):
         try:
             if self.connection_persistence:
                 server_connection = await self._persistent_connection_manager.get_server(
-                    server_name, client_session_factory=MCPAgentClientSession
+                    server_name, client_session_factory=self._create_session_factory(server_name)
                 )
                 return await try_execute(server_connection.session)
             else:
@@ -576,7 +554,7 @@ class MCPAggregator(ContextDependent):
                     return result
         except ConnectionError:
             # Server offline - attempt reconnection
-            from mcp_agent import console
+            from fast_agent import console
 
             console.console.print(
                 f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
@@ -591,7 +569,8 @@ class MCPAggregator(ContextDependent):
                     await asyncio.sleep(0.1)
 
                     server_connection = await self._persistent_connection_manager.get_server(
-                        server_name, client_session_factory=MCPAgentClientSession
+                        server_name,
+                        client_session_factory=self._create_session_factory(server_name),
                     )
                     result = await try_execute(server_connection.session)
                 else:
@@ -1069,39 +1048,11 @@ class MCPAggregator(ContextDependent):
 
         async with self._refresh_lock:
             try:
-                # Create a factory function that will include our parameters
-                def create_session(read_stream, write_stream, read_timeout):
-                    # Get agent name if available
-                    agent_model: str | None = None
-                    agent_name: str | None = None
-                    elicitation_handler = None
-                    api_key: str | None = None
-
-                    # Import here to avoid circular dependency
-                    from mcp_agent.agents.base_agent import BaseAgent
-
-                    if isinstance(self, BaseAgent):
-                        agent_model = self.config.model
-                        agent_name = self.config.name
-                        elicitation_handler = self.config.elicitation_handler
-                        api_key = self.config.api_key
-
-                    return MCPAgentClientSession(
-                        read_stream,
-                        write_stream,
-                        read_timeout,
-                        server_name=server_name,
-                        agent_model=agent_model,
-                        agent_name=agent_name,
-                        api_key=api_key,
-                        elicitation_handler=elicitation_handler,
-                        tool_list_changed_callback=self._handle_tool_list_changed,
-                    )
-
                 # Fetch new tools from the server
                 if self.connection_persistence:
                     server_connection = await self._persistent_connection_manager.get_server(
-                        server_name, client_session_factory=create_session
+                        server_name,
+                        client_session_factory=self._create_session_factory(server_name),
                     )
                     tools_result = await server_connection.session.list_tools()
                     new_tools = tools_result.tools or []
@@ -1109,7 +1060,7 @@ class MCPAggregator(ContextDependent):
                     async with gen_client(
                         server_name,
                         server_registry=self.context.server_registry,
-                        client_session_factory=create_session,
+                        client_session_factory=self._create_session_factory(server_name),
                     ) as client:
                         tools_result = await client.list_tools()
                         new_tools = tools_result.tools or []

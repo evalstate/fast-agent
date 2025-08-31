@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Tuple
 
 # Import necessary types from google.genai
 from google.genai import types
+from mcp import Tool
 from mcp.types import (
     BlobResourceContents,
     CallToolRequest,
@@ -35,13 +36,18 @@ class GoogleConverter:
         """
         Recursively removes unsupported JSON schema keywords for google.genai.types.Schema.
         Specifically removes 'additionalProperties', '$schema', 'exclusiveMaximum', and 'exclusiveMinimum'.
+        Also resolves $ref references and inlines $defs.
         """
+        # First, resolve any $ref references in the schema
+        schema = self._resolve_refs(schema, schema)
+
         cleaned_schema = {}
         unsupported_keys = {
             "additionalProperties",
             "$schema",
             "exclusiveMaximum",
             "exclusiveMinimum",
+            "$defs",  # Remove $defs after resolving references
         }
         supported_string_formats = {"enum", "date-time"}
 
@@ -66,6 +72,54 @@ class GoogleConverter:
             else:
                 cleaned_schema[key] = value
         return cleaned_schema
+
+    def _resolve_refs(self, schema: Dict[str, Any], root_schema: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Resolve $ref references in a JSON schema by inlining the referenced definitions.
+
+        Args:
+            schema: The current schema fragment being processed
+            root_schema: The root schema containing $defs
+
+        Returns:
+            Schema with $ref references resolved
+        """
+        if not isinstance(schema, dict):
+            return schema
+
+        # If this is a $ref, resolve it
+        if "$ref" in schema:
+            ref_path = schema["$ref"]
+            if ref_path.startswith("#/"):
+                # Parse the reference path (e.g., "#/$defs/HumanInputRequest")
+                path_parts = ref_path[2:].split("/")  # Remove "#/" and split
+
+                # Navigate to the referenced definition
+                ref_target = root_schema
+                for part in path_parts:
+                    if part in ref_target:
+                        ref_target = ref_target[part]
+                    else:
+                        # If reference not found, return the original schema
+                        return schema
+
+                # Return the resolved definition (recursively resolve any nested refs)
+                return self._resolve_refs(ref_target, root_schema)
+
+        # Otherwise, recursively process all values in the schema
+        resolved = {}
+        for key, value in schema.items():
+            if isinstance(value, dict):
+                resolved[key] = self._resolve_refs(value, root_schema)
+            elif isinstance(value, list):
+                resolved[key] = [
+                    self._resolve_refs(item, root_schema) if isinstance(item, dict) else item
+                    for item in value
+                ]
+            else:
+                resolved[key] = value
+
+        return resolved
 
     def convert_to_google_content(
         self, messages: List[PromptMessageMultipart]
@@ -142,7 +196,7 @@ class GoogleConverter:
                 google_contents.append(types.Content(role=google_role, parts=parts))
         return google_contents
 
-    def convert_to_google_tools(self, tools: List[ToolDefinition]) -> List[types.Tool]:
+    def convert_to_google_tools(self, tools: List[Tool]) -> List[types.Tool]:
         """
         Converts a list of fast-agent ToolDefinition to google.genai types.Tool.
         """

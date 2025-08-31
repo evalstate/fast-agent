@@ -73,7 +73,7 @@ async def add_servers_to_config(fast_app: Any, servers: Dict[str, Dict[str, Any]
     if not servers:
         return
 
-    from mcp_agent.config import MCPServerSettings, MCPSettings
+    from fast_agent.config import MCPServerSettings, MCPSettings
 
     # Initialize the app to ensure context is ready
     await fast_app.app.initialize()
