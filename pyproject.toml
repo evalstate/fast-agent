@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.2.57"
+version = "0.2.58"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.12.4",
+    "mcp==1.13.1",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
@@ -89,6 +89,13 @@ markers = [
     "integration: marks tests as integration tests",
     "simulated_endpoints: marks tests that use simulated external endpoints"
 ]
+
+# Filter out utcnow depreciation warnings from the boto3 library
+filterwarnings = [
+    "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning:botocore\\.auth",
+    "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning:botocore\\.endpoint$",
+]
+
 # Other pytest options can go here too
 testpaths = ["test", "integration_tests"]
 

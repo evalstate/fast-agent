@@ -139,7 +139,20 @@ async def product_review() -> ReadResourceResult:
             json_schema_extra={"oneOf": _create_enum_schema_options(categories)},
         )
         review_text: str = Field(
-            description="Tell us about your experience", min_length=10, max_length=1000
+            description="Tell us about your experience",
+            default="""Great product!
+Here's what I loved:
+
+- Excellent build quality
+- Fast shipping
+- Works as advertised
+
+One minor issue:
+- Instructions could be clearer
+
+Overall, highly recommended!""",
+            min_length=10,
+            max_length=1000
         )
 
     result = await mcp.get_context().elicit(

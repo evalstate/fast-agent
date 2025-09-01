@@ -276,6 +276,9 @@ class BedrockSettings(BaseModel):
     profile: str | None = None
     """AWS profile to use for authentication"""
 
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = "minimal"
+    """Default reasoning effort for Bedrock models. Can be overridden in model string (e.g., bedrock.claude-sonnet-4-0.high)"""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
