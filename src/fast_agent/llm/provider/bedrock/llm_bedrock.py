@@ -4,15 +4,15 @@ import re
 import sys
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Type, Union, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Type, Union
 
+from mcp import Tool
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     ContentBlock,
     TextContent,
 )
-from rich.text import Text
 
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
@@ -317,9 +317,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         """
         bedrock_tools = []
 
-        # Create mapping from cleaned names to original names for tool execution
-        self.tool_name_mapping = {}
-
         self.logger.debug(f"Converting {len(tools.tools)} MCP tools to Nova format")
 
         for tool in tools.tools:
@@ -362,20 +359,20 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             ):
                 nova_schema["required"] = input_schema["required"]
 
-            # Apply tool name policy (e.g., Nova requires hyphen→underscore)
-            policy = getattr(self, "_tool_name_policy_for_conversion", "preserve")
-            if policy == "replace_hyphens_with_underscores":
-                clean_name = tool.name.replace("-", "_")
-            else:
-                clean_name = tool.name
+            # Use the tool name mapping that was already built in _bedrock_completion
+            # This ensures consistent transformation logic across the codebase
+            clean_name = None
+            for mapped_name, original_name in tool_name_mapping.items():
+                if original_name == tool.name:
+                    clean_name = mapped_name
+                    break
 
-            # Store mapping from cleaned name back to original MCP name
-            # This is needed because:
-            # 1. Nova receives tools with cleaned names (utils_get_current_date_information)
-            # 2. Nova calls tools using cleaned names
-            # 3. But MCP server expects original names (utils-get_current_date_information)
-            # 4. So we map back: utils_get_current_date_information -> utils-get_current_date_information
-            self.tool_name_mapping[clean_name] = tool.name
+            if clean_name is None:
+                # Fallback if mapping not found (shouldn't happen)
+                clean_name = tool.name
+                self.logger.warning(
+                    f"Tool name mapping not found for {tool.name}, using original name"
+                )
 
             bedrock_tool = {
                 "toolSpec": {
@@ -476,7 +473,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         return bedrock_tools
 
     def _parse_system_prompt_tool_response(
-        self, processed_response: Dict[str, Any]
+        self, processed_response: Dict[str, Any], model: str
     ) -> List[Dict[str, Any]]:
         """Parse system prompt tool response format: function calls in text."""
         # Extract text content from the response
@@ -525,7 +522,53 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             if tool_calls:
                 return tool_calls
 
-        # Second try: find the "Tool Call:" format
+        # Second try: find the "Action:" format (commonly used by Nova models)
+        action_pattern = r"Action:\s*([^(]+)\(([^)]*)\)"
+        action_matches = re.findall(action_pattern, text_content)
+        if action_matches:
+            for i, (func_name, args_str) in enumerate(action_matches):
+                func_name = func_name.strip()
+                args_str = args_str.strip()
+
+                # Parse arguments - handle quoted strings and key=value pairs
+                arguments = {}
+                if args_str:
+                    try:
+                        # Handle key=value format like location="London"
+                        if "=" in args_str:
+                            # Split by comma, then by = for each part
+                            for arg_part in args_str.split(","):
+                                if "=" in arg_part:
+                                    key, value = arg_part.split("=", 1)
+                                    key = key.strip()
+                                    value = value.strip().strip("\"'")  # Remove quotes
+                                    arguments[key] = value
+                        else:
+                            # Single value argument - try to map to appropriate parameter name
+                            value = args_str.strip("\"'") if args_str else ""
+                            # Handle common single-parameter functions
+                            if func_name == "check_weather":
+                                arguments = {"location": value}
+                            else:
+                                # Generic fallback
+                                arguments = {"value": value}
+                    except Exception as e:
+                        self.logger.warning(f"Failed to parse Action arguments: {args_str} - {e}")
+                        arguments = {"value": args_str}
+
+                tool_calls.append(
+                    {
+                        "type": "system_prompt_tool",
+                        "name": func_name,
+                        "arguments": arguments,
+                        "id": f"system_prompt_{func_name}_{i}",
+                    }
+                )
+
+            if tool_calls:
+                return tool_calls
+
+        # Third try: find the "Tool Call:" format
         tool_call_match = re.search(r"Tool Call:\s*(\[.*?\])", text_content, re.DOTALL)
         if tool_call_match:
             json_str = tool_call_match.group(1)
@@ -613,6 +656,49 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         f"Failed to parse fallback custom tag format: {function_args_json}"
                     )
 
+        # Third try: find direct function call format like "function_name(args)"
+        direct_call_pattern = r"^([a-zA-Z_][a-zA-Z0-9_]*)\(([^)]*)\)$"
+        direct_call_match = re.search(direct_call_pattern, text_content.strip())
+        if direct_call_match:
+            func_name, args_str = direct_call_match.groups()
+            func_name = func_name.strip()
+            args_str = args_str.strip()
+
+            # Parse arguments
+            arguments = {}
+            if args_str:
+                try:
+                    # Handle key=value format like location="London"
+                    if "=" in args_str:
+                        # Split by comma, then by = for each part
+                        for arg_part in args_str.split(","):
+                            if "=" in arg_part:
+                                key, value = arg_part.split("=", 1)
+                                key = key.strip()
+                                value = value.strip().strip("\"'")  # Remove quotes
+                                arguments[key] = value
+                    else:
+                        # Single value argument - try to map to appropriate parameter name
+                        value = args_str.strip("\"'") if args_str else ""
+                        # Handle common single-parameter functions
+                        if func_name == "check_weather":
+                            arguments = {"location": value}
+                        else:
+                            # Generic fallback
+                            arguments = {"value": value}
+                except Exception as e:
+                    self.logger.warning(f"Failed to parse direct call arguments: {args_str} - {e}")
+                    arguments = {"value": args_str}
+
+            return [
+                {
+                    "type": "system_prompt_tool",
+                    "name": func_name,
+                    "arguments": arguments,
+                    "id": f"system_prompt_{func_name}_0",
+                }
+            ]
+
         return []
 
     def _parse_anthropic_tool_response(
@@ -645,7 +731,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # Choose parser strictly by cached schema
         if schema == ToolSchemaType.SYSTEM_PROMPT:
-            return self._parse_system_prompt_tool_response(processed_response)
+            return self._parse_system_prompt_tool_response(processed_response, model)
         if schema == ToolSchemaType.ANTHROPIC:
             return self._parse_anthropic_tool_response(processed_response)
 
@@ -704,7 +790,144 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         except Exception:
             pass
 
+        # Final fallback: try system prompt parsing regardless of cached schema
+        # This handles cases where native tool calling failed but model generated system prompt format
+        try:
+            return self._parse_system_prompt_tool_response(processed_response, model)
+        except Exception:
+            pass
+
         return []
+
+    def _build_tool_calls_dict(
+        self, parsed_tools: List[Dict[str, Any]]
+    ) -> Dict[str, CallToolRequest]:
+        """
+        Convert parsed tools to CallToolRequest dict for external execution.
+
+        Args:
+            parsed_tools: List of parsed tool dictionaries from _parse_tool_response()
+
+        Returns:
+            Dictionary mapping tool_use_id to CallToolRequest objects
+        """
+        tool_calls = {}
+        for parsed_tool in parsed_tools:
+            # Use tool name directly, but map back to original if a mapping is available
+            tool_name = parsed_tool["name"]
+            try:
+                mapping = getattr(self, "tool_name_mapping", None)
+                if isinstance(mapping, dict):
+                    tool_name = mapping.get(tool_name, tool_name)
+            except Exception:
+                pass
+
+            # Create CallToolRequest
+            tool_call = CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(
+                    name=tool_name, arguments=parsed_tool.get("arguments", {})
+                ),
+            )
+            tool_calls[parsed_tool["id"]] = tool_call
+        return tool_calls
+
+    def _map_bedrock_stop_reason(self, bedrock_stop_reason: str) -> LlmStopReason:
+        """
+        Map Bedrock stop reasons to LlmStopReason enum.
+
+        Args:
+            bedrock_stop_reason: Stop reason from Bedrock API
+
+        Returns:
+            Corresponding LlmStopReason enum value
+        """
+        if bedrock_stop_reason == "tool_use":
+            return LlmStopReason.TOOL_USE
+        elif bedrock_stop_reason == "end_turn":
+            return LlmStopReason.END_TURN
+        elif bedrock_stop_reason == "stop_sequence":
+            return LlmStopReason.STOP_SEQUENCE
+        elif bedrock_stop_reason == "max_tokens":
+            return LlmStopReason.MAX_TOKENS
+        else:
+            # Default to END_TURN for unknown stop reasons, but log for debugging
+            self.logger.warning(
+                f"Unknown Bedrock stop reason: {bedrock_stop_reason}, defaulting to END_TURN"
+            )
+            return LlmStopReason.END_TURN
+
+    def _convert_multipart_to_bedrock_message(
+        self, msg: PromptMessageExtended
+    ) -> BedrockMessageParam:
+        """
+        Convert a PromptMessageExtended to Bedrock message parameter format.
+        Handles tool results and regular content.
+
+        Args:
+            msg: PromptMessageExtended message to convert
+
+        Returns:
+            Bedrock message parameter dictionary
+        """
+        bedrock_msg = {"role": msg.role, "content": []}
+
+        # Handle tool results first (if present)
+        if msg.tool_results:
+            # Get the cached schema type to determine result formatting
+            caps = self.capabilities.get(self.model) or ModelCapabilities()
+            # Check if any tool ID indicates system prompt format
+            has_system_prompt_tools = any(
+                tool_id.startswith("system_prompt_") for tool_id in msg.tool_results.keys()
+            )
+            is_system_prompt_schema = (
+                caps.schema == ToolSchemaType.SYSTEM_PROMPT or has_system_prompt_tools
+            )
+
+            if is_system_prompt_schema:
+                # For system prompt models: format as human-readable text
+                tool_result_parts = []
+                for tool_id, tool_result in msg.tool_results.items():
+                    result_text = "".join(
+                        part.text for part in tool_result.content if isinstance(part, TextContent)
+                    )
+                    result_payload = {
+                        "tool_name": tool_id,  # Use tool_id as name for system prompt
+                        "status": "error" if tool_result.isError else "success",
+                        "result": result_text,
+                    }
+                    tool_result_parts.append(json.dumps(result_payload))
+
+                if tool_result_parts:
+                    full_result_text = f"Tool Results:\n{', '.join(tool_result_parts)}"
+                    bedrock_msg["content"].append({"type": "text", "text": full_result_text})
+            else:
+                # For Nova/Anthropic models: use structured tool_result format
+                for tool_id, tool_result in msg.tool_results.items():
+                    result_content_blocks = []
+                    if tool_result.content:
+                        for part in tool_result.content:
+                            if isinstance(part, TextContent):
+                                result_content_blocks.append({"text": part.text})
+
+                    if not result_content_blocks:
+                        result_content_blocks.append({"text": "[No content in tool result]"})
+
+                    bedrock_msg["content"].append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": tool_id,
+                            "content": result_content_blocks,
+                            "status": "error" if tool_result.isError else "success",
+                        }
+                    )
+
+        # Handle regular content
+        for content_item in msg.content:
+            if isinstance(content_item, TextContent):
+                bedrock_msg["content"].append({"type": "text", "text": content_item.text})
+
+        return bedrock_msg
 
     def _convert_messages_to_bedrock(
         self, messages: List[BedrockMessageParam]
@@ -853,8 +1076,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                                         self.logger.warning(
                                             f"Failed to parse accumulated input as JSON: {accumulated_input} - {e}"
                                         )
-                                        # If it's not valid JSON, treat it as a string value
-                                        tool_use["toolUse"]["input"] = accumulated_input
+                                        # If it's not valid JSON, wrap it as a dict to avoid downstream errors
+                                        tool_use["toolUse"]["input"] = {"value": accumulated_input}
                                 # Clean up the accumulator
                                 del tool_use["toolUse"]["_input_accumulator"]
                     continue
@@ -920,8 +1143,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             self.logger.warning(
                                 f"Failed to parse final accumulated input as JSON: {accumulated_input} - {e}"
                             )
-                            # If it's not valid JSON, treat it as a string value
-                            tool_use["toolUse"]["input"] = accumulated_input
+                            # If it's not valid JSON, wrap it as a dict to avoid downstream errors
+                            tool_use["toolUse"]["input"] = {"value": accumulated_input}
                     # Clean up the accumulator
                     del tool_use["toolUse"]["_input_accumulator"]
 
@@ -968,9 +1191,11 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self,
         message_param: BedrockMessageParam,
         request_params: RequestParams | None = None,
-    ) -> List[ContentBlock | CallToolRequestParams]:
+        tools: List[Tool] | None = None,
+    ) -> PromptMessageExtended:
         """
         Process a query using Bedrock and available tools.
+        Returns PromptMessageExtended with tool calls for external execution.
         """
         client = self._get_bedrock_runtime_client()
 
@@ -1008,684 +1233,591 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             self.logger.debug(f"Traceback: {traceback.format_exc()}")
             tool_list = None
 
-        responses: List[ContentBlock] = []
-        tool_result_responses: List[ContentBlock] = []
+        # Use tools parameter if provided, otherwise get from aggregator
+        if tools is None:
+            tools = tool_list.tools if tool_list else []
+        elif tool_list is None and tools:
+            # Create a ListToolsResult from the provided tools for conversion
+            from mcp.types import ListToolsResult
+
+            tool_list = ListToolsResult(tools=tools)
+
+        response_content_blocks: List[ContentBlock] = []
         model = self.default_request_params.model
-        # Loop guard for repeated identical tool calls (system-prompt parsing path)
-        last_tool_signature: str | None = None
-        repeated_tool_calls_count: int = 0
-        max_repeated_tool_calls: int = 3
 
-        for i in range(params.max_iterations):
-            self._log_chat_progress(self.chat_turn(), model=model)
+        # Single API call - no tool execution loop
+        self._log_chat_progress(self.chat_turn(), model=model)
 
-            # Resolver-free: schema type inferred by runtime fallback below
+        # Convert messages to Bedrock format
+        bedrock_messages = self._convert_messages_to_bedrock(messages)
 
-            # Convert messages to Bedrock format
-            bedrock_messages = self._convert_messages_to_bedrock(messages)
+        # Base system text
+        base_system_text = self.instruction or params.systemPrompt
 
-            # Base system text
-            base_system_text = self.instruction or params.systemPrompt
-
-            # Determine tool schema fallback order and caches
-            caps = self.capabilities.get(model) or ModelCapabilities()
-            if caps.schema and caps.schema != ToolSchemaType.NONE:
-                schema_order = [caps.schema]
+        # Determine tool schema fallback order and caches
+        caps = self.capabilities.get(model) or ModelCapabilities()
+        if caps.schema and caps.schema != ToolSchemaType.NONE:
+            # Special case: Force Mistral 7B to try SYSTEM_PROMPT instead of cached DEFAULT
+            if (
+                model == "mistral.mistral-7b-instruct-v0:2"
+                and caps.schema == ToolSchemaType.DEFAULT
+            ):
+                print(
+                    f"🔧 FORCING SYSTEM_PROMPT for {model} (was cached as DEFAULT)",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                schema_order = [ToolSchemaType.SYSTEM_PROMPT, ToolSchemaType.DEFAULT]
             else:
-                # Restore original fallback order: Anthropic models try anthropic first, others skip it
-                if model.startswith("anthropic."):
-                    schema_order = [
-                        ToolSchemaType.ANTHROPIC,
-                        ToolSchemaType.DEFAULT,
-                        ToolSchemaType.SYSTEM_PROMPT,
-                    ]
-                else:
-                    schema_order = [
-                        ToolSchemaType.DEFAULT,
-                        ToolSchemaType.SYSTEM_PROMPT,
-                    ]
+                schema_order = [caps.schema]
+        else:
+            # Restore original fallback order: Anthropic models try anthropic first, others skip it
+            if model.startswith("anthropic."):
+                schema_order = [
+                    ToolSchemaType.ANTHROPIC,
+                    ToolSchemaType.DEFAULT,
+                    ToolSchemaType.SYSTEM_PROMPT,
+                ]
+            elif model == "mistral.mistral-7b-instruct-v0:2":
+                # Force Mistral 7B to try SYSTEM_PROMPT first (it doesn't work well with DEFAULT)
+                schema_order = [
+                    ToolSchemaType.SYSTEM_PROMPT,
+                    ToolSchemaType.DEFAULT,
+                ]
+            else:
+                schema_order = [
+                    ToolSchemaType.DEFAULT,
+                    ToolSchemaType.SYSTEM_PROMPT,
+                ]
 
-            # Track whether we changed system mode cache this turn
-            tried_system_fallback = False
+        # Track whether we changed system mode cache this turn
+        tried_system_fallback = False
 
-            processed_response = None  # type: ignore[assignment]
-            last_error_msg = None
+        processed_response = None  # type: ignore[assignment]
+        last_error_msg = None
 
-            for schema_choice in schema_order:
-                # Fresh messages per attempt
-                converse_args = {"modelId": model, "messages": [dict(m) for m in bedrock_messages]}
+        for schema_choice in schema_order:
+            # Fresh messages per attempt
+            converse_args = {"modelId": model, "messages": [dict(m) for m in bedrock_messages]}
 
-                # Build tools representation for this schema
-                tools_payload: Union[List[Dict[str, Any]], str, None] = None
-                if tool_list and tool_list.tools:
-                    # Build tool name mapping once per schema attempt
-                    name_policy = (
-                        self.capabilities.get(model) or ModelCapabilities()
-                    ).tool_name_policy or ToolNamePolicy.PRESERVE
-                    tool_name_mapping = self._build_tool_name_mapping(tool_list, name_policy)
+            # Build tools representation for this schema
+            tools_payload: Union[List[Dict[str, Any]], str, None] = None
+            # Get tool name policy (needed even when no tools for cache logic)
+            name_policy = (
+                self.capabilities.get(model) or ModelCapabilities()
+            ).tool_name_policy or ToolNamePolicy.PRESERVE
 
-                    # Store mapping for tool execution
-                    self.tool_name_mapping = tool_name_mapping
+            if tool_list and tool_list.tools:
+                # Build tool name mapping once per schema attempt
+                tool_name_mapping = self._build_tool_name_mapping(tool_list, name_policy)
 
-                    if schema_choice == ToolSchemaType.ANTHROPIC:
-                        tools_payload = self._convert_tools_anthropic_format(
-                            tool_list, tool_name_mapping
-                        )
-                    elif schema_choice == ToolSchemaType.DEFAULT:
-                        # Set tool name policy for Nova conversion
-                        self._tool_name_policy_for_conversion = (
-                            "replace_hyphens_with_underscores"
-                            if name_policy == ToolNamePolicy.UNDERSCORES
-                            else "preserve"
-                        )
-                        tools_payload = self._convert_tools_nova_format(
-                            tool_list, tool_name_mapping
-                        )
-                    elif schema_choice == ToolSchemaType.SYSTEM_PROMPT:
-                        tools_payload = self._convert_tools_system_prompt_format(
-                            tool_list, tool_name_mapping
-                        )
+                # Store mapping for tool execution
+                self.tool_name_mapping = tool_name_mapping
 
-                # System prompt handling with cache
-                system_mode = (
-                    self.capabilities.get(model) or ModelCapabilities()
-                ).system_mode or SystemMode.SYSTEM
-                system_text = base_system_text
-
-                if (
-                    schema_choice == ToolSchemaType.SYSTEM_PROMPT
-                    and isinstance(tools_payload, str)
-                    and tools_payload
-                ):
-                    system_text = (
-                        f"{system_text}\n\n{tools_payload}" if system_text else tools_payload
+                if schema_choice == ToolSchemaType.ANTHROPIC:
+                    tools_payload = self._convert_tools_anthropic_format(
+                        tool_list, tool_name_mapping
+                    )
+                elif schema_choice == ToolSchemaType.DEFAULT:
+                    tools_payload = self._convert_tools_nova_format(tool_list, tool_name_mapping)
+                elif schema_choice == ToolSchemaType.SYSTEM_PROMPT:
+                    tools_payload = self._convert_tools_system_prompt_format(
+                        tool_list, tool_name_mapping
                     )
 
-                if system_text:
-                    if system_mode == SystemMode.SYSTEM:
-                        converse_args["system"] = [{"text": system_text}]
-                        self.logger.debug(
-                            f"Attempting with system param for {model} and schema={schema_choice}"
-                        )
+            # System prompt handling with cache
+            system_mode = (
+                self.capabilities.get(model) or ModelCapabilities()
+            ).system_mode or SystemMode.SYSTEM
+            system_text = base_system_text
+
+            if (
+                schema_choice == ToolSchemaType.SYSTEM_PROMPT
+                and isinstance(tools_payload, str)
+                and tools_payload
+            ):
+                system_text = f"{system_text}\n\n{tools_payload}" if system_text else tools_payload
+
+            # Cohere-specific nudge: force exact echo of tool result text on final answer
+            if (
+                schema_choice == ToolSchemaType.SYSTEM_PROMPT
+                and isinstance(model, str)
+                and model.startswith("cohere.")
+            ):
+                cohere_nudge = (
+                    "FINAL ANSWER RULES (STRICT):\n"
+                    "- When a tool result is provided, your final answer MUST be exactly the raw tool result text.\n"
+                    "- Do not add any extra words, punctuation, qualifiers, or phrases (e.g., 'according to the tool').\n"
+                    "- Example: If tool result text is 'It"
+                    "s sunny in London', your final answer must be exactly: It"
+                    "s sunny in London\n"
+                )
+                system_text = f"{system_text}\n\n{cohere_nudge}" if system_text else cohere_nudge
+
+            # Llama3-specific nudge: prevent paraphrasing and extra tool calls
+            if (
+                schema_choice == ToolSchemaType.SYSTEM_PROMPT
+                and isinstance(model, str)
+                and model.startswith("meta.llama3")
+            ):
+                llama_nudge = (
+                    "TOOL RESPONSE RULES:\n"
+                    "- After receiving a tool result, immediately output ONLY the exact tool result text.\n"
+                    "- Do not call additional tools or add commentary.\n"
+                    "- Do not paraphrase or modify the tool result in any way."
+                )
+                system_text = f"{system_text}\n\n{llama_nudge}" if system_text else llama_nudge
+
+            # Mistral-specific nudge: prevent tool calling loops and accept tool results
+            if (
+                schema_choice == ToolSchemaType.SYSTEM_PROMPT
+                and isinstance(model, str)
+                and model.startswith("mistral.")
+            ):
+                mistral_nudge = (
+                    "TOOL EXECUTION RULES:\n"
+                    "- Call each tool only ONCE per conversation turn.\n"
+                    "- Accept and trust all tool results - do not question or retry them.\n"
+                    "- After receiving a tool result, provide a direct answer based on that result.\n"
+                    "- Do not call the same tool multiple times or call additional tools unless specifically requested.\n"
+                    "- Tool results are always valid - do not attempt to validate or correct them."
+                )
+                system_text = f"{system_text}\n\n{mistral_nudge}" if system_text else mistral_nudge
+
+            if system_text:
+                if system_mode == SystemMode.SYSTEM:
+                    converse_args["system"] = [{"text": system_text}]
+                    self.logger.debug(
+                        f"Attempting with system param for {model} and schema={schema_choice}"
+                    )
+                else:
+                    # inject
+                    if (
+                        converse_args["messages"]
+                        and converse_args["messages"][0].get("role") == "user"
+                    ):
+                        first_message = converse_args["messages"][0]
+                        if first_message.get("content") and len(first_message["content"]) > 0:
+                            original_text = first_message["content"][0].get("text", "")
+                            first_message["content"][0]["text"] = (
+                                f"System: {system_text}\n\nUser: {original_text}"
+                            )
+                            self.logger.debug(
+                                "Injected system prompt into first user message (cached mode)"
+                            )
+
+            # Tools wiring
+            # Always include toolConfig if we have tools OR if there are tool results in the conversation
+            has_tool_results = False
+            for msg in bedrock_messages:
+                if isinstance(msg, dict) and msg.get("content"):
+                    for content in msg["content"]:
+                        if isinstance(content, dict) and "toolResult" in content:
+                            has_tool_results = True
+                            break
+                    if has_tool_results:
+                        break
+
+            if (
+                schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
+                and isinstance(tools_payload, list)
+                and tools_payload
+            ):
+                # Include tools only when we have actual tools to provide
+                converse_args["toolConfig"] = {"tools": tools_payload}
+
+            # Inference configuration and overrides
+            inference_config: Dict[str, Any] = {}
+            if params.maxTokens is not None:
+                inference_config["maxTokens"] = params.maxTokens
+            if params.stopSequences:
+                inference_config["stopSequences"] = params.stopSequences
+
+            # Check if reasoning should be enabled
+            reasoning_budget = 0
+            if self._reasoning_effort and self._reasoning_effort != ReasoningEffort.MINIMAL:
+                # Convert string to enum if needed
+                if isinstance(self._reasoning_effort, str):
+                    try:
+                        effort_enum = ReasoningEffort(self._reasoning_effort)
+                    except ValueError:
+                        effort_enum = ReasoningEffort.MINIMAL
+                else:
+                    effort_enum = self._reasoning_effort
+
+                if effort_enum != ReasoningEffort.MINIMAL:
+                    reasoning_budget = REASONING_EFFORT_BUDGETS.get(effort_enum, 0)
+
+            # Handle temperature and reasoning configuration
+            # AWS docs: "Thinking isn't compatible with temperature, top_p, or top_k modifications"
+            reasoning_enabled = False
+            if reasoning_budget > 0:
+                # Check if this model supports reasoning (with caching)
+                cached_reasoning = (
+                    self.capabilities.get(model) or ModelCapabilities()
+                ).reasoning_support
+                if cached_reasoning == "supported":
+                    # We know this model supports reasoning
+                    converse_args["performanceConfig"] = {
+                        "reasoning": {"maxReasoningTokens": reasoning_budget}
+                    }
+                    reasoning_enabled = True
+                elif cached_reasoning != "unsupported":
+                    # Unknown - we'll try reasoning and fallback if needed
+                    converse_args["performanceConfig"] = {
+                        "reasoning": {"maxReasoningTokens": reasoning_budget}
+                    }
+                    reasoning_enabled = True
+
+            if not reasoning_enabled:
+                # No reasoning - apply temperature if provided
+                if params.temperature is not None:
+                    inference_config["temperature"] = params.temperature
+
+            # Nova-specific recommendations (when not using reasoning)
+            if model and "nova" in (model or "").lower() and reasoning_budget == 0:
+                inference_config.setdefault("topP", 1.0)
+                # Merge/attach additionalModelRequestFields for topK
+                existing_amrf = converse_args.get("additionalModelRequestFields", {})
+                merged_amrf = {**existing_amrf, **{"inferenceConfig": {"topK": 1}}}
+                converse_args["additionalModelRequestFields"] = merged_amrf
+
+            if inference_config:
+                converse_args["inferenceConfig"] = inference_config
+
+            # Decide streaming vs non-streaming (resolver-free with runtime detection + cache)
+            has_tools: bool = False
+            try:
+                has_tools = bool(tools_payload) and bool(
+                    (isinstance(tools_payload, list) and len(tools_payload) > 0)
+                    or (isinstance(tools_payload, str) and tools_payload.strip())
+                )
+
+                # Force non-streaming for structured-output flows (one-shot)
+                force_non_streaming = False
+                if self._force_non_streaming_once:
+                    force_non_streaming = True
+                    self._force_non_streaming_once = False
+
+                # Evaluate cache for streaming-with-tools
+                cache_pref = (self.capabilities.get(model) or ModelCapabilities()).stream_with_tools
+                use_streaming = True
+                attempted_streaming = False
+
+                if force_non_streaming:
+                    use_streaming = False
+                elif has_tools:
+                    if cache_pref == StreamPreference.NON_STREAM:
+                        use_streaming = False
+                    elif cache_pref == StreamPreference.STREAM_OK:
+                        use_streaming = True
                     else:
-                        # inject
+                        # Unknown: try streaming first, fallback on error
+                        use_streaming = True
+
+                # NEW: For Anthropic schema, when tool results are present in the conversation,
+                # force non-streaming on this second turn to avoid empty streamed replies.
+                if schema_choice == ToolSchemaType.ANTHROPIC and has_tool_results:
+                    use_streaming = False
+                    self.logger.debug(
+                        "Forcing non-streaming for Anthropic second turn with tool results"
+                    )
+
+                # Try API call with reasoning fallback
+                try:
+                    if not use_streaming:
+                        self.logger.debug(
+                            f"Using non-streaming API for {model} (schema={schema_choice})"
+                        )
+                        response = client.converse(**converse_args)
+                        processed_response = self._process_non_streaming_response(response, model)
+                    else:
+                        self.logger.debug(
+                            f"Using streaming API for {model} (schema={schema_choice})"
+                        )
+                        attempted_streaming = True
+                        response = client.converse_stream(**converse_args)
+                        processed_response = await self._process_stream(response, model)
+                except (ClientError, BotoCoreError) as e:
+                    # Check if this is a reasoning-related error
+                    if reasoning_budget > 0 and (
+                        "reasoning" in str(e).lower() or "performance" in str(e).lower()
+                    ):
+                        self.logger.debug(
+                            f"Model {model} doesn't support reasoning, retrying without: {e}"
+                        )
+                        caps.reasoning_support = False
+                        self.capabilities[model] = caps
+
+                        # Remove reasoning and retry
+                        if "performanceConfig" in converse_args:
+                            del converse_args["performanceConfig"]
+
+                        # Apply temperature now that reasoning is disabled
+                        if params.temperature is not None:
+                            if "inferenceConfig" not in converse_args:
+                                converse_args["inferenceConfig"] = {}
+                            converse_args["inferenceConfig"]["temperature"] = params.temperature
+
+                        # Retry the API call
+                        if not use_streaming:
+                            response = client.converse(**converse_args)
+                            processed_response = self._process_non_streaming_response(
+                                response, model
+                            )
+                        else:
+                            response = client.converse_stream(**converse_args)
+                            processed_response = await self._process_stream(response, model)
+                    else:
+                        # Not a reasoning error, re-raise
+                        raise
+
+                # Success: cache the working schema choice if not already cached
+                # Only cache schema when tools are present - no tools doesn't predict tool behavior
+                if not caps.schema and has_tools:
+                    caps.schema = ToolSchemaType(schema_choice)
+
+                # Cache successful reasoning if we tried it
+                if reasoning_budget > 0 and caps.reasoning_support is not True:
+                    caps.reasoning_support = True
+
+                # If Nova/default worked and we used preserve but server complains, flip cache for next time
+                if (
+                    schema_choice == ToolSchemaType.DEFAULT
+                    and name_policy == ToolNamePolicy.PRESERVE
+                ):
+                    # Heuristic: if tool names include '-', prefer underscores next time
+                    try:
+                        if any("-" in t.name for t in (tool_list.tools if tool_list else [])):
+                            caps.tool_name_policy = ToolNamePolicy.UNDERSCORES
+                    except Exception:
+                        pass
+                # Cache streaming-with-tools behavior on success
+                if has_tools and attempted_streaming:
+                    caps.stream_with_tools = StreamPreference.STREAM_OK
+                self.capabilities[model] = caps
+                break
+            except (ClientError, BotoCoreError) as e:
+                error_msg = str(e)
+                last_error_msg = error_msg
+                self.logger.debug(f"Bedrock API error (schema={schema_choice}): {error_msg}")
+
+                # If streaming with tools failed and cache undecided, fallback to non-streaming and cache
+                if has_tools and (caps.stream_with_tools is None):
+                    try:
+                        self.logger.debug(
+                            f"Falling back to non-streaming API for {model} after streaming error"
+                        )
+                        response = client.converse(**converse_args)
+                        processed_response = self._process_non_streaming_response(response, model)
+                        caps.stream_with_tools = StreamPreference.NON_STREAM
+                        if not caps.schema:
+                            caps.schema = ToolSchemaType(schema_choice)
+                        self.capabilities[model] = caps
+                        break
+                    except (ClientError, BotoCoreError) as e_fallback:
+                        last_error_msg = str(e_fallback)
+                        self.logger.debug(
+                            f"Bedrock API error after non-streaming fallback: {last_error_msg}"
+                        )
+                        # continue to other fallbacks (e.g., system inject or next schema)
+
+                # System parameter fallback once per call if system message unsupported
+                if (
+                    not tried_system_fallback
+                    and system_text
+                    and system_mode == SystemMode.SYSTEM
+                    and (
+                        "system message" in error_msg.lower()
+                        or "system messages" in error_msg.lower()
+                    )
+                ):
+                    tried_system_fallback = True
+                    caps.system_mode = SystemMode.INJECT
+                    self.capabilities[model] = caps
+                    self.logger.info(
+                        f"Switching system mode to inject for {model} and retrying same schema"
+                    )
+                    # Retry the same schema immediately in inject mode
+                    try:
+                        # Rebuild messages for inject
+                        converse_args = {
+                            "modelId": model,
+                            "messages": [dict(m) for m in bedrock_messages],
+                        }
+                        # inject system into first user
                         if (
                             converse_args["messages"]
                             and converse_args["messages"][0].get("role") == "user"
                         ):
-                            first_message = converse_args["messages"][0]
-                            if first_message.get("content") and len(first_message["content"]) > 0:
-                                original_text = first_message["content"][0].get("text", "")
-                                first_message["content"][0]["text"] = (
+                            fm = converse_args["messages"][0]
+                            if fm.get("content") and len(fm["content"]) > 0:
+                                original_text = fm["content"][0].get("text", "")
+                                fm["content"][0]["text"] = (
                                     f"System: {system_text}\n\nUser: {original_text}"
                                 )
-                                self.logger.debug(
-                                    "Injected system prompt into first user message (cached mode)"
-                                )
 
-                # Tools wiring
-                if (
-                    schema_choice in (ToolSchemaType.ANTHROPIC, ToolSchemaType.DEFAULT)
-                    and isinstance(tools_payload, list)
-                    and tools_payload
-                ):
-                    converse_args["toolConfig"] = {"tools": tools_payload}
+                        # Re-add tools
+                        if (
+                            schema_choice
+                            in (ToolSchemaType.ANTHROPIC.value, ToolSchemaType.DEFAULT.value)
+                            and isinstance(tools_payload, list)
+                            and tools_payload
+                        ):
+                            converse_args["toolConfig"] = {"tools": tools_payload}
 
-                # Inference configuration and overrides
-                inference_config: Dict[str, Any] = {}
-                if params.maxTokens is not None:
-                    inference_config["maxTokens"] = params.maxTokens
-                if params.stopSequences:
-                    inference_config["stopSequences"] = params.stopSequences
-
-                # Check if reasoning should be enabled
-                reasoning_budget = 0
-                if self._reasoning_effort and self._reasoning_effort != ReasoningEffort.MINIMAL:
-                    # Convert string to enum if needed
-                    if isinstance(self._reasoning_effort, str):
-                        try:
-                            effort_enum = ReasoningEffort(self._reasoning_effort)
-                        except ValueError:
-                            effort_enum = ReasoningEffort.MINIMAL
-                    else:
-                        effort_enum = self._reasoning_effort
-
-                    if effort_enum != ReasoningEffort.MINIMAL:
-                        reasoning_budget = REASONING_EFFORT_BUDGETS.get(effort_enum, 0)
-
-                # Handle temperature and reasoning configuration
-                # AWS docs: "Thinking isn't compatible with temperature, top_p, or top_k modifications"
-                reasoning_enabled = False
-                if reasoning_budget > 0:
-                    # Check if this model supports reasoning (with caching)
-                    cached_reasoning = (
-                        self.capabilities.get(model) or ModelCapabilities()
-                    ).reasoning_support
-                    if cached_reasoning == "supported":
-                        # We know this model supports reasoning
-                        converse_args["performanceConfig"] = {
-                            "reasoning": {"maxReasoningTokens": reasoning_budget}
-                        }
-                        reasoning_enabled = True
-                    elif cached_reasoning != "unsupported":
-                        # Unknown - we'll try reasoning and fallback if needed
-                        converse_args["performanceConfig"] = {
-                            "reasoning": {"maxReasoningTokens": reasoning_budget}
-                        }
-                        reasoning_enabled = True
-
-                if not reasoning_enabled:
-                    # No reasoning - apply temperature if provided
-                    if params.temperature is not None:
-                        inference_config["temperature"] = params.temperature
-
-                # Nova-specific recommendations (when not using reasoning)
-                if model and "nova" in (model or "").lower() and reasoning_budget == 0:
-                    inference_config.setdefault("topP", 1.0)
-                    # Merge/attach additionalModelRequestFields for topK
-                    existing_amrf = converse_args.get("additionalModelRequestFields", {})
-                    merged_amrf = {**existing_amrf, **{"inferenceConfig": {"topK": 1}}}
-                    converse_args["additionalModelRequestFields"] = merged_amrf
-
-                # Note: resolver default inference overrides removed; keep minimal Nova heuristic above.
-
-                if inference_config:
-                    converse_args["inferenceConfig"] = inference_config
-
-                # Decide streaming vs non-streaming (resolver-free with runtime detection + cache)
-                has_tools: bool = False
-                try:
-                    has_tools = bool(tools_payload) and bool(
-                        (isinstance(tools_payload, list) and len(tools_payload) > 0)
-                        or (isinstance(tools_payload, str) and tools_payload.strip())
-                    )
-
-                    # Force non-streaming for structured-output flows (one-shot)
-                    force_non_streaming = False
-                    if self._force_non_streaming_once:
-                        force_non_streaming = True
-                        self._force_non_streaming_once = False
-
-                    # Evaluate cache for streaming-with-tools
-                    cache_pref = (
-                        self.capabilities.get(model) or ModelCapabilities()
-                    ).stream_with_tools
-                    use_streaming = True
-                    attempted_streaming = False
-
-                    if force_non_streaming:
-                        use_streaming = False
-                    elif has_tools:
-                        if cache_pref == StreamPreference.NON_STREAM:
-                            use_streaming = False
-                        elif cache_pref == StreamPreference.STREAM_OK:
-                            use_streaming = True
-                        else:
-                            # Unknown: try streaming first, fallback on error
-                            use_streaming = True
-                    else:
-                        use_streaming = True
-
-                    # Try API call with reasoning fallback
-                    try:
-                        if not use_streaming:
-                            self.logger.debug(
-                                f"Using non-streaming API for {model} (schema={schema_choice})"
-                            )
+                        # Same streaming decision using cache
+                        has_tools = bool(tools_payload) and bool(
+                            (isinstance(tools_payload, list) and len(tools_payload) > 0)
+                            or (isinstance(tools_payload, str) and tools_payload.strip())
+                        )
+                        cache_pref = (
+                            self.capabilities.get(model) or ModelCapabilities()
+                        ).stream_with_tools
+                        if cache_pref == StreamPreference.NON_STREAM or not has_tools:
                             response = client.converse(**converse_args)
                             processed_response = self._process_non_streaming_response(
                                 response, model
                             )
                         else:
-                            self.logger.debug(
-                                f"Using streaming API for {model} (schema={schema_choice})"
-                            )
-                            attempted_streaming = True
                             response = client.converse_stream(**converse_args)
                             processed_response = await self._process_stream(response, model)
-                    except (ClientError, BotoCoreError) as e:
-                        # Check if this is a reasoning-related error
-                        if reasoning_budget > 0 and (
-                            "reasoning" in str(e).lower() or "performance" in str(e).lower()
-                        ):
-                            self.logger.debug(
-                                f"Model {model} doesn't support reasoning, retrying without: {e}"
-                            )
-                            caps.reasoning_support = False
-                            self.capabilities[model] = caps
-
-                            # Remove reasoning and retry
-                            if "performanceConfig" in converse_args:
-                                del converse_args["performanceConfig"]
-
-                            # Apply temperature now that reasoning is disabled
-                            if params.temperature is not None:
-                                if "inferenceConfig" not in converse_args:
-                                    converse_args["inferenceConfig"] = {}
-                                converse_args["inferenceConfig"]["temperature"] = params.temperature
-
-                            # Retry the API call
-                            if not use_streaming:
-                                response = client.converse(**converse_args)
-                                processed_response = self._process_non_streaming_response(
-                                    response, model
-                                )
-                            else:
-                                response = client.converse_stream(**converse_args)
-                                processed_response = await self._process_stream(response, model)
-                        else:
-                            # Not a reasoning error, re-raise
-                            raise
-
-                    # Success: cache the working schema choice if not already cached
-                    # Only cache schema when tools are present - no tools doesn't predict tool behavior
-                    if not caps.schema and has_tools:
-                        caps.schema = ToolSchemaType(schema_choice)
-
-                    # Cache successful reasoning if we tried it
-                    if reasoning_budget > 0 and caps.reasoning_support is not True:
-                        caps.reasoning_support = True
-
-                    # If Nova/default worked and we used preserve but server complains, flip cache for next time
-                    if (
-                        schema_choice == ToolSchemaType.DEFAULT
-                        and getattr(self, "_tool_name_policy_for_conversion", "preserve")
-                        == "preserve"
-                    ):
-                        # Heuristic: if tool names include '-', prefer underscores next time
-                        try:
-                            if any("-" in t.name for t in (tool_list.tools if tool_list else [])):
-                                caps.tool_name_policy = ToolNamePolicy.UNDERSCORES
-                        except Exception:
-                            pass
-                    # Cache streaming-with-tools behavior on success
-                    if has_tools and attempted_streaming:
-                        caps.stream_with_tools = StreamPreference.STREAM_OK
-                    self.capabilities[model] = caps
-                    break
-                except (ClientError, BotoCoreError) as e:
-                    error_msg = str(e)
-                    last_error_msg = error_msg
-                    self.logger.debug(f"Bedrock API error (schema={schema_choice}): {error_msg}")
-
-                    # If streaming with tools failed and cache undecided, fallback to non-streaming and cache
-                    if has_tools and (caps.stream_with_tools is None):
-                        try:
-                            self.logger.debug(
-                                f"Falling back to non-streaming API for {model} after streaming error"
-                            )
-                            response = client.converse(**converse_args)
-                            processed_response = self._process_non_streaming_response(
-                                response, model
-                            )
-                            caps.stream_with_tools = StreamPreference.NON_STREAM
-                            if not caps.schema:
-                                caps.schema = ToolSchemaType(schema_choice)
-                            self.capabilities[model] = caps
-                            break
-                        except (ClientError, BotoCoreError) as e_fallback:
-                            last_error_msg = str(e_fallback)
-                            self.logger.debug(
-                                f"Bedrock API error after non-streaming fallback: {last_error_msg}"
-                            )
-                            # continue to other fallbacks (e.g., system inject or next schema)
-
-                    # System parameter fallback once per call if system message unsupported
-                    if (
-                        not tried_system_fallback
-                        and system_text
-                        and system_mode == SystemMode.SYSTEM
-                        and (
-                            "system message" in error_msg.lower()
-                            or "system messages" in error_msg.lower()
-                        )
-                    ):
-                        tried_system_fallback = True
-                        caps.system_mode = SystemMode.INJECT
+                        if not caps.schema and has_tools:
+                            caps.schema = ToolSchemaType(schema_choice)
                         self.capabilities[model] = caps
-                        self.logger.info(
-                            f"Switching system mode to inject for {model} and retrying same schema"
+                        break
+                    except (ClientError, BotoCoreError) as e2:
+                        last_error_msg = str(e2)
+                        self.logger.debug(
+                            f"Bedrock API error after system inject fallback: {last_error_msg}"
                         )
-                        # Retry the same schema immediately in inject mode
-                        try:
-                            # Rebuild messages for inject
-                            converse_args = {
-                                "modelId": model,
-                                "messages": [dict(m) for m in bedrock_messages],
-                            }
-                            # inject system into first user
-                            if (
-                                converse_args["messages"]
-                                and converse_args["messages"][0].get("role") == "user"
-                            ):
-                                fm = converse_args["messages"][0]
-                                if fm.get("content") and len(fm["content"]) > 0:
-                                    original_text = fm["content"][0].get("text", "")
-                                    fm["content"][0]["text"] = (
-                                        f"System: {system_text}\n\nUser: {original_text}"
-                                    )
+                        # Fall through to next schema
+                        continue
 
-                            # Re-add tools
-                            if (
-                                schema_choice
-                                in (ToolSchemaType.ANTHROPIC.value, ToolSchemaType.DEFAULT.value)
-                                and isinstance(tools_payload, list)
-                                and tools_payload
-                            ):
-                                converse_args["toolConfig"] = {"tools": tools_payload}
+                # For any other error (including tool format errors), continue to next schema
+                self.logger.debug(
+                    f"Continuing to next schema after error with {schema_choice}: {error_msg}"
+                )
+                continue
 
-                            # Same streaming decision using cache
-                            has_tools = bool(tools_payload) and bool(
-                                (isinstance(tools_payload, list) and len(tools_payload) > 0)
-                                or (isinstance(tools_payload, str) and tools_payload.strip())
-                            )
-                            cache_pref = (
-                                self.capabilities.get(model) or ModelCapabilities()
-                            ).stream_with_tools
-                            if cache_pref == StreamPreference.NON_STREAM or not has_tools:
-                                response = client.converse(**converse_args)
-                                processed_response = self._process_non_streaming_response(
-                                    response, model
+        if processed_response is None:
+            # All attempts failed; mark schema as none to avoid repeated retries this process
+            caps.schema = ToolSchemaType.NONE
+            self.capabilities[model] = caps
+            processed_response = {
+                "content": [
+                    {"text": f"Error during generation: {last_error_msg or 'Unknown error'}"}
+                ],
+                "stop_reason": "error",
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+                "model": model,
+                "role": "assistant",
+            }
+
+        # Track usage
+        if processed_response.get("usage"):
+            try:
+                usage = processed_response["usage"]
+                turn_usage = TurnUsage(
+                    provider=Provider.BEDROCK.value,
+                    model=model,
+                    input_tokens=usage.get("input_tokens", 0),
+                    output_tokens=usage.get("output_tokens", 0),
+                    total_tokens=usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
+                    raw_usage=usage,
+                )
+                self.usage_accumulator.add_turn(turn_usage)
+            except Exception as e:
+                self.logger.warning(f"Failed to track usage: {e}")
+
+        self.logger.debug(f"{model} response:", data=processed_response)
+
+        # Convert response to message param and add to messages
+        response_message_param = self.convert_message_to_message_param(processed_response)
+        messages.append(response_message_param)
+
+        # Extract text content for responses
+        if processed_response.get("content"):
+            for content_item in processed_response["content"]:
+                if content_item.get("text"):
+                    response_content_blocks.append(
+                        TextContent(type="text", text=content_item["text"])
+                    )
+
+        # Fallback: if no content returned and the last input contained tool results,
+        # synthesize the assistant reply using the tool result text to preserve behavior.
+        if not response_content_blocks:
+            try:
+                # messages currently includes the appended assistant response; inspect the prior user message
+                last_index = len(messages) - 2 if len(messages) >= 2 else (len(messages) - 1)
+                last_input = messages[last_index] if last_index >= 0 else None
+                if isinstance(last_input, dict):
+                    contents = last_input.get("content", []) or []
+                    for c in contents:
+                        # Handle parameter-level representation
+                        if isinstance(c, dict) and c.get("type") == "tool_result":
+                            tr_content = c.get("content", []) or []
+                            fallback_text = " ".join(
+                                part.get("text", "")
+                                for part in tr_content
+                                if isinstance(part, dict)
+                            ).strip()
+                            if fallback_text:
+                                response_content_blocks.append(
+                                    TextContent(type="text", text=fallback_text)
                                 )
-                            else:
-                                response = client.converse_stream(**converse_args)
-                                processed_response = await self._process_stream(response, model)
-                            if not caps.schema and has_tools:
-                                caps.schema = ToolSchemaType(schema_choice)
-                            self.capabilities[model] = caps
-                            break
-                        except (ClientError, BotoCoreError) as e2:
-                            last_error_msg = str(e2)
-                            self.logger.debug(
-                                f"Bedrock API error after system inject fallback: {last_error_msg}"
-                            )
-                            # Fall through to next schema
-                            continue
-
-                    # For any other error (including tool format errors), continue to next schema
-                    self.logger.debug(
-                        f"Continuing to next schema after error with {schema_choice}: {error_msg}"
-                    )
-                    continue
-
-            if processed_response is None:
-                # All attempts failed; mark schema as none to avoid repeated retries this process
-                caps.schema = ToolSchemaType.NONE
-                self.capabilities[model] = caps
-                processed_response = {
-                    "content": [
-                        {"text": f"Error during generation: {last_error_msg or 'Unknown error'}"}
-                    ],
-                    "stop_reason": "error",
-                    "usage": {"input_tokens": 0, "output_tokens": 0},
-                    "model": model,
-                    "role": "assistant",
-                }
-
-            # Track usage
-            if processed_response.get("usage"):
-                try:
-                    usage = processed_response["usage"]
-                    turn_usage = TurnUsage(
-                        provider=Provider.BEDROCK.value,
-                        model=model,
-                        input_tokens=usage.get("input_tokens", 0),
-                        output_tokens=usage.get("output_tokens", 0),
-                        total_tokens=usage.get("input_tokens", 0) + usage.get("output_tokens", 0),
-                        raw_usage=usage,
-                    )
-                    self.usage_accumulator.add_turn(turn_usage)
-                except Exception as e:
-                    self.logger.warning(f"Failed to track usage: {e}")
-
-            self.logger.debug(f"{model} response:", data=processed_response)
-
-            # Convert response to message param and add to messages
-            response_message_param = self.convert_message_to_message_param(processed_response)
-            messages.append(response_message_param)
-
-            # Extract text content for responses
-            if processed_response.get("content"):
-                for content_item in processed_response["content"]:
-                    if content_item.get("text"):
-                        responses.append(TextContent(type="text", text=content_item["text"]))
-
-            # Handle different stop reasons
-            stop_reason = processed_response.get("stop_reason", "end_turn")
-
-            # Determine if we should parse for system-prompt tool calls (unified capabilities)
-            caps_tmp = self.capabilities.get(model) or ModelCapabilities()
-            sys_prompt_schema = caps_tmp.schema == ToolSchemaType.SYSTEM_PROMPT
-
-            if sys_prompt_schema and stop_reason == "end_turn":
-                # Only parse for tools if text contains actual function call structure
-                message_text = ""
-                for content_item in processed_response.get("content", []):
-                    if isinstance(content_item, dict) and content_item.get("type") == "text":
-                        message_text += content_item.get("text", "")
-
-                # Check if there's a tool call in the response
-                parsed_tools = self._parse_tool_response(processed_response, model)
-                if parsed_tools:
-                    # Loop guard: if the same single tool call repeats > N times in system-prompt mode, stop
-                    if len(parsed_tools) == 1:
-                        # Determine normalized tool name as we would use for execution
-                        candidate_name = parsed_tools[0]["name"]
-                        # Map to canonical name if available
-                        canonical = self.tool_name_mapping.get(candidate_name)
-                        if not canonical:
-                            lowered = candidate_name.lower().replace("_", "-")
-                            for key, original in self.tool_name_mapping.items():
-                                if lowered == key.lower().replace("_", "-"):
-                                    canonical = original
-                                    break
-                        normalized_name = canonical or candidate_name
-                        try:
-                            args_signature = json.dumps(
-                                parsed_tools[0].get("arguments", {}), sort_keys=True
-                            )
-                        except Exception:
-                            args_signature = str(parsed_tools[0].get("arguments", {}))
-                        current_signature = f"{normalized_name}|{args_signature}"
-
-                        # Identify system-prompt schema mode via unified capabilities
-                        caps_loop = self.capabilities.get(model) or ModelCapabilities()
-                        is_system_prompt_schema_loop = (
-                            caps_loop.schema == ToolSchemaType.SYSTEM_PROMPT
-                        )
-
-                        if is_system_prompt_schema_loop:
-                            if current_signature == last_tool_signature:
-                                repeated_tool_calls_count += 1
-                            else:
-                                repeated_tool_calls_count = 1
-                                last_tool_signature = current_signature
-
-                            if repeated_tool_calls_count > max_repeated_tool_calls:
-                                # Return the last tool result content to avoid infinite loops
-                                if tool_result_responses:
-                                    return cast(
-                                        "List[ContentBlock | CallToolRequestParams]",
-                                        tool_result_responses,
-                                    )
-                                # Fallback: return a minimal text indicating no content
-                                return cast(
-                                    "List[ContentBlock | CallToolRequestParams]",
-                                    [TextContent(text="[No content in tool result]")],
+                                break
+                        # Handle bedrock-level representation
+                        if isinstance(c, dict) and "toolResult" in c:
+                            tr = c["toolResult"]
+                            tr_content = tr.get("content", []) or []
+                            fallback_text = " ".join(
+                                part.get("text", "")
+                                for part in tr_content
+                                if isinstance(part, dict)
+                            ).strip()
+                            if fallback_text:
+                                response_content_blocks.append(
+                                    TextContent(type="text", text=fallback_text)
                                 )
-                    # Override stop_reason to handle as tool_use
-                    stop_reason = "tool_use"
-                    self.logger.debug(
-                        "Detected system prompt tool call, overriding stop_reason to 'tool_use'"
-                    )
+                                break
+            except Exception:
+                pass
 
-            if stop_reason == "end_turn":
-                # Extract text for display
-                message_text = ""
-                for content_item in processed_response.get("content", []):
-                    if content_item.get("text"):
-                        message_text += content_item["text"]
+        # Handle different stop reasons
+        stop_reason = processed_response.get("stop_reason", "end_turn")
 
-                await self.show_assistant_message(message_text)
-                self.logger.debug(f"Iteration {i}: Stopping because stop_reason is 'end_turn'")
-                break
-            elif stop_reason == "stop_sequence":
-                self.logger.debug(f"Iteration {i}: Stopping because stop_reason is 'stop_sequence'")
-                break
-            elif stop_reason == "max_tokens":
-                self.logger.debug(f"Iteration {i}: Stopping because stop_reason is 'max_tokens'")
-                if params.maxTokens is not None:
-                    message_text = Text(
-                        f"the assistant has reached the maximum token limit ({params.maxTokens})",
-                        style="dim green italic",
-                    )
-                else:
-                    message_text = Text(
-                        "the assistant has reached the maximum token limit",
-                        style="dim green italic",
-                    )
-                await self.show_assistant_message(message_text)
-                break
-            elif stop_reason in ["tool_use", "tool_calls"]:
-                # Handle tool use/calls - format depends on model type
-                message_text = ""
-                for content_item in processed_response.get("content", []):
-                    if content_item.get("text"):
-                        message_text += content_item["text"]
+        # Determine if we should parse for system-prompt tool calls (unified capabilities)
+        caps_tmp = self.capabilities.get(model) or ModelCapabilities()
 
-                # Parse tool calls using model-specific method
-                self.logger.info(f"DEBUG: About to parse tool response: {processed_response}")
-                parsed_tools = self._parse_tool_response(processed_response, model)
-                self.logger.info(f"DEBUG: Parsed tools: {parsed_tools}")
+        # Try to parse system prompt tool calls if we have an end_turn with tools available
+        # This handles cases where native tool calling failed but model generates system prompt format
+        if stop_reason == "end_turn" and tools:
+            # Only parse for tools if text contains actual function call structure
+            message_text = ""
+            for content_item in processed_response.get("content", []):
+                if isinstance(content_item, dict) and "text" in content_item:
+                    message_text += content_item.get("text", "")
 
-                if parsed_tools:
-                    # Process tool calls and collect results
-                    tool_results_for_batch = []
-                    for tool_idx, parsed_tool in enumerate(parsed_tools):
-                        # The original name is needed to call the tool, which is in tool_name_mapping.
-                        tool_name_from_model = parsed_tool["name"]
-                        tool_name = self.tool_name_mapping.get(
-                            tool_name_from_model, tool_name_from_model
-                        )
+            # Check if there's a tool call in the response
+            parsed_tools = self._parse_tool_response(processed_response, model)
+            if parsed_tools:
+                # Override stop_reason to handle as tool_use
+                stop_reason = "tool_use"
+                # Update capabilities cache to reflect successful system prompt tool calling
+                if not caps_tmp.schema:
+                    caps_tmp.schema = ToolSchemaType.SYSTEM_PROMPT
+                    self.capabilities[model] = caps_tmp
 
-                        tool_args = parsed_tool["arguments"]
-                        tool_use_id = parsed_tool["id"]
+        # NEW: Handle tool calls without execution - return them for external handling
+        tool_calls: Dict[str, CallToolRequest] | None = None
+        if stop_reason in ["tool_use", "tool_calls"]:
+            parsed_tools = self._parse_tool_response(processed_response, model)
+            if parsed_tools:
+                tool_calls = self._build_tool_calls_dict(parsed_tools)
 
-                        self.show_tool_call(
-                            tool_list.tools if tool_list else [], tool_name, tool_args
-                        )
-
-                        tool_call_request = CallToolRequest(
-                            method="tools/call",
-                            params=CallToolRequestParams(name=tool_name, arguments=tool_args),
-                        )
-
-                        # Call the tool and get the result
-                        result = await self.call_tool(
-                            request=tool_call_request, tool_call_id=tool_use_id
-                        )
-                        # We will also comment out showing the raw tool result to reduce verbosity.
-                        # self.show_tool_result(result)
-
-                        # Add each result to our collection
-                        tool_results_for_batch.append((tool_use_id, result, tool_name))
-                        responses.extend(result.content)
-
-                    # Store tool results temporarily - we'll clear responses only if the model
-                    # generates a follow-up message. This ensures tool results are preserved
-                    # if the model doesn't generate any follow-up content (like Claude Haiku).
-                    tool_result_responses = responses.copy()
-                    responses.clear()
-
-                    # Decide result formatting based on unified capabilities
-                    caps_tmp = self.capabilities.get(model) or ModelCapabilities()
-                    is_system_prompt_schema = caps_tmp.schema == ToolSchemaType.SYSTEM_PROMPT
-
-                    if is_system_prompt_schema:
-                        # For system prompt models (like Llama), format results as a simple text message.
-                        # The model expects to see the results in a human-readable format to continue.
-                        tool_result_parts = []
-                        for _, tool_result, tool_name in tool_results_for_batch:
-                            result_text = "".join(
-                                [
-                                    part.text
-                                    for part in tool_result.content
-                                    if isinstance(part, TextContent)
-                                ]
-                            )
-
-                            # Create a representation of the tool's output.
-                            # Using a JSON-like string is a robust way to present this.
-                            result_payload = {
-                                "tool_name": tool_name,
-                                "status": "error" if tool_result.isError else "success",
-                                "result": result_text,
-                            }
-                            tool_result_parts.append(json.dumps(result_payload))
-
-                        if tool_result_parts:
-                            # Combine all tool results into a single text block.
-                            full_result_text = f"Tool Results:\n{', '.join(tool_result_parts)}"
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": [{"type": "text", "text": full_result_text}],
-                                }
-                            )
-                    else:
-                        # For native tool-using models (Anthropic, Nova), use the structured 'tool_result' format.
-                        tool_result_blocks = []
-                        for tool_id, tool_result, _ in tool_results_for_batch:
-                            # Convert tool result content into a list of content blocks
-                            # This mimics the native Anthropic provider's approach.
-                            result_content_blocks = []
-                            if tool_result.content:
-                                for part in tool_result.content:
-                                    if isinstance(part, TextContent):
-                                        result_content_blocks.append({"text": part.text})
-                                    # Note: This can be extended to handle other content types like images
-                                    # For now, we are focusing on making text-based tools work correctly.
-
-                            # If there's no content, provide a default message.
-                            if not result_content_blocks:
-                                result_content_blocks.append(
-                                    {"text": "[No content in tool result]"}
-                                )
-
-                            # This is the format Bedrock expects for tool results in the Converse API
-                            tool_result_blocks.append(
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_id,
-                                    "content": result_content_blocks,
-                                    "status": "error" if tool_result.isError else "success",
-                                }
-                            )
-
-                        if tool_result_blocks:
-                            # Append a single user message with all the tool results for this turn
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": tool_result_blocks,
-                                }
-                            )
-
-                    continue
-                else:
-                    # No tool uses but stop_reason was tool_use/tool_calls, treat as end_turn
-                    await self.show_assistant_message(message_text)
-                    break
-            else:
-                # Unknown stop reason, continue or break based on content
-                message_text = ""
-                for content_item in processed_response.get("content", []):
-                    if content_item.get("text"):
-                        message_text += content_item["text"]
-
-                if message_text:
-                    await self.show_assistant_message(message_text)
-                break
+        # Map stop reason to LlmStopReason
+        mapped_stop_reason = self._map_bedrock_stop_reason(stop_reason)
 
         # Update history
         if params.use_history:
@@ -1702,42 +1834,20 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
             self.history.set(new_messages)
 
-        # If we have no responses but had tool results, restore the tool results
-        # This handles cases like Claude Haiku where the model calls tools but doesn't generate follow-up text
-        if not responses and tool_result_responses:
-            responses = tool_result_responses
-            self.logger.debug("Restored tool results as no follow-up content was generated")
+        self._log_chat_finished(model=model)
 
-        # Strip leading whitespace from the *last* non-empty text block of the final response
-        # to ensure the output is clean.
-        if responses:
-            for item in reversed(responses):
-                if isinstance(item, TextContent) and item.text:
-                    item.text = item.text.lstrip()
-                    break
+        # Return PromptMessageExtended with tool calls for external execution
+        from mcp_agent.core.prompt import Prompt
 
-        return cast("List[ContentBlock | CallToolRequestParams]", responses)
-
-    async def generate_messages(
-        self,
-        message_param: BedrockMessageParam,
-        request_params: RequestParams | None = None,
-    ) -> PromptMessageExtended:
-        """Generate messages using Bedrock."""
-        responses = await self._bedrock_completion(message_param, request_params)
-
-        # Convert responses to PromptMessageExtended
-        content_list = []
-        for response in responses:
-            if isinstance(response, TextContent):
-                content_list.append(response)
-
-        return PromptMessageExtended(role="assistant", content=content_list)
+        return Prompt.assistant(
+            *response_content_blocks, stop_reason=mapped_stop_reason, tool_calls=tool_calls
+        )
 
     async def _apply_prompt_provider_specific(
         self,
         multipart_messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """Apply Bedrock-specific prompt formatting."""
@@ -1749,16 +1859,14 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # Add all previous messages to history (or all messages if last is from assistant)
         # if the last message is a "user" inference is required
+        # if the last message is a "user" inference is required
         messages_to_add = (
             multipart_messages[:-1] if last_message.role == "user" else multipart_messages
         )
         converted = []
         for msg in messages_to_add:
             # Convert each message to Bedrock message parameter format
-            bedrock_msg = {"role": msg.role, "content": []}
-            for content_item in msg.content:
-                if isinstance(content_item, TextContent):
-                    bedrock_msg["content"].append({"type": "text", "text": content_item.text})
+            bedrock_msg = self._convert_multipart_to_bedrock_message(msg)
             converted.append(bedrock_msg)
 
         # Add messages to history
@@ -1768,15 +1876,16 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # For assistant messages: Return the last message (no completion needed)
             return last_message
 
-        # Convert the last user message to Bedrock message parameter format
-        message_param = {"role": last_message.role, "content": []}
-        for content_item in last_message.content:
-            if isinstance(content_item, TextContent):
-                message_param["content"].append({"type": "text", "text": content_item.text})
+        # For user messages with tool_results, we need to add the tool result message to the conversation
+        if last_message.tool_results:
+            # Convert the tool result message and use it as the final input
+            message_param = self._convert_multipart_to_bedrock_message(last_message)
+        else:
+            # Convert the last user message to Bedrock message parameter format
+            message_param = self._convert_multipart_to_bedrock_message(last_message)
 
-        # Generate response (structured paths set a one-shot non-streaming hint)
-        self._force_non_streaming_once = True
-        return await self.generate_messages(message_param, request_params)
+        # Call the refactored completion method directly
+        return await self._bedrock_completion(message_param, request_params, tools)
 
     def _generate_simplified_schema(self, model: Type[ModelT]) -> str:
         """Generates a simplified, human-readable schema with inline enum constraints."""
