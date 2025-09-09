@@ -288,73 +288,69 @@ def show_check_summary() -> None:
         console.print(combined)
         console.print()
 
-    # System info section
-    system_table = Table(show_header=False, box=None)
-    system_table.add_column("Key", style="cyan")
-    system_table.add_column("Value")
+    # Environment and configuration section (merged)
+    # Header shows version and platform for a concise overview
+    header_title = f"fast-agent v{fastagent_version} ({system_info['platform']})"
+    _print_section_header(header_title, color="blue")
 
-    system_table.add_row("FastAgent Version", fastagent_version)
-    system_table.add_row("Platform", system_info["platform"])
-    system_table.add_row("Python Version", ".".join(system_info["python_version"].split(".")[:3]))
-    system_table.add_row("Python Path", system_info["python_path"])
-    _print_section_header("System Information", color="blue")
-    console.print(system_table)
-
-    # Configuration files panel
     config_path = config_files["config"]
     secrets_path = config_files["secrets"]
 
-    files_table = Table(show_header=False, box=None)
-    files_table.add_column("Setting", style="cyan")
-    files_table.add_column("Value")
+    env_table = Table(show_header=False, box=None)
+    env_table.add_column("Setting", style="white")
+    env_table.add_column("Value")
 
-    # Show secrets file status
+    # Python info (highlight version and path in green)
+    env_table.add_row(
+        "Python Version", f"[green]{'.'.join(system_info['python_version'].split('.')[:3])}[/green]"
+    )
+    env_table.add_row("Python Path", f"[green]{system_info['python_path']}[/green]")
+
+    # Secrets file status
     secrets_status = secrets_summary.get("status", "not_found")
     if secrets_status == "not_found":
-        files_table.add_row("Secrets File", "[yellow]Not found[/yellow]")
+        env_table.add_row("Secrets File", "[yellow]Not found[/yellow]")
     elif secrets_status == "error":
-        files_table.add_row("Secrets File", f"[orange_red1]Errors[/orange_red1] ({secrets_path})")
-        files_table.add_row(
+        env_table.add_row("Secrets File", f"[orange_red1]Errors[/orange_red1] ({secrets_path})")
+        env_table.add_row(
             "Secrets Error",
             f"[orange_red1]{secrets_summary.get('error', 'Unknown error')}[/orange_red1]",
         )
     else:  # parsed successfully
-        files_table.add_row("Secrets File", f"[green]Found[/green] ({secrets_path})")
+        env_table.add_row("Secrets File", f"[green]Found[/green] ({secrets_path})")
 
-    # Show config file status
+    # Config file status
     config_status = config_summary.get("status", "not_found")
     if config_status == "not_found":
-        files_table.add_row("Config File", "[red]Not found[/red]")
+        env_table.add_row("Config File", "[red]Not found[/red]")
     elif config_status == "error":
-        files_table.add_row("Config File", f"[orange_red1]Errors[/orange_red1] ({config_path})")
-        files_table.add_row(
+        env_table.add_row("Config File", f"[orange_red1]Errors[/orange_red1] ({config_path})")
+        env_table.add_row(
             "Config Error",
             f"[orange_red1]{config_summary.get('error', 'Unknown error')}[/orange_red1]",
         )
     else:  # parsed successfully
-        files_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
-        files_table.add_row(
-            "Default Model", config_summary.get("default_model", "haiku (system default)")
-        )
+        env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
+        default_model_value = config_summary.get("default_model", "haiku (system default)")
+        env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
-    _print_section_header("Configuration Files", color="blue")
-    console.print(files_table)
+    console.print(env_table)
 
     # Logger Settings panel with two-column layout
     logger = config_summary.get("logger", {})
     logger_table = Table(show_header=True, box=None)
-    logger_table.add_column("Setting", style="cyan")
-    logger_table.add_column("Value")
-    logger_table.add_column("Setting", style="cyan")
-    logger_table.add_column("Value")
+    logger_table.add_column("Setting", style="white", header_style="bold bright_white")
+    logger_table.add_column("Value", header_style="bold bright_white")
+    logger_table.add_column("Setting", style="white", header_style="bold bright_white")
+    logger_table.add_column("Value", header_style="bold bright_white")
 
     def bool_to_symbol(value):
         return "[bold green]✓[/bold green]" if value else "[bold red]✗[/bold red]"
 
     # Prepare all settings as pairs
     settings_data = [
-        ("Logger Level", logger.get("level", "warning (default)")),
-        ("Logger Type", logger.get("type", "file (default)")),
+        ("Log Level", logger.get("level", "warning (default)")),
+        ("Log Type", logger.get("type", "file (default)")),
         ("Progress Display", bool_to_symbol(logger.get("progress_display", True))),
         ("Show Chat", bool_to_symbol(logger.get("show_chat", True))),
         ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),
@@ -362,29 +358,34 @@ def show_check_summary() -> None:
         ("Enable Markup", bool_to_symbol(logger.get("enable_markup", True))),
     ]
 
-    # Add rows in two-column layout
+    # Add rows in two-column layout, styling some values in green
     for i in range(0, len(settings_data), 2):
         left_setting, left_value = settings_data[i]
+        # Style certain values in green
+        if left_setting in ("Log Level", "Log Type"):
+            left_value = f"[green]{left_value}[/green]"
         if i + 1 < len(settings_data):
             right_setting, right_value = settings_data[i + 1]
+            if right_setting in ("Log Level", "Log Type"):
+                right_value = f"[green]{right_value}[/green]"
             logger_table.add_row(left_setting, left_value, right_setting, right_value)
         else:
             # Odd number of settings - fill right column with empty strings
             logger_table.add_row(left_setting, left_value, "", "")
 
-    _print_section_header("Logger Settings", color="blue")
+    _print_section_header("Application Settings", color="blue")
     console.print(logger_table)
 
     # API keys panel with two-column layout
     keys_table = Table(show_header=True, box=None)
-    keys_table.add_column("Provider", style="cyan")
-    keys_table.add_column("Env", justify="center")
-    keys_table.add_column("Config", justify="center")
-    keys_table.add_column("Active Key", style="green")
-    keys_table.add_column("Provider", style="cyan")
-    keys_table.add_column("Env", justify="center")
-    keys_table.add_column("Config", justify="center")
-    keys_table.add_column("Active Key", style="green")
+    keys_table.add_column("Provider", style="white", header_style="bold bright_white")
+    keys_table.add_column("Env", justify="center", header_style="bold bright_white")
+    keys_table.add_column("Config", justify="center", header_style="bold bright_white")
+    keys_table.add_column("Active Key", style="green", header_style="bold bright_white")
+    keys_table.add_column("Provider", style="white", header_style="bold bright_white")
+    keys_table.add_column("Env", justify="center", header_style="bold bright_white")
+    keys_table.add_column("Config", justify="center", header_style="bold bright_white")
+    keys_table.add_column("Active Key", style="green", header_style="bold bright_white")
 
     def format_provider_row(provider, status):
         """Format a single provider's status for display."""
@@ -457,9 +458,9 @@ def show_check_summary() -> None:
         mcp_servers = config_summary.get("mcp_servers", [])
         if mcp_servers:
             servers_table = Table(show_header=True, box=None)
-            servers_table.add_column("Name", style="cyan")
-            servers_table.add_column("Transport", style="magenta")
-            servers_table.add_column("Command/URL")
+            servers_table.add_column("Name", style="white", header_style="bold bright_white")
+            servers_table.add_column("Transport", style="white", header_style="bold bright_white")
+            servers_table.add_column("Command/URL", header_style="bold bright_white")
 
             for server in mcp_servers:
                 name = server["name"]
@@ -468,10 +469,14 @@ def show_check_summary() -> None:
                 # Show either command or URL based on transport type
                 if transport == "STDIO":
                     command_url = server["command"] or "[dim]Not configured[/dim]"
-                    servers_table.add_row(name, transport, command_url)
                 else:  # SSE
                     command_url = server["url"] or "[dim]Not configured[/dim]"
-                    servers_table.add_row(name, transport, command_url)
+
+                # Style configured command/url in green (keep "Not configured" dim)
+                if "Not configured" not in command_url:
+                    command_url = f"[green]{command_url}[/green]"
+
+                servers_table.add_row(name, transport, command_url)
 
             _print_section_header("MCP Servers", color="blue")
             console.print(servers_table)
