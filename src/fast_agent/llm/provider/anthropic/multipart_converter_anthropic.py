@@ -405,7 +405,6 @@ class AnthropicConverter:
         for tool_use_id, result in tool_results:
             # Process each tool result
             tool_result_blocks = []
-            separate_blocks = []
 
             # Process each content item in the result
             for item in result.content:
@@ -414,19 +413,13 @@ class AnthropicConverter:
                     tool_result_blocks.extend(blocks)
                 elif isinstance(item, EmbeddedResource):
                     resource_content = item.resource
-
-                    # Text resources go in tool results, others go as separate blocks
-                    if isinstance(resource_content, TextResourceContents):
-                        block = AnthropicConverter._convert_embedded_resource(
-                            item, document_mode=False
-                        )
-                        tool_result_blocks.append(block)
-                    else:
-                        # For binary resources like PDFs, add as separate block
-                        block = AnthropicConverter._convert_embedded_resource(
-                            item, document_mode=True
-                        )
-                        separate_blocks.append(block)
+                    document_mode: bool = not isinstance(resource_content, TextResourceContents)
+                    # With  Anthropic SDK 0.66, documents can be inside tool results
+                    # Text resources remain inline within the tool_result
+                    block = AnthropicConverter._convert_embedded_resource(
+                        item, document_mode=document_mode
+                    )
+                    tool_result_blocks.append(block)
 
             # Create the tool result block if we have content
             if tool_result_blocks:
@@ -449,7 +442,6 @@ class AnthropicConverter:
                     )
                 )
 
-            # Add separate blocks directly to the message
-            content_blocks.extend(separate_blocks)
+            # All content is now included within the tool_result block.
 
         return MessageParam(role="user", content=content_blocks)

@@ -53,6 +53,7 @@ def get_test_models():
             "o4-mini.low",
             "gpt-5-mini.low",
             "gemini25",
+            "gpt-oss",
             #     "generic.qwen3:8b",
         ]
 
