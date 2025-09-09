@@ -140,14 +140,14 @@ async def test_apply_prompt_with_server_param(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Test apply_prompt with explicit server parameter
-            response = await agent.test.apply_prompt("simple", server_name="prompts")
+            response = await agent.test.apply_prompt("simple", namespace="prompts")
             assert response is not None
 
             # Test with both arguments and server parameter
             response = await agent.test.apply_prompt(
                 "simple_sub",
                 arguments={"product": "test-product", "company": "test-company"},
-                server_name="prompts",
+                namespace="prompts",
             )
             assert response is not None
             assert "test-product" in response or "test-company" in response

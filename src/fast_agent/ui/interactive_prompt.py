@@ -45,7 +45,7 @@ class PromptProvider(Protocol):
     """Protocol for objects that can provide prompt functionality."""
 
     async def list_prompts(
-        self, server_name: Optional[str] = None, agent_name: Optional[str] = None
+        self, namespace: Optional[str] = None, agent_name: Optional[str] = None
     ) -> Mapping[str, List[Prompt]]:
         """List available prompts."""
         ...
@@ -232,7 +232,7 @@ class InteractivePrompt:
         try:
             # Call list_prompts on the provider
             prompt_servers = await prompt_provider.list_prompts(
-                server_name=None, agent_name=agent_name
+                namespace=None, agent_name=agent_name
             )
 
             all_prompts = []
@@ -372,7 +372,7 @@ class InteractivePrompt:
 
             # Call list_prompts on the provider
             prompt_servers = await prompt_provider.list_prompts(
-                server_name=None, agent_name=agent_name
+                namespace=None, agent_name=agent_name
             )
 
             if not prompt_servers:

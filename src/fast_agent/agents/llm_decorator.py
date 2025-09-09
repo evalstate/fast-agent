@@ -3,7 +3,9 @@ Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension 
 """
 
 from typing import (
+    Dict,
     List,
+    Mapping,
     Optional,
     Tuple,
     Type,
@@ -15,14 +17,20 @@ from a2a.types import AgentCard
 from mcp import Tool
 from mcp.types import (
     GetPromptResult,
+    Prompt,
     PromptMessage,
+    ReadResourceResult,
 )
 from opentelemetry import trace
 from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.context import Context
-from fast_agent.interfaces import FastAgentLLMProtocol, LlmAgentProtocol, LLMFactoryProtocol
+from fast_agent.interfaces import (
+    FastAgentLLMProtocol,
+    LlmAgentProtocol,
+    LLMFactoryProtocol,
+)
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
@@ -317,6 +325,45 @@ class LlmDecorator(LlmAgentProtocol):
     def llm(self) -> FastAgentLLMProtocol:
         assert self._llm, "LLM is not attached"
         return self._llm
+
+    # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---
+
+    async def list_prompts(self, namespace: str | None = None) -> Mapping[str, List[Prompt]]:
+        """Default: no prompts; return empty mapping."""
+        return {}
+
+    async def get_prompt(
+        self,
+        prompt_name: str,
+        arguments: Dict[str, str] | None = None,
+        namespace: str | None = None,
+    ) -> GetPromptResult:
+        """Default: prompts unsupported; return empty GetPromptResult."""
+        return GetPromptResult(description="", messages=[])
+
+    async def list_resources(self, namespace: str | None = None) -> Mapping[str, List[str]]:
+        """Default: no resources; return empty mapping."""
+        return {}
+
+    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
+        """Default: no tools; return empty mapping."""
+        return {}
+
+    async def get_resource(
+        self, resource_uri: str, namespace: str | None = None
+    ) -> ReadResourceResult:
+        """Default: resources unsupported; raise capability error."""
+
+        return None
+
+    async def with_resource(
+        self,
+        prompt_content: Union[str, PromptMessage, PromptMessageExtended],
+        resource_uri: str,
+        namespace: str | None = None,
+    ) -> str:
+        """Default: ignore resource, just send the prompt content."""
+        return await self.send(prompt_content)
 
     @property
     def provider(self) -> Provider:

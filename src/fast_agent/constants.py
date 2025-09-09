@@ -4,4 +4,5 @@ Global constants for fast_agent with minimal dependencies to avoid circular impo
 
 # Canonical tool name for the human input/elicitation tool
 HUMAN_INPUT_TOOL_NAME = "__human_input"
-
+MCP_UI = "mpc-ui"
+REASONING = "reasoning"
