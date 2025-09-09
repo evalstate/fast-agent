@@ -27,7 +27,6 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.context import Context
 from fast_agent.interfaces import (
-    AgentCapabilities as AgentCapabilitiesProtocol,
     FastAgentLLMProtocol,
     LlmAgentProtocol,
     LLMFactoryProtocol,
@@ -354,9 +353,8 @@ class LlmDecorator(LlmAgentProtocol):
         self, resource_uri: str, namespace: str | None = None
     ) -> ReadResourceResult:
         """Default: resources unsupported; raise capability error."""
-        from fast_agent.errors import AgentCapabilityError
 
-        raise AgentCapabilityError("resources not supported by this agent")
+        return None
 
     async def with_resource(
         self,

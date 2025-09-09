@@ -45,7 +45,7 @@ class PromptProvider(Protocol):
     """Protocol for objects that can provide prompt functionality."""
 
     async def list_prompts(
-        self, server_name: Optional[str] = None, agent_name: Optional[str] = None
+        self, namespace: Optional[str] = None, agent_name: Optional[str] = None
     ) -> Mapping[str, List[Prompt]]:
         """List available prompts."""
         ...

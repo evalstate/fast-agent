@@ -135,7 +135,7 @@ class AgentApp:
             prompt, arguments, as_template=as_template
         )
 
-    async def list_prompts(self, server_name: str | None = None, agent_name: str | None = None):
+    async def list_prompts(self, namespace: str | None = None, agent_name: str | None = None):
         """
         List available prompts for an agent.
 
@@ -149,10 +149,10 @@ class AgentApp:
         if not agent_name:
             results = {}
             for agent in self._agents.values():
-                curr_prompts = await agent.list_prompts(namespace=server_name)
+                curr_prompts = await agent.list_prompts(namespace=namespace)
                 results.update(curr_prompts)
             return results
-        return await self._agent(agent_name).list_prompts(namespace=server_name)
+        return await self._agent(agent_name).list_prompts(namespace=namespace)
 
     async def get_prompt(
         self,
