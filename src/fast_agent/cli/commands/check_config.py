@@ -9,8 +9,8 @@ from typing import Optional
 import typer
 import yaml
 from rich.console import Console
-from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -272,7 +272,23 @@ def show_check_summary() -> None:
     api_keys = check_api_keys(secrets_summary, config_summary)
     fastagent_version = get_fastagent_version()
 
-    # System info panel
+    # Helper to print section headers using the new console_display style
+    def _print_section_header(title: str, color: str = "blue") -> None:
+        width = console.size.width
+        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
+        left_text = Text.from_markup(left)
+        separator_count = max(1, width - left_text.cell_len - 1)
+
+        combined = Text()
+        combined.append_text(left_text)
+        combined.append(" ")
+        combined.append("─" * separator_count, style="dim")
+
+        console.print()
+        console.print(combined)
+        console.print()
+
+    # System info section
     system_table = Table(show_header=False, box=None)
     system_table.add_column("Key", style="cyan")
     system_table.add_column("Value")
@@ -281,10 +297,8 @@ def show_check_summary() -> None:
     system_table.add_row("Platform", system_info["platform"])
     system_table.add_row("Python Version", ".".join(system_info["python_version"].split(".")[:3]))
     system_table.add_row("Python Path", system_info["python_path"])
-
-    console.print(
-        Panel(system_table, title="System Information", title_align="left", border_style="blue")
-    )
+    _print_section_header("System Information", color="blue")
+    console.print(system_table)
 
     # Configuration files panel
     config_path = config_files["config"]
@@ -323,9 +337,8 @@ def show_check_summary() -> None:
             "Default Model", config_summary.get("default_model", "haiku (system default)")
         )
 
-    console.print(
-        Panel(files_table, title="Configuration Files", title_align="left", border_style="blue")
-    )
+    _print_section_header("Configuration Files", color="blue")
+    console.print(files_table)
 
     # Logger Settings panel with two-column layout
     logger = config_summary.get("logger", {})
@@ -359,9 +372,8 @@ def show_check_summary() -> None:
             # Odd number of settings - fill right column with empty strings
             logger_table.add_row(left_setting, left_value, "", "")
 
-    console.print(
-        Panel(logger_table, title="Logger Settings", title_align="left", border_style="blue")
-    )
+    _print_section_header("Logger Settings", color="blue")
+    console.print(logger_table)
 
     # API keys panel with two-column layout
     keys_table = Table(show_header=True, box=None)
@@ -436,9 +448,9 @@ def show_check_summary() -> None:
             # Add row with only left column (right column empty)
             keys_table.add_row(*left_data, "", "", "", "")
 
-    # Print the API Keys panel (fix: this was missing)
-    keys_panel = Panel(keys_table, title="API Keys", title_align="left", border_style="blue")
-    console.print(keys_panel)
+    # API Keys section
+    _print_section_header("API Keys", color="blue")
+    console.print(keys_table)
 
     # MCP Servers panel (shown after API Keys)
     if config_summary.get("status") == "parsed":
@@ -461,9 +473,8 @@ def show_check_summary() -> None:
                     command_url = server["url"] or "[dim]Not configured[/dim]"
                     servers_table.add_row(name, transport, command_url)
 
-            console.print(
-                Panel(servers_table, title="MCP Servers", title_align="left", border_style="blue")
-            )
+            _print_section_header("MCP Servers", color="blue")
+            console.print(servers_table)
 
     # Show help tips
     if config_status == "not_found" or secrets_status == "not_found":
