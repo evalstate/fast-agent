@@ -149,10 +149,10 @@ class AgentApp:
         if not agent_name:
             results = {}
             for agent in self._agents.values():
-                curr_prompts = await agent.list_prompts(server_name=server_name)
+                curr_prompts = await agent.list_prompts(namespace=server_name)
                 results.update(curr_prompts)
             return results
-        return await self._agent(agent_name).list_prompts(server_name=server_name)
+        return await self._agent(agent_name).list_prompts(namespace=server_name)
 
     async def get_prompt(
         self,
@@ -174,7 +174,7 @@ class AgentApp:
             GetPromptResult containing the prompt information
         """
         return await self._agent(agent_name).get_prompt(
-            prompt_name=prompt_name, arguments=arguments, server_name=server_name
+            prompt_name=prompt_name, arguments=arguments, namespace=server_name
         )
 
     async def with_resource(
@@ -197,7 +197,7 @@ class AgentApp:
             The agent's response as a string
         """
         return await self._agent(agent_name).with_resource(
-            prompt_content=prompt_content, resource_uri=resource_uri, server_name=server_name
+            prompt_content=prompt_content, resource_uri=resource_uri, namespace=server_name
         )
 
     async def list_resources(
@@ -215,7 +215,7 @@ class AgentApp:
         Returns:
             Dictionary mapping server names to lists of resource URIs
         """
-        return await self._agent(agent_name).list_resources(server_name=server_name)
+        return await self._agent(agent_name).list_resources(namespace=server_name)
 
     async def get_resource(
         self,
@@ -235,7 +235,7 @@ class AgentApp:
             ReadResourceResult object containing the resource content
         """
         return await self._agent(agent_name).get_resource(
-            resource_uri=resource_uri, server_name=server_name
+            resource_uri=resource_uri, namespace=server_name
         )
 
     @deprecated

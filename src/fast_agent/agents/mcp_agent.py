@@ -22,6 +22,7 @@ from typing import (
 )
 
 from a2a.types import AgentCard, AgentSkill
+from mcp import ClientSession
 from mcp.types import (
     CallToolResult,
     EmbeddedResource,
@@ -343,6 +344,7 @@ class McpAgent(ABC, ToolAgent):
         self,
         prompt_name: str,
         arguments: Dict[str, str] | None = None,
+        namespace: str | None = None,
         server_name: str | None = None,
     ) -> GetPromptResult:
         """
@@ -351,19 +353,20 @@ class McpAgent(ABC, ToolAgent):
         Args:
             prompt_name: Name of the prompt, optionally namespaced
             arguments: Optional dictionary of arguments to pass to the prompt template
-            server_name: Optional name of the server to get the prompt from
+            namespace: Optional namespace (server) to get the prompt from
 
         Returns:
             GetPromptResult containing the prompt information
         """
-        return await self._aggregator.get_prompt(prompt_name, arguments, server_name)
+        target = namespace if namespace is not None else server_name
+        return await self._aggregator.get_prompt(prompt_name, arguments, target)
 
     async def apply_prompt(
         self,
         prompt: Union[str, GetPromptResult],
         arguments: Dict[str, str] | None = None,
         agent_name: str | None = None,
-        server_name: str | None = None,
+        namespace: str | None = None,
         as_template: bool = False,
     ) -> str:
         """
@@ -390,7 +393,7 @@ class McpAgent(ABC, ToolAgent):
             # Get the prompt - this will search all servers if needed
             self.logger.debug(f"Loading prompt '{prompt_name}'")
             prompt_result: GetPromptResult = await self.get_prompt(
-                prompt_name, arguments, server_name
+                prompt_name, arguments, namespace
             )
 
             if not prompt_result or not prompt_result.messages:
@@ -455,14 +458,14 @@ class McpAgent(ABC, ToolAgent):
         return embedded_resources
 
     async def get_resource(
-        self, resource_uri: str, server_name: str | None = None
+        self, resource_uri: str, namespace: str | None = None, server_name: str | None = None
     ) -> ReadResourceResult:
         """
         Get a resource from an MCP server.
 
         Args:
             resource_uri: URI of the resource to retrieve
-            server_name: Optional name of the MCP server to retrieve the resource from
+            namespace: Optional namespace (server) to retrieve the resource from
 
         Returns:
             ReadResourceResult containing the resource data
@@ -471,13 +474,15 @@ class McpAgent(ABC, ToolAgent):
             ValueError: If the server doesn't exist or the resource couldn't be found
         """
         # Get the raw resource result
-        result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, server_name)
+        target = namespace if namespace is not None else server_name
+        result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, target)
         return result
 
     async def with_resource(
         self,
         prompt_content: Union[str, PromptMessage, PromptMessageExtended],
         resource_uri: str,
+        namespace: str | None = None,
         server_name: str | None = None,
     ) -> str:
         """
@@ -489,14 +494,14 @@ class McpAgent(ABC, ToolAgent):
                 - PromptMessage: Converted to PromptMessageExtended
                 - PromptMessageExtended: Used directly
             resource_uri: URI of the resource to retrieve
-            server_name: Optional name of the MCP server to retrieve the resource from
+            namespace: Optional namespace (server) to retrieve the resource from
 
         Returns:
             The agent's response as a string
         """
         # Get the embedded resources
         embedded_resources: List[EmbeddedResource] = await self.get_embedded_resources(
-            resource_uri, server_name
+            resource_uri, namespace if namespace is not None else server_name
         )
 
         # Create or update the prompt message
@@ -644,18 +649,21 @@ class McpAgent(ABC, ToolAgent):
         response = await self.generate(prompts, request_params)
         return response.first_text()
 
-    async def list_prompts(self, server_name: str | None = None) -> Mapping[str, List[Prompt]]:
+    async def list_prompts(
+        self, namespace: str | None = None, server_name: str | None = None
+    ) -> Mapping[str, List[Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 
         Args:
-            server_name: Optional server name to list prompts from
+            namespace: Optional namespace (server) to list prompts from
 
         Returns:
             Dictionary mapping server names to lists of Prompt objects
         """
         # Get all prompts from the aggregator
-        result = await self._aggregator.list_prompts(server_name)
+        target = namespace if namespace is not None else server_name
+        result = await self._aggregator.list_prompts(target)
 
         # Apply filtering if prompts are specified in config
         if self.config.prompts is not None:
@@ -676,18 +684,21 @@ class McpAgent(ABC, ToolAgent):
 
         return result
 
-    async def list_resources(self, server_name: str | None = None) -> Dict[str, List[str]]:
+    async def list_resources(
+        self, namespace: str | None = None, server_name: str | None = None
+    ) -> Dict[str, List[str]]:
         """
         List all resources available to this agent, filtered by configuration.
 
         Args:
-            server_name: Optional server name to list resources from
+            namespace: Optional namespace (server) to list resources from
 
         Returns:
             Dictionary mapping server names to lists of resource URIs
         """
         # Get all resources from the aggregator
-        result = await self._aggregator.list_resources(server_name)
+        target = namespace if namespace is not None else server_name
+        result = await self._aggregator.list_resources(target)
 
         # Apply filtering if resources are specified in config
         if self.config.resources is not None:
@@ -708,18 +719,21 @@ class McpAgent(ABC, ToolAgent):
 
         return result
 
-    async def list_mcp_tools(self, server_name: str | None = None) -> Mapping[str, List[Tool]]:
+    async def list_mcp_tools(
+        self, namespace: str | None = None, server_name: str | None = None
+    ) -> Mapping[str, List[Tool]]:
         """
         List all tools available to this agent, grouped by server and filtered by configuration.
 
         Args:
-            server_name: Optional server name to list tools from
+            namespace: Optional namespace (server) to list tools from
 
         Returns:
             Dictionary mapping server names to lists of Tool objects (with original names, not namespaced)
         """
         # Get all tools from the aggregator
-        result = await self._aggregator.list_mcp_tools(server_name)
+        target = namespace if namespace is not None else server_name
+        result = await self._aggregator.list_mcp_tools(target)
 
         # Apply filtering if tools are specified in config
         if self.config.tools is not None:
