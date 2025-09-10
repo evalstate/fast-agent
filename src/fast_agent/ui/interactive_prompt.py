@@ -18,8 +18,6 @@ from typing import Awaitable, Callable, Dict, List, Mapping, Optional, Protocol,
 
 from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
-from rich.console import Console
-from rich.table import Table
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.types import PromptMessageExtended
@@ -216,6 +214,51 @@ class InteractivePrompt:
 
         return result
 
+    def _create_combined_separator_status(
+        self, left_content: str, right_info: str, console
+    ) -> None:
+        """
+        Create a combined separator and status line using the new visual style.
+
+        Args:
+            left_content: The main content (block, arrow, name) - left justified with color
+            right_info: Supplementary information to show in brackets - right aligned
+            console: Rich console instance to use
+        """
+        from rich.text import Text
+
+        width = console.size.width
+
+        # Create left text
+        left_text = Text.from_markup(left_content)
+
+        # Create right text if we have info
+        if right_info and right_info.strip():
+            # Add dim brackets around the right info
+            right_text = Text()
+            right_text.append("[", style="dim")
+            right_text.append_text(Text.from_markup(right_info))
+            right_text.append("]", style="dim")
+            # Calculate separator count
+            separator_count = width - left_text.cell_len - right_text.cell_len
+            if separator_count < 1:
+                separator_count = 1  # Always at least 1 separator
+        else:
+            right_text = Text("")
+            separator_count = width - left_text.cell_len
+
+        # Build the combined line
+        combined = Text()
+        combined.append_text(left_text)
+        combined.append(" ", style="default")
+        combined.append("─" * (separator_count - 1), style="dim")
+        combined.append_text(right_text)
+
+        # Print with empty line before
+        rich_print()
+        console.print(combined)
+        rich_print()
+
     async def _get_all_prompts(
         self, prompt_provider: PromptProvider, agent_name: Optional[str] = None
     ):
@@ -305,44 +348,94 @@ class InteractivePrompt:
             prompt_provider: Provider that implements list_prompts
             agent_name: Name of the agent
         """
-        console = Console()
-
         try:
-            # Directly call the list_prompts function for this agent
-            rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
-
             # Get all prompts using the helper function
             all_prompts = await self._get_all_prompts(prompt_provider, agent_name)
 
-            if all_prompts:
-                # Create a table for better display
-                table = Table(title="Available MCP Prompts")
-                table.add_column("#", justify="right", style="cyan")
-                table.add_column("Server", style="green")
-                table.add_column("Prompt Name", style="bright_blue")
-                table.add_column("Title")
-                table.add_column("Description")
-                table.add_column("Args", justify="center")
+            rich_print(f"\n[bold]Prompts for agent [cyan]{agent_name}[/cyan]:[/bold]")
 
-                # Add prompts to table
-                for i, prompt in enumerate(all_prompts):
-                    table.add_row(
-                        str(i + 1),
-                        prompt["server"],
-                        prompt["name"],
-                        prompt["title"],
-                        prompt["description"],
-                        str(prompt["arg_count"]),
-                    )
+            if not all_prompts:
+                rich_print("[yellow]No prompts available for this agent[/yellow]")
+                return
 
-                console.print(table)
+            rich_print()
 
-                # Add usage instructions
-                rich_print("\n[bold]Usage:[/bold]")
-                rich_print("  • Use [cyan]/prompt <number>[/cyan] to select a prompt by number")
-                rich_print("  • Or use [cyan]/prompts[/cyan] to open the prompt selection UI")
-            else:
-                rich_print("[yellow]No prompts available[/yellow]")
+            # Display prompts using clean compact format
+            for i, prompt in enumerate(all_prompts, 1):
+                # Main line: [ 1] server•prompt_name Title
+                from rich.text import Text
+
+                prompt_line = Text()
+                prompt_line.append(f"[{i:2}] ", style="dim cyan")
+                prompt_line.append(f"{prompt['server']}•", style="dim green")
+                prompt_line.append(prompt["name"], style="bright_blue bold")
+
+                # Add title if available
+                if prompt["title"] and prompt["title"].strip():
+                    prompt_line.append(f" {prompt['title']}", style="default")
+
+                rich_print(prompt_line)
+
+                # Description lines - show 2-3 rows if needed
+                if prompt["description"] and prompt["description"].strip():
+                    description = prompt["description"].strip()
+                    # Calculate rough character limit for 2-3 lines (assuming ~80 chars per line with indent)
+                    char_limit = 240  # About 3 lines worth
+
+                    if len(description) > char_limit:
+                        # Find a good break point near the limit (prefer sentence/word boundaries)
+                        truncate_pos = char_limit
+                        # Look back for sentence end
+                        sentence_break = description.rfind(". ", 0, char_limit + 20)
+                        if sentence_break > char_limit - 50:  # If we found a nearby sentence break
+                            truncate_pos = sentence_break + 1
+                        else:
+                            # Look for word boundary
+                            word_break = description.rfind(" ", 0, char_limit + 10)
+                            if word_break > char_limit - 30:  # If we found a nearby word break
+                                truncate_pos = word_break
+
+                        description = description[:truncate_pos].rstrip() + "..."
+
+                    # Split into lines and wrap
+                    import textwrap
+
+                    wrapped_lines = textwrap.wrap(description, width=72, subsequent_indent="     ")
+                    for line in wrapped_lines:
+                        if line.startswith("     "):  # Already indented continuation line
+                            rich_print(f"     [white]{line[5:]}[/white]")
+                        else:  # First line needs indent
+                            rich_print(f"     [white]{line}[/white]")
+
+                # Arguments line - show argument names if available
+                if prompt["arg_count"] > 0:
+                    arg_names = prompt.get("arg_names", [])
+                    required_args = prompt.get("required_args", [])
+
+                    if arg_names:
+                        arg_list = []
+                        for arg_name in arg_names:
+                            if arg_name in required_args:
+                                arg_list.append(f"{arg_name}*")
+                            else:
+                                arg_list.append(arg_name)
+
+                        args_text = ", ".join(arg_list)
+                        if len(args_text) > 80:
+                            args_text = args_text[:77] + "..."
+                        rich_print(f"     [dim magenta]args: {args_text}[/dim magenta]")
+                    else:
+                        rich_print(
+                            f"     [dim magenta]args: {prompt['arg_count']} parameter{'s' if prompt['arg_count'] != 1 else ''}[/dim magenta]"
+                        )
+
+                rich_print()  # Space between prompts
+
+            # Add usage instructions
+            rich_print(
+                "[dim]Usage: /prompt <number> to select by number, or /prompts for interactive selection[/dim]"
+            )
+
         except Exception as e:
             import traceback
 
@@ -364,8 +457,6 @@ class InteractivePrompt:
             agent_name: Name of the agent
             requested_name: Optional name of the prompt to apply
         """
-        console = Console()
-
         try:
             # Get all available prompts directly from the prompt provider
             rich_print(f"\n[bold]Fetching prompts for agent [cyan]{agent_name}[/cyan]...[/bold]")
@@ -487,40 +578,85 @@ class InteractivePrompt:
                         rich_print("[red]Invalid input, please enter a number[/red]")
                         return
             else:
-                # Show prompt selection UI
-                table = Table(title="Available MCP Prompts")
-                table.add_column("#", justify="right", style="cyan")
-                table.add_column("Server", style="green")
-                table.add_column("Prompt Name", style="bright_blue")
-                table.add_column("Title")
-                table.add_column("Description")
-                table.add_column("Args", justify="center")
+                # Show prompt selection UI using clean compact format
+                rich_print(f"\n[bold]Select a prompt for agent [cyan]{agent_name}[/cyan]:[/bold]")
+                rich_print()
 
-                # Add prompts to table
-                for i, prompt in enumerate(all_prompts):
-                    required_args = prompt["required_args"]
-                    optional_args = prompt["optional_args"]
+                # Display prompts using the same format as _list_prompts
+                for i, prompt in enumerate(all_prompts, 1):
+                    # Main line: [ 1] server•prompt_name Title
+                    from rich.text import Text
 
-                    # Format args column
-                    if required_args and optional_args:
-                        args_display = f"[bold]{len(required_args)}[/bold]+{len(optional_args)}"
-                    elif required_args:
-                        args_display = f"[bold]{len(required_args)}[/bold]"
-                    elif optional_args:
-                        args_display = f"{len(optional_args)} opt"
-                    else:
-                        args_display = "0"
+                    prompt_line = Text()
+                    prompt_line.append(f"[{i:2}] ", style="dim cyan")
+                    prompt_line.append(f"{prompt['server']}•", style="dim green")
+                    prompt_line.append(prompt["name"], style="bright_blue bold")
 
-                    table.add_row(
-                        str(i + 1),
-                        prompt["server"],
-                        prompt["name"],
-                        prompt["title"] or "No title",
-                        prompt["description"] or "No description",
-                        args_display,
-                    )
+                    # Add title if available
+                    if prompt["title"] and prompt["title"].strip():
+                        prompt_line.append(f" {prompt['title']}", style="default")
 
-                console.print(table)
+                    rich_print(prompt_line)
+
+                    # Description lines - show 2-3 rows if needed
+                    if prompt["description"] and prompt["description"].strip():
+                        description = prompt["description"].strip()
+                        # Calculate rough character limit for 2-3 lines (assuming ~80 chars per line with indent)
+                        char_limit = 240  # About 3 lines worth
+
+                        if len(description) > char_limit:
+                            # Find a good break point near the limit (prefer sentence/word boundaries)
+                            truncate_pos = char_limit
+                            # Look back for sentence end
+                            sentence_break = description.rfind(". ", 0, char_limit + 20)
+                            if (
+                                sentence_break > char_limit - 50
+                            ):  # If we found a nearby sentence break
+                                truncate_pos = sentence_break + 1
+                            else:
+                                # Look for word boundary
+                                word_break = description.rfind(" ", 0, char_limit + 10)
+                                if word_break > char_limit - 30:  # If we found a nearby word break
+                                    truncate_pos = word_break
+
+                            description = description[:truncate_pos].rstrip() + "..."
+
+                        # Split into lines and wrap
+                        import textwrap
+
+                        wrapped_lines = textwrap.wrap(
+                            description, width=72, subsequent_indent="     "
+                        )
+                        for line in wrapped_lines:
+                            if line.startswith("     "):  # Already indented continuation line
+                                rich_print(f"     [white]{line[5:]}[/white]")
+                            else:  # First line needs indent
+                                rich_print(f"     [white]{line}[/white]")
+
+                    # Arguments line - show argument names if available
+                    if prompt["arg_count"] > 0:
+                        arg_names = prompt.get("arg_names", [])
+                        required_args = prompt.get("required_args", [])
+
+                        if arg_names:
+                            arg_list = []
+                            for arg_name in arg_names:
+                                if arg_name in required_args:
+                                    arg_list.append(f"{arg_name}*")
+                                else:
+                                    arg_list.append(arg_name)
+
+                            args_text = ", ".join(arg_list)
+                            if len(args_text) > 80:
+                                args_text = args_text[:77] + "..."
+                            rich_print(f"     [dim magenta]args: {args_text}[/dim magenta]")
+                        else:
+                            rich_print(
+                                f"     [dim magenta]args: {prompt['arg_count']} parameter{'s' if prompt['arg_count'] != 1 else ''}[/dim magenta]"
+                            )
+
+                    rich_print()  # Space between prompts
+
                 prompt_names = [str(i + 1) for i in range(len(all_prompts))]
 
                 # Get user selection
@@ -653,8 +789,6 @@ class InteractivePrompt:
             prompt_provider: Provider that implements list_tools
             agent_name: Name of the agent
         """
-        console = Console()
-
         try:
             # Get agent to list tools from
             if hasattr(prompt_provider, "_agent"):
@@ -664,7 +798,7 @@ class InteractivePrompt:
                 # This is a single agent
                 agent = prompt_provider
 
-            rich_print(f"\n[bold]Fetching tools for agent [cyan]{agent_name}[/cyan]...[/bold]")
+            rich_print(f"\n[bold]Tools for agent [cyan]{agent_name}[/cyan]:[/bold]")
 
             # Get tools using list_tools
             tools_result = await agent.list_tools()
@@ -673,23 +807,75 @@ class InteractivePrompt:
                 rich_print("[yellow]No tools available for this agent[/yellow]")
                 return
 
-            # Create a table for better display
-            table = Table(title="Available MCP Tools")
-            table.add_column("#", justify="right", style="cyan")
-            table.add_column("Tool Name", style="bright_blue")
-            table.add_column("Title")
-            table.add_column("Description")
+            rich_print()
 
-            # Add tools to table
-            for i, tool in enumerate(tools_result.tools):
-                table.add_row(
-                    str(i + 1),
-                    tool.name,
-                    tool.title or "No title",
-                    tool.description or "No description",
-                )
+            # Display tools using clean compact format
+            for i, tool in enumerate(tools_result.tools, 1):
+                # Main line: [ 1] tool_name Title
+                from rich.text import Text
 
-            console.print(table)
+                tool_line = Text()
+                tool_line.append(f"[{i:2}] ", style="dim cyan")
+                tool_line.append(tool.name, style="bright_blue bold")
+
+                # Add title if available
+                if tool.title and tool.title.strip():
+                    tool_line.append(f" {tool.title}", style="default")
+
+                rich_print(tool_line)
+
+                # Description lines - show 2-3 rows if needed
+                if tool.description and tool.description.strip():
+                    description = tool.description.strip()
+                    # Calculate rough character limit for 2-3 lines (assuming ~80 chars per line with indent)
+                    char_limit = 240  # About 3 lines worth
+
+                    if len(description) > char_limit:
+                        # Find a good break point near the limit (prefer sentence/word boundaries)
+                        truncate_pos = char_limit
+                        # Look back for sentence end
+                        sentence_break = description.rfind(". ", 0, char_limit + 20)
+                        if sentence_break > char_limit - 50:  # If we found a nearby sentence break
+                            truncate_pos = sentence_break + 1
+                        else:
+                            # Look for word boundary
+                            word_break = description.rfind(" ", 0, char_limit + 10)
+                            if word_break > char_limit - 30:  # If we found a nearby word break
+                                truncate_pos = word_break
+
+                        description = description[:truncate_pos].rstrip() + "..."
+
+                    # Split into lines and wrap
+                    import textwrap
+
+                    wrapped_lines = textwrap.wrap(description, width=72, subsequent_indent="     ")
+                    for line in wrapped_lines:
+                        if line.startswith("     "):  # Already indented continuation line
+                            rich_print(f"     [white]{line[5:]}[/white]")
+                        else:  # First line needs indent
+                            rich_print(f"     [white]{line}[/white]")
+
+                # Arguments line - show schema info if available
+                if hasattr(tool, "inputSchema") and tool.inputSchema:
+                    schema = tool.inputSchema
+                    if "properties" in schema:
+                        properties = schema["properties"]
+                        required = schema.get("required", [])
+
+                        arg_list = []
+                        for prop_name, prop_info in properties.items():
+                            if prop_name in required:
+                                arg_list.append(f"{prop_name}*")
+                            else:
+                                arg_list.append(prop_name)
+
+                        if arg_list:
+                            args_text = ", ".join(arg_list)
+                            if len(args_text) > 80:
+                                args_text = args_text[:77] + "..."
+                            rich_print(f"     [dim magenta]args: {args_text}[/dim magenta]")
+
+                rich_print()  # Space between tools
 
         except Exception as e:
             import traceback
