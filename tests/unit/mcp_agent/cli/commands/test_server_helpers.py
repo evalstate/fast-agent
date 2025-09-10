@@ -1,6 +1,6 @@
 """Tests for server helper functions."""
 
-from mcp_agent.cli.commands.server_helpers import generate_server_name
+from fast_agent.cli.commands.server_helpers import generate_server_name
 
 
 class TestGenerateServerName:

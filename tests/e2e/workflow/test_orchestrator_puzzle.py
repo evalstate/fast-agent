@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mcp_agent import FastAgent
+from mcp_agent.core.fastagent import FastAgent
 
 
 @pytest.mark.e2e
@@ -13,7 +13,7 @@ from mcp_agent import FastAgent
 @pytest.mark.parametrize(
     "model_name",
     [
-        "gpt-4.1-mini",
+        "gpt-4.1",
     ],
 )
 async def test_iterative_orchestration(fast_agent, model_name):
@@ -61,30 +61,34 @@ async def main():
     @fast.agent(
         "first_two",
         instruction="You can provide the first 2 digits of the secret code.",
-        model="gpt-4.1-mini",
+        model="gpt-5-mini.low",
         servers=["puzzle_1"],
     )
     @fast.agent(
         "last_two",
         instruction="You can provide the last 2 digits of the secret code.",
-        model="gpt-4.1-mini",
+        model="gpt-5-mini.low",
         servers=["puzzle_2"],
     )
     @fast.agent(
         "validator",
         instruction="You can validate the 4 digit secret code.",
-        model="gpt-4.1-mini",
+        model="gpt-5-mini.low",
         servers=["puzzle_validator"],
     )
     @fast.iterative_planner(
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
-        model="gpt-4.1",
+        model="gpt-5-mini.low",
+        # model="sonnet",
     )
     async def agent_function():
         async with fast.run() as agent:
             await agent.interactive()
             response = await agent.orchestrator.send("find the secret code")
+
+            print()
+            print()
             if "4712" in response:
                 print("✓ Secret code found successfully!")
             else:

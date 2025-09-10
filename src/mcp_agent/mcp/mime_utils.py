@@ -67,3 +67,42 @@ def is_binary_content(mime_type: str) -> bool:
 def is_image_mime_type(mime_type: str) -> bool:
     """Check if a MIME type represents an image."""
     return mime_type.startswith("image/") and mime_type != "image/svg+xml"
+
+
+# Common alias mapping and normalization helpers
+_MIME_ALIASES = {
+    # Friendly or non-standard labels
+    "document/pdf": "application/pdf",
+    "image/jpg": "image/jpeg",
+    # Some providers sometimes return these variants
+    "application/x-pdf": "application/pdf",
+}
+
+
+def normalize_mime_type(mime: str | None) -> str | None:
+    """
+    Normalize a MIME-like string to a canonical MIME type.
+
+    - Lowercases and trims
+    - Resolves common aliases (e.g. image/jpg -> image/jpeg, document/pdf -> application/pdf)
+    - If input looks like a bare extension (e.g. "pdf", "png"), map via mimetypes
+    - Returns None for falsy inputs
+    """
+    if not mime:
+        return None
+
+    m = mime.strip().lower()
+
+    # If it's an alias we know about
+    if m in _MIME_ALIASES:
+        return _MIME_ALIASES[m]
+
+    # If it already looks like a full MIME type
+    if "/" in m:
+        # image/jpg -> image/jpeg etc.
+        return _MIME_ALIASES.get(m, m)
+
+    # Treat as a bare file extension (e.g. "pdf", "png")
+    if not m.startswith("."):
+        m = "." + m
+    return mimetypes.types_map.get(m, None)

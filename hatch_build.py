@@ -29,6 +29,7 @@ class CustomBuildHook(BuildHookInterface):
             # examples/mcp/state-transfer -> src/mcp_agent/resources/examples/mcp/state-transfer
             "examples/mcp/state-transfer": "src/mcp_agent/resources/examples/mcp/state-transfer",
             "examples/mcp/elicitations": "src/mcp_agent/resources/examples/mcp/elicitations",
+            "examples/tensorzero": "src/mcp_agent/resources/examples/tensorzero",
         }
 
         print("Fast-agent build: Copying examples to resources...")

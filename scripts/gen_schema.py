@@ -245,28 +245,6 @@ def generate(
 
         console.print(f"[green]✓[/] Schema written to: {output}")
 
-        # Get path relative to cwd for VS Code settings
-        try:
-            rel_path = f"./{output.relative_to(Path.cwd())}"
-        except ValueError:
-            # If can't make relative, use absolute path
-            rel_path = str(output)
-
-        # Print VS Code settings suggestion
-        vscode_settings = {
-            "yaml.schemas": {
-                rel_path: [
-                    "mcp-agent.config.yaml",
-                    "mcp_agent.config.yaml",
-                    "mcp-agent.secrets.yaml",
-                    "mcp_agent.secrets.yaml",
-                ]
-            }
-        }
-        console.print("\n[yellow]VS Code Integration:[/]")
-        console.print("Add this to .vscode/settings.json:")
-        console.print(json.dumps(vscode_settings, indent=2))
-
     except Exception as e:
         console.print(f"[red]Error generating schema:[/] {str(e)}")
         raise typer.Exit(1)

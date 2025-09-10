@@ -3,9 +3,9 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from fast_agent.llm.request_params import RequestParams
 from mcp_agent.core.fastagent import FastAgent
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.core.request_params import RequestParams
 
 # Create the application
 fast = FastAgent("fast-agent example")

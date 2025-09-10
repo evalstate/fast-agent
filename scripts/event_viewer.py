@@ -15,7 +15,7 @@ from rich.layout import Layout
 from rich.panel import Panel
 from rich.text import Text
 
-from mcp_agent.event_progress import ProgressEvent, convert_log_event
+from fast_agent.event_progress import ProgressEvent, convert_log_event
 from mcp_agent.logging.events import Event
 
 
@@ -123,7 +123,9 @@ class EventDisplay:
                 current_event = self.events[self.current]
                 agent = current_event.data.get("data", {}).get("agent_name", "")
                 if not agent:  # Fallback to namespace if agent_name not found
-                    agent = current_event.namespace.split(".")[-1] if current_event.namespace else ""
+                    agent = (
+                        current_event.namespace.split(".")[-1] if current_event.namespace else ""
+                    )
                 if agent:
                     progress_text.append("Agent: ", style="bold")
                     progress_text.append(f"{agent}\n", style="yellow")

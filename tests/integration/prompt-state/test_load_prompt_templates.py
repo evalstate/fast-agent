@@ -11,7 +11,7 @@ from mcp_agent.mcp.prompts.prompt_load import (
 )
 
 if TYPE_CHECKING:
-    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 @pytest.mark.integration
@@ -25,14 +25,15 @@ async def test_load_simple_conversation_from_file(fast_agent):
     @fast.agent()
     async def agent_function():
         async with fast.run() as agent:
-            loaded: List[PromptMessageMultipart] = load_prompt_multipart(Path("conv1_simple.md"))
+            loaded: List[PromptMessageExtended] = load_prompt_multipart(Path("conv1_simple.md"))
             assert 4 == len(loaded)
             assert "user" == loaded[0].role
             assert "assistant" == loaded[1].role
 
             # Use the "default" agent directly
             response = await agent.default.generate(loaded)
-            assert "message 2" in response.first_text()
+            assert "message 2" in agent.default.message_history[-4].first_text()
+            assert "message 3" in response.first_text()
 
     await agent_function()
 
@@ -48,7 +49,7 @@ async def test_load_conversation_with_attachments(fast_agent):
     @fast.agent()
     async def agent_function():
         async with fast.run():
-            prompts: list[PromptMessageMultipart] = load_prompt_multipart(Path("conv2_attach.md"))
+            prompts: list[PromptMessageExtended] = load_prompt_multipart(Path("conv2_attach.md"))
 
             assert 5 == len(prompts)
             assert "user" == prompts[0].role
@@ -85,7 +86,7 @@ async def test_save_state_to_simple_text_file(fast_agent):
             await agent.send("world")
             await agent.send("***SAVE_HISTORY simple.txt")
 
-            prompts: list[PromptMessageMultipart] = load_prompt_multipart(Path("simple.txt"))
+            prompts: list[PromptMessageExtended] = load_prompt_multipart(Path("simple.txt"))
             assert 4 == len(prompts)
             assert "user" == prompts[0].role
             assert "assistant" == prompts[1].role
@@ -101,7 +102,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
     loaded directly using Pydantic types."""
     from mcp.types import GetPromptResult
 
-    from mcp_agent.mcp.prompt_serialization import json_to_multipart_messages
+    from mcp_agent.mcp.prompt_serialization import json_to_extended_messages
 
     # Use the FastAgent instance from the test directory fixture
     fast = fast_agent
@@ -142,8 +143,8 @@ async def test_save_state_to_mcp_json_format(fast_agent):
                 assert "role" in msg
                 assert "content" in msg
 
-            # Validate with Pydantic by parsing to PromptMessageMultipart objects
-            prompts = json_to_multipart_messages(json_content)
+            # Validate with Pydantic by parsing to PromptMessageExtended objects
+            prompts = json_to_extended_messages(json_content)
 
             # Verify loaded objects
             assert len(prompts) >= 4
@@ -166,7 +167,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_round_trip_json_attachments(fast_agent):
-    """Test that we can save as json, and read back the content as PromptMessage->PromptMessageMultipart."""
+    """Test that we can save as json, and read back the content as PromptMessage->PromptMessageExtended."""
     # Use the FastAgent instance from the test directory fixture
     fast = fast_agent
 
@@ -184,7 +185,7 @@ async def test_round_trip_json_attachments(fast_agent):
             await agent.test.generate([Prompt.user("what's in this image", Path("conv2_img.png"))])
             await agent.send("***SAVE_HISTORY multipart.json")
 
-            prompts: list[PromptMessageMultipart] = load_prompt_multipart(Path("./multipart.json"))
+            prompts: list[PromptMessageExtended] = load_prompt_multipart(Path("./multipart.json"))
             assert 4 == len(prompts)
 
             assert "assistant" == prompts[1].role

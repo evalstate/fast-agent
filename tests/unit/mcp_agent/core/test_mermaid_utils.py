@@ -1,6 +1,6 @@
 """Unit tests for mermaid_utils module."""
 
-from mcp_agent.core.mermaid_utils import (
+from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
     create_mermaid_live_link,
     detect_diagram_type,

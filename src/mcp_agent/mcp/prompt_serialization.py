@@ -2,23 +2,24 @@
 Utilities for converting between different prompt message formats.
 
 This module provides utilities for converting between different serialization formats
-and PromptMessageMultipart objects. It includes functionality for:
+and PromptMessageExtended objects. It includes functionality for:
 
 1. JSON Serialization:
-   - Converting PromptMessageMultipart objects to MCP-compatible GetPromptResult JSON format
-   - Parsing GetPromptResult JSON into PromptMessageMultipart objects
+   - Converting PromptMessageExtended objects to MCP-compatible GetPromptResult JSON format
+   - Parsing GetPromptResult JSON into PromptMessageExtended objects
    - This is ideal for programmatic use and ensures full MCP compatibility
 
 2. Delimited Text Format:
-   - Converting PromptMessageMultipart objects to delimited text (---USER, ---ASSISTANT)
+   - Converting PromptMessageExtended objects to delimited text (---USER, ---ASSISTANT)
    - Converting resources to JSON after resource delimiter (---RESOURCE)
-   - Parsing delimited text back into PromptMessageMultipart objects
+   - Parsing delimited text back into PromptMessageExtended objects
    - This maintains human readability for text content while preserving structure for resources
 """
 
 import json
 from typing import List
 
+from fast_agent.types import PromptMessageExtended
 from mcp.types import (
     EmbeddedResource,
     GetPromptResult,
@@ -26,8 +27,6 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
     RESOURCE_DELIMITER,
@@ -40,13 +39,13 @@ from mcp_agent.mcp.prompts.prompt_constants import (
 
 
 def multipart_messages_to_get_prompt_result(
-    messages: List[PromptMessageMultipart],
+    messages: List[PromptMessageExtended],
 ) -> GetPromptResult:
     """
-    Convert PromptMessageMultipart objects to a GetPromptResult container.
+    Convert PromptMessageExtended objects to a GetPromptResult container.
 
     Args:
-        messages: List of PromptMessageMultipart objects
+        messages: List of PromptMessageExtended objects
 
     Returns:
         GetPromptResult object containing flattened messages
@@ -60,15 +59,15 @@ def multipart_messages_to_get_prompt_result(
     return GetPromptResult(messages=flat_messages)
 
 
-def multipart_messages_to_json(messages: List[PromptMessageMultipart]) -> str:
+def multipart_messages_to_json(messages: List[PromptMessageExtended]) -> str:
     """
-    Convert PromptMessageMultipart objects to a pure JSON string in GetPromptResult format.
+    Convert PromptMessageExtended objects to a pure JSON string in GetPromptResult format.
 
     This approach preserves all data and structure exactly as is, compatible with
     the MCP GetPromptResult type.
 
     Args:
-        messages: List of PromptMessageMultipart objects
+        messages: List of PromptMessageExtended objects
 
     Returns:
         JSON string representation with GetPromptResult container
@@ -83,15 +82,15 @@ def multipart_messages_to_json(messages: List[PromptMessageMultipart]) -> str:
     return json.dumps(result_dict, indent=2)
 
 
-def json_to_multipart_messages(json_str: str) -> List[PromptMessageMultipart]:
+def json_to_extended_messages(json_str: str) -> List[PromptMessageExtended]:
     """
-    Parse a JSON string in GetPromptResult format into PromptMessageMultipart objects.
+    Parse a JSON string in GetPromptResult format into PromptMessageExtended objects.
 
     Args:
         json_str: JSON string representation of GetPromptResult
 
     Returns:
-        List of PromptMessageMultipart objects
+        List of PromptMessageExtended objects
     """
     # Parse JSON to dictionary
     result_dict = json.loads(json_str)
@@ -100,15 +99,15 @@ def json_to_multipart_messages(json_str: str) -> List[PromptMessageMultipart]:
     result = GetPromptResult.model_validate(result_dict)
 
     # Convert to multipart messages
-    return PromptMessageMultipart.to_multipart(result.messages)
+    return PromptMessageExtended.to_extended(result.messages)
 
 
-def save_messages_to_json_file(messages: List[PromptMessageMultipart], file_path: str) -> None:
+def save_messages_to_json_file(messages: List[PromptMessageExtended], file_path: str) -> None:
     """
-    Save PromptMessageMultipart objects to a JSON file.
+    Save PromptMessageExtended objects to a JSON file.
 
     Args:
-        messages: List of PromptMessageMultipart objects
+        messages: List of PromptMessageExtended objects
         file_path: Path to save the JSON file
     """
     json_str = multipart_messages_to_json(messages)
@@ -117,31 +116,31 @@ def save_messages_to_json_file(messages: List[PromptMessageMultipart], file_path
         f.write(json_str)
 
 
-def load_messages_from_json_file(file_path: str) -> List[PromptMessageMultipart]:
+def load_messages_from_json_file(file_path: str) -> List[PromptMessageExtended]:
     """
-    Load PromptMessageMultipart objects from a JSON file.
+    Load PromptMessageExtended objects from a JSON file.
 
     Args:
         file_path: Path to the JSON file
 
     Returns:
-        List of PromptMessageMultipart objects
+        List of PromptMessageExtended objects
     """
     with open(file_path, "r", encoding="utf-8") as f:
         json_str = f.read()
 
-    return json_to_multipart_messages(json_str)
+    return json_to_extended_messages(json_str)
 
 
-def save_messages_to_file(messages: List[PromptMessageMultipart], file_path: str) -> None:
+def save_messages_to_file(messages: List[PromptMessageExtended], file_path: str) -> None:
     """
-    Save PromptMessageMultipart objects to a file, with format determined by file extension.
+    Save PromptMessageExtended objects to a file, with format determined by file extension.
 
     Uses GetPromptResult JSON format for .json files (fully MCP compatible) and
     delimited text format for other extensions.
 
     Args:
-        messages: List of PromptMessageMultipart objects
+        messages: List of PromptMessageExtended objects
         file_path: Path to save the file
     """
     path_str = str(file_path).lower()
@@ -154,9 +153,9 @@ def save_messages_to_file(messages: List[PromptMessageMultipart], file_path: str
         save_messages_to_delimited_file(messages, file_path)
 
 
-def load_messages_from_file(file_path: str) -> List[PromptMessageMultipart]:
+def load_messages_from_file(file_path: str) -> List[PromptMessageExtended]:
     """
-    Load PromptMessageMultipart objects from a file, with format determined by file extension.
+    Load PromptMessageExtended objects from a file, with format determined by file extension.
 
     Uses GetPromptResult JSON format for .json files (fully MCP compatible) and
     delimited text format for other extensions.
@@ -165,7 +164,7 @@ def load_messages_from_file(file_path: str) -> List[PromptMessageMultipart]:
         file_path: Path to the file
 
     Returns:
-        List of PromptMessageMultipart objects
+        List of PromptMessageExtended objects
     """
     path_str = str(file_path).lower()
 
@@ -183,14 +182,14 @@ def load_messages_from_file(file_path: str) -> List[PromptMessageMultipart]:
 
 
 def multipart_messages_to_delimited_format(
-    messages: List[PromptMessageMultipart],
+    messages: List[PromptMessageExtended],
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
     resource_delimiter: str = RESOURCE_DELIMITER,
     combine_text: bool = True,  # Set to False to maintain backward compatibility
 ) -> List[str]:
     """
-    Convert PromptMessageMultipart objects to a hybrid delimited format:
+    Convert PromptMessageExtended objects to a hybrid delimited format:
     - Plain text for user/assistant text content with delimiters
     - JSON for resources after resource delimiter
 
@@ -198,7 +197,7 @@ def multipart_messages_to_delimited_format(
     preserving structure for resources.
 
     Args:
-        messages: List of PromptMessageMultipart objects
+        messages: List of PromptMessageExtended objects
         user_delimiter: Delimiter for user messages
         assistant_delimiter: Delimiter for assistant messages
         resource_delimiter: Delimiter for resources
@@ -261,14 +260,14 @@ def multipart_messages_to_delimited_format(
     return delimited_content
 
 
-def delimited_format_to_multipart_messages(
+def delimited_format_to_extended_messages(
     content: str,
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
     resource_delimiter: str = RESOURCE_DELIMITER,
-) -> List[PromptMessageMultipart]:
+) -> List[PromptMessageExtended]:
     """
-    Parse hybrid delimited format into PromptMessageMultipart objects:
+    Parse hybrid delimited format into PromptMessageExtended objects:
     - Plain text for user/assistant text content with delimiters
     - JSON for resources after resource delimiter
 
@@ -279,7 +278,7 @@ def delimited_format_to_multipart_messages(
         resource_delimiter: Delimiter for resources
 
     Returns:
-        List of PromptMessageMultipart objects
+        List of PromptMessageExtended objects
     """
     lines = content.split("\n")
     messages = []
@@ -324,7 +323,7 @@ def delimited_format_to_multipart_messages(
                 combined_content.extend(resource_contents)
 
                 messages.append(
-                    PromptMessageMultipart(
+                    PromptMessageExtended(
                         role=current_role,
                         content=combined_content,
                     )
@@ -427,7 +426,7 @@ def delimited_format_to_multipart_messages(
             combined_content.extend(resource_contents)
 
             messages.append(
-                PromptMessageMultipart(
+                PromptMessageExtended(
                     role=current_role,
                     content=combined_content,
                 )
@@ -437,7 +436,7 @@ def delimited_format_to_multipart_messages(
 
 
 def save_messages_to_delimited_file(
-    messages: List[PromptMessageMultipart],
+    messages: List[PromptMessageExtended],
     file_path: str,
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
@@ -445,10 +444,10 @@ def save_messages_to_delimited_file(
     combine_text: bool = True,
 ) -> None:
     """
-    Save PromptMessageMultipart objects to a file in hybrid delimited format.
+    Save PromptMessageExtended objects to a file in hybrid delimited format.
 
     Args:
-        messages: List of PromptMessageMultipart objects
+        messages: List of PromptMessageExtended objects
         file_path: Path to save the file
         user_delimiter: Delimiter for user messages
         assistant_delimiter: Delimiter for assistant messages
@@ -472,9 +471,9 @@ def load_messages_from_delimited_file(
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
     resource_delimiter: str = RESOURCE_DELIMITER,
-) -> List[PromptMessageMultipart]:
+) -> List[PromptMessageExtended]:
     """
-    Load PromptMessageMultipart objects from a file in hybrid delimited format.
+    Load PromptMessageExtended objects from a file in hybrid delimited format.
 
     Args:
         file_path: Path to the file
@@ -483,12 +482,12 @@ def load_messages_from_delimited_file(
         resource_delimiter: Delimiter for resources
 
     Returns:
-        List of PromptMessageMultipart objects
+        List of PromptMessageExtended objects
     """
     with open(file_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    return delimited_format_to_multipart_messages(
+    return delimited_format_to_extended_messages(
         content,
         user_delimiter,
         assistant_delimiter,

@@ -1,7 +1,7 @@
 import asyncio
 
+from fast_agent.llm.request_params import RequestParams
 from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.core.request_params import RequestParams
 
 # Explicitly provide the path to the config file in the current directory
 CONFIG_FILE = "fastagent.config.yaml"

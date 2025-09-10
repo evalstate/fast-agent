@@ -14,9 +14,9 @@ from mcp.types import (
     TextResourceContents,
 )
 
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.mcp.prompt_serialization import (
-    delimited_format_to_multipart_messages,
+    delimited_format_to_extended_messages,
     load_messages_from_delimited_file,
     multipart_messages_to_delimited_format,
     save_messages_to_delimited_file,
@@ -30,7 +30,7 @@ class TestPromptFormatUtils:
         """Test converting multipart messages with resources to delimited format."""
         # Create messages with resources
         messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Here's a code sample:"),
@@ -44,7 +44,7 @@ class TestPromptFormatUtils:
                     ),
                 ],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="assistant",
                 content=[
                     TextContent(
@@ -98,7 +98,7 @@ class TestPromptFormatUtils:
         assert "improved_code.py" in assistant_resource_json
         assert "def main()" in assistant_resource_json
 
-    def test_delimited_with_resources_to_multipart(self):
+    def test_delimited_with_resources_to_extended(self):
         """Test converting delimited format with resources to multipart messages."""
         # Create delimited content with resources in JSON format
         delimited_content = """---USER
@@ -128,7 +128,9 @@ I've reviewed your CSS and made it more efficient:
 }"""
 
         # Convert to multipart messages
-        messages = delimited_format_to_multipart_messages(delimited_content, resource_delimiter="---RESOURCE")
+        messages = delimited_format_to_extended_messages(
+            delimited_content, resource_delimiter="---RESOURCE"
+        )
 
         # Verify structure
         assert len(messages) == 2
@@ -153,7 +155,7 @@ I've reviewed your CSS and made it more efficient:
     def test_multiple_resources_in_one_message(self):
         """Test handling multiple resources in a single message."""
         # Create a message with multiple resources
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="I need to analyze these files:"),
@@ -204,7 +206,7 @@ I've reviewed your CSS and made it more efficient:
         assert "id,name,value" in second_resource_json
 
         # Convert back to multipart
-        messages = delimited_format_to_multipart_messages("\n".join(delimited))
+        messages = delimited_format_to_extended_messages("\n".join(delimited))
 
         # Verify round-trip conversion
         assert len(messages) == 1
@@ -226,7 +228,7 @@ I've reviewed your CSS and made it more efficient:
     def test_image_handling(self):
         """Test handling image content in multipart messages."""
         # Create a message with an image
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Look at this image:"),
@@ -281,7 +283,7 @@ analysis.md""")
         """Test saving and loading multipart messages with resources."""
         # Create messages with resources
         messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Check this JSON file:"),
@@ -315,7 +317,7 @@ analysis.md""")
         """Test round-trip conversion preserving MIME type information."""
         # Original message with different MIME types
         original_messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Here are some files:"),
@@ -344,7 +346,7 @@ analysis.md""")
         delimited_text = "\n".join(delimited_content)
 
         # Convert back to multipart
-        result_messages = delimited_format_to_multipart_messages(delimited_text)
+        result_messages = delimited_format_to_extended_messages(delimited_text)
 
         # Verify structure
         assert len(result_messages) == 1
@@ -352,7 +354,9 @@ analysis.md""")
         assert len(result_messages[0].content) == 3  # Text and two resources
 
         # The resource URIs should be preserved
-        resources = [content for content in result_messages[0].content if content.type == "resource"]
+        resources = [
+            content for content in result_messages[0].content if content.type == "resource"
+        ]
         assert len(resources) == 2
 
         # Resource URIs should be preserved

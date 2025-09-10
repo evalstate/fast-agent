@@ -13,8 +13,8 @@ import asyncio
 from rich.console import Console
 from rich.panel import Panel
 
+from fast_agent.mcp.helpers.content_helpers import get_resource_text
 from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.mcp.helpers.content_helpers import get_resource_text
 
 fast = FastAgent("Elicitation Forms Demo", quiet=True)
 console = Console()

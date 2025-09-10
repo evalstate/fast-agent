@@ -6,7 +6,7 @@ from mcp.types import (
     TextContent,
 )
 
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.mcp.prompt_render import render_multipart_message
 from mcp_agent.mcp.resource_utils import (
     create_blob_resource,
@@ -21,7 +21,7 @@ class TestPromptRender:
     def test_render_text_only_message(self):
         """Test rendering a message with only text content."""
         # Create a simple multipart message with text content
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Hello, world!"),
@@ -37,7 +37,7 @@ class TestPromptRender:
     def test_render_multiple_text_contents(self):
         """Test rendering a message with multiple text contents."""
         # Create a multipart message with multiple text contents
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Hello, world!"),
@@ -59,7 +59,7 @@ class TestPromptRender:
         )
 
         # Create a multipart message with both text and image
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Look at this image:"),
@@ -79,7 +79,7 @@ class TestPromptRender:
         """Test rendering a message with embedded text resource."""
         # Create a multipart message with embedded text resource
         resource_text = "This is the content of the resource."
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Here's a text resource:"),
@@ -103,7 +103,7 @@ class TestPromptRender:
         long_text = "A" * 400
 
         # Create a multipart message with embedded long text resource
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Here's a long text resource:"),
@@ -135,7 +135,7 @@ class TestPromptRender:
         sample_blob = "SGVsbG8sIHRoaXMgaXMgYSBiaW5hcnkgYmxvYiE="  # "Hello, this is a binary blob!"
 
         # Create a multipart message with a blob resource
-        message = PromptMessageMultipart(
+        message = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Here's a binary blob:"),

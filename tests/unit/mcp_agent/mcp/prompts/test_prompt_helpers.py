@@ -13,7 +13,7 @@ from mcp.types import (
 )
 from pydantic.networks import AnyUrl
 
-from mcp_agent.mcp.helpers.content_helpers import (
+from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
     get_resource_uri,
     get_text,
@@ -22,7 +22,7 @@ from mcp_agent.mcp.helpers.content_helpers import (
     is_text_content,
     split_thinking_content,
 )
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
 
 
@@ -130,12 +130,12 @@ def test_message_content_with_prompt_message(text_content, image_content, text_e
     assert MessageContent.has_resources(text_msg) is False
 
 
-# Test MessageContent helper class with PromptMessageMultipart
+# Test MessageContent helper class with PromptMessageExtended
 def test_message_content_with_multipart(
     text_content, image_content, text_embedded_resource, blob_resource
 ):
     # Create a multipart message with both text and image content
-    multipart_msg = PromptMessageMultipart(
+    multipart_msg = PromptMessageExtended(
         role="user", content=[text_content, image_content, text_embedded_resource, blob_resource]
     )
 
@@ -171,7 +171,7 @@ def test_message_content_with_multipart(
     assert MessageContent.has_resources(multipart_msg) is True
 
     # Test with empty multipart message
-    empty_msg = PromptMessageMultipart(role="user", content=[])
+    empty_msg = PromptMessageExtended(role="user", content=[])
     assert MessageContent.has_text(empty_msg) is False
     assert MessageContent.has_images(empty_msg) is False
     assert MessageContent.has_resources(empty_msg) is False
@@ -187,13 +187,13 @@ def test_text_at_first_position(text_content, image_content):
     assert MessageContent.has_text_at_first_position(text_msg) is True
     assert MessageContent.get_text_at_first_position(text_msg) == "Hello, world!"
 
-    # Text at first position in PromptMessageMultipart
-    text_first_multipart = PromptMessageMultipart(role="user", content=[text_content])
+    # Text at first position in PromptMessageExtended
+    text_first_multipart = PromptMessageExtended(role="user", content=[text_content])
     assert MessageContent.has_text_at_first_position(text_first_multipart) is True
     assert MessageContent.get_text_at_first_position(text_first_multipart) == "Hello, world!"
 
     # Text at first position with multiple content items
-    multi_content = PromptMessageMultipart(role="user", content=[text_content, image_content])
+    multi_content = PromptMessageExtended(role="user", content=[text_content, image_content])
     assert MessageContent.has_text_at_first_position(multi_content) is True
     assert MessageContent.get_text_at_first_position(multi_content) == "Hello, world!"
 
@@ -202,15 +202,15 @@ def test_text_at_first_position(text_content, image_content):
     assert MessageContent.has_text_at_first_position(image_msg) is False
     assert MessageContent.get_text_at_first_position(image_msg) is None
 
-    # Non-text at first position in PromptMessageMultipart
-    image_first_multipart = PromptMessageMultipart(
+    # Non-text at first position in PromptMessageExtended
+    image_first_multipart = PromptMessageExtended(
         role="user", content=[image_content, text_content]
     )
     assert MessageContent.has_text_at_first_position(image_first_multipart) is False
     assert MessageContent.get_text_at_first_position(image_first_multipart) is None
 
-    # Empty content in PromptMessageMultipart
-    empty_multipart = PromptMessageMultipart(role="user", content=[])
+    # Empty content in PromptMessageExtended
+    empty_multipart = PromptMessageExtended(role="user", content=[])
     assert MessageContent.has_text_at_first_position(empty_multipart) is False
     assert MessageContent.get_text_at_first_position(empty_multipart) is None
 

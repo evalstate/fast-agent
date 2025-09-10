@@ -6,7 +6,7 @@ Environment variables are volatile and may be temporarily modified during test e
 
 import os
 
-from mcp_agent.cli.commands.url_parser import parse_server_urls
+from fast_agent.cli.commands.url_parser import parse_server_urls
 
 
 def _set_hf_token(value: str | None) -> str | None:
@@ -37,10 +37,10 @@ class TestParseServerUrlsHfAuth:
         original = _set_hf_token("hf_test_token")
         try:
             result = parse_server_urls("https://hf.co/models/gpt2")
-            
+
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]
-            
+
             assert server_name == "hf_co"
             assert transport_type == "http"
             assert url == "https://hf.co/models/gpt2/mcp"
@@ -54,10 +54,10 @@ class TestParseServerUrlsHfAuth:
         original = _set_hf_token(None)
         try:
             result = parse_server_urls("https://hf.co/models/gpt2")
-            
+
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]
-            
+
             assert server_name == "hf_co"
             assert transport_type == "http"
             assert url == "https://hf.co/models/gpt2/mcp"
@@ -70,10 +70,10 @@ class TestParseServerUrlsHfAuth:
         original = _set_hf_token("hf_test_token")
         try:
             result = parse_server_urls("https://hf.co/models/gpt2", auth_token="user_token")
-            
+
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]
-            
+
             assert server_name == "hf_co"
             assert transport_type == "http"
             assert url == "https://hf.co/models/gpt2/mcp"
@@ -87,10 +87,10 @@ class TestParseServerUrlsHfAuth:
         original = _set_hf_token("hf_test_token")
         try:
             result = parse_server_urls("https://example.com/api")
-            
+
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]
-            
+
             assert server_name == "example_com"
             assert transport_type == "http"
             assert url == "https://example.com/api/mcp"
@@ -103,10 +103,10 @@ class TestParseServerUrlsHfAuth:
         original = _set_hf_token("hf_test_token")
         try:
             result = parse_server_urls("https://example.com/api", auth_token="user_token")
-            
+
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]
-            
+
             assert server_name == "example_com"
             assert transport_type == "http"
             assert url == "https://example.com/api/mcp"
@@ -121,19 +121,19 @@ class TestParseServerUrlsHfAuth:
         try:
             url_list = "https://hf.co/models/gpt2,https://example.com/api,https://huggingface.co/models/bert"
             result = parse_server_urls(url_list)
-            
+
             assert len(result) == 3
-            
+
             # First URL - HF with token
             server_name, transport_type, url, headers = result[0]
             assert server_name == "hf_co"
             assert headers["Authorization"] == "Bearer hf_test_token"
-            
+
             # Second URL - non-HF, no token
             server_name, transport_type, url, headers = result[1]
             assert server_name == "example_com"
             assert headers is None
-            
+
             # Third URL - HF with token
             server_name, transport_type, url, headers = result[2]
             assert server_name == "huggingface_co"
@@ -151,7 +151,7 @@ class TestParseServerUrlsHfAuth:
                 "http://huggingface.co/models",
                 "https://huggingface.co/datasets",
             ]
-            
+
             for test_url in test_urls:
                 result = parse_server_urls(test_url)
                 assert len(result) == 1
@@ -166,10 +166,10 @@ class TestParseServerUrlsHfAuth:
         original = _set_hf_token("hf_test_token")
         try:
             result = parse_server_urls("https://hf.co/models/gpt2/sse")
-            
+
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]
-            
+
             assert server_name == "hf_co"
             assert transport_type == "sse"
             assert url == "https://hf.co/models/gpt2/sse"

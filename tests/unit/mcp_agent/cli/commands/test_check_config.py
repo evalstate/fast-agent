@@ -1,4 +1,4 @@
-from mcp_agent.cli.commands.check_config import API_KEY_HINT_TEXT, check_api_keys
+from fast_agent.cli.commands.check_config import API_KEY_HINT_TEXT, check_api_keys
 
 
 def make_secrets_summary(azure_cfg):

@@ -16,6 +16,10 @@ from typing import (
 from anyio import Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx import HTTPStatusError
+
+from fast_agent.config import MCPServerSettings
+from fast_agent.context_dependent import ContextDependent
+from fast_agent.event_progress import ProgressAction
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import (
@@ -25,18 +29,14 @@ from mcp.client.stdio import (
 )
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.types import JSONRPCMessage, ServerCapabilities
-
-from mcp_agent.config import MCPServerSettings
-from mcp_agent.context_dependent import ContextDependent
 from mcp_agent.core.exceptions import ServerInitializationError
-from mcp_agent.event_progress import ProgressAction
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.logger_textio import get_stderr_handler
 from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 if TYPE_CHECKING:
-    from mcp_agent.context import Context
-    from mcp_agent.mcp_server_registry import InitHookCallable, ServerRegistry
+    from fast_agent.context import Context
+    from fast_agent.mcp_server_registry import ServerRegistry
 
 logger = get_logger(__name__)
 
@@ -88,13 +88,11 @@ class ServerConnection:
             [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
             ClientSession,
         ],
-        init_hook: Optional["InitHookCallable"] = None,
     ) -> None:
         self.server_name = server_name
         self.server_config = server_config
         self.session: ClientSession | None = None
         self._client_session_factory = client_session_factory
-        self._init_hook = init_hook
         self._transport_context_factory = transport_context_factory
         # Signal that session is fully up and initialized
         self._initialized_event = Event()
@@ -137,9 +135,6 @@ class ServerConnection:
 
         self.server_capabilities = result.capabilities
         # If there's an init hook, run it
-        if self._init_hook:
-            logger.info(f"{self.server_name}: Executing init hook.")
-            self._init_hook(self.session, self.server_config.auth)
 
         # Now the session is ready for use
         self._initialized_event.set()
@@ -272,6 +267,7 @@ class MCPConnectionManager(ContextDependent):
         # Manage our own task group - independent of task context
         self._task_group = None
         self._task_group_active = False
+        self._mcp_sse_filter_added = False
 
     async def __aenter__(self):
         # Create a task group that isn't tied to a specific task
@@ -300,6 +296,23 @@ class MCPConnectionManager(ContextDependent):
         except Exception as e:
             logger.error(f"Error during connection manager shutdown: {e}")
 
+    def _suppress_mcp_sse_errors(self) -> None:
+        """Suppress MCP library's 'Error in sse_reader' messages."""
+        if self._mcp_sse_filter_added:
+            return
+
+        import logging
+
+        class MCPSSEErrorFilter(logging.Filter):
+            def filter(self, record):
+                return not (
+                    record.name == "mcp.client.sse" and "Error in sse_reader" in record.getMessage()
+                )
+
+        mcp_sse_logger = logging.getLogger("mcp.client.sse")
+        mcp_sse_logger.addFilter(MCPSSEErrorFilter())
+        self._mcp_sse_filter_added = True
+
     async def launch_server(
         self,
         server_name: str,
@@ -307,7 +320,6 @@ class MCPConnectionManager(ContextDependent):
             [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
             ClientSession,
         ],
-        init_hook: Optional["InitHookCallable"] = None,
     ) -> ServerConnection:
         """
         Connect to a server and return a RunningServer instance that will persist
@@ -341,6 +353,9 @@ class MCPConnectionManager(ContextDependent):
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
                 return _add_none_to_context(stdio_client(server_params, errlog=error_handler))
             elif config.transport == "sse":
+                # Suppress MCP library error spam
+                self._suppress_mcp_sse_errors()
+
                 return _add_none_to_context(
                     sse_client(
                         config.url,
@@ -358,7 +373,6 @@ class MCPConnectionManager(ContextDependent):
             server_config=config,
             transport_context_factory=transport_context_factory,
             client_session_factory=client_session_factory,
-            init_hook=init_hook or self.server_registry.init_hooks.get(server_name),
         )
 
         async with self._lock:
@@ -376,7 +390,6 @@ class MCPConnectionManager(ContextDependent):
         self,
         server_name: str,
         client_session_factory: Callable,
-        init_hook: Optional["InitHookCallable"] = None,
     ) -> ServerConnection:
         """
         Get a running server instance, launching it if needed.
@@ -397,7 +410,6 @@ class MCPConnectionManager(ContextDependent):
         server_conn = await self.launch_server(
             server_name=server_name,
             client_session_factory=client_session_factory,
-            init_hook=init_hook,
         )
 
         # Wait until it's fully initialized, or an error occurs

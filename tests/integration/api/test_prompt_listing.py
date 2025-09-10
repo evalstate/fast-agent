@@ -4,7 +4,7 @@ Test the prompt listing and selection functionality directly.
 
 import pytest
 
-from mcp_agent.core.interactive_prompt import InteractivePrompt
+from fast_agent.ui.interactive_prompt import InteractivePrompt
 
 
 @pytest.mark.integration

@@ -17,8 +17,8 @@ from rich import print
 from rich.json import JSON
 from rich.text import Text
 
-from mcp_agent.config import LoggerSettings
-from mcp_agent.console import console
+from fast_agent.config import LoggerSettings
+from fast_agent.ui.console import console
 from mcp_agent.logging.events import Event, EventFilter
 from mcp_agent.logging.json_serializer import JSONSerializer
 from mcp_agent.logging.listeners import EventListener, LifecycleAwareListener
@@ -424,15 +424,14 @@ class AsyncEventBus:
                             )
 
             except asyncio.CancelledError:
-                # If we have a current event, mark it done before breaking
-                if event is not None:
+                # TODO -- added _queue assertion; is that necessary?
+                if event is not None and self._queue is not None:
                     self._queue.task_done()
-                break
+                raise
             except Exception as e:
                 print(f"Error in event processing loop: {e}")
-            finally:
-                # Always mark the task as done if we got an event
-                if event is not None:
+                # Mark task done for this event
+                if event is not None and self._queue is not None:
                     self._queue.task_done()
 
         # Process remaining events in queue

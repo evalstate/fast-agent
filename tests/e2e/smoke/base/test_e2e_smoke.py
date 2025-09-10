@@ -9,8 +9,8 @@ from pydantic import BaseModel, Field
 from mcp_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
-    from mcp_agent.llm.memory import Memory
-    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+    from fast_agent.llm.memory import Memory
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 @pytest.mark.integration
@@ -34,6 +34,7 @@ if TYPE_CHECKING:
         "azure.gpt-4.1",
         "grok-3-fast",
         "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-mini.minimal",
         # "groq.deepseek-r1-distill-llama-70b", # handle reasoning outputs (they are long)
     ],
 )
@@ -97,12 +98,14 @@ async def test_open_ai_history(fast_agent, model_name):
     [
         "gpt-4o-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "sonnet",  # Anthropic model
         "deepseek",
         "openrouter.google/gemini-2.0-flash-001",
         "gemini2",
         "gemini25",  # Works -> DONE.
         "o3-mini.low",
         "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_multiple_text_blocks_prompting(fast_agent, model_name):
@@ -115,7 +118,7 @@ async def test_multiple_text_blocks_prompting(fast_agent, model_name):
     )
     async def agent_function():
         async with fast.run() as agent:
-            response: PromptMessageMultipart = await agent.default.generate(
+            response: PromptMessageExtended = await agent.default.generate(
                 [Prompt.user("write a 60 word story", "about cats - including the word 'cat'")]
             )
             response_text = response.all_text()
@@ -124,7 +127,7 @@ async def test_multiple_text_blocks_prompting(fast_agent, model_name):
             assert 32 <= word_count <= 70, f"Expected between 32-70 words, got {word_count}"
             assert "cat" in response_text
 
-            response: PromptMessageMultipart = await agent.default.generate(
+            response: PromptMessageExtended = await agent.default.generate(
                 [
                     Prompt.user("write a 60 word story"),
                     Prompt.user("about cats - including the word 'cat'"),
@@ -192,6 +195,7 @@ class WeatherForecast(BaseModel):
         "gemini25",  # Works -> DONE.
         "azure.gpt-4.1",
         "grok-3",
+        "gpt-5-mini.minimal",
         #  "grok-4", slow,
     ],
 )
@@ -318,6 +322,8 @@ async def test_generic_model_textual_prompting(fast_agent, model_name):
         "groq.moonshotai/kimi-k2-instruct",
         "groq.deepseek-r1-distill-llama-70b",
         "groq.qwen/qwen3-32b",
+        "gpt-oss",
+        "gpt-5-mini.minimal",
     ],
 )
 async def test_basic_tool_calling(fast_agent, model_name):
@@ -369,6 +375,7 @@ async def test_basic_tool_calling(fast_agent, model_name):
         "azure.gpt-4.1",
         "grok-3",
         "groq.moonshotai/kimi-k2-instruct",
+        "gpt-5-nano.minimal",
     ],
 )
 async def test_tool_calls_no_args(fast_agent, model_name):

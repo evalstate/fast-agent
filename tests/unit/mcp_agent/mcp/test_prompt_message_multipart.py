@@ -1,5 +1,5 @@
 """
-Unit tests for the PromptMessageMultipart class.
+Unit tests for the PromptMessageExtended class.
 """
 
 from mcp.types import (
@@ -9,12 +9,12 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 
-class TestPromptMessageMultipart:
-    """Tests for the PromptMessageMultipart class."""
+class TestPromptMessageExtended:
+    """Tests for the PromptMessageExtended class."""
 
     def test_from_prompt_messages_with_single_role(self):
         """Test converting a sequence of PromptMessages with the same role."""
@@ -24,8 +24,8 @@ class TestPromptMessageMultipart:
             PromptMessage(role="user", content=TextContent(type="text", text="How are you?")),
         ]
 
-        # Convert to PromptMessageMultipart
-        result = PromptMessageMultipart.to_multipart(messages)
+        # Convert to PromptMessageExtended
+        result = PromptMessageExtended.to_extended(messages)
 
         # Verify results
         assert len(result) == 1
@@ -43,8 +43,8 @@ class TestPromptMessageMultipart:
             PromptMessage(role="user", content=TextContent(type="text", text="How are you?")),
         ]
 
-        # Convert to PromptMessageMultipart
-        result = PromptMessageMultipart.to_multipart(messages)
+        # Convert to PromptMessageExtended
+        result = PromptMessageExtended.to_extended(messages)
 
         # Verify results
         assert len(result) == 3
@@ -73,8 +73,8 @@ class TestPromptMessageMultipart:
             PromptMessage(role="user", content=image_content),
         ]
 
-        # Convert to PromptMessageMultipart
-        result = PromptMessageMultipart.to_multipart(messages)
+        # Convert to PromptMessageExtended
+        result = PromptMessageExtended.to_extended(messages)
 
         # Verify results
         assert len(result) == 1
@@ -86,9 +86,9 @@ class TestPromptMessageMultipart:
         assert result[0].content[1].mimeType == "image/png"
 
     def test_to_prompt_messages(self):
-        """Test converting a PromptMessageMultipart back to PromptMessages."""
+        """Test converting a PromptMessageExtended back to PromptMessages."""
         # Create a multipart message
-        multipart = PromptMessageMultipart(
+        multipart = PromptMessageExtended(
             role="user",
             content=[
                 TextContent(type="text", text="Hello"),
@@ -107,7 +107,7 @@ class TestPromptMessageMultipart:
         assert result[1].content.text == "How are you?"
 
     def test_parse_get_prompt_result(self):
-        """Test parsing a GetPromptResult into PromptMessageMultipart objects."""
+        """Test parsing a GetPromptResult into PromptMessageExtended objects."""
         # Create test messages
         messages = [
             PromptMessage(role="user", content=TextContent(type="text", text="Hello")),
@@ -118,8 +118,8 @@ class TestPromptMessageMultipart:
         # Create a GetPromptResult
         result = GetPromptResult(messages=messages)
 
-        # Parse into PromptMessageMultipart objects
-        multiparts = PromptMessageMultipart.parse_get_prompt_result(result)
+        # Parse into PromptMessageExtended objects
+        multiparts = PromptMessageExtended.parse_get_prompt_result(result)
 
         # Verify results
         assert len(multiparts) == 3
@@ -136,7 +136,7 @@ class TestPromptMessageMultipart:
     def test_empty_messages(self):
         """Test handling of empty message lists."""
         # Convert an empty list
-        result = PromptMessageMultipart.to_multipart([])
+        result = PromptMessageExtended.to_extended([])
 
         # Should return an empty list
         assert result == []
@@ -154,7 +154,7 @@ class TestPromptMessageMultipart:
         ]
 
         # Convert to multipart
-        multiparts = PromptMessageMultipart.to_multipart(messages)
+        multiparts = PromptMessageExtended.to_extended(messages)
 
         # Convert back to regular messages
         result = []
@@ -176,24 +176,24 @@ class TestPromptMessageMultipart:
         ]
         result = GetPromptResult(messages=messages)
 
-        multiparts = PromptMessageMultipart.from_get_prompt_result(result)
+        multiparts = PromptMessageExtended.from_get_prompt_result(result)
         assert len(multiparts) == 2
         assert multiparts[0].role == "user"
         assert multiparts[1].role == "assistant"
 
         # Test with None
-        multiparts = PromptMessageMultipart.from_get_prompt_result(None)
+        multiparts = PromptMessageExtended.from_get_prompt_result(None)
         assert multiparts == []
 
         # Test with empty result
         empty_result = GetPromptResult(messages=[])
-        multiparts = PromptMessageMultipart.from_get_prompt_result(empty_result)
+        multiparts = PromptMessageExtended.from_get_prompt_result(empty_result)
         assert multiparts == []
 
     def test_getting_last_text_empty(self):
         """Test from_get_prompt_result method with error handling."""
         # Test with valid GetPromptResult
-        assert "<no text>" == Prompt.user().last_text()
+        assert None is Prompt.user().last_text()
         assert "last" == Prompt.user("first", "last").last_text()
 
     def test_convenience_add_text(self):

@@ -5,13 +5,12 @@ Predefined elicitation handlers for different use cases.
 import json
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.human_input.elicitation_handler import elicitation_input_callback
+from fast_agent.human_input.types import HumanInputRequest
+from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
-
-from mcp_agent.human_input.elicitation_handler import elicitation_input_callback
-from mcp_agent.human_input.types import HumanInputRequest
 from mcp_agent.logging.logger import get_logger
-from mcp_agent.mcp.helpers.server_config_helpers import get_server_config
 
 if TYPE_CHECKING:
     from mcp import ClientSession
@@ -24,7 +23,7 @@ async def auto_cancel_elicitation_handler(
     params: ElicitRequestParams,
 ) -> ElicitResult | ErrorData:
     """Handler that automatically cancels all elicitation requests.
-    
+
     Useful for production deployments where you want to advertise elicitation
     capability but automatically decline all requests.
     """
@@ -52,6 +51,7 @@ async def forms_elicitation_handler(
 
     # 1. Check if we have an MCPAgentClientSession in the context
     from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+
     if hasattr(context, "session") and isinstance(context.session, MCPAgentClientSession):
         agent_name = context.session.agent_name
 
@@ -90,9 +90,17 @@ async def forms_elicitation_handler(
         elif response_data == "__CANCELLED__":
             return ElicitResult(action="cancel")
         elif response_data == "__DISABLE_SERVER__":
-            # Log that user wants to disable elicitation for this server
-            logger.warning(f"User requested to disable elicitation for server: {server_name}")
-            # For now, just cancel - in a full implementation, this would update server config
+            # Respect user's request: disable elicitation for this server for this session
+            logger.warning(
+                f"User requested to disable elicitation for server: {server_name} — disabling for session"
+            )
+            try:
+                from fast_agent.human_input.elicitation_state import elicitation_state
+
+                elicitation_state.disable_server(server_name)
+            except Exception:
+                # Do not fail the flow if state update fails
+                pass
             return ElicitResult(action="cancel")
 
         # Parse response based on schema if provided

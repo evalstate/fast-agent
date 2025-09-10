@@ -4,7 +4,7 @@ Unit tests for the URL parser utility functions.
 
 import pytest
 
-from mcp_agent.cli.commands.url_parser import (
+from fast_agent.cli.commands.url_parser import (
     generate_server_configs,
     generate_server_name,
     parse_server_url,

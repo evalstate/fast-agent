@@ -1,0 +1,19 @@
+# FastAgent config for Bedrock tools tests
+
+default_model: passthrough
+
+logger:
+  progress_display: true
+  show_chat: true
+  show_tools: true
+  truncate_tools: true
+
+mcp:
+  servers:
+    test_server:
+      command: "uv"
+      args: ["run", "bedrock_test_server.py"]
+    hyphen-name:
+      command: "uv"
+      args: ["run", "bedrock_test_server.py"]
+

@@ -9,8 +9,8 @@ from pathlib import Path
 
 from mcp.types import EmbeddedResource, ImageContent, PromptMessage, TextContent
 
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 
 def test_user_method():
@@ -18,7 +18,7 @@ def test_user_method():
     # Test with simple text
     message = Prompt.user("Hello, world!")
 
-    assert isinstance(message, PromptMessageMultipart)
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"
     assert len(message.content) == 1
     assert isinstance(message.content[0], TextContent)
@@ -27,29 +27,28 @@ def test_user_method():
     # Test with multiple items
     message = Prompt.user("Hello,", "How are you?")
 
-    assert isinstance(message, PromptMessageMultipart)
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"
     assert len(message.content) == 2
     assert message.content[0].text == "Hello,"
     assert message.content[1].text == "How are you?"
-    
+
     # Test with PromptMessage
     prompt_message = PromptMessage(
-        role="assistant", 
-        content=TextContent(type="text", text="I'm a PromptMessage")
+        role="assistant", content=TextContent(type="text", text="I'm a PromptMessage")
     )
     message = Prompt.user(prompt_message)
-    
-    assert isinstance(message, PromptMessageMultipart)
+
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"  # Role should be changed to user
     assert len(message.content) == 1
     assert message.content[0].text == "I'm a PromptMessage"
-    
-    # Test with PromptMessageMultipart
+
+    # Test with PromptMessageExtended
     multipart = Prompt.assistant("I'm a multipart message")
     message = Prompt.user(multipart)
-    
-    assert isinstance(message, PromptMessageMultipart)
+
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"  # Role should be changed to user
     assert len(message.content) == 1
     assert message.content[0].text == "I'm a multipart message"
@@ -60,7 +59,7 @@ def test_assistant_method():
     # Test with simple text
     message = Prompt.assistant("I'm doing well, thanks!")
 
-    assert isinstance(message, PromptMessageMultipart)
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "assistant"
     assert len(message.content) == 1
     assert isinstance(message.content[0], TextContent)
@@ -72,13 +71,13 @@ def test_message_method():
     # Test with user role (default)
     message = Prompt.message("Hello")
 
-    assert isinstance(message, PromptMessageMultipart)
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"
 
     # Test with assistant role
     message = Prompt.message("Hello", role="assistant")
 
-    assert isinstance(message, PromptMessageMultipart)
+    assert isinstance(message, PromptMessageExtended)
     assert message.role == "assistant"
 
 
@@ -114,25 +113,23 @@ def test_with_file_paths():
         # Decode the base64 data
         decoded = base64.b64decode(message.content[1].data)
         assert decoded == b"fake image data"
-        
+
         # Test with ResourceContents and EmbeddedResource
         from mcp.types import ReadResourceResult, TextResourceContents
         from pydantic import AnyUrl
-        
+
         # Create a TextResourceContents
         text_resource = TextResourceContents(
-            uri=AnyUrl("file:///test/example.txt"), 
-            text="Sample text",
-            mimeType="text/plain"
+            uri=AnyUrl("file:///test/example.txt"), text="Sample text", mimeType="text/plain"
         )
-        
+
         # Test with ResourceContent
         message = Prompt.user("Check this resource:", text_resource)
         assert message.role == "user"
         assert len(message.content) == 2
         assert isinstance(message.content[1], EmbeddedResource)
         assert message.content[1].resource == text_resource
-        
+
         # Test with EmbeddedResource
         embedded = EmbeddedResource(type="resource", resource=text_resource)
         message = Prompt.user("Another resource:", embedded)
@@ -141,7 +138,7 @@ def test_with_file_paths():
         # Using dictionary comparison because the objects might not be identity-equal
         assert message.content[1].type == embedded.type
         assert message.content[1].resource.text == embedded.resource.text
-        
+
         # Test with ReadResourceResult
         resource_result = ReadResourceResult(contents=[text_resource])
         message = Prompt.user("Resource result:", resource_result)
@@ -149,21 +146,23 @@ def test_with_file_paths():
         assert len(message.content) > 1  # Should have text + resource
         assert message.content[0].text == "Resource result:"
         assert isinstance(message.content[1], EmbeddedResource)
-        
+
         # Test with direct TextContent
         text_content = TextContent(type="text", text="Direct text content")
         message = Prompt.user(text_content)
         assert message.role == "user"
         assert len(message.content) == 1
         assert message.content[0] == text_content
-        
+
         # Test with direct ImageContent
-        image_content = ImageContent(type="image", data="ZmFrZSBpbWFnZSBkYXRh", mimeType="image/png")
+        image_content = ImageContent(
+            type="image", data="ZmFrZSBpbWFnZSBkYXRh", mimeType="image/png"
+        )
         message = Prompt.assistant(image_content)
         assert message.role == "assistant"
         assert len(message.content) == 1
         assert message.content[0] == image_content
-        
+
         # Test with mixed content including direct content types
         message = Prompt.user("Text followed by:", text_content, "And an image:", image_content)
         assert message.role == "user"
@@ -181,7 +180,7 @@ def test_with_file_paths():
 
 def test_conversation_method():
     """Test the Prompt.conversation method."""
-    # Create conversation from PromptMessageMultipart objects
+    # Create conversation from PromptMessageExtended objects
     user_msg = Prompt.user("Hello")
     assistant_msg = Prompt.assistant("Hi there!")
 
@@ -224,7 +223,7 @@ def test_from_multipart_method():
     assert messages[1].role == "assistant"
     assert messages[2].role == "user"
 
-    # Test with PromptMessageMultipart instances containing multiple content items
+    # Test with PromptMessageExtended instances containing multiple content items
     complex_multipart = [
         Prompt.user("Hello,", "How are you?"),
         Prompt.assistant("I'm fine,", "Thanks for asking!"),

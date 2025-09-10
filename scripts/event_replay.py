@@ -11,9 +11,9 @@ from pathlib import Path
 
 import typer
 
-from mcp_agent.event_progress import convert_log_event
+from fast_agent.event_progress import convert_log_event
+from fast_agent.ui.rich_progress import RichProgressDisplay
 from mcp_agent.logging.events import Event
-from mcp_agent.logging.rich_progress import RichProgressDisplay
 
 
 def load_events(path: Path) -> list[Event]:

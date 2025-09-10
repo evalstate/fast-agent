@@ -100,11 +100,25 @@ async def product_review() -> ReadResourceResult:
             },
         )
         review_text: str = Field(
-            description="Tell us about your experience", min_length=10, max_length=1000
+            description="Tell us about your experience",
+            default="""Great product!
+Here's what I loved:
+
+- Excellent build quality
+- Fast shipping
+- Works as advertised
+
+One minor issue:
+- Instructions could be clearer
+
+Overall, highly recommended!""",
+            min_length=10,
+            max_length=1000
         )
 
     result = await mcp.get_context().elicit(
-        "Share your product review - Help others make informed decisions!", schema=ProductReview
+        "Share your product review - Help others make informed decisions!",
+        schema=ProductReview,
     )
 
     match result:
@@ -140,6 +154,7 @@ async def account_settings() -> ReadResourceResult:
         email_notifications: bool = Field(True, description="Receive email notifications?")
         marketing_emails: bool = Field(False, description="Subscribe to marketing emails?")
         theme: str = Field(
+            "dark",
             description="Choose your preferred theme",
             json_schema_extra={
                 "enum": ["light", "dark", "auto"],
@@ -147,7 +162,9 @@ async def account_settings() -> ReadResourceResult:
             },
         )
         privacy_public: bool = Field(False, description="Make your profile public?")
-        items_per_page: int = Field(description="Items to show per page (10-100)", ge=10, le=100)
+        items_per_page: int = Field(
+            25, description="Items to show per page (10-100)", ge=10, le=100
+        )
 
     result = await mcp.get_context().elicit("Update your account settings", schema=AccountSettings)
 
@@ -182,7 +199,11 @@ async def service_appointment() -> ReadResourceResult:
 
     class ServiceAppointment(BaseModel):
         customer_name: str = Field(description="Your full name", min_length=2, max_length=50)
+        phone_number: str = Field(
+            "555-", description="Contact phone number", min_length=10, max_length=20
+        )
         vehicle_type: str = Field(
+            default="sedan",
             description="What type of vehicle do you have?",
             json_schema_extra={
                 "enum": ["sedan", "suv", "truck", "motorcycle", "other"],
@@ -205,6 +226,7 @@ async def service_appointment() -> ReadResourceResult:
             lines = [
                 "🔧 Service Appointment Scheduled!",
                 f"👤 Customer: {data.customer_name}",
+                f"📞 Phone: {data.phone_number}",
                 f"🚗 Vehicle: {data.vehicle_type.title()}",
                 f"🚙 Loaner needed: {'Yes' if data.needs_loaner else 'No'}",
                 f"📅 Appointment: {data.appointment_time}",

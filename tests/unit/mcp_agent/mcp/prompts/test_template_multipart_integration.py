@@ -1,5 +1,5 @@
 """
-Integration tests for PromptTemplate and PromptMessageMultipart.
+Integration tests for PromptTemplate and PromptMessageExtended.
 """
 
 import os
@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from mcp.types import TextContent
 
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.mcp.prompt_serialization import (
     load_messages_from_delimited_file,
 )
@@ -20,10 +20,10 @@ from mcp_agent.mcp.prompts.prompt_template import (
 
 
 class TestTemplateMultipartIntegration:
-    """Tests for integration between PromptTemplate and PromptMessageMultipart."""
+    """Tests for integration between PromptTemplate and PromptMessageExtended."""
 
-    def test_template_to_multipart_conversion(self):
-        """Test converting a PromptTemplate to PromptMessageMultipart objects."""
+    def test_template_to_extended_conversion(self):
+        """Test converting a PromptTemplate to PromptMessageExtended objects."""
         # Create a template
         template_text = """---USER
 Hello, I'm trying to learn about {{topic}}.
@@ -39,7 +39,7 @@ Here are some key points about {{topic}}:
         template = PromptTemplate(template_text)
 
         # Convert to multipart messages
-        multiparts = template.to_multipart_messages()
+        multiparts = template.to_extended_messages()
 
         # Verify results
         assert len(multiparts) == 2
@@ -53,8 +53,8 @@ Here are some key points about {{topic}}:
         assert multiparts[1].content[0].type == "text"
         assert "I'd be happy to help you learn about {{topic}}!" in multiparts[1].content[0].text
 
-    def test_template_with_substitutions_to_multipart(self):
-        """Test applying substitutions to a template and converting to multipart."""
+    def test_template_with_substitutions_to_extended(self):
+        """Test applying substitutions to a template and converting to extended."""
         # Create a template with variables
         template_text = """---USER
 Hello, I'm trying to learn about {{topic}}.
@@ -66,25 +66,30 @@ I'd be happy to help you learn about {{topic}}!
 
         # Apply substitutions and convert to multipart
         context = {"topic": "Python programming"}
-        multiparts = template.apply_substitutions_to_multipart(context)
+        multiparts = template.apply_substitutions_to_extended(context)
 
         # Verify results
         assert len(multiparts) == 2
         assert multiparts[0].role == "user"
-        assert "Hello, I'm trying to learn about Python programming." in multiparts[0].content[0].text
+        assert (
+            "Hello, I'm trying to learn about Python programming." in multiparts[0].content[0].text
+        )
 
         assert multiparts[1].role == "assistant"
-        assert "I'd be happy to help you learn about Python programming!" in multiparts[1].content[0].text
+        assert (
+            "I'd be happy to help you learn about Python programming!"
+            in multiparts[1].content[0].text
+        )
 
     def test_multipart_to_template_conversion(self):
-        """Test converting PromptMessageMultipart objects to a PromptTemplate."""
+        """Test converting PromptMessageExtended objects to a PromptTemplate."""
         # Create multipart messages
         multiparts = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[TextContent(type="text", text="What's the capital of France?")],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="assistant",
                 content=[TextContent(type="text", text="The capital of France is Paris.")],
             ),
@@ -101,7 +106,7 @@ I'd be happy to help you learn about {{topic}}!
         assert template.content_sections[1].text == "The capital of France is Paris."
 
     def test_round_trip_conversion(self):
-        """Test round-trip conversion between PromptTemplate and PromptMessageMultipart."""
+        """Test round-trip conversion between PromptTemplate and PromptMessageExtended."""
         # Original template
         template_text = """---USER
 Tell me about {{subject}}.
@@ -118,7 +123,7 @@ Here's information about {{subject}}:
         original_template = PromptTemplate(template_text)
 
         # Convert to multipart
-        multiparts = original_template.to_multipart_messages()
+        multiparts = original_template.to_extended_messages()
 
         # Convert back to template
         new_template = PromptTemplate.from_multipart_messages(multiparts)
@@ -157,7 +162,9 @@ Hi there! I'm here to help with your test.
             f.write("---USER\n")
             f.write("Can you explain quantum physics?\n")
             f.write("---ASSISTANT\n")
-            f.write("Quantum physics is fascinating! It deals with the behavior of matter at atomic scales.\n")
+            f.write(
+                "Quantum physics is fascinating! It deals with the behavior of matter at atomic scales.\n"
+            )
 
         # DEBUG: Read the file content to verify it's written correctly
         with open(str(temp_delimited_file), "r", encoding="utf-8") as f:
@@ -195,7 +202,7 @@ Hi there! I'm here to help with your test.
         template = loader.load_from_file(temp_delimited_file)
 
         # Convert to multipart
-        multiparts = template.to_multipart_messages()
+        multiparts = template.to_extended_messages()
 
         # Verify results
         assert len(multiparts) == 2
@@ -204,16 +211,18 @@ Hi there! I'm here to help with your test.
 
         # Create new messages and convert to template
         new_messages = [
-            PromptMessageMultipart(role="user", content=[TextContent(type="text", text="Tell me a joke.")]),
-            PromptMessageMultipart(
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Tell me a joke.")]
+            ),
+            PromptMessageExtended(
                 role="assistant",
                 content=[TextContent(type="text", text="Why did the chicken cross the road?")],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[TextContent(type="text", text="I don't know, why?")],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="assistant",
                 content=[TextContent(type="text", text="To get to the other side!")],
             ),

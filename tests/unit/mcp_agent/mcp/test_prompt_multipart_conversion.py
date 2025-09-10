@@ -1,5 +1,5 @@
 """
-Unit test demonstrating issues with PromptMessageMultipart conversion.
+Unit test demonstrating issues with PromptMessageExtended conversion.
 """
 
 import os
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from mcp.types import PromptMessage, TextContent
 
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
 from mcp_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
@@ -60,7 +60,7 @@ resource2.txt
         assert messages[3].role == "assistant"  # Assistant resource message
 
         # Step 2: Convert to multipart (this is what happens in load_prompt_multipart)
-        multipart_messages = PromptMessageMultipart.to_multipart(messages)
+        multipart_messages = PromptMessageExtended.to_extended(messages)
 
         # Here's the issue: we get only 2 messages instead of 4 because consecutive
         # messages with the same role are merged
@@ -113,7 +113,7 @@ assistant2
         assert messages[3].role == "assistant"
 
         # Convert to multipart
-        multipart = PromptMessageMultipart.to_multipart(messages)
+        multipart = PromptMessageExtended.to_extended(messages)
 
         # We should still have 4 messages with alternating roles
         assert len(multipart) == 4
@@ -145,7 +145,7 @@ def test_playback_pattern_with_simple_messages():
     ]
 
     # Convert to multipart - this should maintain 4 separate messages
-    multipart = PromptMessageMultipart.to_multipart(messages)
+    multipart = PromptMessageExtended.to_extended(messages)
     assert len(multipart) == 4
 
     # Check roles are preserved

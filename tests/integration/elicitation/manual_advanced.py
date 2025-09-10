@@ -1,7 +1,7 @@
 import asyncio
 
+from fast_agent.mcp.helpers.content_helpers import get_resource_text
 from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.mcp.helpers.content_helpers import get_resource_text
 
 # Create the application with specified model
 fast = FastAgent("fast-agent elicitation example")

@@ -3,11 +3,11 @@ import json
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp_agent.agents.workflow.evaluator_optimizer import (
+from fast_agent.agents.workflow.evaluator_optimizer import (
     QualityRating,
 )
+from fast_agent.llm.internal.passthrough import FIXED_RESPONSE_INDICATOR
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.llm.augmented_llm_passthrough import FIXED_RESPONSE_INDICATOR
 
 
 class EvaluationResult(BaseModel):

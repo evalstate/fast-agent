@@ -15,9 +15,10 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 import yaml
 from opentelemetry import trace
 
-from mcp_agent import config
-from mcp_agent.app import MCPApp
-from mcp_agent.context import Context
+from fast_agent import config
+from fast_agent.context import Context
+from fast_agent.core import Core
+from fast_agent.ui.usage_display import display_usage_report
 from mcp_agent.core.agent_app import AgentApp
 from mcp_agent.core.direct_decorators import (
     agent as agent_decorator,
@@ -57,7 +58,6 @@ from mcp_agent.core.exceptions import (
     ServerConfigError,
     ServerInitializationError,
 )
-from mcp_agent.core.usage_display import display_usage_report
 from mcp_agent.core.validation import (
     validate_provider_keys_post_creation,
     validate_server_references,
@@ -67,8 +67,8 @@ from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
 if TYPE_CHECKING:
+    from fast_agent.types import PromptMessageExtended
     from mcp_agent.agents.agent import Agent
-    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
@@ -87,6 +87,7 @@ class FastAgent:
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
+        **kwargs,
     ) -> None:
         """
         Initialize the fast-agent application.
@@ -200,14 +201,15 @@ class FastAgent:
                 self.config["logger"]["show_tools"] = False
 
             # Create the app with our local settings
-            self.app = MCPApp(
+            self.app = Core(
                 name=name,
                 settings=config.Settings(**self.config) if hasattr(self, "config") else None,
+                **kwargs,
             )
 
             # Stop progress display immediately if quiet mode is requested
             if self._programmatic_quiet:
-                from mcp_agent.progress_display import progress_display
+                from fast_agent.ui.progress_display import progress_display
 
                 progress_display.stop()
 
@@ -227,7 +229,7 @@ class FastAgent:
         but without relying on the global cache."""
 
         # Import but make a local copy to avoid affecting the global state
-        from mcp_agent.config import _settings, get_settings
+        from fast_agent.config import _settings, get_settings
 
         # Temporarily clear the global settings to ensure a fresh load
         old_settings = _settings
@@ -290,7 +292,7 @@ class FastAgent:
                         self.app.context.config.logger.show_tools = False
 
                         # Directly disable the progress display singleton
-                        from mcp_agent.progress_display import progress_display
+                        from fast_agent.ui.progress_display import progress_display
 
                         progress_display.stop()
 
@@ -340,7 +342,7 @@ class FastAgent:
                                 print("Press Ctrl+C to stop")
 
                             # Create the MCP server
-                            from mcp_agent.mcp_server import AgentMCPServer
+                            from fast_agent.mcp.server import AgentMCPServer
 
                             mcp_server = AgentMCPServer(
                                 agent_app=wrapper,
@@ -395,7 +397,7 @@ class FastAgent:
 
                     if hasattr(self.args, "prompt_file") and self.args.prompt_file:
                         agent_name = self.args.agent
-                        prompt: List[PromptMessageMultipart] = load_prompt_multipart(
+                        prompt: List[PromptMessageExtended] = load_prompt_multipart(
                             Path(self.args.prompt_file)
                         )
                         if agent_name not in active_agents:
@@ -441,14 +443,14 @@ class FastAgent:
             finally:
                 # Ensure progress display is stopped before showing usage summary
                 try:
-                    from mcp_agent.progress_display import progress_display
+                    from fast_agent.ui.progress_display import progress_display
 
                     progress_display.stop()
                 except:  # noqa: E722
                     pass
 
                 # Print usage report before cleanup (show for user exits too)
-                if active_agents and not had_error:
+                if active_agents and not had_error and not quiet_mode:
                     self._print_usage_report(active_agents)
 
                 # Clean up any active agents (always cleanup, even on errors)

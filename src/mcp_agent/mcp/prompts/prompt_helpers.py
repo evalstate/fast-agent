@@ -1,5 +1,5 @@
 """
-Helper functions for working with PromptMessage and PromptMessageMultipart objects.
+Helper functions for working with PromptMessage and PromptMessageExtended objects.
 
 These utilities simplify extracting content from nested message structures
 without repetitive type checking.
@@ -7,19 +7,19 @@ without repetitive type checking.
 
 from typing import List, Optional, Union, cast
 
+from fast_agent.mcp.helpers.content_helpers import get_image_data, get_text
 from mcp.types import (
     EmbeddedResource,
     PromptMessage,
     TextContent,
 )
 
-from mcp_agent.mcp.helpers.content_helpers import get_image_data, get_text
-
-# Forward reference for PromptMessageMultipart, actual import happens at runtime
-PromptMessageMultipartType = Union[object]  # Will be replaced with actual type
+# Forward reference for PromptMessageExtended, actual import happens at runtime
+PromptMessageExtendedType = Union[object]  # Will be replaced with actual type
 try:
-    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
-    PromptMessageMultipartType = PromptMessageMultipart
+    from fast_agent.types import PromptMessageExtended
+
+    PromptMessageExtendedType = PromptMessageExtended
 except ImportError:
     # During initialization, there might be a circular import.
     # We'll handle this gracefully.
@@ -29,16 +29,16 @@ except ImportError:
 class MessageContent:
     """
     Helper class for working with message content in both PromptMessage and
-    PromptMessageMultipart objects.
+    PromptMessageExtended objects.
     """
 
     @staticmethod
-    def get_all_text(message: Union[PromptMessage, "PromptMessageMultipart"]) -> List[str]:
+    def get_all_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> List[str]:
         """
         Extract all text content from a message.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             List of text strings from all text content parts
@@ -57,13 +57,13 @@ class MessageContent:
 
     @staticmethod
     def join_text(
-        message: Union[PromptMessage, "PromptMessageMultipart"], separator: str = "\n\n"
+        message: Union[PromptMessage, "PromptMessageExtended"], separator: str = "\n\n"
     ) -> str:
         """
         Join all text content in a message with a separator.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
             separator: String to use as separator (default: newlines)
 
         Returns:
@@ -72,12 +72,12 @@ class MessageContent:
         return separator.join(MessageContent.get_all_text(message))
 
     @staticmethod
-    def get_first_text(message: Union[PromptMessage, "PromptMessageMultipart"]) -> Optional[str]:
+    def get_first_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> Optional[str]:
         """
         Get the first available text content from a message.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             First text content or None if no text content exists
@@ -93,13 +93,13 @@ class MessageContent:
         return None
 
     @staticmethod
-    def has_text_at_first_position(message: Union[PromptMessage, "PromptMessageMultipart"]) -> bool:
+    def has_text_at_first_position(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
         """
         Check if a message has a TextContent at the first position.
         This is a common case when dealing with messages that start with text.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             True if the message has TextContent at first position, False otherwise
@@ -112,13 +112,13 @@ class MessageContent:
 
     @staticmethod
     def get_text_at_first_position(
-        message: Union[PromptMessage, "PromptMessageMultipart"],
+        message: Union[PromptMessage, "PromptMessageExtended"],
     ) -> Optional[str]:
         """
         Get the text from the first position of a message if it's TextContent.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             The text content at the first position if it's TextContent,
@@ -134,12 +134,12 @@ class MessageContent:
         return cast("TextContent", message.content[0]).text
 
     @staticmethod
-    def get_all_images(message: Union[PromptMessage, "PromptMessageMultipart"]) -> List[str]:
+    def get_all_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> List[str]:
         """
         Extract all image data from a message.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             List of image data strings from all image content parts
@@ -157,12 +157,12 @@ class MessageContent:
         return result
 
     @staticmethod
-    def get_first_image(message: Union[PromptMessage, "PromptMessageMultipart"]) -> Optional[str]:
+    def get_first_image(message: Union[PromptMessage, "PromptMessageExtended"]) -> Optional[str]:
         """
         Get the first available image data from a message.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             First image data or None if no image content exists
@@ -179,13 +179,13 @@ class MessageContent:
 
     @staticmethod
     def get_all_resources(
-        message: Union[PromptMessage, "PromptMessageMultipart"],
+        message: Union[PromptMessage, "PromptMessageExtended"],
     ) -> List[EmbeddedResource]:
         """
         Extract all embedded resources from a message.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             List of EmbeddedResource objects
@@ -198,12 +198,12 @@ class MessageContent:
         return [content for content in message.content if isinstance(content, EmbeddedResource)]
 
     @staticmethod
-    def has_text(message: Union[PromptMessage, "PromptMessageMultipart"]) -> bool:
+    def has_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
         """
         Check if the message has any text content.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             True if the message has text content, False otherwise
@@ -211,12 +211,12 @@ class MessageContent:
         return len(MessageContent.get_all_text(message)) > 0
 
     @staticmethod
-    def has_images(message: Union[PromptMessage, "PromptMessageMultipart"]) -> bool:
+    def has_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
         """
         Check if the message has any image content.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             True if the message has image content, False otherwise
@@ -224,12 +224,12 @@ class MessageContent:
         return len(MessageContent.get_all_images(message)) > 0
 
     @staticmethod
-    def has_resources(message: Union[PromptMessage, "PromptMessageMultipart"]) -> bool:
+    def has_resources(message: Union[PromptMessage, "PromptMessageExtended"]) -> bool:
         """
         Check if the message has any embedded resources.
 
         Args:
-            message: A PromptMessage or PromptMessageMultipart
+            message: A PromptMessage or PromptMessageExtended
 
         Returns:
             True if the message has embedded resources, False otherwise

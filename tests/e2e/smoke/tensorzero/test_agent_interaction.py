@@ -1,7 +1,7 @@
 import pytest
 
+from fast_agent.llm.request_params import RequestParams
 from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.core.request_params import RequestParams
 
 pytestmark = pytest.mark.usefixtures("tensorzero_docker_env")
 
@@ -47,7 +47,7 @@ async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example)
 
     async with fast.run() as agent_app:
         agent_instance = agent_app.default
-        print(f"\nSending {len(messages_to_send)} messages to agent '{agent_instance.name}'...")
+        print(f"\nSending {len(messages_to_send)} messages to agent '{agent_instance._name}'...")
         for i, msg_text in enumerate(messages_to_send):
             print(f"Sending message {i + 1}: '{msg_text}'")
             await agent_instance.send(msg_text)

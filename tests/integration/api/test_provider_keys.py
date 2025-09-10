@@ -2,9 +2,9 @@ import os
 
 import pytest
 
+from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from mcp_agent.core.exceptions import ProviderKeyError
-from mcp_agent.llm.augmented_llm import AugmentedLLM
-from mcp_agent.llm.provider_key_manager import ProviderKeyManager
 
 
 @pytest.mark.integration
@@ -104,7 +104,9 @@ async def test_programmatic_api_key(fast_agent):
             assert fast.config
             assert "test-key-anth" == ProviderKeyManager.get_api_key("anthropic", fast.config)
             assert "programmatic-api-key" == agent.default.config.api_key
-            assert isinstance(agent.default._llm, AugmentedLLM)
-            assert "programmatic-api-key" == agent.default._llm._api_key(), "api_key arg > config file"
+            assert isinstance(agent.default._llm, FastAgentLLM)
+            assert "programmatic-api-key" == agent.default._llm._api_key(), (
+                "api_key arg > config file"
+            )
 
     await agent_function()

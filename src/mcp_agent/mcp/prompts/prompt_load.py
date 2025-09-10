@@ -1,16 +1,15 @@
 from pathlib import Path
 from typing import List, Literal
 
+from fast_agent.types import PromptMessageExtended
 from mcp.server.fastmcp.prompts.base import (
     AssistantMessage,
     Message,
     UserMessage,
 )
 from mcp.types import PromptMessage, TextContent
-
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp import mime_utils, resource_utils
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompts.prompt_template import (
     PromptContent,
     PromptTemplate,
@@ -137,9 +136,9 @@ def load_prompt(file: Path) -> List[PromptMessage]:
         return create_messages_with_resources(template.content_sections, [file])
 
 
-def load_prompt_multipart(file: Path) -> List[PromptMessageMultipart]:
+def load_prompt_multipart(file: Path) -> List[PromptMessageExtended]:
     """
-    Load a prompt from a file and return as PromptMessageMultipart objects.
+    Load a prompt from a file and return as PromptMessageExtended objects.
 
     The loader uses file extension to determine the format:
     - .json files are loaded as MCP SDK compatible GetPromptResult JSON format
@@ -149,9 +148,9 @@ def load_prompt_multipart(file: Path) -> List[PromptMessageMultipart]:
         file: Path to the prompt file
 
     Returns:
-        List of PromptMessageMultipart objects
+        List of PromptMessageExtended objects
     """
     # First load as regular PromptMessage objects
     messages = load_prompt(file)
     # Then convert to multipart messages
-    return PromptMessageMultipart.to_multipart(messages)
+    return PromptMessageExtended.to_extended(messages)

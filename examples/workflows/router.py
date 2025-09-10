@@ -26,11 +26,13 @@ SAMPLE_REQUESTS = [
 
 @fast.agent(
     name="fetcher",
+    model="haiku",
     instruction="""You are an agent, with a tool enabling you to fetch URLs.""",
     servers=["fetch"],
 )
 @fast.agent(
     name="code_expert",
+    model="haiku",
     instruction="""You are an expert in code analysis and software engineering.
     When asked about code, architecture, or development practices,
     you provide thorough and practical insights.""",
@@ -38,12 +40,13 @@ SAMPLE_REQUESTS = [
 )
 @fast.agent(
     name="general_assistant",
+    model="haiku",
     instruction="""You are a knowledgeable assistant that provides clear,
     well-reasoned responses about general topics, concepts, and principles.""",
 )
 @fast.router(
     name="route",
-    model="gpt-4.1",
+    model="sonnet",
     agents=["code_expert", "general_assistant", "fetcher"],
 )
 async def main() -> None:
@@ -54,7 +57,7 @@ async def main() -> None:
     )
 
     async with fast.run() as agent:
-        await agent.interactive(agent_name="route")
+        #   await agent.interactive(agent_name="route")
         for request in SAMPLE_REQUESTS:
             await agent.route(request)
 

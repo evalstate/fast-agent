@@ -11,7 +11,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from mcp_agent.event_progress import ProgressAction, convert_log_event
+from fast_agent.event_progress import ProgressAction, convert_log_event
 from mcp_agent.logging.events import Event
 
 

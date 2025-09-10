@@ -1,12 +1,12 @@
 """
-Tests for serializing PromptMessageMultipart objects to delimited format.
+Tests for serializing PromptMessageExtended objects to delimited format.
 """
 
 from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
 
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from mcp_agent.mcp.prompt_serialization import (
-    json_to_multipart_messages,
+    json_to_extended_messages,
     multipart_messages_to_delimited_format,
     multipart_messages_to_json,
 )
@@ -19,7 +19,7 @@ class TestPromptSerialization:
         """Test the new JSON serialization and deserialization approach."""
         # Create multipart messages with various content types
         original_messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Here's a resource:"),
@@ -33,7 +33,7 @@ class TestPromptSerialization:
                     ),
                 ],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="assistant",
                 content=[
                     TextContent(type="text", text="I've processed your resource."),
@@ -54,7 +54,7 @@ class TestPromptSerialization:
         assert "image/jpeg" in json_str
 
         # Convert back from JSON
-        parsed_messages = json_to_multipart_messages(json_str)
+        parsed_messages = json_to_extended_messages(json_str)
 
         # Verify round-trip conversion
         assert len(parsed_messages) == len(original_messages)
@@ -79,17 +79,17 @@ class TestPromptSerialization:
         assert parsed_messages[1].content[1].mimeType == "image/jpeg"
 
     def test_multipart_to_delimited_format(self):
-        """Test converting PromptMessageMultipart to delimited format for saving."""
+        """Test converting PromptMessageExtended to delimited format for saving."""
         # Create multipart messages
         multipart_messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Hello!"),
                     TextContent(type="text", text="Can you help me?"),
                 ],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="assistant",
                 content=[
                     TextContent(type="text", text="Sure, I'd be happy to help."),
@@ -106,13 +106,16 @@ class TestPromptSerialization:
         assert delimited_content[0] == "---USER"
         assert delimited_content[1] == "Hello!\n\nCan you help me?"
         assert delimited_content[2] == "---ASSISTANT"
-        assert delimited_content[3] == "Sure, I'd be happy to help.\n\nWhat do you need assistance with?"
+        assert (
+            delimited_content[3]
+            == "Sure, I'd be happy to help.\n\nWhat do you need assistance with?"
+        )
 
     def test_multipart_with_resources_to_delimited_format(self):
-        """Test converting PromptMessageMultipart with resources to delimited format."""
+        """Test converting PromptMessageExtended with resources to delimited format."""
         # Create multipart messages with resources
         multipart_messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Check this code:"),
@@ -146,21 +149,21 @@ class TestPromptSerialization:
         assert "def hello()" in resource_json
 
     def test_multi_role_messages_to_delimited_format(self):
-        """Test converting a list of PromptMessageMultipart objects with different roles to delimited format."""
+        """Test converting a list of PromptMessageExtended objects with different roles to delimited format."""
         # Create multipart messages with different roles
         messages = [
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[TextContent(type="text", text="You are a helpful assistant.")],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="user",
                 content=[
                     TextContent(type="text", text="Hello!"),
                     TextContent(type="text", text="Can you help me?"),
                 ],
             ),
-            PromptMessageMultipart(
+            PromptMessageExtended(
                 role="assistant",
                 content=[
                     TextContent(type="text", text="I'd be happy to help."),

@@ -1,5 +1,5 @@
 """
-Tests for using PromptMessageMultipart in augmented LLMs.
+Tests for using PromptMessageExtended in augmented LLMs.
 """
 
 import os

@@ -4,9 +4,8 @@ Factory for resolving elicitation handlers with proper precedence.
 
 from typing import Any, Optional
 
+from fast_agent.agents.agent_types import AgentConfig
 from mcp.client.session import ElicitationFnT
-
-from mcp_agent.core.agent_types import AgentConfig
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.elicitation_handlers import (
     auto_cancel_elicitation_handler,

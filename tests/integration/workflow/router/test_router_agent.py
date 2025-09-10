@@ -4,12 +4,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import BaseModel
 
+from fast_agent.llm.internal.passthrough import FIXED_RESPONSE_INDICATOR
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.llm.augmented_llm_passthrough import FIXED_RESPONSE_INDICATOR
 from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
 if TYPE_CHECKING:
-    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 @pytest.mark.integration
@@ -27,10 +27,10 @@ async def test_router_functionality(fast_agent):
         async with fast.run() as agent:
             await agent.target1.send(f"{FIXED_RESPONSE_INDICATOR} target1-result")
             await agent.target2.send(f"{FIXED_RESPONSE_INDICATOR} target2-result")
-            router_setup: list[PromptMessageMultipart] = load_prompt_multipart(
+            router_setup: list[PromptMessageExtended] = load_prompt_multipart(
                 Path("router_script.txt")
             )
-            setup: PromptMessageMultipart = await agent.router._llm.generate(router_setup)
+            setup: PromptMessageExtended = await agent.router._llm.generate(router_setup)
             assert "LOADED" in setup.first_text()
             result: str = await agent.router.send("some routing")
             assert "target1-result" in result
@@ -73,7 +73,7 @@ async def test_router_structured_output(fast_agent):
                 [Prompt.user(f"{FIXED_RESPONSE_INDICATOR} {routing_response}")]
             )
 
-            # Send request through router with proper PromptMessageMultipart list
+            # Send request through router with proper PromptMessageExtended list
             result, _ = await agent.router.structured(
                 [Prompt.user("What's the weather in New York?")], WeatherData
             )

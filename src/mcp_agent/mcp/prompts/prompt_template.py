@@ -9,14 +9,14 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 
+from pydantic import BaseModel, field_validator
+
+from fast_agent.types import PromptMessageExtended
 from mcp.types import (
     EmbeddedResource,
     TextContent,
     TextResourceContents,
 )
-from pydantic import BaseModel, field_validator
-
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
 from mcp_agent.mcp.prompt_serialization import (
     multipart_messages_to_delimited_format,
 )
@@ -108,14 +108,14 @@ class PromptTemplate:
     @classmethod
     def from_multipart_messages(
         cls,
-        messages: List[PromptMessageMultipart],
+        messages: List[PromptMessageExtended],
         delimiter_map: Optional[Dict[str, str]] = None,
     ) -> "PromptTemplate":
         """
-        Create a PromptTemplate from a list of PromptMessageMultipart objects.
+        Create a PromptTemplate from a list of PromptMessageExtended objects.
 
         Args:
-            messages: List of PromptMessageMultipart objects
+            messages: List of PromptMessageExtended objects
             delimiter_map: Optional map of delimiters to roles
 
         Returns:
@@ -165,17 +165,17 @@ class PromptTemplate:
         # Create a new list with substitutions applied to each section
         return [section.apply_substitutions(context) for section in self._parsed_content]
 
-    def apply_substitutions_to_multipart(
+    def apply_substitutions_to_extended(
         self, context: Dict[str, Any]
-    ) -> List[PromptMessageMultipart]:
+    ) -> List[PromptMessageExtended]:
         """
-        Apply variable substitutions to the template and return PromptMessageMultipart objects.
+        Apply variable substitutions to the template and return PromptMessageExtended objects.
 
         Args:
             context: Dictionary of variable names to values
 
         Returns:
-            List of PromptMessageMultipart objects with substitutions applied
+            List of PromptMessageExtended objects with substitutions applied
         """
         # First create a substituted template
         content_sections = self.apply_substitutions(context)
@@ -201,7 +201,7 @@ class PromptTemplate:
                     )
                 )
 
-            multiparts.append(PromptMessageMultipart(role=section.role, content=content_items))
+            multiparts.append(PromptMessageExtended(role=section.role, content=content_items))
 
         return multiparts
 
@@ -211,12 +211,12 @@ class PromptTemplate:
         matches = re.findall(variable_pattern, text)
         return set(matches)
 
-    def to_multipart_messages(self) -> List[PromptMessageMultipart]:
+    def to_extended_messages(self) -> List[PromptMessageExtended]:
         """
-        Convert this template to a list of PromptMessageMultipart objects.
+        Convert this template to a list of PromptMessageExtended objects.
 
         Returns:
-            List of PromptMessageMultipart objects
+            List of PromptMessageExtended objects
         """
         multiparts = []
 
@@ -239,7 +239,7 @@ class PromptTemplate:
                     )
                 )
 
-            multiparts.append(PromptMessageMultipart(role=section.role, content=content_items))
+            multiparts.append(PromptMessageExtended(role=section.role, content=content_items))
 
         return multiparts
 
@@ -348,12 +348,12 @@ class PromptTemplateLoader:
 
         return PromptTemplate(content, self.delimiter_map, template_file_path=file_path)
 
-    def load_from_multipart(self, messages: List[PromptMessageMultipart]) -> PromptTemplate:
+    def load_from_multipart(self, messages: List[PromptMessageExtended]) -> PromptTemplate:
         """
-        Create a PromptTemplate from a list of PromptMessageMultipart objects.
+        Create a PromptTemplate from a list of PromptMessageExtended objects.
 
         Args:
-            messages: List of PromptMessageMultipart objects
+            messages: List of PromptMessageExtended objects
 
         Returns:
             A PromptTemplate object

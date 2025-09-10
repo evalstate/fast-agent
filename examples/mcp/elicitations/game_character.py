@@ -14,8 +14,8 @@ from game_character_handler import game_character_elicitation_handler
 from rich.console import Console
 from rich.panel import Panel
 
+from fast_agent.mcp.helpers.content_helpers import get_resource_text
 from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.mcp.helpers.content_helpers import get_resource_text
 
 fast = FastAgent("Game Character Creator", quiet=True)
 console = Console()
