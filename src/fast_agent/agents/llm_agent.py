@@ -8,14 +8,14 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
-from typing import List
+from typing import List, Tuple
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.llm_decorator import LlmDecorator
+from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.context import Context
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -144,6 +144,19 @@ class LlmAgent(LlmDecorator):
 
         await self.show_assistant_message(result)
         return result
+
+    async def structured_impl(
+        self,
+        messages: List[PromptMessageExtended],
+        model: type[ModelT],
+        request_params: RequestParams | None = None,
+    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+        if "user" == messages[-1].role:
+            self.show_user_message(message=messages[-1])
+
+        result, message = await super().structured_impl(messages, model, request_params)
+        await self.show_assistant_message(message=message)
+        return result, message
 
     # async def show_prompt_loaded(
     #     self,
