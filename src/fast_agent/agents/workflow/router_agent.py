@@ -97,7 +97,7 @@ class RouterAgent(LlmAgent):
 
         self.agents = agents
         self.routing_instruction = routing_instruction
-        self.agent_map = {agent._name: agent for agent in agents}
+        self.agent_map = {agent.name: agent for agent in agents}
 
         # Set up base router request parameters with just the base instruction for now
         base_params = {"systemPrompt": ROUTING_SYSTEM_INSTRUCTION, "use_history": False}
@@ -203,7 +203,7 @@ class RouterAgent(LlmAgent):
         # is probably the most readable. alt could be a _get_route_agent or
         # some form of dynamic dispatch.. but only if this gets more complex
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"Routing: '{self._name}' generate"):
+        with tracer.start_as_current_span(f"Routing: '{self.name}' generate"):
             route, warn = await self._route_request(messages[-1])
 
             if not route:
@@ -234,7 +234,7 @@ class RouterAgent(LlmAgent):
         """
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"Routing: '{self._name}' structured"):
+        with tracer.start_as_current_span(f"Routing: '{self.name}' structured"):
             route, warn = await self._route_request(messages[-1])
 
             if not route:
@@ -267,12 +267,12 @@ class RouterAgent(LlmAgent):
         # go straight to agent if only one available
         if len(self.agents) == 1:
             return RoutingResponse(
-                agent=self.agents[0]._name, confidence="high", reasoning="Only one agent available"
+                agent=self.agents[0].name, confidence="high", reasoning="Only one agent available"
             ), None
 
         assert self._llm
         # Display the user's routing request
-        self.display.show_user_message(message.first_text(), name=self._name)
+        self.display.show_user_message(message.first_text(), name=self.name)
 
         # No need to add routing instruction here - it's already in the system prompt
         response, _ = await self._llm.structured(
@@ -304,7 +304,7 @@ class RouterAgent(LlmAgent):
                 routing_message,
                 bottom_items=list(self.agent_map.keys()),
                 highlight_items=[response.agent],
-                name=self._name,
+                name=self.name,
             )
 
             return response, None

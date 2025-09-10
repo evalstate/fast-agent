@@ -3,15 +3,20 @@ Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension 
 """
 
 from typing import (
+    TYPE_CHECKING,
     Dict,
     List,
     Mapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
     Union,
 )
+
+if TYPE_CHECKING:
+    from rich.text import Text
 
 from a2a.types import AgentCard
 from mcp import Tool
@@ -27,8 +32,8 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.context import Context
 from fast_agent.interfaces import (
+    AgentProtocol,
     FastAgentLLMProtocol,
-    LlmAgentProtocol,
     LLMFactoryProtocol,
 )
 from fast_agent.llm.provider_types import Provider
@@ -45,7 +50,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 
-class LlmDecorator(LlmAgentProtocol):
+class LlmDecorator(AgentProtocol):
     """
     A pure delegation wrapper around LlmAgent instances.
 
@@ -145,7 +150,7 @@ class LlmDecorator(LlmAgentProtocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
     ) -> str:
         """
@@ -165,7 +170,7 @@ class LlmDecorator(LlmAgentProtocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
     ) -> str:
@@ -181,7 +186,7 @@ class LlmDecorator(LlmAgentProtocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
     ) -> PromptMessageExtended:
@@ -253,6 +258,7 @@ class LlmDecorator(LlmAgentProtocol):
         prompt: Union[str, GetPromptResult],
         arguments: Dict[str, str] | None = None,
         as_template: bool = False,
+        namespace: str | None = None,
     ) -> str:
         """
         Default, provider-agnostic apply_prompt implementation.
@@ -281,7 +287,7 @@ class LlmDecorator(LlmAgentProtocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
@@ -463,3 +469,18 @@ class LlmDecorator(LlmAgentProtocol):
             provider=None,
             documentation_url=None,
         )
+
+    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
+        return request
+
+    async def show_assistant_message(
+        self,
+        message: PromptMessageExtended,
+        bottom_items: List[str] | None = None,
+        highlight_items: str | List[str] | None = None,
+        max_item_length: int | None = None,
+        name: str | None = None,
+        model: str | None = None,
+        additional_message: Optional["Text"] = None,
+    ) -> None:
+        pass

@@ -7,7 +7,7 @@ from opentelemetry import trace
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.interfaces import ModelT
+from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.logging.logger import get_logger
 
@@ -30,8 +30,8 @@ class ParallelAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        fan_in_agent: LlmAgent,
-        fan_out_agents: List[LlmAgent],
+        fan_in_agent: AgentProtocol,
+        fan_out_agents: List[AgentProtocol],
         include_request: bool = True,
         **kwargs,
     ) -> None:
@@ -113,13 +113,13 @@ class ParallelAgent(LlmAgent):
 
         # Format each agent's response
         for i, response in enumerate(responses):
-            agent_name = self.fan_out_agents[i]._name
+            agent_name = self.fan_out_agents[i].name
             formatted.append(
                 f'<fastagent:response agent="{agent_name}">\n{response}\n</fastagent:response>'
             )
         return "\n\n".join(formatted)
 
-    async def structured(
+    async def structured_impl(
         self,
         messages: List[PromptMessageExtended],
         model: type[ModelT],
@@ -193,4 +193,4 @@ class ParallelAgent(LlmAgent):
             try:
                 await agent.shutdown()
             except Exception as e:
-                logger.warning(f"Error shutting down fan-out agent {agent._name}: {str(e)}")
+                logger.warning(f"Error shutting down fan-out agent {agent.name}: {str(e)}")

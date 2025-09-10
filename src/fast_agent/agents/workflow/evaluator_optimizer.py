@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.interfaces import ModelT
+from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
@@ -70,8 +70,8 @@ class EvaluatorOptimizerAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        generator_agent: LlmAgent,
-        evaluator_agent: LlmAgent,
+        generator_agent: AgentProtocol,
+        evaluator_agent: AgentProtocol,
         min_rating: QualityRating = QualityRating.GOOD,
         max_refinements: int = 3,
         context: Optional[Any] = None,
@@ -129,7 +129,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
         request = messages[-1].all_text() if messages else ""
 
         # Initial generation
-        response = await self.generator_agent.generate_impl(messages, request_params)
+        response = await self.generator_agent.generate(messages, request_params)
         best_response = response
 
         # Refinement loop
@@ -143,7 +143,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
             # Create evaluation message and get structured evaluation result
             eval_message = Prompt.user(eval_prompt)
-            evaluation_result, _ = await self.evaluator_agent.structured_impl(
+            evaluation_result, _ = await self.evaluator_agent.structured(
                 [eval_message], EvaluationResult, request_params
             )
 
@@ -224,9 +224,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
         # Delegate structured parsing to the generator agent
         structured_prompt = Prompt.user(response.all_text())
-        return await self.generator_agent.structured_impl(
-            [structured_prompt], model, request_params
-        )
+        return await self.generator_agent.structured([structured_prompt], model, request_params)
 
     async def initialize(self) -> None:
         """Initialize the agent and its generator and evaluator agents."""

@@ -15,6 +15,7 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
@@ -58,6 +59,8 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 if TYPE_CHECKING:
+    from rich.text import Text
+
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
 
@@ -154,8 +157,6 @@ class McpAgent(ABC, ToolAgent):
         """
         await self.__aenter__()
 
-    # Inherit attach_llm from LlmDecorator (merges params and constructs the LLM)
-
     async def shutdown(self) -> None:
         """
         Shutdown the agent and close all MCP server connections.
@@ -180,7 +181,7 @@ class McpAgent(ABC, ToolAgent):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
     ) -> str:
         return await self.send(message)
@@ -191,7 +192,7 @@ class McpAgent(ABC, ToolAgent):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
     ) -> str:
@@ -423,7 +424,7 @@ class McpAgent(ABC, ToolAgent):
         else:
             # Always call generate to ensure LLM implementations can handle prompt templates
             # This is critical for stateful LLMs like PlaybackLLM
-            response = await self.generate_impl(multipart_messages, None)
+            response = await self.generate(multipart_messages, None)
             return response.first_text()
 
     async def get_embedded_resources(
@@ -798,6 +799,9 @@ class McpAgent(ABC, ToolAgent):
         bottom_items: List[str] | None = None,
         highlight_items: str | List[str] | None = None,
         max_item_length: int | None = None,
+        name: str | None = None,
+        model: str | None = None,
+        additional_message: Optional["Text"] = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -830,6 +834,9 @@ class McpAgent(ABC, ToolAgent):
             bottom_items=server_names,
             highlight_items=highlight_servers,
             max_item_length=max_item_length or 12,
+            name=name,
+            model=model,
+            additional_message=additional_message,
         )
 
     def _extract_servers_from_message(self, message: PromptMessageExtended) -> List[str]:
