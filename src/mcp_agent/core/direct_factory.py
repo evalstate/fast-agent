@@ -6,6 +6,7 @@ Implements type-safe factories with improved error handling.
 from typing import Any, Dict, Optional, Protocol, TypeVar
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
     QualityRating,
@@ -21,7 +22,7 @@ from fast_agent.interfaces import (
     ModelFactoryFunctionProtocol,
 )
 from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.mcp.ui_wrapper import McpAgentUIWrapper
+from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.types import RequestParams
 from mcp_agent.agents.agent import Agent, AgentConfig
 from mcp_agent.core.exceptions import AgentConfigError
@@ -37,36 +38,32 @@ T = TypeVar("T")  # For generic types
 logger = get_logger(__name__)
 
 
-def _apply_ui_wrapper_if_needed(
+def _create_agent_with_ui_if_needed(
     agent_class: type,
     config: Any,
     context: Any,
 ) -> Any:
     """
-    Apply UI wrapper to an agent if MCP UI mode is enabled.
+    Create an agent with UI support if MCP UI mode is enabled.
 
     Args:
-        agent_class: The agent class to potentially wrap
+        agent_class: The agent class to potentially enhance with UI
         config: Agent configuration
         context: Application context
 
     Returns:
-        Either the wrapped agent instance or the original agent instance
+        Either a UI-enhanced agent instance or the original agent instance
     """
-    # First create the agent instance
-    agent = agent_class(config=config, context=context)
-
     # Check UI mode from settings
     settings = context.config if hasattr(context, "config") else None
     ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
 
-    if ui_mode != "disabled":
-        # Wrap the agent instance with UI wrapper
-        wrapped_agent = McpAgentUIWrapper(agent)
-        wrapped_agent.set_ui_mode(ui_mode)
-        return wrapped_agent
-
-    return agent
+    if ui_mode != "disabled" and agent_class == Agent:
+        # Use the UI-enhanced agent class instead of the base class
+        return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode)
+    else:
+        # Create the original agent instance
+        return agent_class(config=config, context=context)
 
 
 class AgentCreatorProtocol(Protocol):
@@ -171,8 +168,8 @@ async def create_agents_by_type(
             # Type-specific initialization based on the Enum type
             # Note: Above we compared string values from config, here we compare Enum objects directly
             if agent_type == AgentType.BASIC:
-                # Create agent with UI wrapper if needed
-                agent = _apply_ui_wrapper_if_needed(
+                # Create agent with UI support if needed
+                agent = _create_agent_with_ui_if_needed(
                     Agent,
                     config,
                     app_instance.context,
@@ -193,8 +190,8 @@ async def create_agents_by_type(
                 # Get the class to instantiate
                 cls = agent_data["agent_class"]
 
-                # Create agent with UI wrapper if needed
-                agent = _apply_ui_wrapper_if_needed(
+                # Create agent with UI support if needed
+                agent = _create_agent_with_ui_if_needed(
                     cls,
                     config,
                     app_instance.context,
@@ -531,7 +528,7 @@ async def _create_default_fan_in_agent(
     fan_in_name: str,
     context,
     model_factory_func: ModelFactoryFunctionProtocol,
-) -> Agent:
+) -> AgentProtocol:
     """
     Create a default fan-in agent for parallel workflows when none is specified.
 
@@ -551,7 +548,7 @@ async def _create_default_fan_in_agent(
     )
 
     # Create and initialize the default agent
-    fan_in_agent = Agent(
+    fan_in_agent = LlmAgent(
         config=default_config,
         context=context,
     )

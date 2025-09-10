@@ -1,18 +1,22 @@
 from enum import Enum
 from json import JSONDecodeError
-from typing import Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
 from mcp.types import CallToolResult
 from rich.panel import Panel
 from rich.text import Text
 
 from fast_agent.ui import console
+from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
     create_mermaid_live_link,
     detect_diagram_type,
     extract_mermaid_diagrams,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 CODE_STYLE = "native"
 
@@ -677,7 +681,7 @@ class ConsoleDisplay:
 
     async def show_assistant_message(
         self,
-        message_text: Union[str, Text],
+        message_text: Union[str, Text, "PromptMessageExtended"],
         bottom_items: List[str] | None = None,
         highlight_items: str | List[str] | None = None,
         max_item_length: int | None = None,
@@ -688,7 +692,7 @@ class ConsoleDisplay:
         """Display an assistant message in a formatted panel.
 
         Args:
-            message_text: The message content to display
+            message_text: The message content to display (str, Text, or PromptMessageExtended)
             bottom_items: Optional list of items for bottom separator (e.g., servers, destinations)
             highlight_items: Item(s) to highlight in the bottom separator
             max_item_length: Optional max length for bottom items (with ellipsis)
@@ -700,12 +704,20 @@ class ConsoleDisplay:
         if not self.config or not self.config.logger.show_chat:
             return
 
+        # Extract text from PromptMessageExtended if needed
+        from fast_agent.types import PromptMessageExtended
+
+        if isinstance(message_text, PromptMessageExtended):
+            display_text = message_text.last_text() or ""
+        else:
+            display_text = message_text
+
         # Build right info
         right_info = f"[dim]{model}[/dim]" if model else ""
 
         # Display main message using unified method
         self.display_message(
-            content=message_text,
+            content=display_text,
             message_type=MessageType.ASSISTANT,
             name=name,
             right_info=right_info,
@@ -717,10 +729,10 @@ class ConsoleDisplay:
         )
 
         # Handle mermaid diagrams separately (after the main message)
-        # Extract plain text if message_text is a Text object
-        plain_text = message_text
-        if isinstance(message_text, Text):
-            plain_text = message_text.plain
+        # Extract plain text for mermaid detection
+        plain_text = display_text
+        if isinstance(display_text, Text):
+            plain_text = display_text.plain
 
         if isinstance(plain_text, str):
             diagrams = extract_mermaid_diagrams(plain_text)
@@ -754,6 +766,27 @@ class ConsoleDisplay:
         # Display diagrams on a simple new line (more space efficient)
         console.console.print()
         console.console.print(diagram_content, markup=self._markup)
+
+    async def show_mcp_ui_links(self, links: List[UILink]) -> None:
+        """Display MCP-UI links beneath the chat like mermaid links."""
+        if not self.config or not self.config.logger.show_chat:
+            return
+
+        if not links:
+            return
+
+        content = Text()
+        content.append("● mcp-ui ", style="dim")
+        for i, link in enumerate(links, 1):
+            if i > 1:
+                content.append(" • ", style="dim")
+            # Prefer a web-friendly URL (http(s) or data:) if available; fallback to local file
+            url = link.web_url if getattr(link, "web_url", None) else f"file://{link.file_path}"
+            label = f"{i} - {link.title}"
+            content.append(label, style=f"bright_blue link {url}")
+
+        console.console.print()
+        console.console.print(content, markup=self._markup)
 
     def show_user_message(
         self,

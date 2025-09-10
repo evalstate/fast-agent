@@ -59,9 +59,12 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
             # This is a single agent
             agent = agent_provider
 
-        # Get counts
-        servers = await agent.list_servers()
-        server_count = len(servers) if servers else 0
+        # Get counts TODO -- add this to the type library or adjust the way aggregator/reporting works
+        server_count = 0
+        if hasattr(agent, "_aggregator") and hasattr(agent._aggregator, "server_names"):
+            server_count = (
+                len(agent._aggregator.server_names) if agent._aggregator.server_names else 0
+            )
 
         tools_result = await agent.list_tools()
         tool_count = (

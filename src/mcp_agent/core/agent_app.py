@@ -282,7 +282,7 @@ class AgentApp:
             target_name = None
             for agent in self._agents.values():
                 if agent.config.default:
-                    target_name = agent.config.name
+                    target_name = agent.name
                     break
 
             if not target_name:

@@ -462,6 +462,14 @@ class Settings(BaseSettings):
     logger: LoggerSettings | None = LoggerSettings()
     """Logger settings for the fast-agent application"""
 
+    # MCP UI integration mode for handling ui:// embedded resources from MCP tool results
+    mcp_ui_mode: Literal["disabled", "enabled", "auto"] = "enabled"
+    """Controls handling of MCP UI embedded resources:
+    - "disabled": Do not process ui:// resources
+    - "enabled": Always extract ui:// resources into message channels (default)
+    - "auto": Extract and automatically open ui:// resources.
+    """
+
     @classmethod
     def find_config(cls) -> Path | None:
         """Find the config file in the current directory or parent directories."""
