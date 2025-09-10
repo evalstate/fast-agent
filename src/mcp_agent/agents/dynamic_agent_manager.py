@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from a2a.types import AgentCard
+
 from mcp_agent.agents.agent import Agent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from mcp_agent.core.direct_factory import get_model_factory
@@ -34,14 +36,60 @@ class DynamicAgentSpec:
     model: Optional[str] = None
 
 
-class DynamicAgentInfo(BaseModel):
-    """Information about a dynamic agent."""
-    agent_id: str = Field(description="Unique identifier for the agent")
-    name: str = Field(description="Human-readable name of the agent")
-    status: str = Field(description="Current status (active, terminated)")
-    servers: List[str] = Field(description="MCP servers the agent can access")
-    context_tokens_used: int = Field(description="Number of context tokens used", default=0)
-    last_activity: Optional[str] = Field(description="Last activity timestamp", default=None)
+def create_dynamic_agent_card(
+    agent_id: str,
+    name: str,
+    description: str,
+    servers: List[str],
+    status: str = "active",
+    context_tokens_used: int = 0,
+    last_activity: Optional[str] = None
+) -> AgentCard:
+    """Create an AgentCard for a dynamic agent."""
+    from a2a.types import AgentCapabilities, AgentSkill
+    
+    # Create skills from servers
+    skills = []
+    for server in servers:
+        skills.append(AgentSkill(
+            id=f"mcp_{server}",
+            name=f"mcp_{server}",
+            description=f"Access to {server} MCP server",
+            tags=["mcp", "server", server]
+        ))
+    
+    # Add status and metadata as additional skills
+    skills.append(AgentSkill(
+        id="agent_status",
+        name="agent_status",
+        description=f"Agent status: {status}",
+        tags=["status", "metadata"]
+    ))
+    
+    if context_tokens_used > 0:
+        skills.append(AgentSkill(
+            id="usage_info",
+            name="usage_info",
+            description=f"Context tokens used: {context_tokens_used}",
+            tags=["usage", "metadata"]
+        ))
+    
+    return AgentCard(
+        name=name,
+        description=description,
+        url=f"fast-agent://dynamic-agents/{agent_id}/",
+        version="0.1",
+        capabilities=AgentCapabilities(
+            supportsStreaming=False,
+            supportsFunctionCalling=True,
+            supportsToolUse=True
+        ),
+        defaultInputModes=["text/plain"],
+        defaultOutputModes=["text/plain"],
+        skills=skills,
+        provider=None,
+        documentationUrl=None
+    )
 
 
 class DynamicAgentManager:
@@ -295,12 +343,12 @@ class DynamicAgentManager:
             # Silently fail if display not available
             self.logger.debug(f"Could not display dynamic agent results: {e}")
     
-    def list_agents(self) -> List[DynamicAgentInfo]:
+    def list_agents(self) -> List[AgentCard]:
         """
-        List all active dynamic agents.
+        List all active dynamic agents as AgentCard objects.
         
         Returns:
-            agents: List of agent information
+            agents: List of agent cards
         """
         result = []
         for agent_id, agent in self.dynamic_agents.items():
@@ -310,14 +358,15 @@ class DynamicAgentManager:
                 summary = agent.usage_accumulator.get_summary()
                 tokens_used = summary.get('cumulative_input_tokens', 0) + summary.get('cumulative_output_tokens', 0)
             
-            info = DynamicAgentInfo(
+            card = create_dynamic_agent_card(
                 agent_id=agent_id,
                 name=agent.name,
-                status="active",
+                description=agent.instruction,
                 servers=agent.config.servers,
+                status="active",
                 context_tokens_used=tokens_used
             )
-            result.append(info)
+            result.append(card)
         
         return result
     

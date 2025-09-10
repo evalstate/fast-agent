@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from mcp_agent.agents.dynamic_agent_manager import (
-    DynamicAgentInfo,
     DynamicAgentManager,
     DynamicAgentSpec,
+    create_dynamic_agent_card,
 )
 from fast_agent.agents.agent_types import AgentConfig
 
@@ -48,24 +48,42 @@ class TestDynamicAgentSpec:
         assert spec.model == "haiku"
 
 
-class TestDynamicAgentInfo:
-    """Test the DynamicAgentInfo model."""
+class TestCreateDynamicAgentCard:
+    """Test the create_dynamic_agent_card function."""
     
-    def test_info_creation(self):
-        """Test creating DynamicAgentInfo."""
-        info = DynamicAgentInfo(
+    def test_card_creation(self):
+        """Test creating an AgentCard for a dynamic agent."""
+        card = create_dynamic_agent_card(
             agent_id="test_123",
             name="test_agent",
-            status="active",
-            servers=["filesystem"]
+            description="A test agent",
+            servers=["filesystem", "fetch"]
         )
         
-        assert info.agent_id == "test_123"
-        assert info.name == "test_agent"
-        assert info.status == "active"
-        assert info.servers == ["filesystem"]
-        assert info.context_tokens_used == 0
-        assert info.last_activity is None
+        assert card.name == "test_agent"
+        assert card.description == "A test agent"
+        assert card.url == "fast-agent://dynamic-agents/test_123/"
+        assert card.version == "0.1"
+        assert len(card.skills) == 3  # 2 servers + 1 status skill
+        assert card.defaultInputModes == ["text/plain"]
+        assert card.defaultOutputModes == ["text/plain"]
+    
+    def test_card_with_usage_info(self):
+        """Test creating an AgentCard with usage information."""
+        card = create_dynamic_agent_card(
+            agent_id="test_456",
+            name="usage_agent",
+            description="An agent with usage tracking",
+            servers=["filesystem"],
+            context_tokens_used=1500
+        )
+        
+        assert card.name == "usage_agent"
+        assert len(card.skills) == 3  # 1 server + 1 status + 1 usage skill
+        # Check that usage skill is included
+        usage_skills = [skill for skill in card.skills if skill.name == "usage_info"]
+        assert len(usage_skills) == 1
+        assert "1500" in usage_skills[0].description
 
 
 class TestDynamicAgentManager:
@@ -264,11 +282,14 @@ class TestDynamicAgentManager:
     
     def test_list_agents(self):
         """Test listing all agents."""
+        from a2a.types import AgentCard
+        
         # Add mock agents
         for i in range(2):
             agent_id = f"agent_{i}"
             mock_agent = Mock()
             mock_agent.name = f"agent_{i}"
+            mock_agent.instruction = f"Test agent {i}"
             mock_agent.config = Mock()
             mock_agent.config.servers = ["filesystem"]
             mock_agent.usage_accumulator = None
@@ -279,13 +300,12 @@ class TestDynamicAgentManager:
         
         # Verify
         assert len(agents) == 2
-        for i, info in enumerate(agents):
-            assert isinstance(info, DynamicAgentInfo)
-            assert info.agent_id == f"agent_{i}"
-            assert info.name == f"agent_{i}"
-            assert info.status == "active"
-            assert info.servers == ["filesystem"]
-            assert info.context_tokens_used == 0
+        for i, card in enumerate(agents):
+            assert isinstance(card, AgentCard)
+            assert card.name == f"agent_{i}"
+            assert card.description == f"Test agent {i}"
+            assert card.url == f"fast-agent://dynamic-agents/agent_{i}/"
+            assert len(card.skills) == 2  # 1 server + 1 status skill
     
     def test_get_agent(self):
         """Test getting agent by ID."""
