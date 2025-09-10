@@ -143,7 +143,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
             # Create evaluation message and get structured evaluation result
             eval_message = Prompt.user(eval_prompt)
-            evaluation_result, _ = await self.evaluator_agent.structured(
+            evaluation_result, _ = await self.evaluator_agent.structured_impl(
                 [eval_message], EvaluationResult, request_params
             )
 
@@ -224,7 +224,9 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
         # Delegate structured parsing to the generator agent
         structured_prompt = Prompt.user(response.all_text())
-        return await self.generator_agent.structured([structured_prompt], model, request_params)
+        return await self.generator_agent.structured_impl(
+            [structured_prompt], model, request_params
+        )
 
     async def initialize(self) -> None:
         """Initialize the agent and its generator and evaluator agents."""
