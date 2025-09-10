@@ -1,11 +1,11 @@
 """Main CLI entry point for MCP Agent."""
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from fast_agent.cli.commands import check_config, go, quickstart, setup
 from fast_agent.cli.terminal import Application
+from fast_agent.ui.console import console as shared_console
 
 app = typer.Typer(
     help="fast-agent - Build effective agents using Model Context Protocol",
@@ -21,34 +21,54 @@ app.add_typer(quickstart.app, name="quickstart", help="Create example applicatio
 
 # Shared application context
 application = Application()
-console = Console()
+# Use shared console to match app-wide styling
+console = shared_console
 
 
 def show_welcome() -> None:
-    """Show a welcome message with available commands."""
+    """Show a welcome message with available commands, using new styling."""
     from importlib.metadata import version
+
+    from rich.text import Text
 
     try:
         app_version = version("fast-agent-mcp")
     except:  # noqa: E722
         app_version = "unknown"
 
-    console.print(f"\nfast-agent {app_version} [dim](fast-agent-mcp)[/dim] ")
+    # Header in the same style used by check/console_display
+    def _print_section_header(title: str, color: str = "blue") -> None:
+        width = console.size.width
+        left = f"[{color}]▎[/{color}][dim {color}]▶[/dim {color}] [{color}]{title}[/{color}]"
+        left_text = Text.from_markup(left)
+        separator_count = max(1, width - left_text.cell_len - 1)
 
-    # Create a table for commands
-    table = Table(title="\nAvailable Commands")
-    table.add_column("Command", style="green")
-    table.add_column("Description")
+        combined = Text()
+        combined.append_text(left_text)
+        combined.append(" ")
+        combined.append("─" * separator_count, style="dim")
 
-    table.add_row("[bold]go[/bold]", "Start an interactive session with an agent")
-    table.add_row("setup", "Create a new agent template and configuration files")
-    table.add_row("check", "Show or diagnose fast-agent configuration")
+        console.print()
+        console.print(combined)
+        console.print()
+
+    header_title = f"fast-agent v{app_version}"
+    _print_section_header(header_title, color="blue")
+
+    # Commands list (no boxes), matching updated check styling
+    table = Table(show_header=True, box=None)
+    table.add_column("Command", style="green", header_style="bold bright_white")
+    table.add_column("Description", header_style="bold bright_white")
+
+    table.add_row("[bold]go[/bold]", "Start an interactive session")
+    table.add_row("check", "Show current configuration")
+    table.add_row("setup", "Create agent template and configuration")
     table.add_row("quickstart", "Create example applications (workflow, researcher, etc.)")
 
     console.print(table)
 
     console.print(
-        "\n[italic]get started with:[/italic] [bold][cyan]fast-agent[/cyan][/bold] [green]setup[/green]. visit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for more information."
+        "\nVisit [cyan][link=https://fast-agent.ai]fast-agent.ai[/link][/cyan] for more information."
     )
 
 
