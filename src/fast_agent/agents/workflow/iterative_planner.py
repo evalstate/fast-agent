@@ -19,7 +19,7 @@ from fast_agent.agents.workflow.orchestrator_models import (
     format_plan_result,
     format_step_result_text,
 )
-from fast_agent.interfaces import LlmAgentProtocol, ModelT
+from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
@@ -166,7 +166,7 @@ class IterativePlanner(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: List[LlmAgentProtocol],
+        agents: List[AgentProtocol],
         plan_iterations: int = -1,
         context: Optional[Any] = None,
         **kwargs,
@@ -185,7 +185,7 @@ class IterativePlanner(LlmAgent):
             raise AgentConfigError("At least one worker agent must be provided")
 
         # Store agents by name for easier lookup
-        self.agents: Dict[str, LlmAgentProtocol] = {}
+        self.agents: Dict[str, AgentProtocol] = {}
         for agent in agents:
             agent_name = agent.name
             self.agents[agent_name] = agent
@@ -260,7 +260,7 @@ class IterativePlanner(LlmAgent):
             content=[TextContent(type="text", text=plan_result.result or "No result available")],
         )
 
-    async def structured(
+    async def structured_impl(
         self,
         messages: List[PromptMessageExtended],
         model: Type[ModelT],
@@ -278,7 +278,7 @@ class IterativePlanner(LlmAgent):
             The parsed final response, or None if parsing fails
         """
         # Generate orchestration result
-        response = await self.generate(messages, request_params)
+        response = await self.generate_impl(messages, request_params)
 
         # Try to parse the response into the specified model
         try:
@@ -411,7 +411,7 @@ class IterativePlanner(LlmAgent):
                         TaskWithResult(
                             description=task_model["description"],
                             agent=task_model["agent"],
-                            result=result.last_text(),
+                            result=result.last_text() or "<missing response>",
                         )
                     )
                 except Exception as e:
