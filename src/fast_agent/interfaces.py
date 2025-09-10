@@ -135,6 +135,7 @@ class AgentProtocol(Protocol):
             PromptMessageExtended,
             List[Union[str, PromptMessage, PromptMessageExtended]],
         ],
+        request_params: RequestParams | None = None,
     ) -> str: ...
 
     async def generate(
@@ -171,6 +172,7 @@ class AgentProtocol(Protocol):
         prompt: Union[str, "GetPromptResult"],
         arguments: Dict[str, str] | None = None,
         as_template: bool = False,
+        namespace: str | None = None,
     ) -> str: ...
 
     async def get_prompt(
