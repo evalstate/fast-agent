@@ -14,7 +14,7 @@ from mcp_agent.agents.dynamic_agent_manager import (
     DynamicAgentManager,
     DynamicAgentSpec,
 )
-from mcp_agent.core.agent_types import AgentConfig
+from fast_agent.agents.agent_types import AgentConfig
 
 
 class TestDynamicAgentSpec:

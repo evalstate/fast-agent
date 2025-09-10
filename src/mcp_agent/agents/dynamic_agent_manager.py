@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from mcp_agent.agents.agent import Agent
-from mcp_agent.core.agent_types import AgentConfig, AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from mcp_agent.core.direct_factory import get_model_factory
 from mcp_agent.core.prompt import Prompt
 from mcp_agent.logging.logger import get_logger
