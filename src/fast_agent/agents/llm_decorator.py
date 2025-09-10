@@ -141,7 +141,12 @@ class LlmDecorator(LlmAgentProtocol):
 
     async def __call__(
         self,
-        message: Union[str, PromptMessage, PromptMessageExtended],
+        message: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            List[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
     ) -> str:
         """
         Make the agent callable to send messages.
@@ -154,11 +159,20 @@ class LlmDecorator(LlmAgentProtocol):
         """
         return await self.send(message)
 
-    async def send(self, message: Union[str, PromptMessage, PromptMessageExtended]) -> str:
+    async def send(
+        self,
+        message: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            List[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+    ) -> str:
         """
         Convenience method to generate and return a string directly
         """
-        response = await self.generate(message)
+        response = await self.generate(message, request_params)
         return response.last_text() or ""
 
     async def generate(
@@ -170,7 +184,6 @@ class LlmDecorator(LlmAgentProtocol):
             List[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Create a completion with the LLM using the provided messages.
@@ -194,7 +207,7 @@ class LlmDecorator(LlmAgentProtocol):
         multipart_messages = normalize_to_extended_list(messages)
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
-            return await self.generate_impl(multipart_messages, request_params, tools)
+            return await self.generate_impl(multipart_messages, request_params, None)
 
     async def generate_impl(
         self,
@@ -234,6 +247,33 @@ class LlmDecorator(LlmAgentProtocol):
         """
         assert self._llm
         return await self._llm.apply_prompt_template(prompt_result, prompt_name)
+
+    async def apply_prompt(
+        self,
+        prompt: Union[str, GetPromptResult],
+        arguments: Dict[str, str] | None = None,
+        as_template: bool = False,
+    ) -> str:
+        """
+        Default, provider-agnostic apply_prompt implementation.
+
+        - If given a GetPromptResult, optionally store as template or generate once.
+        - If given a string, treat it as plain user text and generate.
+
+        Subclasses that integrate MCP servers should override this.
+        """
+        # If a prompt template object is provided
+        if isinstance(prompt, GetPromptResult):
+            namespaced_name = getattr(prompt, "namespaced_name", "template")
+            if as_template:
+                return await self.apply_prompt_template(prompt, namespaced_name)
+
+            messages = PromptMessageExtended.from_get_prompt_result(prompt)
+            response = await self.generate_impl(messages, None)
+            return response.first_text()
+
+        # Otherwise treat the string as plain content (ignore arguments here)
+        return await self.send(prompt)
 
     async def structured(
         self,
@@ -353,8 +393,7 @@ class LlmDecorator(LlmAgentProtocol):
         self, resource_uri: str, namespace: str | None = None
     ) -> ReadResourceResult:
         """Default: resources unsupported; raise capability error."""
-
-        return None
+        raise NotImplementedError("Resources are not supported by this agent")
 
     async def with_resource(
         self,

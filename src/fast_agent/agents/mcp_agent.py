@@ -21,6 +21,7 @@ from typing import (
     Union,
 )
 
+import mcp
 from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
@@ -47,7 +48,6 @@ from fast_agent.tools.elicitation import (
 )
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.exceptions import PromptExitError
-from mcp_agent.core.prompt import Prompt
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 
@@ -364,9 +364,9 @@ class McpAgent(ABC, ToolAgent):
         self,
         prompt: Union[str, GetPromptResult],
         arguments: Dict[str, str] | None = None,
-        agent_name: str | None = None,
-        namespace: str | None = None,
         as_template: bool = False,
+        namespace: str | None = None,
+        **_: Any,
     ) -> str:
         """
         Apply an MCP Server Prompt by name or GetPromptResult and return the assistant's response.
@@ -378,9 +378,8 @@ class McpAgent(ABC, ToolAgent):
         Args:
             prompt: The name of the prompt to apply OR a GetPromptResult object
             arguments: Optional dictionary of string arguments to pass to the prompt template
-            agent_name: Optional agent name (ignored at this level, used by multi-agent apps)
-            server_name: Optional name of the server to get the prompt from
             as_template: If True, store as persistent template (always included in context)
+            namespace: Optional namespace/server to resolve the prompt from
 
         Returns:
             The assistant's response or error message
@@ -424,7 +423,7 @@ class McpAgent(ABC, ToolAgent):
         else:
             # Always call generate to ensure LLM implementations can handle prompt templates
             # This is critical for stateful LLMs like PlaybackLLM
-            response = await self.generate(multipart_messages, None)
+            response = await self.generate_impl(multipart_messages, None)
             return response.first_text()
 
     async def get_embedded_resources(
@@ -650,7 +649,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_prompts(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, List[Prompt]]:
+    ) -> Mapping[str, List[mcp.types.Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 
