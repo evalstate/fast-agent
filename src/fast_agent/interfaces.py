@@ -6,11 +6,14 @@ without pulling in MCP-specific code, helping to avoid circular imports.
 """
 
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     List,
     Mapping,
+    Optional,
     Protocol,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
@@ -22,10 +25,14 @@ from mcp import Tool
 from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
 from pydantic import BaseModel
 
-from fast_agent.agents.agent_types import AgentType
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
+
+if TYPE_CHECKING:
+    from rich.text import Text
+
+    from fast_agent.agents.agent_types import AgentType
 
 __all__ = [
     "FastAgentLLMProtocol",
@@ -95,27 +102,13 @@ class LlmAgentProtocol(Protocol):
     @property
     def agent_type(self) -> "AgentType": ...
 
-    @property
-    def initialized(self) -> bool: ...
-
     async def initialize(self) -> None: ...
 
     async def shutdown(self) -> None: ...
 
-    async def agent_card(self) -> AgentCard: ...
 
-
-class AgentProtocol(Protocol):
+class AgentProtocol(LlmAgentProtocol):
     """Standard agent interface with flexible input types."""
-
-    @property
-    def llm(self) -> FastAgentLLMProtocol: ...
-
-    @property
-    def name(self) -> str: ...
-
-    @property
-    def agent_type(self) -> AgentType: ...
 
     async def __call__(
         self,
@@ -123,7 +116,7 @@ class AgentProtocol(Protocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
     ) -> str: ...
 
@@ -133,7 +126,7 @@ class AgentProtocol(Protocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
     ) -> str: ...
@@ -144,7 +137,7 @@ class AgentProtocol(Protocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
     ) -> PromptMessageExtended: ...
@@ -155,7 +148,7 @@ class AgentProtocol(Protocol):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
@@ -199,6 +192,32 @@ class AgentProtocol(Protocol):
         namespace: str | None = None,
     ) -> str: ...
 
+    async def agent_card(self) -> AgentCard: ...
+
     async def initialize(self) -> None: ...
 
     async def shutdown(self) -> None: ...
+
+    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended: ...
+
+    async def show_assistant_message(
+        self,
+        message: PromptMessageExtended,
+        bottom_items: List[str] | None = None,
+        highlight_items: str | List[str] | None = None,
+        max_item_length: int | None = None,
+        name: str | None = None,
+        model: str | None = None,
+        additional_message: Optional["Text"] = None,
+    ) -> None: ...
+
+    async def attach_llm(
+        self,
+        llm_factory: LLMFactoryProtocol,
+        model: str | None = None,
+        request_params: RequestParams | None = None,
+        **additional_kwargs,
+    ) -> FastAgentLLMProtocol: ...
+
+    @property
+    def initialized(self) -> bool: ...
