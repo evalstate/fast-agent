@@ -15,7 +15,7 @@ from mcp_agent.agents.agent import Agent
 def mock_agent():
     """Provides a mocked Agent object with a default, empty config."""
     agent = MagicMock(spec=Agent)
-    agent._name = "mock_agent"
+    agent.name = "mock_agent"
     agent.instruction = "mock_instruction"
     agent.context = MagicMock()
     agent.context.config = MagicMock()  # Base config mock

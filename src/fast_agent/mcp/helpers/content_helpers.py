@@ -5,7 +5,7 @@ This module is colocated with PromptMessageExtended to avoid circular imports
 between fast_agent and mcp_agent packages.
 """
 
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional, Sequence, Union
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -146,7 +146,7 @@ def normalize_to_extended_list(
         str,
         PromptMessage,
         "PromptMessageExtended",
-        List[Union[str, PromptMessage, "PromptMessageExtended"]],
+        Sequence[Union[str, PromptMessage, "PromptMessageExtended"]],
     ],
 ) -> List["PromptMessageExtended"]:
     """Normalize various input types to a list of PromptMessageExtended objects."""

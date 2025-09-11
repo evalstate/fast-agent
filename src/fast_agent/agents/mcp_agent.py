@@ -15,12 +15,14 @@ from typing import (
     List,
     Mapping,
     Optional,
+    Sequence,
     Tuple,
     Type,
     TypeVar,
     Union,
 )
 
+import mcp
 from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
@@ -47,7 +49,6 @@ from fast_agent.tools.elicitation import (
 )
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.exceptions import PromptExitError
-from mcp_agent.core.prompt import Prompt
 from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 
@@ -58,6 +59,8 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 if TYPE_CHECKING:
+    from rich.text import Text
+
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
 
@@ -154,8 +157,6 @@ class McpAgent(ABC, ToolAgent):
         """
         await self.__aenter__()
 
-    # Inherit attach_llm from LlmDecorator (merges params and constructs the LLM)
-
     async def shutdown(self) -> None:
         """
         Shutdown the agent and close all MCP server connections.
@@ -180,7 +181,7 @@ class McpAgent(ABC, ToolAgent):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
     ) -> str:
         return await self.send(message)
@@ -191,7 +192,7 @@ class McpAgent(ABC, ToolAgent):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
     ) -> str:
@@ -364,9 +365,9 @@ class McpAgent(ABC, ToolAgent):
         self,
         prompt: Union[str, GetPromptResult],
         arguments: Dict[str, str] | None = None,
-        agent_name: str | None = None,
-        namespace: str | None = None,
         as_template: bool = False,
+        namespace: str | None = None,
+        **_: Any,
     ) -> str:
         """
         Apply an MCP Server Prompt by name or GetPromptResult and return the assistant's response.
@@ -378,9 +379,8 @@ class McpAgent(ABC, ToolAgent):
         Args:
             prompt: The name of the prompt to apply OR a GetPromptResult object
             arguments: Optional dictionary of string arguments to pass to the prompt template
-            agent_name: Optional agent name (ignored at this level, used by multi-agent apps)
-            server_name: Optional name of the server to get the prompt from
             as_template: If True, store as persistent template (always included in context)
+            namespace: Optional namespace/server to resolve the prompt from
 
         Returns:
             The assistant's response or error message
@@ -650,7 +650,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_prompts(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, List[Prompt]]:
+    ) -> Mapping[str, List[mcp.types.Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 
@@ -799,6 +799,9 @@ class McpAgent(ABC, ToolAgent):
         bottom_items: List[str] | None = None,
         highlight_items: str | List[str] | None = None,
         max_item_length: int | None = None,
+        name: str | None = None,
+        model: str | None = None,
+        additional_message: Optional["Text"] = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -831,6 +834,9 @@ class McpAgent(ABC, ToolAgent):
             bottom_items=server_names,
             highlight_items=highlight_servers,
             max_item_length=max_item_length or 12,
+            name=name,
+            model=model,
+            additional_message=additional_message,
         )
 
     def _extract_servers_from_message(self, message: PromptMessageExtended) -> List[str]:

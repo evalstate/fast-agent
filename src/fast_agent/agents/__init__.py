@@ -16,7 +16,6 @@ from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.agents.workflow.chain_agent import ChainAgent
 from fast_agent.agents.workflow.evaluator_optimizer import EvaluatorOptimizerAgent
 from fast_agent.agents.workflow.iterative_planner import IterativePlanner
-from fast_agent.agents.workflow.orchestrator_agent import OrchestratorAgent
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 
@@ -30,7 +29,6 @@ __all__ = [
     "ChainAgent",
     "EvaluatorOptimizerAgent",
     "IterativePlanner",
-    "OrchestratorAgent",
     "ParallelAgent",
     "RouterAgent",
     # Types

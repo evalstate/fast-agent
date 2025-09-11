@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.interfaces import ModelT
+from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
@@ -70,8 +70,8 @@ class EvaluatorOptimizerAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        generator_agent: LlmAgent,
-        evaluator_agent: LlmAgent,
+        generator_agent: AgentProtocol,
+        evaluator_agent: AgentProtocol,
         min_rating: QualityRating = QualityRating.GOOD,
         max_refinements: int = 3,
         context: Optional[Any] = None,
@@ -138,7 +138,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
             # Evaluate current response
             eval_prompt = self._build_eval_prompt(
-                request=request, response=response.last_text(), iteration=refinement_count
+                request=request, response=response.last_text() or "", iteration=refinement_count
             )
 
             # Create evaluation message and get structured evaluation result
@@ -190,8 +190,6 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
             # Generate refined response
             refinement_prompt = self._build_refinement_prompt(
-                request=request,
-                response=response.last_text(),  ## only if there is no history?
                 feedback=evaluation_result,
                 iteration=refinement_count,
             )
@@ -222,7 +220,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
             The parsed response, or None if parsing fails
         """
         # Generate optimized response
-        response = await self.generate(messages, request_params)
+        response = await self.generate_impl(messages, request_params)
 
         # Delegate structured parsing to the generator agent
         structured_prompt = Prompt.user(response.all_text())
@@ -290,8 +288,6 @@ Evaluate the response for iteration {iteration + 1} and provide feedback on its 
 
     def _build_refinement_prompt(
         self,
-        request: str,
-        response: str,
         feedback: EvaluationResult,
         iteration: int,
     ) -> str:

@@ -58,7 +58,7 @@ class ChainAgent(LlmAgent):
         self,
         messages: List[PromptMessageExtended],
         request_params: Optional[RequestParams] = None,
-        tools: list[Tool] | None = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Chain the request through multiple agents in sequence.
@@ -71,16 +71,16 @@ class ChainAgent(LlmAgent):
             The response from the final agent in the chain
         """
         # Get the original user message (last message in the list)
-        user_message = messages[-1] if messages else None
+        user_message = messages[-1]
 
         if not self.cumulative:
-            response: PromptMessageExtended = await self.agents[0].generate_impl(
-                messages, request_params, tools
+            response: PromptMessageExtended = await self.agents[0].generate(
+                messages, request_params
             )
             # Process the rest of the agents in the chain
             for agent in self.agents[1:]:
                 next_message = Prompt.user(*response.content)
-                response = await agent.generate_impl([next_message], request_params, tools)
+                response = await agent.generate([next_message], request_params)
 
             return response
 
@@ -91,7 +91,9 @@ class ChainAgent(LlmAgent):
         final_results: List[str] = []
 
         # Add the original request with XML tag
-        request_text = f"<fastagent:request>{user_message.all_text()}</fastagent:request>"
+        request_text = (
+            f"<fastagent:request>{user_message.all_text() or '<no response>'}</fastagent:request>"
+        )
         final_results.append(request_text)
 
         # Process through each agent in sequence
@@ -103,14 +105,17 @@ class ChainAgent(LlmAgent):
             for prev_response in all_responses:
                 chain_messages.append(Prompt.user(prev_response.all_text()))
 
-            current_response = await agent.generate_impl(chain_messages, request_params, tools)
+            current_response = await agent.generate(
+                chain_messages,
+                request_params,
+            )
 
             # Store the response
             all_responses.append(current_response)
 
             response_text = current_response.all_text()
             attributed_response = (
-                f"<fastagent:response agent='{agent._name}'>{response_text}</fastagent:response>"
+                f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
             )
             final_results.append(attributed_response)
 

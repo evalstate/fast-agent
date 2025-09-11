@@ -4,7 +4,6 @@ These decorators provide type-safe function signatures and IDE support
 for creating agents in the DirectFastAgent framework.
 """
 
-import inspect
 from functools import wraps
 from pathlib import Path
 from typing import (
@@ -17,7 +16,6 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeVar,
-    Union,
     cast,
 )
 
@@ -34,10 +32,10 @@ from mcp_agent.agents.agent import AgentConfig
 
 # Type variables for the decorated function
 P = ParamSpec("P")  # Parameters
-R = TypeVar("R")  # Return type
+R = TypeVar("R", covariant=True)  # Return type
 
 # Type for agent functions - can be either async or sync
-AgentCallable = Callable[P, Union[Awaitable[R], R]]
+AgentCallable = Callable[P, Awaitable[R]]
 
 
 # Protocol for decorated agent functions
@@ -47,7 +45,7 @@ class DecoratedAgentProtocol(Protocol[P, R]):
     _agent_type: AgentType
     _agent_config: AgentConfig
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Union[Awaitable[R], R]: ...
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Awaitable[R]: ...
 
 
 # Protocol for orchestrator functions
@@ -207,21 +205,10 @@ def _decorator_impl(
     """
 
     def decorator(func: AgentCallable[P, R]) -> DecoratedAgentProtocol[P, R]:
-        is_async = inspect.iscoroutinefunction(func)
-
-        # Handle both async and sync functions consistently
-        if is_async:
-
-            @wraps(func)
-            async def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-                # Call the original function
-                return await func(*args, **kwargs)
-        else:
-
-            @wraps(func)
-            def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
-                # Call the original function
-                return func(*args, **kwargs)
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> Awaitable[R]:
+            # Call the original function
+            return func(*args, **kwargs)
 
         # Create agent configuration
         config = AgentConfig(

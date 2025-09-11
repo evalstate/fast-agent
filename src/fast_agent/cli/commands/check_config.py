@@ -163,6 +163,7 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
             "truncate_tools": default_settings.logger.truncate_tools,
             "enable_markup": default_settings.logger.enable_markup,
         },
+        "mcp_ui_mode": default_settings.mcp_ui_mode,
         "mcp_servers": [],
     }
 
@@ -206,6 +207,10 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
                     "enable_markup", default_settings.logger.enable_markup
                 ),
             }
+
+        # Get MCP UI mode
+        if "mcp_ui_mode" in config:
+            result["mcp_ui_mode"] = config["mcp_ui_mode"]
 
         # Get MCP server info
         if "mcp" in config and "servers" in config["mcp"]:
@@ -347,10 +352,18 @@ def show_check_summary() -> None:
     def bool_to_symbol(value):
         return "[bold green]✓[/bold green]" if value else "[bold red]✗[/bold red]"
 
+    # Format MCP-UI mode value
+    mcp_ui_mode = config_summary.get("mcp_ui_mode", "auto")
+    if mcp_ui_mode == "disabled":
+        mcp_ui_display = "[dim]disabled[/dim]"
+    else:
+        mcp_ui_display = f"[green]{mcp_ui_mode}[/green]"
+
     # Prepare all settings as pairs
     settings_data = [
         ("Log Level", logger.get("level", "warning (default)")),
         ("Log Type", logger.get("type", "file (default)")),
+        ("MCP-UI", mcp_ui_display),
         ("Progress Display", bool_to_symbol(logger.get("progress_display", True))),
         ("Show Chat", bool_to_symbol(logger.get("show_chat", True))),
         ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),
@@ -361,7 +374,7 @@ def show_check_summary() -> None:
     # Add rows in two-column layout, styling some values in green
     for i in range(0, len(settings_data), 2):
         left_setting, left_value = settings_data[i]
-        # Style certain values in green
+        # Style certain values in green (MCP-UI is already pre-styled)
         if left_setting in ("Log Level", "Log Type"):
             left_value = f"[green]{left_value}[/green]"
         if i + 1 < len(settings_data):

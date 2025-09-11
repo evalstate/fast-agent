@@ -6,12 +6,12 @@ Implements type-safe factories with improved error handling.
 from typing import Any, Dict, Optional, Protocol, TypeVar
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
     QualityRating,
 )
 from fast_agent.agents.workflow.iterative_planner import IterativePlanner
-from fast_agent.agents.workflow.orchestrator_agent import OrchestratorAgent
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.core import Core
@@ -22,6 +22,7 @@ from fast_agent.interfaces import (
     ModelFactoryFunctionProtocol,
 )
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.types import RequestParams
 from mcp_agent.agents.agent import Agent, AgentConfig
 from mcp_agent.core.exceptions import AgentConfigError
@@ -35,6 +36,34 @@ T = TypeVar("T")  # For generic types
 
 
 logger = get_logger(__name__)
+
+
+def _create_agent_with_ui_if_needed(
+    agent_class: type,
+    config: Any,
+    context: Any,
+) -> Any:
+    """
+    Create an agent with UI support if MCP UI mode is enabled.
+
+    Args:
+        agent_class: The agent class to potentially enhance with UI
+        config: Agent configuration
+        context: Application context
+
+    Returns:
+        Either a UI-enhanced agent instance or the original agent instance
+    """
+    # Check UI mode from settings
+    settings = context.config if hasattr(context, "config") else None
+    ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
+
+    if ui_mode != "disabled" and agent_class == Agent:
+        # Use the UI-enhanced agent class instead of the base class
+        return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode)
+    else:
+        # Create the original agent instance
+        return agent_class(config=config, context=context)
 
 
 class AgentCreatorProtocol(Protocol):
@@ -97,7 +126,7 @@ async def create_agents_by_type(
     app_instance: Core,
     agents_dict: AgentConfigDict,
     agent_type: AgentType,
-    model_factory_func: Optional[ModelFactoryFunctionProtocol],
+    model_factory_func: ModelFactoryFunctionProtocol,
     active_agents: Optional[AgentDict] = None,
     **kwargs: Any,
 ) -> AgentDict:
@@ -139,11 +168,13 @@ async def create_agents_by_type(
             # Type-specific initialization based on the Enum type
             # Note: Above we compared string values from config, here we compare Enum objects directly
             if agent_type == AgentType.BASIC:
-                # Create a basic agent
-                agent = Agent(
-                    config=config,
-                    context=app_instance.context,
+                # Create agent with UI support if needed
+                agent = _create_agent_with_ui_if_needed(
+                    Agent,
+                    config,
+                    app_instance.context,
                 )
+
                 await agent.initialize()
 
                 # Attach LLM to the agent
@@ -158,13 +189,15 @@ async def create_agents_by_type(
             elif agent_type == AgentType.CUSTOM:
                 # Get the class to instantiate
                 cls = agent_data["agent_class"]
-                # Create the custom agent
-                agent = cls(
-                    config=config,
-                    context=app_instance.context,
-                )
-                await agent.initialize()
 
+                # Create agent with UI support if needed
+                agent = _create_agent_with_ui_if_needed(
+                    cls,
+                    config,
+                    app_instance.context,
+                )
+
+                await agent.initialize()
                 # Attach LLM to the agent
                 llm_factory = model_factory_func(model=config.model)
                 await agent.attach_llm(
@@ -191,23 +224,13 @@ async def create_agents_by_type(
                     agent = active_agents[agent_name]
                     child_agents.append(agent)
 
-                if AgentType.ORCHESTRATOR == agent_type:
-                    # Create the orchestrator
-                    orchestrator = OrchestratorAgent(
-                        config=config,
-                        context=app_instance.context,
-                        agents=child_agents,
-                        plan_iterations=agent_data.get("plan_iterations", 5),
-                        plan_type=agent_data.get("plan_type", "full"),
-                    )
-                else:
-                    orchestrator = IterativePlanner(
-                        config=config,
-                        context=app_instance.context,
-                        agents=child_agents,
-                        plan_iterations=agent_data.get("plan_iterations", 5),
-                        plan_type=agent_data.get("plan_type", "full"),
-                    )
+                orchestrator = IterativePlanner(
+                    config=config,
+                    context=app_instance.context,
+                    agents=child_agents,
+                    plan_iterations=agent_data.get("plan_iterations", 5),
+                    plan_type=agent_data.get("plan_type", "full"),
+                )
 
                 # Initialize the orchestrator
                 await orchestrator.initialize()
@@ -215,7 +238,6 @@ async def create_agents_by_type(
                 # Attach LLM to the orchestrator
                 llm_factory = model_factory_func(model=config.model)
 
-                #                print("************", config.default_request_params.instruction)
                 await orchestrator.attach_llm(
                     llm_factory,
                     request_params=config.default_request_params,
@@ -506,7 +528,7 @@ async def _create_default_fan_in_agent(
     fan_in_name: str,
     context,
     model_factory_func: ModelFactoryFunctionProtocol,
-) -> Agent:
+) -> AgentProtocol:
     """
     Create a default fan-in agent for parallel workflows when none is specified.
 
@@ -526,7 +548,7 @@ async def _create_default_fan_in_agent(
     )
 
     # Create and initialize the default agent
-    fan_in_agent = Agent(
+    fan_in_agent = LlmAgent(
         config=default_config,
         context=context,
     )
