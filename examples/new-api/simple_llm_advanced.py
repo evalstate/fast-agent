@@ -4,7 +4,7 @@ from typing import Any, Dict
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.tool_agent_sync import ToolAgentSynchronous
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.core import Core
 from fast_agent.llm.model_factory import ModelFactory
 
@@ -88,7 +88,7 @@ async def main():
     ]
 
     # Create tool agent
-    tool_agent = ToolAgentSynchronous(config, tools=tools, context=core.context)
+    tool_agent = ToolAgent(config, tools=tools, context=core.context)
 
     # Attach the LLM
     await tool_agent.attach_llm(ModelFactory.create_factory("haiku"))
