@@ -1,4 +1,5 @@
 import asyncio
+
 from mcp_agent.core.fastagent import FastAgent
 
 # Create the application
