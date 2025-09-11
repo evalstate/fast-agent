@@ -126,7 +126,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
         if example_type == "state-transfer":
             # The state-transfer example is in the mcp subdirectory
             source_dir = (
-                files("mcp_agent")
+                files("fast_agent")
                 .joinpath("resources")
                 .joinpath("examples")
                 .joinpath("mcp")
@@ -135,7 +135,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
         elif example_type == "elicitations":
             # The elicitations example is in the mcp subdirectory
             source_dir = (
-                files("mcp_agent")
+                files("fast_agent")
                 .joinpath("resources")
                 .joinpath("examples")
                 .joinpath("mcp")
@@ -144,7 +144,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
         else:
             # Other examples are at the top level of examples
             source_dir = (
-                files("mcp_agent")
+                files("fast_agent")
                 .joinpath("resources")
                 .joinpath("examples")
                 .joinpath("workflows" if example_type == "workflow" else f"{example_type}")
@@ -454,7 +454,7 @@ def tensorzero(
     from importlib.resources import files
     try:
         # This path MUST match the "to" path from hatch_build.py
-        source_dir = files("mcp_agent").joinpath("resources").joinpath("examples").joinpath("tensorzero")
+        source_dir = files("fast_agent").joinpath("resources").joinpath("examples").joinpath("tensorzero")
         if not source_dir.is_dir():
             raise FileNotFoundError  # Fallback to dev mode if resource isn't a dir
     except (ImportError, ModuleNotFoundError, FileNotFoundError):

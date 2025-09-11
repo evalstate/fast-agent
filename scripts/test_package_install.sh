@@ -46,8 +46,31 @@ else
     exit 1
 fi
 
+# Test the setup command (non-interactive; accept defaults)
+printf '\n' | fast-agent setup --force
+
+# Check that setup created the expected files in the current directory
+if [ -f "fastagent.config.yaml" ] && [ -f "fastagent.secrets.yaml" ] && [ -f "agent.py" ]; then
+    echo "✅ Test successful: setup created config, secrets, and agent.py!"
+else
+    echo "❌ Test failed: setup did not create expected files."
+    echo "Directory contents:"
+    ls -la
+    exit 1
+fi
+
+# Smoke test: import the generated agent module
+echo "Running smoke import test for generated agent.py..."
+python - <<'PY'
+try:
+    import agent  # noqa: F401
+    print("✅ Smoke import successful: agent module imports")
+except Exception as e:
+    print("❌ Smoke import failed:", e)
+    raise
+PY
+
 # Deactivate the virtual environment
 deactivate
 
 echo "Test completed successfully!"
-

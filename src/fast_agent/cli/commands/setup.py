@@ -7,136 +7,55 @@ from rich.prompt import Confirm
 app = typer.Typer()
 console = Console()
 
-FASTAGENT_CONFIG_TEMPLATE = """
-# FastAgent Configuration File
 
-# Default Model Configuration:
-# 
-# Takes format:
-#   <provider>.<model_string>.<reasoning_effort?> (e.g. anthropic.claude-3-5-sonnet-20241022 or openai.o3-mini.low)
-# Accepts aliases for Anthropic Models: haiku, haiku3, sonnet, sonnet35, opus, opus3
-# and OpenAI Models: gpt-4.1, gpt-4.1-mini, o1, o1-mini, o3-mini
-#
-# If not specified, defaults to "haiku". 
-# Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
+def load_template_text(filename: str) -> str:
+    """Load template text from packaged resources with a development fallback.
 
-default_model: haiku
+    Special-case: when requesting 'fastagent.secrets.yaml', read the
+    'fastagent.secrets.yaml.example' template from resources, but still
+    return its contents so we can write out the real secrets file name
+    in the destination project.
+    """
+    try:
+        # Prefer reading from installed package resources
+        from importlib.resources import files
 
-# Logging and Console Configuration:
-logger:
-    # level: "debug" | "info" | "warning" | "error"
-    # type: "none" | "console" | "file" | "http"
-    # path: "/path/to/logfile.jsonl"
-
-    
-    # Switch the progress display on or off
-    progress_display: true
-
-    # Show chat User/Assistant messages on the console
-    show_chat: true
-    # Show tool calls on the console
-    show_tools: true
-    # Truncate long tool responses on the console 
-    truncate_tools: true
-
-# MCP Servers
-mcp:
-    servers:
-        fetch:
-            command: "uvx"
-            args: ["mcp-server-fetch"]
-        filesystem:
-            command: "npx"
-            args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-
-"""
-
-FASTAGENT_SECRETS_TEMPLATE = """
-# FastAgent Secrets Configuration
-# WARNING: Keep this file secure and never commit to version control
-
-# Alternatively set OPENAI_API_KEY, ANTHROPIC_API_KEY or other environment variables. 
-# Keys in the configuration file override environment variables.
-
-openai:
-    api_key: <your-api-key-here>
-anthropic:
-    api_key: <your-api-key-here>
-deepseek:
-    api_key: <your-api-key-here>
-openrouter:
-    api_key: <your-api-key-here>
+        # Map secrets filename to its '.example' template in resources
+        res_name = (
+            "fastagent.secrets.yaml.example" if filename == "fastagent.secrets.yaml" else filename
+        )
+        resource_path = files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
+        if resource_path.is_file():
+            return resource_path.read_text()
+        # If the path exists but isn't a file, fall back to dev
+        raise FileNotFoundError
+    except (ImportError, ModuleNotFoundError, FileNotFoundError):
+        # Development environment fallback to repo path (project root/examples/setup)
+        try:
+            repo_root = Path(__file__).resolve().parents[4]
+        except IndexError:
+            repo_root = Path(__file__).resolve().parent
+        # Apply the same secrets mapping for the dev path
+        dev_name = (
+            "fastagent.secrets.yaml.example" if filename == "fastagent.secrets.yaml" else filename
+        )
+        dev_path = repo_root / "examples" / "setup" / dev_name
+        if dev_path.exists():
+            return dev_path.read_text()
+        raise RuntimeError(
+            "Setup template missing: '"
+            + filename
+            + "'.\n"
+            + "Expected at: "
+            + str(resource_path)
+            + " (package) or "
+            + str(dev_path)
+            + " (dev).\n"
+            + "This indicates a packaging issue. Please rebuild/reinstall fast-agent."
+        )
 
 
-# Example of setting an MCP Server environment variable
-mcp:
-    servers:
-        brave:
-            env:
-                BRAVE_API_KEY: <your_api_key_here>
-
-"""
-
-GITIGNORE_TEMPLATE = """
-# FastAgent secrets file
-fastagent.secrets.yaml
-
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environment
-.env
-.venv
-env/
-venv/
-ENV/
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-"""
-
-AGENT_EXAMPLE_TEMPLATE = """
-import asyncio
-from mcp_agent.core.fastagent import FastAgent
-
-# Create the application
-fast = FastAgent("fast-agent example")
-
-
-# Define the agent
-@fast.agent(instruction="You are a helpful AI Agent")
-async def main():
-    # use the --model command line switch or agent arguments to change model
-    async with fast.run() as agent:
-        await agent.interactive()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
-"""
+# (No embedded template defaults; templates are the single source of truth.)
 
 
 def find_gitignore(path: Path) -> bool:
@@ -203,21 +122,32 @@ def init(
 
     # Create configuration files
     created = []
-    if create_file(config_path / "fastagent.config.yaml", FASTAGENT_CONFIG_TEMPLATE, force):
+    if create_file(
+        config_path / "fastagent.config.yaml", load_template_text("fastagent.config.yaml"), force
+    ):
         created.append("fastagent.yaml")
 
-    if create_file(config_path / "fastagent.secrets.yaml", FASTAGENT_SECRETS_TEMPLATE, force):
+    if create_file(
+        config_path / "fastagent.secrets.yaml", load_template_text("fastagent.secrets.yaml"), force
+    ):
         created.append("fastagent.secrets.yaml")
 
-    if create_file(config_path / "agent.py", AGENT_EXAMPLE_TEMPLATE, force):
+    if create_file(config_path / "agent.py", load_template_text("agent.py"), force):
         created.append("agent.py")
 
     # Only create .gitignore if none exists in parent directories
-    if needs_gitignore and create_file(config_path / ".gitignore", GITIGNORE_TEMPLATE, force):
+    if needs_gitignore and create_file(
+        config_path / ".gitignore", load_template_text(".gitignore"), force
+    ):
         created.append(".gitignore")
 
     if created:
         console.print("\n[green]Setup completed successfully![/green]")
+        if not needs_gitignore:
+            console.print(
+                "[yellow]Note:[/yellow] Found an existing .gitignore in this or a parent directory. "
+                "Ensure it ignores 'fastagent.secrets.yaml' to avoid committing secrets."
+            )
         if "fastagent.secrets.yaml" in created:
             console.print("\n[yellow]Important:[/yellow] Remember to:")
             console.print(

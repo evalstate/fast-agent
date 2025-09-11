@@ -181,7 +181,6 @@ project_contents.md
 # example logs
 examples/**/*.jsonl
 fastagent.secrets.yaml
-!examples/setup/fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/
 

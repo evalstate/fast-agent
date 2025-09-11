@@ -81,6 +81,7 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_agent", "src/fast_agent"]
 artifacts = [
+    "src/fast_agent/resources/examples/**/*",
     "src/fast_agent/resources/setup/**/*",
 ]
 
