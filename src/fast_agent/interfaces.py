@@ -11,7 +11,6 @@ from typing import (
     Dict,
     List,
     Mapping,
-    Optional,
     Protocol,
     Sequence,
     Tuple,
@@ -24,14 +23,13 @@ from a2a.types import AgentCard
 from mcp import Tool
 from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
 from pydantic import BaseModel
+from rich.text import Text
 
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
-    from rich.text import Text
-
     from fast_agent.agents.agent_types import AgentType
 
 __all__ = [
@@ -208,7 +206,7 @@ class AgentProtocol(LlmAgentProtocol):
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional["Text"] = None,
+        additional_message: Text | None = None,
     ) -> None: ...
 
     async def attach_llm(

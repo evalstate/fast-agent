@@ -1,9 +1,10 @@
 """Tests for the MCP UI Mixin."""
 
-from typing import List, Optional
+from typing import List
 
 import pytest
 from mcp.types import CallToolResult, EmbeddedResource, TextContent, TextResourceContents
+from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.constants import MCP_UI
@@ -46,7 +47,7 @@ class StubAgent:
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional[object] = None,
+        additional_message: Text | None = None,
     ) -> None:
         """Stub implementation with correct signature."""
         pass

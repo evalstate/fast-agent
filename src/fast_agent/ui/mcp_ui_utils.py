@@ -21,6 +21,10 @@ Responsibilities:
 - Return presentable link labels for console display
 """
 
+# Control whether to generate data URLs for embedded HTML content
+# When disabled, always use file:// URLs which work better with most terminals
+ENABLE_DATA_URLS = False
+
 
 @dataclass
 class UILink:
@@ -133,13 +137,16 @@ def ui_links_from_channel(resources: Iterable[EmbeddedResource]) -> List[UILink]
                 continue
             html = _make_html_for_raw_html(content)
             file_path = _write_html_file(title, html)
-            # If small enough, also offer a data URL for better clickability
-            try:
-                b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
-                data_url = f"data:text/html;base64,{b64}"
-                # Some terminals have limits; only attach when reasonably small
-                web_url = data_url if len(data_url) < 12000 else None
-            except Exception:
+            # Generate data URL only if enabled
+            if ENABLE_DATA_URLS:
+                try:
+                    b64 = base64.b64encode(html.encode("utf-8")).decode("ascii")
+                    data_url = f"data:text/html;base64,{b64}"
+                    # Some terminals have limits; only attach when reasonably small
+                    web_url = data_url if len(data_url) < 12000 else None
+                except Exception:
+                    web_url = None
+            else:
                 web_url = None
             links.append(UILink(title=title, file_path=file_path, web_url=web_url))
 
