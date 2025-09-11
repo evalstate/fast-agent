@@ -75,12 +75,9 @@ async def _run_agent(
         # Create a silent fan-in agent for cleaner output
         @fast.agent(
             name="aggregate",
-            model="silent",
+            model="passthrough",
             instruction="You are a silent agent that combines outputs from parallel agents.",
         )
-        async def fan_in_agent():
-            pass
-
         # Create a parallel agent with silent fan_in
         @fast.parallel(
             name="parallel",

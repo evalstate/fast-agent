@@ -147,6 +147,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 self.default_request_params, self._init_request_params
             )
 
+        # Cache effective model name for type-safe access
+        self._model_name: Optional[str] = getattr(self.default_request_params, "model", None)
+
         self.verb = kwargs.get("verb")
 
         self._init_api_key = api_key
@@ -636,3 +639,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             The Provider enum value representing the LLM provider
         """
         return self._provider
+
+    @property
+    def model_name(self) -> str | None:
+        """Return the effective model name, if set."""
+        return self._model_name
+
+    @property
+    def model_info(self):
+        """Return resolved model information with capabilities.
+
+        Uses a lightweight resolver backed by the ModelDatabase and provides
+        text/document/vision flags, context window, etc.
+        """
+        from fast_agent.llm.model_info import ModelInfo
+
+        if not self._model_name:
+            return None
+        return ModelInfo.from_name(self._model_name, self._provider)

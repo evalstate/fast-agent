@@ -149,7 +149,7 @@ class ModelFactory:
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-05-20",
         "gemini25pro": "gemini-2.5-pro-preview-05-06",
-        "kimi": "groq.moonshotai/kimi-k2-instruct",
+        "kimi": "groq.moonshotai/kimi-k2-instruct-0905",
         "gpt-oss": "groq.openai/gpt-oss-120b",
         "gpt-oss-20b": "groq.openai/gpt-oss-20b",
     }

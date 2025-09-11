@@ -57,7 +57,7 @@ async def main() -> None:
     )
 
     async with fast.run() as agent:
-        #   await agent.interactive(agent_name="route")
+        await agent.interactive(agent_name="route")
         for request in SAMPLE_REQUESTS:
             await agent.route(request)
 

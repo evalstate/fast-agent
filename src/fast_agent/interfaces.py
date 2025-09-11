@@ -31,6 +31,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentType
+    from fast_agent.llm.model_info import ModelInfo
 
 __all__ = [
     "FastAgentLLMProtocol",
@@ -86,6 +87,12 @@ class FastAgentLLMProtocol(Protocol):
 
     @property
     def provider(self) -> Provider: ...
+
+    @property
+    def model_name(self) -> str | None: ...
+
+    @property
+    def model_info(self) -> "ModelInfo | None": ...
 
 
 class LlmAgentProtocol(Protocol):

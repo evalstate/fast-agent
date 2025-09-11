@@ -51,16 +51,11 @@ def display_usage_report(
                 # Get context percentage for this agent
                 context_percentage = agent.usage_accumulator.context_usage_percentage
 
-                # Get model name from LLM's default_request_params
+                # Get model name via typed property when available
                 model = "unknown"
                 if hasattr(agent, "_llm") and agent._llm:
                     llm = agent._llm
-                    if (
-                        hasattr(llm, "default_request_params")
-                        and llm.default_request_params
-                        and hasattr(llm.default_request_params, "model")
-                    ):
-                        model = llm.default_request_params.model or "unknown"
+                    model = getattr(llm, "model_name", None) or "unknown"
 
                 # Standardize model name truncation - use consistent 25 char width with 22+... truncation
                 if len(model) > 25:
