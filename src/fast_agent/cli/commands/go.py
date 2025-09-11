@@ -7,6 +7,7 @@ from typing import Dict, List, Optional
 
 import typer
 
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -72,12 +73,23 @@ async def _run_agent(
 
             fan_out_agents.append(agent_name)
 
-        # Create a silent fan-in agent for cleaner output
-        @fast.agent(
+        # Create a silent fan-in agent (suppresses display output)
+        class SilentFanInAgent(LlmAgent):
+            async def show_assistant_message(self, *args, **kwargs):  # type: ignore[override]
+                return None
+
+            def show_user_message(self, *args, **kwargs):  # type: ignore[override]
+                return None
+
+        @fast.custom(
+            SilentFanInAgent,
             name="aggregate",
             model="passthrough",
-            instruction="You are a silent agent that combines outputs from parallel agents.",
+            instruction="You aggregate parallel outputs without displaying intermediate messages.",
         )
+        async def aggregate():
+            pass
+
         # Create a parallel agent with silent fan_in
         @fast.parallel(
             name="parallel",

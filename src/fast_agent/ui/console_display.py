@@ -978,8 +978,14 @@ class ConsoleDisplay:
 
             # Display content based on its type (check for markdown markers in parallel results)
             content = result["content"]
-            # Use _display_content with check_markdown_markers flag for parallel results
-            self._display_content(content, truncate=False, check_markdown_markers=True)
+            # Use _display_content with assistant message type so content isn't dimmed
+            self._display_content(
+                content,
+                truncate=False,
+                is_error=False,
+                message_type=MessageType.ASSISTANT,
+                check_markdown_markers=True,
+            )
 
         # Summary
         console.console.print()
