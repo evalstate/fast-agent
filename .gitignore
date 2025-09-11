@@ -159,9 +159,11 @@ examples/**/*.secrets.yaml
 
 # but make sure example files are
 !examples/**/*.secrets.yaml.example
+!examples/setup/fastagent.secrets.yaml
 
 # Build-generated resources (copied from examples/ during build)
-src/mcp_agent/resources/examples/
+src/mcp_agent/resources/
+src/fast_agent/resources/
 
 # Test data files
 examples/mcp_root_test/test_data/*.png
@@ -196,6 +198,7 @@ tests/e2e/workflow/weather_location.txt
 tests/integration/prompt-state/multipart.json
 tests/integration/prompt-state/history.json
 !tests/integration/api/fastagent.secrets.yaml
+!examples/setup/fastagent.secrets.yaml
 fastagent.jsonl
 
 tests/e2e/smoke/base/weather_location.txt

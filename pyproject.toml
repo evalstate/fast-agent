@@ -73,6 +73,7 @@ include = [
     "src/mcp_agent/**/*.example",
     "src/mcp_agent/py.typed",
     "src/fast_agent/**/*.py",
+    "src/fast_agent/resources/**/*",
     "src/fast_agent/py.typed",
     "examples/**/*",
 ]
@@ -80,7 +81,7 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/mcp_agent", "src/fast_agent"]
 artifacts = [
-    "src/mcp_agent/resources/examples/**/*",
+    "src/fast_agent/resources/setup/**/*",
 ]
 
 [tool.pytest.ini_options]
