@@ -23,15 +23,15 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 from pydantic import BaseModel, ConfigDict
 
 from fast_agent.config import Settings, get_settings
+from fast_agent.core.executor.executor import AsyncioExecutor, Executor
+from fast_agent.core.executor.task_registry import ActivityRegistry
+from fast_agent.core.logging.events import EventFilter, StreamingExclusionFilter
+from fast_agent.core.logging.logger import LoggingConfig, get_logger
+from fast_agent.core.logging.transport import create_transport
 from fast_agent.mcp_server_registry import ServerRegistry
-from mcp_agent.executor.executor import AsyncioExecutor, Executor
-from mcp_agent.executor.task_registry import ActivityRegistry
-from mcp_agent.logging.events import EventFilter, StreamingExclusionFilter
-from mcp_agent.logging.logger import LoggingConfig, get_logger
-from mcp_agent.logging.transport import create_transport
 
 if TYPE_CHECKING:
-    from mcp_agent.executor.workflow_signal import SignalWaitCallback
+    from fast_agent.core.executor.workflow_signal import SignalWaitCallback
 else:
     # Runtime placeholders for the types
     SignalWaitCallback = Any

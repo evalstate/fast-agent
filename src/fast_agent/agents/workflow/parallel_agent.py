@@ -7,9 +7,9 @@ from opentelemetry import trace
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
-from mcp_agent.logging.logger import get_logger
 
 logger = get_logger(__name__)
 

@@ -1,12 +1,17 @@
+from __future__ import annotations
+
 import asyncio
 from contextlib import asynccontextmanager
-from typing import Optional, TypeVar
+from typing import TYPE_CHECKING, Optional, TypeVar
 
-from fast_agent.config import Settings
-from fast_agent.context import Context, cleanup_context, initialize_context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
-from mcp_agent.executor.workflow_signal import SignalWaitCallback
-from mcp_agent.logging.logger import get_logger
+
+if TYPE_CHECKING:
+    # Only imported for type checking to avoid circular imports at runtime
+    from fast_agent.config import Settings
+    from fast_agent.context import Context
+    from fast_agent.core.executor.workflow_signal import SignalWaitCallback
 
 R = TypeVar("R")
 
@@ -37,11 +42,12 @@ class Core:
         self._signal_notification = signal_notification
 
         self._logger = None
-        self._context: Optional[Context] = None
+        # Use forward reference for type to avoid runtime import
+        self._context: Optional["Context"] = None
         self._initialized = False
 
     @property
-    def context(self) -> Context:
+    def context(self) -> "Context":
         if self._context is None:
             raise RuntimeError(
                 "Core not initialized, please call initialize() first, or use async with app.run()."
@@ -67,7 +73,12 @@ class Core:
         if self._initialized:
             return
 
-        self._context = await initialize_context(self._config_or_path, store_globally=True)
+        # Import here to avoid circular imports during module initialization
+        from fast_agent import context as _context_mod
+
+        self._context = await _context_mod.initialize_context(
+            self._config_or_path, store_globally=True
+        )
 
         # Set the properties that were passed in the constructor
         self._context.signal_notification = self._signal_notification
@@ -97,7 +108,10 @@ class Core:
             },
         )
         try:
-            await cleanup_context()
+            # Import here to avoid circular imports during module initialization
+            from fast_agent import context as _context_mod
+
+            await _context_mod.cleanup_context()
         except asyncio.CancelledError:
             self.logger.debug("Cleanup cancelled error during shutdown")
 

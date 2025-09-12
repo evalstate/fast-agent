@@ -6,7 +6,7 @@ import io
 import os
 from typing import TextIO
 
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -82,13 +82,13 @@ class LoggerTextIO(TextIO):
         This prevents output from showing on the terminal
         while still allowing our write() method to capture it for logging.
         """
-        if not hasattr(self, '_devnull_fd'):
+        if not hasattr(self, "_devnull_fd"):
             self._devnull_fd = os.open(os.devnull, os.O_WRONLY)
         return self._devnull_fd
-        
+
     def __del__(self):
         """Clean up the devnull file descriptor."""
-        if hasattr(self, '_devnull_fd'):
+        if hasattr(self, "_devnull_fd"):
             try:
                 os.close(self._devnull_fd)
             except (OSError, AttributeError):

@@ -18,10 +18,10 @@ from rich.json import JSON
 from rich.text import Text
 
 from fast_agent.config import LoggerSettings
+from fast_agent.core.logging.events import Event, EventFilter
+from fast_agent.core.logging.json_serializer import JSONSerializer
+from fast_agent.core.logging.listeners import EventListener, LifecycleAwareListener
 from fast_agent.ui.console import console
-from mcp_agent.logging.events import Event, EventFilter
-from mcp_agent.logging.json_serializer import JSONSerializer
-from mcp_agent.logging.listeners import EventListener, LifecycleAwareListener
 
 
 class EventTransport(Protocol):

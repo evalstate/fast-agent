@@ -19,6 +19,7 @@ from httpx import HTTPStatusError
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from mcp import ClientSession
 from mcp.client.sse import sse_client
@@ -30,7 +31,6 @@ from mcp.client.stdio import (
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
 from mcp.types import JSONRPCMessage, ServerCapabilities
 from mcp_agent.core.exceptions import ServerInitializationError
-from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.logger_textio import get_stderr_handler
 from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 

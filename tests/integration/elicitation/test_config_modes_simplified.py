@@ -7,7 +7,7 @@ using the main fastagent.config.yaml file with well-named server configurations.
 
 import pytest
 
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 
@@ -15,7 +15,7 @@ logger = get_logger(__name__)
 @pytest.mark.asyncio
 async def test_forms_mode(fast_agent):
     """Test that 'forms' mode (default) advertises elicitation capability."""
-    
+
     @fast_agent.agent(
         "forms-elicitation-agent",
         servers=["elicitation_forms_mode"],
@@ -27,14 +27,14 @@ async def test_forms_mode(fast_agent):
             result = await agent.get_resource("elicitation://client-capabilities")
             capabilities_text = str(result)
             print(f"Server reports capabilities: {capabilities_text}")
-            
+
             # Should HAVE elicitation capability
             assert "✓ Elicitation" in capabilities_text, (
                 f"Forms mode test failed - elicitation capability NOT advertised. "
                 f"Got: {capabilities_text}"
             )
             print("✓ Forms mode working - elicitation capability advertised")
-    
+
     await test_agent()
 
 
@@ -42,7 +42,7 @@ async def test_forms_mode(fast_agent):
 async def test_custom_handler_mode(fast_agent):
     """Test that custom handlers work (highest precedence)."""
     from test_elicitation_handler import custom_elicitation_handler
-    
+
     @fast_agent.agent(
         "custom-handler-agent",
         servers=["elicitation_custom_handler"],
@@ -53,20 +53,20 @@ async def test_custom_handler_mode(fast_agent):
             # Check capabilities - should have elicitation
             capabilities_result = await agent.get_resource("elicitation://client-capabilities")
             capabilities_text = str(capabilities_result)
-            
+
             assert "✓ Elicitation" in capabilities_text, (
                 f"Custom handler mode failed - elicitation capability not advertised. "
                 f"Got: {capabilities_text}"
             )
-            
+
             # Test the actual elicitation - should use our custom handler
             result = await agent.get_resource("elicitation://user-profile")
             result_str = str(result)
-            
+
             assert "Test User" in result_str, (
                 f"Custom handler mode failed - custom handler not used. "
                 f"Expected 'Test User' in result, got: {result_str}"
             )
             print("✓ Custom handler mode working - custom handler used")
-    
+
     await test_agent()

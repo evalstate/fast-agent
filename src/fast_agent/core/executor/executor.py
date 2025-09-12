@@ -20,13 +20,13 @@ from typing import (
 from pydantic import BaseModel, ConfigDict
 
 from fast_agent.context_dependent import ContextDependent
-from mcp_agent.executor.workflow_signal import (
+from fast_agent.core.executor.workflow_signal import (
     AsyncioSignalHandler,
     Signal,
     SignalHandler,
     SignalValueT,
 )
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from fast_agent.context import Context

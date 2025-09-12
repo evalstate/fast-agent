@@ -129,15 +129,15 @@ class StreamingExclusionFilter(EventFilter):
         # First check if it passes the base filter
         if not super().matches(event):
             return False
-        
+
         # Exclude events with "Streaming progress" message
         if event.message == "Streaming progress":
             return False
-        
+
         # Also check for events with progress_action = STREAMING in data
         if event.data and isinstance(event.data.get("data"), dict):
             event_data = event.data["data"]
             if event_data.get("progress_action") == "Streaming":
                 return False
-        
+
         return True

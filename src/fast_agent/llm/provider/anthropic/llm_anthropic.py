@@ -22,6 +22,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import (
@@ -37,7 +38,6 @@ from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.logging.logger import get_logger
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"

@@ -11,7 +11,7 @@ from uuid import UUID
 
 import httpx
 
-from mcp_agent.logging import logger
+from fast_agent.core.logging import logger
 
 
 class JSONSerializer:

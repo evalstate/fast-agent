@@ -1,9 +1,9 @@
 import pytest
 
+from fast_agent.core.logging.events import EventFilter
+from fast_agent.core.logging.listeners import FilteredListener
+from fast_agent.core.logging.transport import AsyncEventBus
 from fast_agent.event_progress import ProgressAction
-from mcp_agent.logging.events import EventFilter
-from mcp_agent.logging.listeners import FilteredListener
-from mcp_agent.logging.transport import AsyncEventBus
 
 
 class DebugProgressObserver(FilteredListener):

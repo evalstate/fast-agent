@@ -6,8 +6,8 @@ import random
 
 from rich import print
 
-from mcp_agent.logging.events import Event
-from mcp_agent.logging.listeners import ProgressListener
+from fast_agent.core.logging.events import Event
+from fast_agent.core.logging.listeners import ProgressListener
 
 
 async def generate_test_events():

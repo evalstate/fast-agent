@@ -5,12 +5,12 @@ Predefined elicitation handlers for different use cases.
 import json
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.human_input.elicitation_handler import elicitation_input_callback
 from fast_agent.human_input.types import HumanInputRequest
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult, ErrorData
-from mcp_agent.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from mcp import ClientSession

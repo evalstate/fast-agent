@@ -40,6 +40,7 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
 from fast_agent.tools.elicitation import (
@@ -49,7 +50,6 @@ from fast_agent.tools.elicitation import (
 )
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.exceptions import PromptExitError
-from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.mcp_aggregator import MCPAggregator
 
 # Define a TypeVar for models

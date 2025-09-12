@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Dict, List
 if TYPE_CHECKING:
     from fast_agent.event_progress import ProgressEvent
 
-from mcp_agent.logging.events import Event, EventFilter, EventType
+from fast_agent.core.logging.events import Event, EventFilter, EventType
 
 
 def convert_log_event(event: Event) -> "ProgressEvent | None":

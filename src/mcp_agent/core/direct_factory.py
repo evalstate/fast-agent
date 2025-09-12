@@ -15,6 +15,7 @@ from fast_agent.agents.workflow.iterative_planner import IterativePlanner
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.core import Core
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
     AgentProtocol,
@@ -27,7 +28,6 @@ from fast_agent.types import RequestParams
 from mcp_agent.agents.agent import Agent, AgentConfig
 from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.validation import get_dependencies_groups
-from mcp_agent.logging.logger import get_logger
 
 # Type aliases for improved readability and IDE support
 AgentDict = Dict[str, AgentProtocol]

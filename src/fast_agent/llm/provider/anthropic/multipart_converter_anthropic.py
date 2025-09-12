@@ -25,6 +25,7 @@ from mcp.types import (
     TextResourceContents,
 )
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
     get_resource_uri,
@@ -34,7 +35,6 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_text_content,
 )
 from fast_agent.types import PromptMessageExtended
-from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.mime_utils import (
     guess_mime_type,
     is_image_mime_type,

@@ -17,7 +17,7 @@ from rich.progress import BarColumn, Progress, TextColumn
 from rich.prompt import Confirm
 from rich.table import Table
 
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from mcp import ClientSession

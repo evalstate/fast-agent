@@ -14,8 +14,8 @@ from mcp.server.fastmcp import FastMCP
 import mcp_agent
 import mcp_agent.core
 import mcp_agent.core.prompt
+from fast_agent.core.logging.logger import get_logger
 from mcp_agent.core.agent_app import AgentApp
-from mcp_agent.logging.logger import get_logger
 
 logger = get_logger(__name__)
 

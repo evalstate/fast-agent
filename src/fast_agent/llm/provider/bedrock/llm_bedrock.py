@@ -14,6 +14,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import FastAgentLLM
@@ -22,7 +23,6 @@ from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from mcp_agent.core.exceptions import ProviderKeyError
-from mcp_agent.logging.logger import get_logger
 
 # Mapping from Bedrock's snake_case stop reasons to MCP's camelCase
 BEDROCK_TO_MCP_STOP_REASON = {

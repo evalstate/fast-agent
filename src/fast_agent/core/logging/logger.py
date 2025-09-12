@@ -14,13 +14,13 @@ import time
 from contextlib import asynccontextmanager, contextmanager
 from typing import Any, Dict
 
-from mcp_agent.logging.events import Event, EventContext, EventFilter, EventType
-from mcp_agent.logging.listeners import (
+from fast_agent.core.logging.events import Event, EventContext, EventFilter, EventType
+from fast_agent.core.logging.listeners import (
     BatchingListener,
     LoggingListener,
     ProgressListener,
 )
-from mcp_agent.logging.transport import AsyncEventBus, EventTransport
+from fast_agent.core.logging.transport import AsyncEventBus, EventTransport
 
 
 class Logger:
@@ -208,10 +208,10 @@ class LoggingConfig:
             return
 
         # Suppress boto3/botocore logging to prevent flooding
-        logging.getLogger('boto3').setLevel(logging.WARNING)
-        logging.getLogger('botocore').setLevel(logging.WARNING)
-        logging.getLogger('urllib3').setLevel(logging.WARNING)
-        logging.getLogger('s3transfer').setLevel(logging.WARNING)
+        logging.getLogger("boto3").setLevel(logging.WARNING)
+        logging.getLogger("botocore").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+        logging.getLogger("s3transfer").setLevel(logging.WARNING)
 
         bus = AsyncEventBus.get(transport=transport)
 

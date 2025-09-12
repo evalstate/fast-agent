@@ -18,6 +18,7 @@ from opentelemetry import trace
 from fast_agent import config
 from fast_agent.context import Context
 from fast_agent.core import Core
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui.usage_display import display_usage_report
 from mcp_agent.core.agent_app import AgentApp
 from mcp_agent.core.direct_decorators import (
@@ -63,7 +64,6 @@ from mcp_agent.core.validation import (
     validate_server_references,
     validate_workflow_references,
 )
-from mcp_agent.logging.logger import get_logger
 from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
 if TYPE_CHECKING:

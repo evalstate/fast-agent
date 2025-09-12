@@ -31,6 +31,7 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.context import Context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
     AgentProtocol,
     FastAgentLLMProtocol,
@@ -40,7 +41,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
 from fast_agent.types import PromptMessageExtended, RequestParams
-from mcp_agent.logging.logger import get_logger
 
 logger = get_logger(__name__)
 # Define a TypeVar for models

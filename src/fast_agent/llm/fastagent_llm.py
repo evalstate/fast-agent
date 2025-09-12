@@ -23,6 +23,7 @@ from openai.lib._parsing import type_to_response_format_param as _type_to_respon
 from pydantic_core import from_json
 
 from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
     FastAgentLLMProtocol,
@@ -35,7 +36,6 @@ from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.logging.logger import get_logger
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
