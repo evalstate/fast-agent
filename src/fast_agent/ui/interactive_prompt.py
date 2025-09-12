@@ -20,6 +20,8 @@ from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.history.history_exporter import HistoryExporter
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.enhanced_prompt import (
@@ -60,6 +62,14 @@ class PromptProvider(Protocol):
         """Apply a prompt."""
         ...
 
+    def _agent(self, agent_name: str) -> AgentProtocol:
+        """Return the concrete agent by name (AgentApp provides this)."""
+        ...
+
+    def _show_turn_usage(self, agent_name: str) -> None:
+        """Display usage for a given agent after a turn."""
+        ...
+
 
 class InteractivePrompt:
     """
@@ -81,7 +91,7 @@ class InteractivePrompt:
         send_func: SendFunc,
         default_agent: str,
         available_agents: List[str],
-        prompt_provider: Optional[PromptProvider] = None,
+        prompt_provider: PromptProvider,
         default: str = "",
     ) -> str:
         """
@@ -142,11 +152,11 @@ class InteractivePrompt:
                             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
                             continue
                     # Keep the existing list_prompts handler for backward compatibility
-                    elif "list_prompts" in command_result and prompt_provider:
+                    elif "list_prompts" in command_result:
                         # Use the prompt_provider directly
                         await self._list_prompts(prompt_provider, agent)
                         continue
-                    elif "select_prompt" in command_result and prompt_provider:
+                    elif "select_prompt" in command_result:
                         # Handle prompt selection, using both list_prompts and apply_prompt
                         prompt_name = command_result.get("prompt_name")
                         prompt_index = command_result.get("prompt_index")
@@ -179,7 +189,7 @@ class InteractivePrompt:
                             # Use the name-based selection
                             await self._select_prompt(prompt_provider, agent, prompt_name)
                         continue
-                    elif "list_tools" in command_result and prompt_provider:
+                    elif "list_tools" in command_result:
                         # Handle tools list display
                         await self._list_tools(prompt_provider, agent)
                         continue
@@ -190,6 +200,22 @@ class InteractivePrompt:
                     elif "show_markdown" in command_result:
                         # Handle markdown display
                         await self._show_markdown(prompt_provider, agent)
+                        continue
+                    elif "save_history" in command_result:
+                        # Save history for the current agent
+                        filename = command_result.get("filename")
+                        try:
+                            agent_obj = prompt_provider._agent(agent)
+
+                            # Prefer type-safe exporter over magic string
+                            saved_path = await HistoryExporter.save(agent_obj, filename)
+                            rich_print(f"[green]History saved to {saved_path}[/green]")
+                        except Exception:
+                            # Fallback to magic string path for maximum compatibility
+                            control = "***SAVE_HISTORY" + (f" {filename}" if filename else "")
+                            result = await send_func(control, agent)
+                            if result:
+                                rich_print(f"[green]{result}[/green]")
                         continue
 
                 # Skip further processing if:
@@ -731,12 +757,10 @@ class InteractivePrompt:
             rich_print(f"\n[bold]Applying prompt [cyan]{namespaced_name}[/cyan]...[/bold]")
 
             # Get the agent directly for generate() call
-            if hasattr(prompt_provider, "_agent"):
-                # This is an AgentApp - get the specific agent
-                agent = prompt_provider._agent(agent_name)
-            else:
-                # This is a single agent
-                agent = prompt_provider
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
 
             try:
                 # Use agent.apply_prompt() which handles everything properly:
@@ -769,8 +793,7 @@ class InteractivePrompt:
                     progress_display.pause()
 
                 # Show usage info after the turn (same as send_wrapper does)
-                if hasattr(prompt_provider, "_show_turn_usage"):
-                    prompt_provider._show_turn_usage(agent_name)
+                prompt_provider._show_turn_usage(agent_name)
 
             except Exception as e:
                 rich_print(f"[red]Error applying prompt: {e}[/red]")
@@ -791,12 +814,10 @@ class InteractivePrompt:
         """
         try:
             # Get agent to list tools from
-            if hasattr(prompt_provider, "_agent"):
-                # This is an AgentApp - get the specific agent
-                agent = prompt_provider._agent(agent_name)
-            else:
-                # This is a single agent
-                agent = prompt_provider
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
 
             rich_print(f"\n[bold]Tools for agent [cyan]{agent_name}[/cyan]:[/bold]")
 
@@ -915,12 +936,10 @@ class InteractivePrompt:
         """
         try:
             # Get agent to display from
-            if hasattr(prompt_provider, "_agent"):
-                # This is an AgentApp - get the specific agent
-                agent = prompt_provider._agent(agent_name)
-            else:
-                # This is a single agent
-                agent = prompt_provider
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
 
             # Check if agent has message history
             if not hasattr(agent, "_llm") or not agent._llm:
