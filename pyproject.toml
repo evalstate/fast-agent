@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.3.0"
+version = "0.3.1"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
