@@ -9,14 +9,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.mcp.ui_mixin import McpUIMixin
-from mcp_agent.agents.agent import Agent
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
 
 
-class McpAgentWithUI(McpUIMixin, Agent):
+class McpAgentWithUI(McpUIMixin, McpAgent):
     """
     MCP Agent with UI resource handling capabilities.
 

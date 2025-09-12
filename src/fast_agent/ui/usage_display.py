@@ -22,7 +22,7 @@ def display_usage_report(
     # Check if progress display is enabled (only relevant for fastagent context)
     if not show_if_progress_disabled:
         try:
-            from mcp_agent import config
+            from fast_agent import config
 
             settings = config.get_settings()
             if not settings.logger.progress_display:

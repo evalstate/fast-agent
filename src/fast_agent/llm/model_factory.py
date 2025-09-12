@@ -4,14 +4,13 @@ from typing import Dict, Optional, Type, Union
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ModelConfigError
-from fast_agent.interfaces import FastAgentLLMProtocol, LLMFactoryProtocol
+from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol, LLMFactoryProtocol
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
-from mcp_agent.agents.agent import Agent
 
 # from fast_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
@@ -240,7 +239,7 @@ class ModelFactory:
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
-            agent: Agent, request_params: Optional[RequestParams] = None, **kwargs
+            agent: AgentProtocol, request_params: Optional[RequestParams] = None, **kwargs
         ) -> FastAgentLLMProtocol:
             base_params = RequestParams()
             base_params.model = config.model_name

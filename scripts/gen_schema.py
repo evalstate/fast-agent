@@ -195,7 +195,7 @@ def apply_descriptions_to_schema(
 @app.command()
 def generate(
     config_py: Path = typer.Option(
-        Path("src/mcp_agent/config.py"),
+        Path("src/fast_agent/config.py"),
         "--config",
         "-c",
         help="Path to the config.py file",

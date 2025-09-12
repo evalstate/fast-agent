@@ -149,10 +149,10 @@ class LoggingListener(FilteredListener):
         """
         Initialize the listener.
         Args:
-            logger: Logger to use for event processing. Defaults to 'mcp_agent'.
+            logger: Logger to use for event processing. Defaults to 'fast_agent'.
         """
         super().__init__(event_filter=event_filter)
-        self.logger = logger or logging.getLogger("mcp_agent")
+        self.logger = logger or logging.getLogger("fast_agent")
 
     async def handle_matched_event(self, event) -> None:
         level_map: Dict[EventType, int] = {

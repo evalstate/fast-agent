@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional, Protocol, TypeVar
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
     QualityRating,
@@ -27,7 +28,6 @@ from fast_agent.interfaces import (
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.types import RequestParams
-from mcp_agent.agents.agent import Agent
 
 # Type aliases for improved readability and IDE support
 AgentDict = Dict[str, AgentProtocol]
@@ -58,7 +58,7 @@ def _create_agent_with_ui_if_needed(
     settings = context.config if hasattr(context, "config") else None
     ui_mode = getattr(settings, "mcp_ui_mode", "auto") if settings else "auto"
 
-    if ui_mode != "disabled" and agent_class == Agent:
+    if ui_mode != "disabled" and agent_class == McpAgent:
         # Use the UI-enhanced agent class instead of the base class
         return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode)
     else:
@@ -170,7 +170,7 @@ async def create_agents_by_type(
             if agent_type == AgentType.BASIC:
                 # Create agent with UI support if needed
                 agent = _create_agent_with_ui_if_needed(
-                    Agent,
+                    McpAgent,
                     config,
                     app_instance.context,
                 )

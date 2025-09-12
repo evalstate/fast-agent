@@ -72,7 +72,7 @@ include = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/mcp_agent", "src/fast_agent"]
+packages = ["src/fast_agent"]
 artifacts = [
     "src/fast_agent/resources/examples/**/*",
 ]
@@ -115,8 +115,6 @@ fast-agent-mcp = "fast_agent.cli.__main__:main"
 fastagent = "fast_agent.cli.__main__:app"
 prompt-server = "fast_agent.mcp.prompts.__main__:main"
 
-[tool.setuptools.package-data]
-mcp_agent = []
 
 [tool.ruff]
 line-length = 100

@@ -8,6 +8,7 @@ from mcp import ClientSession
 from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.sampling_converter import SamplingConverter
@@ -35,7 +36,6 @@ def create_sampling_llm(
         An initialized LLM instance ready to use
     """
     from fast_agent.llm.model_factory import ModelFactory
-    from mcp_agent.agents.agent import Agent
 
     app_context = None
     try:
@@ -45,7 +45,7 @@ def create_sampling_llm(
     except Exception:
         logger.warning("App context not available for sampling call")
 
-    agent = Agent(
+    agent = LlmAgent(
         config=sampling_agent_config(params),
         context=app_context,
     )

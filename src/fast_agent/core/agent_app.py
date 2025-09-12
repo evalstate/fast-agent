@@ -2,17 +2,17 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Mapping, Optional, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
-from mcp_agent.agents.agent import Agent
 
 
 class AgentApp:
@@ -27,7 +27,7 @@ class AgentApp:
     calls to the default agent (the first agent in the container).
     """
 
-    def __init__(self, agents: Dict[str, Agent]) -> None:
+    def __init__(self, agents: Dict[str, AgentProtocol]) -> None:
         """
         Initialize the DirectAgentApp.
 
@@ -36,13 +36,13 @@ class AgentApp:
         """
         self._agents = agents
 
-    def __getitem__(self, key: str) -> Agent:
+    def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
         if key not in self._agents:
             raise KeyError(f"Agent '{key}' not found")
         return self._agents[key]
 
-    def __getattr__(self, name: str) -> Agent:
+    def __getattr__(self, name: str) -> AgentProtocol:
         """Allow access to agents using attribute syntax."""
         if name in self._agents:
             return self._agents[name]
@@ -100,7 +100,7 @@ class AgentApp:
         """
         return await self._agent(agent_name).send(message, request_params)
 
-    def _agent(self, agent_name: str | None) -> Agent:
+    def _agent(self, agent_name: str | None) -> AgentProtocol:
         if agent_name:
             if agent_name not in self._agents:
                 raise ValueError(f"Agent '{agent_name}' not found")
@@ -204,7 +204,7 @@ class AgentApp:
         self,
         server_name: str | None = None,
         agent_name: str | None = None,
-    ) -> Dict[str, List[str]]:
+    ) -> Mapping[str, List[str]]:
         """
         List available resources from one or all servers.
 
