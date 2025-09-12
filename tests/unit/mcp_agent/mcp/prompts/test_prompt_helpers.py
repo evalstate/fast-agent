@@ -23,7 +23,7 @@ from fast_agent.mcp.helpers.content_helpers import (
     split_thinking_content,
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.prompts.prompt_helpers import MessageContent
+from fast_agent.mcp.prompts.prompt_helpers import MessageContent
 
 
 # Test fixture data

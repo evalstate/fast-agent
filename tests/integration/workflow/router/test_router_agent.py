@@ -5,8 +5,8 @@ import pytest
 from pydantic import BaseModel
 
 from fast_agent.llm.internal.passthrough import FIXED_RESPONSE_INDICATOR
+from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
 from mcp_agent.core.prompt import Prompt
-from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

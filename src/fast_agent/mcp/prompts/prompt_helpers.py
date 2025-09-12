@@ -7,12 +7,13 @@ without repetitive type checking.
 
 from typing import List, Optional, Union, cast
 
-from fast_agent.mcp.helpers.content_helpers import get_image_data, get_text
 from mcp.types import (
     EmbeddedResource,
     PromptMessage,
     TextContent,
 )
+
+from fast_agent.mcp.helpers.content_helpers import get_image_data, get_text
 
 # Forward reference for PromptMessageExtended, actual import happens at runtime
 PromptMessageExtendedType = Union[object]  # Will be replaced with actual type

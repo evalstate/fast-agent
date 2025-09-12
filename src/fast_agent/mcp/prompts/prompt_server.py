@@ -13,8 +13,6 @@ import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from pydantic import AnyUrl
-
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import (
     AssistantMessage,
@@ -23,18 +21,20 @@ from mcp.server.fastmcp.prompts.base import (
 )
 from mcp.server.fastmcp.resources import FileResource
 from mcp.types import PromptMessage
-from mcp_agent.mcp import mime_utils, resource_utils
-from mcp_agent.mcp.prompts.prompt_constants import (
+from pydantic import AnyUrl
+
+from fast_agent.mcp import mime_utils, resource_utils
+from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER as DEFAULT_ASSISTANT_DELIMITER,
 )
-from mcp_agent.mcp.prompts.prompt_constants import (
+from fast_agent.mcp.prompts.prompt_constants import (
     RESOURCE_DELIMITER as DEFAULT_RESOURCE_DELIMITER,
 )
-from mcp_agent.mcp.prompts.prompt_constants import (
+from fast_agent.mcp.prompts.prompt_constants import (
     USER_DELIMITER as DEFAULT_USER_DELIMITER,
 )
-from mcp_agent.mcp.prompts.prompt_load import create_messages_with_resources
-from mcp_agent.mcp.prompts.prompt_template import (
+from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources
+from fast_agent.mcp.prompts.prompt_template import (
     PromptMetadata,
     PromptTemplateLoader,
 )
@@ -146,7 +146,8 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
         if file_str.endswith(".json"):
             # Simple JSON handling - just load and register directly
             from mcp.server.fastmcp.prompts.base import Prompt, PromptArgument
-            from mcp_agent.mcp.prompts.prompt_load import load_prompt
+
+            from fast_agent.mcp.prompts.prompt_load import load_prompt
 
             # Create metadata with minimal information
             metadata = PromptMetadata(
@@ -228,9 +229,7 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
             # Create a function with properly typed parameters
             async def template_handler_with_vars(**kwargs):
                 # Extract template variables from kwargs
-                context = {
-                    var: kwargs.get(var) for var in template_vars if var in kwargs
-                }
+                context = {var: kwargs.get(var) for var in template_vars if var in kwargs}
 
                 # Check for missing variables
                 missing_vars = [var for var in template_vars if var not in context]
@@ -248,9 +247,7 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
 
             # Create a Prompt directly
             arguments = [
-                PromptArgument(
-                    name=var, description=f"Template variable: {var}", required=True
-                )
+                PromptArgument(name=var, description=f"Template variable: {var}", required=True)
                 for var in template_vars
             ]
 
@@ -302,9 +299,7 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
                             )
                         )
 
-                        logger.info(
-                            f"Registered resource: {resource_id} ({resource_file})"
-                        )
+                        logger.info(f"Registered resource: {resource_id} ({resource_file})")
     except Exception as e:
         logger.error(f"Error registering prompt {file_path}: {e}", exc_info=True)
 
@@ -312,9 +307,7 @@ def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> N
 def parse_args():
     """Parse command line arguments"""
     parser = argparse.ArgumentParser(description="FastMCP Prompt Server")
-    parser.add_argument(
-        "prompt_files", nargs="+", type=str, help="Prompt files to serve"
-    )
+    parser.add_argument("prompt_files", nargs="+", type=str, help="Prompt files to serve")
     parser.add_argument(
         "--user-delimiter",
         type=str,

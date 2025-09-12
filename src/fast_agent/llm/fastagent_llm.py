@@ -589,7 +589,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Uses JSON format for .json files (MCP SDK compatible format) and
         delimited text format for other extensions.
         """
-        from mcp_agent.mcp.prompt_serialization import save_messages_to_file
+        from fast_agent.mcp.prompt_serialization import save_messages_to_file
 
         # Save messages using the unified save function that auto-detects format
         save_messages_to_file(self._message_history, filename)

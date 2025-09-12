@@ -4,6 +4,8 @@ Utilities for rendering PromptMessageExtended objects for display.
 
 from typing import List
 
+from mcp.types import BlobResourceContents, TextResourceContents
+
 from fast_agent.mcp.helpers.content_helpers import (
     get_resource_uri,
     get_text,
@@ -12,7 +14,6 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_text_content,
 )
 from fast_agent.types import PromptMessageExtended
-from mcp.types import BlobResourceContents, TextResourceContents
 
 
 def render_multipart_message(message: PromptMessageExtended) -> str:

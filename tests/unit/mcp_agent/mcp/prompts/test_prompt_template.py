@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 from mcp.types import ImageContent, TextContent
 
-from mcp_agent.mcp import mime_utils, resource_utils
-from mcp_agent.mcp.prompts.prompt_load import create_messages_with_resources
-from mcp_agent.mcp.prompts.prompt_template import (
+from fast_agent.mcp import mime_utils, resource_utils
+from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources
+from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
     PromptMetadata,
     PromptTemplate,

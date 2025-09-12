@@ -1,4 +1,4 @@
-from mcp_agent.mcp import mime_utils
+from fast_agent.mcp import mime_utils
 
 
 class TestMimeUtils:

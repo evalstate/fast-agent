@@ -19,7 +19,6 @@ and PromptMessageExtended objects. It includes functionality for:
 import json
 from typing import List
 
-from fast_agent.types import PromptMessageExtended
 from mcp.types import (
     EmbeddedResource,
     GetPromptResult,
@@ -27,11 +26,13 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
-from mcp_agent.mcp.prompts.prompt_constants import (
+
+from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
     RESOURCE_DELIMITER,
     USER_DELIMITER,
 )
+from fast_agent.types import PromptMessageExtended
 
 # -------------------------------------------------------------------------
 # JSON Serialization Functions

@@ -22,7 +22,7 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
-from mcp_agent.mcp.mime_utils import (
+from fast_agent.mcp.mime_utils import (
     guess_mime_type,
     is_binary_content,
     is_image_mime_type,

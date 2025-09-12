@@ -9,8 +9,8 @@ from pathlib import Path
 from mcp.types import PromptMessage, TextContent
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
-from mcp_agent.mcp.prompts.prompt_template import PromptTemplateLoader
+from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
+from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
 
 def test_resource_message_role_merging():

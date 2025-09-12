@@ -284,7 +284,7 @@ class ModelDatabase:
         Normalizes common aliases (e.g., image/jpg->image/jpeg, document/pdf->application/pdf)
         and also accepts bare extensions like "pdf" or "png".
         """
-        from mcp_agent.mcp.mime_utils import normalize_mime_type
+        from fast_agent.mcp.mime_utils import normalize_mime_type
 
         tokenizes = cls.get_tokenizes(model) or []
 

@@ -5,7 +5,7 @@ Tests for serializing PromptMessageExtended objects to delimited format.
 from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.prompt_serialization import (
+from fast_agent.mcp.prompt_serialization import (
     json_to_extended_messages,
     multipart_messages_to_delimited_format,
     multipart_messages_to_json,

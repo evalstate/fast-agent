@@ -8,7 +8,7 @@ import re
 from typing import Dict, List, Literal, Tuple
 from urllib.parse import urlparse
 
-from mcp_agent.mcp.hf_auth import add_hf_auth_header
+from fast_agent.mcp.hf_auth import add_hf_auth_header
 
 
 def parse_server_url(

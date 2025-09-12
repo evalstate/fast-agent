@@ -3,11 +3,11 @@ from datetime import timedelta
 from typing import AsyncGenerator, Callable
 
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
+from mcp import ClientSession
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.interfaces import ServerRegistryProtocol
-from mcp import ClientSession
-from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
 logger = get_logger(__name__)
 

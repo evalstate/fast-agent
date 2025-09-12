@@ -6,8 +6,8 @@ import os
 import tempfile
 from pathlib import Path
 
-from mcp_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
-from mcp_agent.mcp.prompts.prompt_template import PromptTemplateLoader
+from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources, load_prompt
+from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
 
 def test_create_messages_with_resources_alternating_roles():

@@ -9,23 +9,23 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Set
 
-from pydantic import BaseModel, field_validator
-
-from fast_agent.types import PromptMessageExtended
 from mcp.types import (
     EmbeddedResource,
     TextContent,
     TextResourceContents,
 )
-from mcp_agent.mcp.prompt_serialization import (
+from pydantic import BaseModel, field_validator
+
+from fast_agent.mcp.prompt_serialization import (
     multipart_messages_to_delimited_format,
 )
-from mcp_agent.mcp.prompts.prompt_constants import (
+from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
     DEFAULT_DELIMITER_MAP,
     RESOURCE_DELIMITER,
     USER_DELIMITER,
 )
+from fast_agent.types import PromptMessageExtended
 
 
 class PromptMetadata(BaseModel):

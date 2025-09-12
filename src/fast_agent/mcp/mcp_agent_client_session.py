@@ -6,11 +6,6 @@ It adds logging and supports sampling requests.
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from pydantic import FileUrl
-
-from fast_agent.context_dependent import ContextDependent
-from fast_agent.core.logging.logger import get_logger
-from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from mcp import ClientSession, ServerNotification
 from mcp.shared.message import MessageMetadata
 from mcp.shared.session import (
@@ -33,7 +28,12 @@ from mcp.types import (
     Root,
     ToolListChangedNotification,
 )
-from mcp_agent.mcp.sampling import sample
+from pydantic import FileUrl
+
+from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.helpers.server_config_helpers import get_server_config
+from fast_agent.mcp.sampling import sample
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
@@ -123,7 +123,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             try:
                 from fast_agent.agents.agent_types import AgentConfig
                 from fast_agent.context import get_current_context
-                from mcp_agent.mcp.elicitation_factory import resolve_elicitation_handler
+                from fast_agent.mcp.elicitation_factory import resolve_elicitation_handler
 
                 context = get_current_context()
                 if context and context.config:
@@ -143,7 +143,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             # Fallback to forms handler only if factory resolution wasn't attempted
             # If factory was attempted and returned None, respect that (means no elicitation capability)
             if elicitation_handler is None and not self.server_config:
-                from mcp_agent.mcp.elicitation_handlers import forms_elicitation_handler
+                from fast_agent.mcp.elicitation_handlers import forms_elicitation_handler
 
                 elicitation_handler = forms_elicitation_handler
 

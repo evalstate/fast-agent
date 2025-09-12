@@ -6,7 +6,7 @@ Environment variables are volatile and may be temporarily modified during test e
 
 import os
 
-from mcp_agent.mcp.hf_auth import (
+from fast_agent.mcp.hf_auth import (
     add_hf_auth_header,
     get_hf_token_from_env,
     is_huggingface_url,
@@ -141,7 +141,7 @@ class TestShouldAddHfAuth:
             assert should_add_hf_auth("https://hf.co/models", headers) is False
         finally:
             _restore_hf_token(original)
-    
+
     def test_hf_space_existing_x_hf_auth_with_token(self):
         """Test that existing X-HF-Authorization prevents adding auth to .hf.space."""
         original = _set_hf_token("test_token")
@@ -186,7 +186,7 @@ class TestAddHfAuthHeader:
             assert result == expected
         finally:
             _restore_hf_token(original)
-    
+
     def test_adds_auth_header_for_huggingface_co(self):
         """Test that huggingface.co domains get the standard Authorization header."""
         original = _set_hf_token("test_token_123")
@@ -196,7 +196,7 @@ class TestAddHfAuthHeader:
             assert result == expected
         finally:
             _restore_hf_token(original)
-    
+
     def test_adds_x_hf_auth_header_for_hf_space(self):
         """Test that .hf.space domains get the X-HF-Authorization header."""
         original = _set_hf_token("test_token_123")
@@ -221,7 +221,7 @@ class TestAddHfAuthHeader:
             assert result == expected
         finally:
             _restore_hf_token(original)
-    
+
     def test_preserves_existing_headers_for_hf_space(self):
         """Test that existing headers are preserved when adding auth to .hf.space."""
         original = _set_hf_token("test_token_123")
@@ -246,7 +246,7 @@ class TestAddHfAuthHeader:
             assert result == existing
         finally:
             _restore_hf_token(original)
-    
+
     def test_does_not_override_existing_x_hf_auth_for_hf_space(self):
         """Test that existing X-HF-Authorization header is not overridden for .hf.space."""
         original = _set_hf_token("test_token_123")
@@ -315,7 +315,7 @@ class TestHfSpaceAntiSpoofing:
             "https://api.space.hf.space",  # nested subdomains
             "https://hf.space.really",  # hf.space as subdomain
         ]
-        
+
         for url in spoofing_urls:
             assert is_huggingface_url(url) is False, f"URL should be rejected: {url}"
 
@@ -336,7 +336,7 @@ class TestHfSpaceAntiSpoofing:
             "https://..hf.space",  # double dot
             "https:// .hf.space",  # space character (will be URL encoded)
         ]
-        
+
         for url in invalid_names:
             assert is_huggingface_url(url) is False, f"URL should be rejected: {url}"
 
@@ -347,7 +347,7 @@ class TestHfSpaceAntiSpoofing:
             "https://attacker.net?redirect=space.hf.space",  # query param spoofing
             "https://malicious.com#space.hf.space",  # fragment spoofing
         ]
-        
+
         for url in injection_urls:
             assert is_huggingface_url(url) is False, f"URL should be rejected: {url}"
 
@@ -377,12 +377,14 @@ class TestSecurityAndLeakagePrevention:
                 "http://127.0.0.1:3000/api",
                 "https://openai.com/api",
             ]
-            
+
             for url in test_urls:
                 result = add_hf_auth_header(url, None)
                 # Should either be None or not contain HF token
                 if result:
-                    assert "Authorization" not in result or "secret_token" not in result.get("Authorization", "")
+                    assert "Authorization" not in result or "secret_token" not in result.get(
+                        "Authorization", ""
+                    )
         finally:
             _restore_hf_token(original)
 
@@ -392,18 +394,20 @@ class TestSecurityAndLeakagePrevention:
         try:
             spoofing_urls = [
                 "https://evil.hf.space.com",
-                "https://malicious.hf.space.evil.com", 
+                "https://malicious.hf.space.evil.com",
                 "https://hf.space.malicious.com",
                 "https://sub.space.hf.space",
                 "https://hf.space",
                 "https://.hf.space",
             ]
-            
+
             for url in spoofing_urls:
                 result = add_hf_auth_header(url, None)
                 # Should either be None or not contain HF token
                 if result:
-                    assert "Authorization" not in result or "secret_token" not in result.get("Authorization", ""), f"Token leaked to: {url}"
+                    assert "Authorization" not in result or "secret_token" not in result.get(
+                        "Authorization", ""
+                    ), f"Token leaked to: {url}"
         finally:
             _restore_hf_token(original)
 
@@ -417,13 +421,17 @@ class TestSecurityAndLeakagePrevention:
                 "http://test123.hf.space:8080/path",
                 "https://evalstate-parler-tts-expresso.hf.space/v1/generate",
             ]
-            
+
             for url in valid_urls:
                 result = add_hf_auth_header(url, None)
                 assert result is not None, f"Should add auth to: {url}"
-                assert result["X-HF-Authorization"] == "Bearer test_token_123", f"Incorrect auth for: {url}"
+                assert result["X-HF-Authorization"] == "Bearer test_token_123", (
+                    f"Incorrect auth for: {url}"
+                )
                 # Ensure Authorization header is NOT set for .hf.space domains
-                assert "Authorization" not in result, f"Should not set Authorization header for: {url}"
+                assert "Authorization" not in result, (
+                    f"Should not set Authorization header for: {url}"
+                )
         finally:
             _restore_hf_token(original)
 
@@ -436,7 +444,7 @@ class TestSecurityAndLeakagePrevention:
                 "Content-Type": "application/json",
             }
             result = add_hf_auth_header("https://hf.co/models", existing_headers)
-            
+
             # Should return exact same headers, no modification
             assert result == existing_headers
             assert result["Authorization"] == "Bearer user_provided_token"

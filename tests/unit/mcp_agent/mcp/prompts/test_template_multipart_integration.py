@@ -10,10 +10,10 @@ import pytest
 from mcp.types import TextContent
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.prompt_serialization import (
+from fast_agent.mcp.prompt_serialization import (
     load_messages_from_delimited_file,
 )
-from mcp_agent.mcp.prompts.prompt_template import (
+from fast_agent.mcp.prompts.prompt_template import (
     PromptTemplate,
     PromptTemplateLoader,
 )

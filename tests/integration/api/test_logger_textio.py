@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from mcp_agent.mcp.logger_textio import LoggerTextIO, get_stderr_handler
+from fast_agent.mcp.logger_textio import LoggerTextIO, get_stderr_handler
 
 
 @pytest.fixture

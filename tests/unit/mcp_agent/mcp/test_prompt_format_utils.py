@@ -15,7 +15,7 @@ from mcp.types import (
 )
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.prompt_serialization import (
+from fast_agent.mcp.prompt_serialization import (
     delimited_format_to_extended_messages,
     load_messages_from_delimited_file,
     multipart_messages_to_delimited_format,

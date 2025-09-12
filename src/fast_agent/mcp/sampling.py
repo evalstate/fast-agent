@@ -4,14 +4,15 @@ This simplified implementation directly converts between MCP types and PromptMes
 
 from typing import TYPE_CHECKING
 
+from mcp import ClientSession
+from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
+
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.sampling_converter import SamplingConverter
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from mcp import ClientSession
-from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
 
 if TYPE_CHECKING:
     from fast_agent.types import PromptMessageExtended
@@ -102,7 +103,7 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
 
             if auto_sampling_enabled:
                 # Import here to avoid circular import
-                from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+                from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
                 # Try agent's model first (from the session)
                 if hasattr(mcp_ctx, "session") and isinstance(

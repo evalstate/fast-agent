@@ -1,6 +1,6 @@
 from mcp.types import CreateMessageRequestParams, SamplingMessage, TextContent
 
-from mcp_agent.mcp.sampling import sampling_agent_config
+from fast_agent.mcp.sampling import sampling_agent_config
 
 
 def test_build_sampling_agent_config_with_system_prompt():

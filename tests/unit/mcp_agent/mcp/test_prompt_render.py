@@ -7,8 +7,8 @@ from mcp.types import (
 )
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.prompt_render import render_multipart_message
-from mcp_agent.mcp.resource_utils import (
+from fast_agent.mcp.prompt_render import render_multipart_message
+from fast_agent.mcp.resource_utils import (
     create_blob_resource,
     create_image_content,
     create_text_resource,

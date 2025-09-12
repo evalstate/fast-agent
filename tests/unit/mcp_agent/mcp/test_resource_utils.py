@@ -2,7 +2,7 @@ import unittest
 
 from pydantic import AnyUrl
 
-from mcp_agent.mcp.resource_utils import normalize_uri
+from fast_agent.mcp.resource_utils import normalize_uri
 
 
 class TestUriNormalization(unittest.TestCase):
@@ -68,7 +68,7 @@ class TestUriNormalization(unittest.TestCase):
 
     def test_uri_extraction_edge_cases(self):
         """Test extraction of filenames from various URI formats."""
-        from mcp_agent.mcp.resource_utils import extract_title_from_uri
+        from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         # Test different URI formats
         test_cases = [

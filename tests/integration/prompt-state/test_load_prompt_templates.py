@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, List
 import pytest
 from mcp.types import ImageContent
 
-from mcp_agent.core.prompt import Prompt
-from mcp_agent.mcp.prompts.prompt_load import (
+from fast_agent.mcp.prompts.prompt_load import (
     load_prompt_multipart,
 )
+from mcp_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -102,7 +102,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
     loaded directly using Pydantic types."""
     from mcp.types import GetPromptResult
 
-    from mcp_agent.mcp.prompt_serialization import json_to_extended_messages
+    from fast_agent.mcp.prompt_serialization import json_to_extended_messages
 
     # Use the FastAgent instance from the test directory fixture
     fast = fast_agent
