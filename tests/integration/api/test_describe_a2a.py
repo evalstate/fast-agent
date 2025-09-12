@@ -3,9 +3,8 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from a2a_types.types import AgentCard, AgentSkill
-
-    from fast_agent.agents.agent import Agent
+    from a2a.types import AgentCard, AgentSkill
+    from fast_agent.agents.mcp_agent import McpAgent
 
 
 @pytest.mark.integration
@@ -17,7 +16,7 @@ async def test_get_agent_card_and_tools(fast_agent):
     async def agent_function():
         async with fast.run() as app:
             # Simulate some agent operations
-            agent: Agent = app["test"]
+            agent: McpAgent = app["test"]
             card: AgentCard = await agent.agent_card()
 
             assert "test" == card.name
