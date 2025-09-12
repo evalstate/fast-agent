@@ -2,8 +2,8 @@
 Prompt class for easily creating and working with MCP prompt content.
 
 This implementation lives in the fast_agent namespace as part of the
-migration away from mcp_agent. A compatibility shim remains at
-mcp_agent.core.prompt importing this Prompt.
+migration away from fast_agent. A compatibility shim remains at
+fast_agent.core.prompt importing this Prompt.
 """
 
 from pathlib import Path
@@ -12,10 +12,8 @@ from typing import Dict, List, Literal, Union
 from mcp import CallToolRequest
 from mcp.types import ContentBlock, PromptMessage
 
+from fast_agent.mcp.mcp_content import Assistant, MCPPrompt, User
 from fast_agent.types import LlmStopReason, PromptMessageExtended
-
-# Import content helper functions (temporarily from mcp_agent pending full migration)
-from mcp_agent.core.mcp_content import Assistant, MCPPrompt, User
 
 
 class Prompt:
@@ -159,4 +157,3 @@ class Prompt:
         for mp in multipart:
             result.extend(mp.from_multipart())
         return result
-

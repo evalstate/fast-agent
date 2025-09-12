@@ -6,7 +6,7 @@ Public API:
 - Helpers from `fast_agent.mcp.helpers` (re-exported for convenience).
 
 Note: Backward compatibility for legacy `PromptMessageMultipart` imports is handled
-via `mcp_agent.mcp.prompt_message_multipart`, which subclasses `PromptMessageExtended`.
+via `fast_agent.mcp.prompt_message_multipart`, which subclasses `PromptMessageExtended`.
 """
 
 from .helpers import (

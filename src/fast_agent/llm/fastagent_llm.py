@@ -23,6 +23,8 @@ from openai.lib._parsing import type_to_response_format_param as _type_to_respon
 from pydantic_core import from_json
 
 from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
     FastAgentLLMProtocol,
@@ -34,8 +36,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
-from mcp_agent.core.prompt import Prompt
-from mcp_agent.logging.logger import get_logger
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
@@ -146,6 +146,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             self.default_request_params = self._merge_request_params(
                 self.default_request_params, self._init_request_params
             )
+
+        # Cache effective model name for type-safe access
+        self._model_name: Optional[str] = getattr(self.default_request_params, "model", None)
 
         self.verb = kwargs.get("verb")
 
@@ -586,7 +589,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Uses JSON format for .json files (MCP SDK compatible format) and
         delimited text format for other extensions.
         """
-        from mcp_agent.mcp.prompt_serialization import save_messages_to_file
+        from fast_agent.mcp.prompt_serialization import save_messages_to_file
 
         # Save messages using the unified save function that auto-detects format
         save_messages_to_file(self._message_history, filename)
@@ -636,3 +639,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             The Provider enum value representing the LLM provider
         """
         return self._provider
+
+    @property
+    def model_name(self) -> str | None:
+        """Return the effective model name, if set."""
+        return self._model_name
+
+    @property
+    def model_info(self):
+        """Return resolved model information with capabilities.
+
+        Uses a lightweight resolver backed by the ModelDatabase and provides
+        text/document/vision flags, context window, etc.
+        """
+        from fast_agent.llm.model_info import ModelInfo
+
+        if not self._model_name:
+            return None
+        return ModelInfo.from_name(self._model_name, self._provider)

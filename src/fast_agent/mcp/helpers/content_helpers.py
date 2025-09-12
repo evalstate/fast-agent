@@ -1,8 +1,6 @@
 """
 Helper functions for working with content objects (Fast Agent namespace).
 
-This module is colocated with PromptMessageExtended to avoid circular imports
-between fast_agent and mcp_agent packages.
 """
 
 from typing import TYPE_CHECKING, List, Optional, Sequence, Union

@@ -6,7 +6,7 @@ Tests tool, resource, and prompt filtering across different agent types.
 
 import pytest
 
-from mcp_agent.agents.agent import Agent
+from fast_agent.agents.mcp_agent import McpAgent
 
 
 @pytest.mark.integration
@@ -224,7 +224,7 @@ async def test_tool_filtering_custom_agent(fast_agent):
 
     # Custom agent with filtering
     @fast.custom(
-        Agent,
+        McpAgent,
         name="custom_string_agent",
         instruction="Custom agent with tool filtering",
         model="passthrough",

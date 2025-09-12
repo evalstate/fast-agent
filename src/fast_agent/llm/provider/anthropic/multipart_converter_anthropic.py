@@ -25,6 +25,7 @@ from mcp.types import (
     TextResourceContents,
 )
 
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
     get_resource_uri,
@@ -33,13 +34,12 @@ from fast_agent.mcp.helpers.content_helpers import (
     is_resource_content,
     is_text_content,
 )
-from fast_agent.types import PromptMessageExtended
-from mcp_agent.logging.logger import get_logger
-from mcp_agent.mcp.mime_utils import (
+from fast_agent.mcp.mime_utils import (
     guess_mime_type,
     is_image_mime_type,
     is_text_mime_type,
 )
+from fast_agent.types import PromptMessageExtended
 
 _logger = get_logger("multipart_converter_anthropic")
 
@@ -235,7 +235,7 @@ class AnthropicConverter:
         mime_type = AnthropicConverter._determine_mime_type(resource_content)
 
         # Extract title from URI
-        from mcp_agent.mcp.resource_utils import extract_title_from_uri
+        from fast_agent.mcp.resource_utils import extract_title_from_uri
 
         title = extract_title_from_uri(uri) if uri else "resource"
 

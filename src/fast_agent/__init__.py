@@ -75,6 +75,10 @@ def __getattr__(name: str):
         from fast_agent.agents.mcp_agent import McpAgent
 
         return McpAgent
+    elif name == "FastAgent":
+        from fast_agent.core.fastagent import FastAgent
+
+        return FastAgent
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
@@ -119,4 +123,5 @@ __all__ = [
     "LlmDecorator",
     "ToolAgent",
     "McpAgent",
+    "FastAgent",
 ]

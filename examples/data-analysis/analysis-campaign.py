@@ -1,7 +1,7 @@
 import asyncio
 
+from fast_agent.core.fastagent import FastAgent
 from fast_agent.llm.fastagent_llm import RequestParams
-from mcp_agent.core.fastagent import FastAgent
 
 # Create the application
 fast = FastAgent("Data Analysis & Campaign Generator")

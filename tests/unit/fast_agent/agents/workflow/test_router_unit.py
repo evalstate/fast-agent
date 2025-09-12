@@ -4,16 +4,16 @@ Unit tests for the router agent, covering models and core functionality.
 
 import pytest
 
+from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent, RoutingResponse
+from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import (
     FIXED_RESPONSE_INDICATOR,
     PassthroughLLM,
 )
-from mcp_agent.agents.agent import Agent
-from mcp_agent.core.exceptions import AgentConfigError
-from mcp_agent.core.prompt import Prompt
 
 # Model tests
 
@@ -72,7 +72,7 @@ async def test_invalid_llm_response():
 async def test_single_agent_shortcircuit():
     """Test router short-circuits when only one agent is available."""
     # Create a single agent
-    agent = Agent(AgentConfig(name="only_agent", instruction="The only available agent"))
+    agent = McpAgent(AgentConfig(name="only_agent", instruction="The only available agent"))
 
     # Create router with a single agent
     router = RouterAgent(config=AgentConfig(name="test_router"), agents=[agent])

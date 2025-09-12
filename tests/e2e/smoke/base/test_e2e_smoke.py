@@ -1,4 +1,3 @@
-# integration_tests/mcp_agent/test_agent_with_image.py
 import os
 from enum import Enum
 from typing import TYPE_CHECKING, List
@@ -6,7 +5,7 @@ from typing import TYPE_CHECKING, List
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp_agent.core.prompt import Prompt
+from fast_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
     from fast_agent.llm.memory import Memory

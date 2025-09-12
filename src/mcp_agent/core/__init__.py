@@ -1,8 +1,11 @@
 """
-Core components and utilities for MCP Agent.
+Core components and utilities for MCP Agent (compat layer).
+
+This module provides compatibility imports that now live under the
+`fast_agent` package after migration.
 """
 
-from .mcp_content import (
+from fast_agent.mcp.mcp_content import (
     Assistant,
     MCPFile,
     MCPImage,

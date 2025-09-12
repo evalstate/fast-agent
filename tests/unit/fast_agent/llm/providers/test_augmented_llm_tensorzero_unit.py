@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam
 
+from fast_agent.agents import McpAgent
 from fast_agent.llm.provider.openai.llm_tensorzero_openai import TensorZeroOpenAILLM
 from fast_agent.llm.request_params import RequestParams
-from mcp_agent.agents.agent import Agent
 
 # --- Fixtures ---
 
@@ -14,7 +14,7 @@ from mcp_agent.agents.agent import Agent
 @pytest.fixture
 def mock_agent():
     """Provides a mocked Agent object with a default, empty config."""
-    agent = MagicMock(spec=Agent)
+    agent = MagicMock(spec=McpAgent)
     agent.name = "mock_agent"
     agent.instruction = "mock_instruction"
     agent.context = MagicMock()

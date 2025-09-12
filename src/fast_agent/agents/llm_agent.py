@@ -10,7 +10,18 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 from typing import List, Optional, Tuple
 
-from a2a.types import AgentCapabilities
+try:
+    from a2a.types import AgentCapabilities  # type: ignore
+except Exception:  # pragma: no cover - optional dependency fallback
+    from dataclasses import dataclass
+
+    @dataclass
+    class AgentCapabilities:  # minimal fallback
+        streaming: bool = False
+        push_notifications: bool = False
+        state_transition_history: bool = False
+
+
 from mcp import Tool
 from rich.text import Text
 
@@ -124,15 +135,7 @@ class LlmAgent(LlmDecorator):
 
         # Use provided name/model or fall back to defaults
         display_name = name if name is not None else self.name
-        display_model = (
-            model
-            if model is not None
-            else (
-                self._llm.default_request_params.model
-                if self._llm and hasattr(self._llm, "default_request_params")
-                else None
-            )
-        )
+        display_model = model if model is not None else (self.llm.model_name if self._llm else None)
 
         await self.display.show_assistant_message(
             message_text,
@@ -146,7 +149,7 @@ class LlmAgent(LlmDecorator):
 
     def show_user_message(self, message: PromptMessageExtended) -> None:
         """Display a user message in a formatted panel."""
-        model = self._llm.default_request_params.model
+        model = self.llm.model_name
         chat_turn = self._llm.chat_turn()
         self.display.show_user_message(message.last_text() or "", model, chat_turn, name=self.name)
 

@@ -6,9 +6,9 @@ from typing import List, Union
 
 from mcp.types import ImageContent, TextContent
 
+from fast_agent.core.fastagent import FastAgent
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.request_params import RequestParams
-from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.core.prompt import Prompt
 
 AGENT_NAME = "tensorzero_image_tester"
 TENSORZERO_MODEL = "tensorzero.test_chat"

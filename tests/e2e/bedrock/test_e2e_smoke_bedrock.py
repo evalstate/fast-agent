@@ -4,11 +4,11 @@ from typing import Annotated, List
 import pytest
 from pydantic import BaseModel, Field
 
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.bedrock.bedrock_utils import all_bedrock_models
 from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import split_thinking_content
-from mcp_agent.core.prompt import Prompt
 
 
 @pytest.fixture(scope="module", autouse=True)

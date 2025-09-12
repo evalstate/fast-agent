@@ -20,7 +20,8 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
-from mcp_agent.core.exceptions import PromptExitError
+from fast_agent.core.exceptions import PromptExitError
+from fast_agent.llm.model_info import get_model_info
 
 # Get the application version
 try:
@@ -293,12 +294,12 @@ class AgentCompleter(Completer):
         self.agents = agents
         # Map commands to their descriptions for better completion hints
         self.commands = {
-            "tools": "List and call MCP tools",
-            "prompt": "List and select MCP prompts, or apply specific prompt (/prompt <name>)",
+            "tools": "List available MCP tools",
+            "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "agents": "List available agents",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
-            "help": "Show available commands",
+            "help": "Show commands and shortcuts",
             "clear": "Clear the screen",
             "STOP": "Stop this prompting session and move to next workflow step",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -581,32 +582,91 @@ async def get_enhanced_input(
         if in_multiline_mode:
             mode_style = "ansired"  # More noticeable for multiline mode
             mode_text = "MULTILINE"
-            toggle_text = "Normal"
+        #           toggle_text = "Normal"
         else:
             mode_style = "ansigreen"
             mode_text = "NORMAL"
-            toggle_text = "Multiline"
+        #            toggle_text = "Multiline"
 
-        shortcuts = [
-            ("Ctrl+T", toggle_text),
-            ("Ctrl+J", "Newline" if not in_multiline_mode else None),
-            ("Ctrl+E", "External"),
-            ("Ctrl+Y", "Copy"),
-            ("Ctrl+L", "Clear"),
-            ("↑/↓", "History"),
-            ("EXIT", "Exit"),
-        ]
-
-        newline = "Ctrl+J:Submit" if in_multiline_mode else "&lt;Enter&gt;:Submit"
+        # No shortcut hints in the toolbar for now
+        shortcuts = []
 
         # Only show relevant shortcuts based on mode
         shortcuts = [(k, v) for k, v in shortcuts if v]
 
         shortcut_text = " | ".join(f"{key}:{action}" for key, action in shortcuts)
 
-        return HTML(
-            f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> {newline} | {shortcut_text} | v{app_version}"
-        )
+        # Resolve model name and TDV from the current agent if available
+        model_display = None
+        tdv_segment = None
+        try:
+            agent_obj = (
+                agent_provider._agent(agent_name)
+                if agent_provider and hasattr(agent_provider, "_agent")
+                else agent_provider
+            )
+            if agent_obj and hasattr(agent_obj, "llm") and agent_obj.llm:
+                model_name = getattr(agent_obj.llm, "model_name", None)
+                if model_name:
+                    # Truncate model name to max 25 characters with ellipsis
+                    max_len = 25
+                    if len(model_name) > max_len:
+                        # Keep total length at max_len including ellipsis
+                        model_display = model_name[: max_len - 1] + "…"
+                    else:
+                        model_display = model_name
+
+                # Build TDV capability segment based on model database
+                info = get_model_info(agent_obj)
+                # Default to text-only if info resolution fails for any reason
+                t, d, v = (True, False, False)
+                if info:
+                    t, d, v = info.tdv_flags
+
+                def _style_flag(letter: str, supported: bool) -> str:
+                    # Enabled uses the same color as NORMAL mode (ansigreen), disabled is dim
+                    enabled_color = "ansigreen"
+                    return (
+                        f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
+                        if supported
+                        else f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
+                    )
+
+                tdv_segment = f"{_style_flag('T', t)}{_style_flag('D', d)}{_style_flag('V', v)}"
+        except Exception:
+            # If anything goes wrong determining the model, omit it gracefully
+            model_display = None
+            tdv_segment = None
+
+        # Build dynamic middle segments: model (in green) and optional shortcuts
+        middle_segments = []
+        if model_display:
+            # Model chip + inline TDV flags
+            if tdv_segment:
+                middle_segments.append(
+                    f"{tdv_segment} <style bg='ansigreen'>{model_display}</style>"
+                )
+            else:
+                middle_segments.append(f"<style bg='ansigreen'>{model_display}</style>")
+        if shortcut_text:
+            middle_segments.append(shortcut_text)
+        middle = " | ".join(middle_segments)
+
+        # Version/app label in green (dynamic version)
+        version_segment = f"fast-agent {app_version}"
+
+        if middle:
+            return HTML(
+                f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
+                f"{version_segment}"
+            )
+        else:
+            return HTML(
+                f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
+                f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
+                f"{version_segment}"
+            )
 
     # A more terminal-agnostic style that should work across themes
     custom_style = Style.from_dict(

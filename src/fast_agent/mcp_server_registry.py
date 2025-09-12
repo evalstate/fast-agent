@@ -14,7 +14,7 @@ from fast_agent.config import (
     Settings,
     get_settings,
 )
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 

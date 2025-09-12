@@ -120,8 +120,8 @@ def create_mock_modules() -> None:
         "opentelemetry.sdk.resources",
         "opentelemetry.exporter.otlp.proto.http",
         "opentelemetry.trace",
-        "mcp_agent.logging",
-        "mcp_agent.logging.logger",
+        "fast_agent.core.logging",
+        "fast_agent.core.logging.logger",
         "yaml",
     ]
 
@@ -195,7 +195,7 @@ def apply_descriptions_to_schema(
 @app.command()
 def generate(
     config_py: Path = typer.Option(
-        Path("src/mcp_agent/config.py"),
+        Path("src/fast_agent/config.py"),
         "--config",
         "-c",
         help="Path to the config.py file",

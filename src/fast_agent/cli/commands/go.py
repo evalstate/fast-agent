@@ -7,10 +7,11 @@ from typing import Dict, List, Optional
 
 import typer
 
+from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.core.fastagent import FastAgent
 from fast_agent.ui.console_display import ConsoleDisplay
-from mcp_agent.core.fastagent import FastAgent
 
 app = typer.Typer(
     help="Run an interactive agent directly from the command line without creating an agent.py file",
@@ -33,7 +34,7 @@ async def _run_agent(
     """Async implementation to run an interactive agent."""
     from pathlib import Path
 
-    from mcp_agent.mcp.prompts.prompt_load import load_prompt_multipart
+    from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
 
     # Create the FastAgent instance
 
@@ -72,13 +73,21 @@ async def _run_agent(
 
             fan_out_agents.append(agent_name)
 
-        # Create a silent fan-in agent for cleaner output
-        @fast.agent(
+        # Create a silent fan-in agent (suppresses display output)
+        class SilentFanInAgent(LlmAgent):
+            async def show_assistant_message(self, *args, **kwargs):  # type: ignore[override]
+                return None
+
+            def show_user_message(self, *args, **kwargs):  # type: ignore[override]
+                return None
+
+        @fast.custom(
+            SilentFanInAgent,
             name="aggregate",
-            model="silent",
-            instruction="You are a silent agent that combines outputs from parallel agents.",
+            model="passthrough",
+            instruction="You aggregate parallel outputs without displaying intermediate messages.",
         )
-        async def fan_in_agent():
+        async def aggregate():
             pass
 
         # Create a parallel agent with silent fan_in
@@ -352,7 +361,7 @@ def go(
 
             from pydantic import AnyUrl
 
-            from mcp_agent.core.direct_decorators import _resolve_instruction
+            from fast_agent.core.direct_decorators import _resolve_instruction
 
             # Check if it's a URL
             if instruction.startswith(("http://", "https://")):

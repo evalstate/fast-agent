@@ -1,14 +1,14 @@
 import pytest
 
+from fast_agent.core.logging.events import EventFilter
+from fast_agent.core.logging.listeners import FilteredListener
+from fast_agent.core.logging.transport import AsyncEventBus
 from fast_agent.event_progress import ProgressAction
-from mcp_agent.logging.events import EventFilter
-from mcp_agent.logging.listeners import FilteredListener
-from mcp_agent.logging.transport import AsyncEventBus
 
 
 class DebugProgressObserver(FilteredListener):
     def __init__(self):
-        event_filter = EventFilter(types={"info"}, namespaces={"mcp_agent.mcp.mcp_aggregator"})
+        event_filter = EventFilter(types={"info"}, namespaces={"fast_agent.mcp.mcp_aggregator"})
         super().__init__(event_filter=event_filter)
         self.all_events = []
         self.progress_events = []

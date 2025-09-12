@@ -3,9 +3,9 @@ from typing import List
 
 import pytest
 
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.bedrock.bedrock_utils import all_bedrock_models
 from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
-from mcp_agent.core.prompt import Prompt
 
 
 @pytest.fixture(scope="module", autouse=True)

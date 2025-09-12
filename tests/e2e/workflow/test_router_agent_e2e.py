@@ -1,19 +1,21 @@
-# integration_tests/mcp_agent/test_agent_with_image.py
 from pathlib import Path
 
 import pytest
 
-from mcp_agent.core.prompt import Prompt
+from fast_agent.core.prompt import Prompt
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-@pytest.mark.parametrize("model_name", [
-    "haiku", 
-    "gpt-4.1-mini",
-    "gemini25",
-])
+@pytest.mark.parametrize(
+    "model_name",
+    [
+        "haiku",
+        "gpt-4.1-mini",
+        "gemini25",
+    ],
+)
 async def test_basic_text_routing(fast_agent, model_name):
     """Test that the agent can process an image and respond appropriately."""
     fast = fast_agent

@@ -12,7 +12,7 @@ def get_server_config(ctx: Any) -> Optional["MCPServerSettings"]:
     Type guard helper that safely accesses server_config with proper type checking.
     """
     # Import here to avoid circular import
-    from mcp_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+    from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
     # Check if ctx has a session attribute (RequestContext case)
     if hasattr(ctx, "session"):

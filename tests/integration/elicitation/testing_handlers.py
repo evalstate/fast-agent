@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
 
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from mcp import ClientSession
@@ -23,12 +23,12 @@ async def auto_accept_test_handler(
     params: ElicitRequestParams,
 ) -> ElicitResult:
     """Testing handler that automatically accepts with realistic test values.
-    
+
     This handler is useful for integration tests where you want to verify
     the round-trip behavior of elicitation without user interaction.
     """
     logger.info(f"Auto-accept test handler called: {params.message}")
-    
+
     if params.requestedSchema:
         # Generate realistic test data based on schema
         content = _generate_test_response(params.requestedSchema)
@@ -59,13 +59,13 @@ def _generate_test_response(schema: Dict[str, Any]) -> Dict[str, Any]:
     """Generate realistic test data based on JSON schema."""
     if not schema or "properties" not in schema:
         return {"response": "default-test"}
-    
+
     properties = schema["properties"]
     content = {}
-    
+
     for field_name, field_def in properties.items():
         field_type = field_def.get("type", "string")
-        
+
         if field_type == "string":
             # Provide field-specific test values
             if field_name.lower() in ["name", "full_name", "fullname"]:
@@ -86,7 +86,7 @@ def _generate_test_response(schema: Dict[str, Any]) -> Dict[str, Any]:
                 content[field_name] = "Test Country"
             else:
                 content[field_name] = f"test-{field_name.replace('_', '-')}"
-                
+
         elif field_type == "integer":
             if field_name.lower() == "age":
                 content[field_name] = 30
@@ -96,7 +96,7 @@ def _generate_test_response(schema: Dict[str, Any]) -> Dict[str, Any]:
                 content[field_name] = 5
             else:
                 content[field_name] = 42
-                
+
         elif field_type == "number":
             if field_name.lower() in ["price", "cost", "salary"]:
                 content[field_name] = 50000.00
@@ -104,7 +104,7 @@ def _generate_test_response(schema: Dict[str, Any]) -> Dict[str, Any]:
                 content[field_name] = 4.5
             else:
                 content[field_name] = 3.14
-                
+
         elif field_type == "boolean":
             # Provide reasonable defaults for common boolean fields
             if field_name.lower() in ["subscribe", "subscribe_newsletter", "newsletter"]:
@@ -115,13 +115,13 @@ def _generate_test_response(schema: Dict[str, Any]) -> Dict[str, Any]:
                 content[field_name] = False
             else:
                 content[field_name] = True
-                
+
         elif field_type == "array":
             default_array = field_def.get("default", ["test-item"])
             content[field_name] = default_array
-            
+
         elif field_type == "object":
             default_object = field_def.get("default", {"test": "value"})
             content[field_name] = default_object
-    
+
     return content

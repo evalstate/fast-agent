@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent.core.fastagent import FastAgent
 
 pytestmark = pytest.mark.usefixtures("tensorzero_docker_env", "chdir_to_tensorzero_example")
 

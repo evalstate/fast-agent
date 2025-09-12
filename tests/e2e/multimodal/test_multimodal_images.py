@@ -1,10 +1,9 @@
-# integration_tests/mcp_agent/test_agent_with_image.py
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from mcp_agent.core.prompt import Prompt
+from fast_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

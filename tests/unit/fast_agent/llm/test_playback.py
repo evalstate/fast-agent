@@ -3,11 +3,11 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.exceptions import ModelConfigError
+from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.model_factory import ModelFactory
-from mcp_agent.core.exceptions import ModelConfigError
-from mcp_agent.core.prompt import Prompt
 
 
 class FormattedResponse(BaseModel):

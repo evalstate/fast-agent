@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
 
-from mcp_agent.logging.logger import get_logger
+from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from mcp import ClientSession
@@ -24,16 +24,16 @@ async def custom_elicitation_handler(
 ) -> ElicitResult:
     """Test handler that returns predictable responses for integration testing."""
     logger.info(f"Test elicitation handler called with: {params.message}")
-    
+
     if params.requestedSchema:
         # Generate test data based on the schema for round-trip verification
         properties = params.requestedSchema.get("properties", {})
         content: Dict[str, Any] = {}
-        
+
         # Provide test values for each field
         for field_name, field_def in properties.items():
             field_type = field_def.get("type", "string")
-            
+
             if field_type == "string":
                 if field_name == "name":
                     content[field_name] = "Test User"
@@ -61,7 +61,7 @@ async def custom_elicitation_handler(
                 content[field_name] = ["test-item"]
             elif field_type == "object":
                 content[field_name] = {"test": "value"}
-        
+
         logger.info(f"Test handler returning: {content}")
         return ElicitResult(action="accept", content=content)
     else:

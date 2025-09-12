@@ -16,7 +16,7 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.mcp.resource_utils import normalize_uri
+from fast_agent.mcp.resource_utils import normalize_uri
 
 PDF_BASE64 = base64.b64encode(b"fake_pdf_data").decode("utf-8")
 

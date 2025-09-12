@@ -20,6 +20,7 @@ from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
@@ -30,7 +31,6 @@ from fast_agent.ui.enhanced_prompt import (
 )
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
-from mcp_agent.mcp.mcp_aggregator import SEP
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
