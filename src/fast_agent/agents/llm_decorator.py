@@ -18,7 +18,6 @@ from typing import (
 if TYPE_CHECKING:
     from rich.text import Text
 
-from a2a.types import AgentCard
 from mcp import Tool
 from mcp.types import (
     GetPromptResult,
@@ -29,6 +28,7 @@ from mcp.types import (
 from opentelemetry import trace
 from pydantic import BaseModel
 
+from a2a.types import AgentCard
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger

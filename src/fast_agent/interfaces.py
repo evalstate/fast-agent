@@ -19,12 +19,12 @@ from typing import (
     Union,
 )
 
-from a2a.types import AgentCard
 from mcp import Tool
 from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
 from pydantic import BaseModel
 from rich.text import Text
 
+from a2a.types import AgentCard
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams

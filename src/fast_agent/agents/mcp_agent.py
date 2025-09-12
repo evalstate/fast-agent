@@ -23,7 +23,6 @@ from typing import (
 )
 
 import mcp
-from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
     EmbeddedResource,
@@ -36,6 +35,7 @@ from mcp.types import (
 )
 from pydantic import BaseModel
 
+from a2a.types import AgentCard, AgentSkill
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
