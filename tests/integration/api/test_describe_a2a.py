@@ -4,6 +4,7 @@ import pytest
 
 if TYPE_CHECKING:
     from a2a.types import AgentCard, AgentSkill
+
     from fast_agent.agents.mcp_agent import McpAgent
 
 
