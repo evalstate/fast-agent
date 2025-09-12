@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "mcp-github",
+      "args": [
+        "--token",
+        "${GITHUB_TOKEN}"
+      ],
+      "env": {
+        "GITHUB_API_URL": "${GITHUB_API_URL:https://api.github.com}",
+        "DEBUG": "true"
+      }
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ],
+      "env": {
+        "FETCH_TIMEOUT": "${FETCH_TIMEOUT:30}",
+        "USER_AGENT": "CustomAgent/1.0"
+      }
+    }
+  }
+}
