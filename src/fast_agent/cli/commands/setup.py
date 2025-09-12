@@ -18,10 +18,13 @@ def load_template_text(filename: str) -> str:
     """
     from importlib.resources import files
 
-    # Map secrets filename to its '.example' template in resources
-    res_name = (
-        "fastagent.secrets.yaml.example" if filename == "fastagent.secrets.yaml" else filename
-    )
+    # Map requested filenames to resource templates
+    if filename == "fastagent.secrets.yaml":
+        res_name = "fastagent.secrets.yaml.example"
+    elif filename == "pyproject.toml":
+        res_name = "pyproject.toml.tmpl"
+    else:
+        res_name = filename
     resource_path = (
         files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
     )
