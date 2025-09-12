@@ -299,6 +299,7 @@ class AgentCompleter(Completer):
             "agents": "List available agents",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
+            "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "help": "Show commands and shortcuts",
             "clear": "Clear the screen",
             "STOP": "Stop this prompting session and move to next workflow step",
@@ -754,6 +755,13 @@ async def get_enhanced_input(
                 return "SHOW_USAGE"
             elif cmd == "markdown":
                 return "MARKDOWN"
+            elif cmd in ("save_history", "save"):
+                # Map to the LLM control message ***SAVE_HISTORY [filename]
+                if len(cmd_parts) > 1 and cmd_parts[1].strip():
+                    return f"***SAVE_HISTORY {cmd_parts[1].strip()}"
+                else:
+                    # Let the LLM pick the default filename
+                    return "***SAVE_HISTORY"
             elif cmd == "prompt":
                 # Handle /prompt with no arguments as interactive mode
                 if len(cmd_parts) > 1:
@@ -930,6 +938,8 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
+        rich_print("  /save_history <filename> - Save current chat history to a file")
+        rich_print("      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
