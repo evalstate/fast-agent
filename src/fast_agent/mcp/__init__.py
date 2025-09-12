@@ -1,7 +1,8 @@
 """
-MCP utilities and types for Fast Agent.
+MCP utilities and types for fast-agent.
 
 Public API:
+- `Prompt`: helper for constructing MCP prompts/messages.
 - `PromptMessageExtended`: canonical message container used internally by providers.
 - Helpers from `fast_agent.mcp.helpers` (re-exported for convenience).
 
@@ -26,6 +27,7 @@ from .helpers import (
 from .prompt_message_extended import PromptMessageExtended
 
 __all__ = [
+    "Prompt",
     "PromptMessageExtended",
     # Helpers
     "get_text",
@@ -41,3 +43,12 @@ __all__ = [
     "split_thinking_content",
     "text_content",
 ]
+
+
+def __getattr__(name: str):
+    # Lazily import to avoid circular imports with fast_agent.types
+    if name == "Prompt":
+        from .prompt import Prompt  # local import
+
+        return Prompt
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

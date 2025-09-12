@@ -9,50 +9,33 @@ console = Console()
 
 
 def load_template_text(filename: str) -> str:
-    """Load template text from packaged resources with a development fallback.
+    """Load template text from packaged resources only.
 
     Special-case: when requesting 'fastagent.secrets.yaml', read the
     'fastagent.secrets.yaml.example' template from resources, but still
     return its contents so we can write out the real secrets file name
     in the destination project.
     """
-    try:
-        # Prefer reading from installed package resources
-        from importlib.resources import files
+    from importlib.resources import files
 
-        # Map secrets filename to its '.example' template in resources
-        res_name = (
-            "fastagent.secrets.yaml.example" if filename == "fastagent.secrets.yaml" else filename
-        )
-        resource_path = files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
-        if resource_path.is_file():
-            return resource_path.read_text()
-        # If the path exists but isn't a file, fall back to dev
-        raise FileNotFoundError
-    except (ImportError, ModuleNotFoundError, FileNotFoundError):
-        # Development environment fallback to repo path (project root/examples/setup)
-        try:
-            repo_root = Path(__file__).resolve().parents[4]
-        except IndexError:
-            repo_root = Path(__file__).resolve().parent
-        # Apply the same secrets mapping for the dev path
-        dev_name = (
-            "fastagent.secrets.yaml.example" if filename == "fastagent.secrets.yaml" else filename
-        )
-        dev_path = repo_root / "examples" / "setup" / dev_name
-        if dev_path.exists():
-            return dev_path.read_text()
-        raise RuntimeError(
-            "Setup template missing: '"
-            + filename
-            + "'.\n"
-            + "Expected at: "
-            + str(resource_path)
-            + " (package) or "
-            + str(dev_path)
-            + " (dev).\n"
-            + "This indicates a packaging issue. Please rebuild/reinstall fast-agent."
-        )
+    # Map requested filenames to resource templates
+    if filename == "fastagent.secrets.yaml":
+        res_name = "fastagent.secrets.yaml.example"
+    elif filename == "pyproject.toml":
+        res_name = "pyproject.toml.tmpl"
+    else:
+        res_name = filename
+    resource_path = (
+        files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
+    )
+    if resource_path.is_file():
+        return resource_path.read_text()
+
+    raise RuntimeError(
+        f"Setup template missing: '{filename}'.\n"
+        f"Expected packaged resource at: {resource_path}.\n"
+        "This indicates a packaging issue. Please rebuild/reinstall fast-agent."
+    )
 
 
 # (No embedded template defaults; templates are the single source of truth.)
@@ -114,6 +97,7 @@ def init(
     console.print(f"  - {config_path}/fastagent.config.yaml")
     console.print(f"  - {config_path}/fastagent.secrets.yaml")
     console.print(f"  - {config_path}/agent.py")
+    console.print(f"  - {config_path}/pyproject.toml")
     if needs_gitignore:
         console.print(f"  - {config_path}/.gitignore")
 
@@ -134,6 +118,33 @@ def init(
 
     if create_file(config_path / "agent.py", load_template_text("agent.py"), force):
         created.append("agent.py")
+
+    # Create a minimal pyproject.toml so `uv run` installs dependencies
+    def _render_pyproject(template_text: str) -> str:
+        # Determine Python requirement from installed fast-agent-mcp metadata, fall back if missing
+        py_req = ">=3.13.7"
+        try:
+            from importlib.metadata import metadata
+
+            md = metadata("fast-agent-mcp")
+            req = md.get("Requires-Python")
+            if req:
+                py_req = req
+        except Exception:
+            pass
+
+        # Always use latest fast-agent-mcp (no version pin)
+        fast_agent_dep = '"fast-agent-mcp"'
+
+        return (
+            template_text.replace("{{python_requires}}", py_req)
+            .replace("{{fast_agent_dep}}", fast_agent_dep)
+        )
+
+    pyproject_template = load_template_text("pyproject.toml")
+    pyproject_text = _render_pyproject(pyproject_template)
+    if create_file(config_path / "pyproject.toml", pyproject_text, force):
+        created.append("pyproject.toml")
 
     # Only create .gitignore if none exists in parent directories
     if needs_gitignore and create_file(
