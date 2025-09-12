@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from mcp.types import EmbeddedResource, ImageContent, TextContent
 
-from mcp_agent.core.mcp_content import (
+from fast_agent.mcp.mcp_content import (
     Assistant,
     MCPFile,
     MCPImage,
@@ -152,16 +152,11 @@ def test_prompt_function():
         # Test with EmbeddedResource
         from mcp.types import TextResourceContents
         from pydantic import AnyUrl
-        
+
         text_resource = TextResourceContents(
-            uri=AnyUrl("file:///test/example.txt"), 
-            text="Resource content",
-            mimeType="text/plain"
+            uri=AnyUrl("file:///test/example.txt"), text="Resource content", mimeType="text/plain"
         )
-        resource = EmbeddedResource(
-            type="resource", 
-            resource=text_resource
-        )
+        resource = EmbeddedResource(type="resource", resource=text_resource)
         messages = MCPPrompt(resource)
         assert len(messages) == 1
         assert messages[0]["role"] == "user"
@@ -170,36 +165,36 @@ def test_prompt_function():
         # Test with ResourceContents
         from mcp.types import TextResourceContents
         from pydantic import AnyUrl
-        
+
         text_resource = TextResourceContents(
-            uri=AnyUrl("file:///test/example.txt"), 
-            text="Sample text",
-            mimeType="text/plain"
+            uri=AnyUrl("file:///test/example.txt"), text="Sample text", mimeType="text/plain"
         )
         messages = MCPPrompt(text_resource)
         assert len(messages) == 1
         assert messages[0]["role"] == "user"
         assert isinstance(messages[0]["content"], EmbeddedResource)
         assert messages[0]["content"].resource == text_resource
-        
+
         # Test with ReadResourceResult
         from mcp.types import ReadResourceResult
-        
+
         resource_result = ReadResourceResult(contents=[text_resource, text_resource])
         messages = MCPPrompt(resource_result)
         assert len(messages) == 2
         assert all(msg["role"] == "user" for msg in messages)
         assert all(isinstance(msg["content"], EmbeddedResource) for msg in messages)
-        
+
         # Test with direct TextContent
         text_content = TextContent(type="text", text="Direct text content")
         messages = MCPPrompt(text_content)
         assert len(messages) == 1
         assert messages[0]["role"] == "user"
         assert messages[0]["content"] == text_content
-        
+
         # Test with direct ImageContent
-        image_content = ImageContent(type="image", data="ZmFrZSBpbWFnZSBkYXRh", mimeType="image/png")
+        image_content = ImageContent(
+            type="image", data="ZmFrZSBpbWFnZSBkYXRh", mimeType="image/png"
+        )
         messages = MCPPrompt(image_content, role="assistant")
         assert len(messages) == 1
         assert messages[0]["role"] == "assistant"

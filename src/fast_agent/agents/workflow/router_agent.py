@@ -13,10 +13,10 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol, LLMFactoryProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
-from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:

@@ -1,8 +1,8 @@
 from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
 
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
-from mcp_agent.core.exceptions import ProviderKeyError
 
 try:
     from azure.identity import DefaultAzureCredential

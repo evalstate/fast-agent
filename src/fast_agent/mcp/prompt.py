@@ -12,10 +12,9 @@ from typing import Dict, List, Literal, Union
 from mcp import CallToolRequest
 from mcp.types import ContentBlock, PromptMessage
 
-from fast_agent.types import LlmStopReason, PromptMessageExtended
-
 # Import content helper functions (temporarily from mcp_agent pending full migration)
-from mcp_agent.core.mcp_content import Assistant, MCPPrompt, User
+from fast_agent.mcp.mcp_content import Assistant, MCPPrompt, User
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 
 class Prompt:
@@ -159,4 +158,3 @@ class Prompt:
         for mp in multipart:
             result.extend(mp.from_multipart())
         return result
-

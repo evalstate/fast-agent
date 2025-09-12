@@ -15,6 +15,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 
 # Import the new converter class
@@ -23,7 +24,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from mcp_agent.core.exceptions import ProviderKeyError
 from mcp_agent.core.prompt import Prompt
 
 # Define default model and potentially other Google-specific defaults

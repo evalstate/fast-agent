@@ -28,11 +28,11 @@ from mcp.types import JSONRPCMessage, ServerCapabilities
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.exceptions import ServerInitializationError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
-from mcp_agent.core.exceptions import ServerInitializationError
 
 if TYPE_CHECKING:
     from fast_agent.context import Context

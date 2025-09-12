@@ -8,7 +8,7 @@ from typing import Any, Dict
 
 from pydantic import BaseModel
 
-from mcp_agent.core.exceptions import ProviderKeyError
+from fast_agent.core.exceptions import ProviderKeyError
 
 PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the

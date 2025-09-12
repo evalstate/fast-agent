@@ -20,8 +20,8 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import get_model_info
-from mcp_agent.core.exceptions import PromptExitError
 
 # Get the application version
 try:

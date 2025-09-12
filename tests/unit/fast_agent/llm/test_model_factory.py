@@ -2,6 +2,7 @@ import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import (
     ModelFactory,
     Provider,
@@ -10,7 +11,6 @@ from fast_agent.llm.model_factory import (
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
-from mcp_agent.core.exceptions import ModelConfigError
 
 
 def test_simple_model_names():

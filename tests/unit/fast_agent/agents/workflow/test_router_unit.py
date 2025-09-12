@@ -7,12 +7,12 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent, RoutingResponse
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.internal.passthrough import (
     FIXED_RESPONSE_INDICATOR,
     PassthroughLLM,
 )
 from mcp_agent.agents.agent import Agent
-from mcp_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
 
 # Model tests

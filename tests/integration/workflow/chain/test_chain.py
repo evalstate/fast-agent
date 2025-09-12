@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import AgentConfigError
 from mcp_agent.core.prompt import Prompt
 
 
