@@ -756,12 +756,10 @@ async def get_enhanced_input(
             elif cmd == "markdown":
                 return "MARKDOWN"
             elif cmd in ("save_history", "save"):
-                # Map to the LLM control message ***SAVE_HISTORY [filename]
-                if len(cmd_parts) > 1 and cmd_parts[1].strip():
-                    return f"***SAVE_HISTORY {cmd_parts[1].strip()}"
-                else:
-                    # Let the LLM pick the default filename
-                    return "***SAVE_HISTORY"
+                # Return a structured action for the interactive loop to handle
+                # Prefer programmatic saving via HistoryExporter; fall back to magic-string there if needed
+                filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+                return {"save_history": True, "filename": filename}
             elif cmd == "prompt":
                 # Handle /prompt with no arguments as interactive mode
                 if len(cmd_parts) > 1:
