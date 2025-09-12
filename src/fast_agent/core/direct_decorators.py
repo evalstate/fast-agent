@@ -22,13 +22,12 @@ from typing import (
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.types import RequestParams
-from mcp_agent.agents.agent import AgentConfig
 
 # Type variables for the decorated function
 P = ParamSpec("P")  # Parameters

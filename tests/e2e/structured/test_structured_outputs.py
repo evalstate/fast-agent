@@ -1,5 +1,3 @@
-# integration_tests/mcp_agent/test_agent_with_image.py
-
 from typing import Annotated
 
 import pytest
