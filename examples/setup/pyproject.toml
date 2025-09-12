@@ -1,7 +1,7 @@
 [project]
 name = "fast-agent-app"
 version = "0.1.0"
-description = "A FastAgent app scaffolded by fast-agent setup"
+description = "a simple fast-agent application"
 readme = "README.md"
 requires-python = "{{python_requires}}"
 dependencies = [
