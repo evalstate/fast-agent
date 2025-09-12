@@ -23,7 +23,7 @@ class StubLLM(FastAgentLLM):
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """Implement the abstract method with minimal functionality"""
-        return multipart_messages[-1] if multipart_messages else None
+        return multipart_messages[-1]
 
 
 class TestRequestParamsInLLM:

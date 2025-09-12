@@ -11,11 +11,10 @@ from typing import Set
 from mcp.server.fastmcp import Context as MCPContext
 from mcp.server.fastmcp import FastMCP
 
-import mcp_agent
-import mcp_agent.core
-import mcp_agent.core.prompt
+import fast_agent.core
+import fast_agent.core.prompt
+from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.logging.logger import get_logger
-from mcp_agent.core.agent_app import AgentApp
 
 logger = get_logger(__name__)
 
@@ -96,7 +95,7 @@ class AgentMCPServer:
 
             # Convert the multipart message history to standard PromptMessages
             multipart_history = agent._llm.message_history
-            prompt_messages = mcp_agent.core.prompt.Prompt.from_multipart(multipart_history)
+            prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
 
             # In FastMCP, we need to return the raw list of messages
             # that matches the structure that FastMCP expects (list of dicts with role/content)

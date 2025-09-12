@@ -5,6 +5,7 @@ from mcp import CallToolRequest, Tool
 from mcp.types import CallToolRequestParams, PromptMessage
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
@@ -14,7 +15,6 @@ from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from mcp_agent.core.prompt import Prompt
 
 CALL_TOOL_INDICATOR = "***CALL_TOOL"
 FIXED_RESPONSE_INDICATOR = "***FIXED_RESPONSE"

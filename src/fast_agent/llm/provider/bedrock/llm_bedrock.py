@@ -1837,7 +1837,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self._log_chat_finished(model=model)
 
         # Return PromptMessageExtended with tool calls for external execution
-        from mcp_agent.core.prompt import Prompt
+        from fast_agent.core.prompt import Prompt
 
         return Prompt.assistant(
             *response_content_blocks, stop_reason=mapped_stop_reason, tool_calls=tool_calls

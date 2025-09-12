@@ -20,13 +20,13 @@ from pydantic import BaseModel, Field
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core import Core
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from mcp_agent.core.prompt import Prompt
 
 
 class FormattedResponse(BaseModel):

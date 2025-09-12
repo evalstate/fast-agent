@@ -3,12 +3,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import BaseModel
 
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import (
     CALL_TOOL_INDICATOR,
     FIXED_RESPONSE_INDICATOR,
     PassthroughLLM,
 )
-from mcp_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
     from fast_agent.mcp.interfaces import FastAgentLLMProtocol

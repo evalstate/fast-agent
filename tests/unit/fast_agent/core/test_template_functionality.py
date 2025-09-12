@@ -2,7 +2,7 @@
 
 import re
 
-from mcp_agent.core.direct_decorators import _apply_templates
+from fast_agent.core.direct_decorators import _apply_templates
 
 
 class TestApplyTemplates:

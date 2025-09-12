@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent.core.fastagent import FastAgent
 
 
 @pytest.mark.e2e

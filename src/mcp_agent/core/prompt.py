@@ -1,5 +1,5 @@
 """
-Compatibility shim: expose `Prompt` under `mcp_agent.core.prompt` during migration.
+Compatibility shim: expose `Prompt` under `fast_agent.core.prompt` during migration.
 
 New canonical location: `fast_agent.mcp.prompt.Prompt`.
 """

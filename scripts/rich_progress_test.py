@@ -48,7 +48,7 @@ async def generate_test_events():
 
             # Start chat turn
             yield Event(
-                namespace="mcp_agent.workflow.llm.augmented_llm_openai.myagent",
+                namespace="fast_agent.workflow.llm.augmented_llm_openai.myagent",
                 type="info",
                 message=f"Calling {model}",
                 data={"model": model, "chat_turn": turn},

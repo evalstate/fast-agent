@@ -9,43 +9,15 @@ from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.internal.playback import PlaybackLLM
 from fast_agent.llm.internal.silent import SilentLLM
 from fast_agent.llm.internal.slow import SlowLLM
-from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
-from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
-from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
-from fast_agent.llm.provider.openai.llm_aliyun import AliyunLLM
-from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
-from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
-from fast_agent.llm.provider.openai.llm_generic import GenericLLM
-from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
-from fast_agent.llm.provider.openai.llm_groq import GroqLLM
-from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
-from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
-from fast_agent.llm.provider.openai.llm_tensorzero_openai import TensorZeroOpenAILLM
-from fast_agent.llm.provider.openai.llm_xai import XAILLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 from mcp_agent.agents.agent import Agent
 
-# from mcp_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
+# from fast_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
 
 
 # Type alias for LLM classes
-LLMClass = Union[
-    Type[AnthropicLLM],
-    Type[OpenAILLM],
-    Type[PassthroughLLM],
-    Type[PlaybackLLM],
-    Type[SilentLLM],
-    Type[SlowLLM],
-    Type[DeepSeekLLM],
-    Type[OpenRouterLLM],
-    Type[TensorZeroOpenAILLM],
-    Type[GoogleNativeLLM],
-    Type[GenericLLM],
-    Type[AzureOpenAILLM],
-    Type[BedrockLLM],
-    Type[GroqLLM],
-]
+LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
 
 
 class ReasoningEffort(Enum):
@@ -154,23 +126,21 @@ class ModelFactory:
         "gpt-oss-20b": "groq.openai/gpt-oss-20b",
     }
 
+    @staticmethod
+    def _bedrock_pattern_matches(model_name: str) -> bool:
+        """Return True if model_name matches Bedrock's expected pattern, else False.
+
+        Uses provider's helper if available; otherwise, returns False.
+        """
+        try:
+            from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM  # type: ignore
+
+            return BedrockLLM.matches_model_pattern(model_name)
+        except Exception:
+            return False
+
     # Mapping of providers to their LLM classes
-    PROVIDER_CLASSES: Dict[Provider, LLMClass] = {
-        Provider.ANTHROPIC: AnthropicLLM,
-        Provider.OPENAI: OpenAILLM,
-        Provider.FAST_AGENT: PassthroughLLM,
-        Provider.DEEPSEEK: DeepSeekLLM,
-        Provider.GENERIC: GenericLLM,
-        Provider.GOOGLE_OAI: GoogleOaiLLM,
-        Provider.GOOGLE: GoogleNativeLLM,
-        Provider.XAI: XAILLM,
-        Provider.OPENROUTER: OpenRouterLLM,
-        Provider.TENSORZERO: TensorZeroOpenAILLM,
-        Provider.AZURE: AzureOpenAILLM,
-        Provider.ALIYUN: AliyunLLM,
-        Provider.BEDROCK: BedrockLLM,
-        Provider.GROQ: GroqLLM,
-    }
+    PROVIDER_CLASSES: Dict[Provider, LLMClass] = {}
 
     # Mapping of special model names to their specific LLM classes
     # This overrides the provider-based class selection
@@ -226,7 +196,7 @@ class ModelFactory:
             provider = cls.DEFAULT_PROVIDERS.get(model_name_str)
 
             # If still None, try pattern matching for Bedrock models
-            if provider is None and BedrockLLM.matches_model_pattern(model_name_str):
+            if provider is None and cls._bedrock_pattern_matches(model_name_str):
                 provider = Provider.BEDROCK
 
             if provider is None:
@@ -258,19 +228,15 @@ class ModelFactory:
         config = cls.parse_model_string(model_string)
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
-        if (
-            config.provider not in cls.PROVIDER_CLASSES
-            and config.model_name not in cls.MODEL_SPECIFIC_CLASSES
-        ):
-            # This check is important if a provider (like old GOOGLE) is commented out from PROVIDER_CLASSES
-            raise ModelConfigError(
-                f"Provider '{config.provider}' not configured in PROVIDER_CLASSES and model '{config.model_name}' not in MODEL_SPECIFIC_CLASSES."
-            )
+        # Lazily ensure provider class map is populated and supports this provider
+        if config.model_name not in cls.MODEL_SPECIFIC_CLASSES:
+            llm_class = cls._load_provider_class(config.provider)
+            # Stash for next time
+            cls.PROVIDER_CLASSES[config.provider] = llm_class
 
         if config.model_name in cls.MODEL_SPECIFIC_CLASSES:
             llm_class = cls.MODEL_SPECIFIC_CLASSES[config.model_name]
         else:
-            # This line is now safer due to the check above
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
@@ -291,3 +257,67 @@ class ModelFactory:
             return llm
 
         return factory
+
+    @classmethod
+    def _load_provider_class(cls, provider: Provider) -> type:
+        """Import provider-specific LLM classes lazily to avoid heavy deps at import time."""
+        try:
+            if provider == Provider.FAST_AGENT:
+                return PassthroughLLM
+            if provider == Provider.ANTHROPIC:
+                from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+
+                return AnthropicLLM
+            if provider == Provider.OPENAI:
+                from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+
+                return OpenAILLM
+            if provider == Provider.DEEPSEEK:
+                from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
+
+                return DeepSeekLLM
+            if provider == Provider.GENERIC:
+                from fast_agent.llm.provider.openai.llm_generic import GenericLLM
+
+                return GenericLLM
+            if provider == Provider.GOOGLE_OAI:
+                from fast_agent.llm.provider.openai.llm_google_oai import GoogleOaiLLM
+
+                return GoogleOaiLLM
+            if provider == Provider.GOOGLE:
+                from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
+
+                return GoogleNativeLLM
+            if provider == Provider.XAI:
+                from fast_agent.llm.provider.openai.llm_xai import XAILLM
+
+                return XAILLM
+            if provider == Provider.OPENROUTER:
+                from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
+
+                return OpenRouterLLM
+            if provider == Provider.TENSORZERO:
+                from fast_agent.llm.provider.openai.llm_tensorzero_openai import TensorZeroOpenAILLM
+
+                return TensorZeroOpenAILLM
+            if provider == Provider.AZURE:
+                from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
+
+                return AzureOpenAILLM
+            if provider == Provider.ALIYUN:
+                from fast_agent.llm.provider.openai.llm_aliyun import AliyunLLM
+
+                return AliyunLLM
+            if provider == Provider.BEDROCK:
+                from fast_agent.llm.provider.bedrock.llm_bedrock import BedrockLLM
+
+                return BedrockLLM
+            if provider == Provider.GROQ:
+                from fast_agent.llm.provider.openai.llm_groq import GroqLLM
+
+                return GroqLLM
+        except Exception as e:
+            raise ModelConfigError(
+                f"Provider '{provider.value}' is unavailable or missing dependencies: {e}"
+            )
+        raise ModelConfigError(f"Unsupported provider: {provider}")

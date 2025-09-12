@@ -4,7 +4,7 @@ import pytest
 from pydantic import BaseModel
 
 from fast_agent.llm.internal.passthrough import PassthroughLLM
-from mcp_agent.core.prompt import Prompt
+from fast_agent.mcp.prompt import Prompt
 
 
 # Example model similar to what's used in the Router workflow

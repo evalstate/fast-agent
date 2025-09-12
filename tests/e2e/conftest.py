@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent.core.fastagent import FastAgent
 
 
 # Keep the auto-cleanup fixture
@@ -19,7 +19,7 @@ def cleanup_event_bus():
     # Reset the AsyncEventBus after each test
     try:
         # Import the module with the AsyncEventBus
-        transport_module = importlib.import_module("mcp_agent.logging.transport")
+        transport_module = importlib.import_module("fast_agent.core.logging.transport")
         AsyncEventBus = getattr(transport_module, "AsyncEventBus", None)
 
         # Call the reset method if available

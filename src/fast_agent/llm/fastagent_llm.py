@@ -24,6 +24,7 @@ from pydantic_core import from_json
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
     FastAgentLLMProtocol,
@@ -35,7 +36,6 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
-from mcp_agent.core.prompt import Prompt
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")

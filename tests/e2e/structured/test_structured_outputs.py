@@ -5,9 +5,9 @@ from typing import Annotated
 import pytest
 from pydantic import BaseModel, Field
 
+from fast_agent.core.prompt import Prompt
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.helpers.content_helpers import split_thinking_content
-from mcp_agent.core.prompt import Prompt
 
 
 class FormattedResponse(BaseModel):

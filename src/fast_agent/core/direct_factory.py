@@ -5,7 +5,7 @@ Implements type-safe factories with improved error handling.
 
 from typing import Any, Dict, Optional, Protocol, TypeVar
 
-from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
@@ -27,7 +27,7 @@ from fast_agent.interfaces import (
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.types import RequestParams
-from mcp_agent.agents.agent import Agent, AgentConfig
+from mcp_agent.agents.agent import Agent
 
 # Type aliases for improved readability and IDE support
 AgentDict = Dict[str, AgentProtocol]
@@ -187,8 +187,12 @@ async def create_agents_by_type(
                 result_agents[name] = agent
 
             elif agent_type == AgentType.CUSTOM:
-                # Get the class to instantiate
-                cls = agent_data["agent_class"]
+                # Get the class to instantiate (support legacy 'agent_class' and new 'cls')
+                cls = agent_data.get("agent_class") or agent_data.get("cls")
+                if cls is None:
+                    raise AgentConfigError(
+                        f"Custom agent '{name}' missing class reference ('agent_class' or 'cls')"
+                    )
 
                 # Create agent with UI support if needed
                 agent = _create_agent_with_ui_if_needed(

@@ -120,8 +120,8 @@ def create_mock_modules() -> None:
         "opentelemetry.sdk.resources",
         "opentelemetry.exporter.otlp.proto.http",
         "opentelemetry.trace",
-        "mcp_agent.logging",
-        "mcp_agent.logging.logger",
+        "fast_agent.core.logging",
+        "fast_agent.core.logging.logger",
         "yaml",
     ]
 

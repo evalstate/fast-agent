@@ -43,5 +43,5 @@ __all__ = [
     "choice",
 ]
 
-# Note: form(), ask() helpers are available via mcp_agent.human_input.simple_form;
+# Note: form(), ask() helpers are available via fast_agent.human_input.simple_form;
 # intentionally not imported here to avoid import-time cycles.

@@ -65,13 +65,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build]
 include = [
-    "src/mcp_agent/**/*.py",
-    "src/mcp_agent/**/*.yaml",
-    "src/mcp_agent/**/*.yml",
-    "src/mcp_agent/**/*.csv",
-    "src/mcp_agent/**/*.txt",    
-    "src/mcp_agent/**/*.example",
-    "src/mcp_agent/py.typed",
     "src/fast_agent/**/*.py",
     "src/fast_agent/resources/**/*",
     "src/fast_agent/py.typed",

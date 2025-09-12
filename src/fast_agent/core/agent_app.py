@@ -1,11 +1,8 @@
 """
 Direct AgentApp implementation for interacting with agents without proxies.
-
-Canonical location: fast_agent.core.agent_app
-Compatibility shims exist in mcp_agent.core.agent_app.
 """
 
-from typing import Dict, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -23,7 +20,7 @@ class AgentApp:
     Container for active agents that provides a simple API for interacting with them.
     This implementation works directly with Agent instances without proxies.
 
-    The AgentApp provides both attribute-style access (app.agent_name)
+    The DirectAgentApp provides both attribute-style access (app.agent_name)
     and dictionary-style access (app["agent_name"]) to agents.
 
     It also implements the AgentProtocol interface, automatically forwarding
@@ -32,7 +29,7 @@ class AgentApp:
 
     def __init__(self, agents: Dict[str, Agent]) -> None:
         """
-        Initialize the AgentApp.
+        Initialize the DirectAgentApp.
 
         Args:
             agents: Dictionary of agent instances keyed by name
@@ -203,6 +200,44 @@ class AgentApp:
             prompt_content=prompt_content, resource_uri=resource_uri, namespace=server_name
         )
 
+    async def list_resources(
+        self,
+        server_name: str | None = None,
+        agent_name: str | None = None,
+    ) -> Dict[str, List[str]]:
+        """
+        List available resources from one or all servers.
+
+        Args:
+            server_name: Optional server name to list resources from
+            agent_name: Name of the agent to use
+
+        Returns:
+            Dictionary mapping server names to lists of resource URIs
+        """
+        return await self._agent(agent_name).list_resources(namespace=server_name)
+
+    async def get_resource(
+        self,
+        resource_uri: str,
+        server_name: str | None = None,
+        agent_name: str | None = None,
+    ):
+        """
+        Get a resource from an MCP server.
+
+        Args:
+            resource_uri: URI of the resource to retrieve
+            server_name: Optional name of the MCP server to retrieve the resource from
+            agent_name: Name of the agent to use
+
+        Returns:
+            ReadResourceResult object containing the resource content
+        """
+        return await self._agent(agent_name).get_resource(
+            resource_uri=resource_uri, namespace=server_name
+        )
+
     @deprecated
     async def prompt(
         self,
@@ -253,6 +288,9 @@ class AgentApp:
             if not target_name:
                 # Use the first agent's name as default
                 target_name = next(iter(self._agents.keys()))
+
+        # Don't delegate to the agent's own prompt method - use our implementation
+        # The agent's prompt method doesn't fully support switching between agents
 
         # Create agent_types dictionary mapping agent names to their types
         agent_types = {name: agent.agent_type for name, agent in self._agents.items()}

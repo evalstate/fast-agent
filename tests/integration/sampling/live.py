@@ -1,6 +1,6 @@
 import asyncio
 
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent.core.fastagent import FastAgent
 
 # Create the application with specified model
 fast = FastAgent("FastAgent Example")
@@ -14,7 +14,7 @@ async def main():
         result = await agent.send('***CALL_TOOL sampling_test-sample {"to_sample": "123foo"}')
         print(f"RESULT: {result}")
 
-        result = await agent.send('***CALL_TOOL slow_sampling-sample_parallel')
+        result = await agent.send("***CALL_TOOL slow_sampling-sample_parallel")
         print(f"RESULT: {result}")
 
 

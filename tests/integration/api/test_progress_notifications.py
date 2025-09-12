@@ -8,7 +8,7 @@ from fast_agent.event_progress import ProgressAction
 
 class DebugProgressObserver(FilteredListener):
     def __init__(self):
-        event_filter = EventFilter(types={"info"}, namespaces={"mcp_agent.mcp.mcp_aggregator"})
+        event_filter = EventFilter(types={"info"}, namespaces={"fast_agent.mcp.mcp_aggregator"})
         super().__init__(event_filter=event_filter)
         self.all_events = []
         self.progress_events = []

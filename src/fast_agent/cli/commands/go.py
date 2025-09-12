@@ -10,8 +10,8 @@ import typer
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.core.fastagent import FastAgent
 from fast_agent.ui.console_display import ConsoleDisplay
-from mcp_agent.core.fastagent import FastAgent
 
 app = typer.Typer(
     help="Run an interactive agent directly from the command line without creating an agent.py file",
@@ -361,7 +361,7 @@ def go(
 
             from pydantic import AnyUrl
 
-            from mcp_agent.core.direct_decorators import _resolve_instruction
+            from fast_agent.core.direct_decorators import _resolve_instruction
 
             # Check if it's a URL
             if instruction.startswith(("http://", "https://")):

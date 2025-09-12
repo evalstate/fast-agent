@@ -9,8 +9,8 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
-from mcp_agent.core.prompt import Prompt
 
 
 class TestPromptMessageExtended:

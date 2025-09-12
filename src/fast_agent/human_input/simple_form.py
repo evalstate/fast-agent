@@ -25,7 +25,7 @@ async def form(
         Dict with form data if accepted, None if cancelled/declined
 
     Example:
-        from mcp_agent.human_input.form_fields import FormSchema, string, email, integer
+        from fast_agent.human_input.form_fields import FormSchema, string, email, integer
 
         schema = FormSchema(
             name=string("Name", "Your full name", min_length=2),
@@ -88,7 +88,7 @@ async def ask(
     Short alias for form() function.
 
     Example:
-        from mcp_agent.human_input.form_fields import FormSchema, string, email
+        from fast_agent.human_input.form_fields import FormSchema, string, email
 
         schema = FormSchema(
             name=string("Name", "Your name"),

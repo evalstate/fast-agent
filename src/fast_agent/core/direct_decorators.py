@@ -1,7 +1,7 @@
 """
-Type-safe decorators for FastAgent applications (canonical location).
-
-Compatibility shim exists at mcp_agent.core.direct_decorators.
+Type-safe decorators for DirectFastAgent applications.
+These decorators provide type-safe function signatures and IDE support
+for creating agents in the DirectFastAgent framework.
 """
 
 from functools import wraps
@@ -22,14 +22,13 @@ from typing import (
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.agents.workflow.iterative_planner import (
-    ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
-)
+from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.types import RequestParams
+from mcp_agent.agents.agent import AgentConfig
 
 # Type variables for the decorated function
 P = ParamSpec("P")  # Parameters
@@ -371,51 +370,59 @@ def custom(
         use_history=use_history,
         request_params=request_params,
         human_input=human_input,
+        agent_class=cls,
         default=default,
         elicitation_handler=elicitation_handler,
+        api_key=api_key,
         tools=tools,
         resources=resources,
         prompts=prompts,
-        api_key=api_key,
-        cls=cls,
     )
+
+
+DEFAULT_INSTRUCTION_ORCHESTRATOR = """
+You are an expert planner. Given an objective task and a list of Agents
+(which are collections of capabilities), your job is to break down the objective
+into a series of steps, which can be performed by these agents.
+"""
 
 
 def orchestrator(
     self,
     name: str,
     *,
-    children: List[str],
-    instruction: Optional[str | Path | AnyUrl] = None,
-    plan: Literal["full", "iterative"] = "iterative",
+    agents: List[str],
+    instruction: str | Path | AnyUrl = DEFAULT_INSTRUCTION_ORCHESTRATOR,
+    model: Optional[str] = None,
+    request_params: RequestParams | None = None,
+    use_history: bool = False,
+    human_input: bool = False,
+    plan_type: Literal["full", "iterative"] = "full",
+    plan_iterations: int = 5,
     default: bool = False,
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
     """
     Decorator to create and register an orchestrator agent with type-safe signature.
 
     Args:
-        name: Name of the orchestrator agent
-        children: List of child agent names (must be defined in the same FastAgent)
-        instruction: Base instruction for the orchestrator agent
-        plan: Type of planning to use ("full" or "iterative")
+        name: Name of the orchestrator
+        agents: List of agent names this orchestrator can use
+        instruction: Base instruction for the orchestrator
+        model: Model specification string
+        use_history: Whether to maintain conversation history
+        request_params: Additional request parameters for the LLM
+        human_input: Whether to enable human input capabilities
+        plan_type: Planning approach - "full" or "iterative"
+        plan_iterations: Maximum number of planning iterations
         default: Whether to mark this as the default agent
 
     Returns:
         A decorator that registers the orchestrator with proper type annotations
     """
-    default_instruction = """
-    You are an orchestrator that coordinates specialized agents to solve problems.
-    You create a plan and delegate tasks to the appropriate agents.
-    """
-    resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
-    extra = {
-        "child_agents": children,
-        "plan_type": plan,
-    }
-
-    if plan == "iterative":
-        extra["system_prompt_template"] = ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
+    # Create final request params with plan_iterations
+    resolved_instruction = _resolve_instruction(instruction)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
@@ -424,8 +431,16 @@ def orchestrator(
             AgentType.ORCHESTRATOR,
             name=name,
             instruction=resolved_instruction,
+            servers=[],  # Orchestrators don't connect to servers directly
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
+            child_agents=agents,
+            plan_type=plan_type,
+            plan_iterations=plan_iterations,
             default=default,
-            **extra,
+            api_key=api_key,
         ),
     )
 
@@ -434,15 +449,52 @@ def iterative_planner(
     self,
     name: str,
     *,
-    children: List[str],
-    instruction: Optional[str | Path | AnyUrl] = None,
+    agents: List[str],
+    instruction: str | Path | AnyUrl = ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
+    model: Optional[str] = None,
+    request_params: RequestParams | None = None,
+    plan_iterations: int = -1,
     default: bool = False,
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
     """
-    Convenience wrapper for orchestrator(..., plan="iterative").
+    Decorator to create and register an orchestrator agent with type-safe signature.
+
+    Args:
+        name: Name of the orchestrator
+        agents: List of agent names this orchestrator can use
+        instruction: Base instruction for the orchestrator
+        model: Model specification string
+        use_history: Whether to maintain conversation history
+        request_params: Additional request parameters for the LLM
+        human_input: Whether to enable human input capabilities
+        plan_type: Planning approach - "full" or "iterative"
+        plan_iterations: Maximum number of planning iterations (0 for unlimited)
+        default: Whether to mark this as the default agent
+
+    Returns:
+        A decorator that registers the orchestrator with proper type annotations
     """
-    return orchestrator(
-        self, name, children=children, instruction=instruction, plan="iterative", default=default
+
+    # Create final request params with plan_iterations
+    resolved_instruction = _resolve_instruction(instruction)
+
+    return cast(
+        "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
+        _decorator_impl(
+            self,
+            AgentType.ITERATIVE_PLANNER,
+            name=name,
+            instruction=resolved_instruction,
+            servers=[],  # Orchestrators don't connect to servers directly
+            model=model,
+            use_history=False,
+            request_params=request_params,
+            child_agents=agents,
+            plan_iterations=plan_iterations,
+            default=default,
+            api_key=api_key,
+        ),
     )
 
 
@@ -452,22 +504,38 @@ def router(
     *,
     agents: List[str],
     instruction: Optional[str | Path | AnyUrl] = None,
+    servers: List[str] = [],
+    tools: Optional[Dict[str, List[str]]] = None,
+    resources: Optional[Dict[str, List[str]]] = None,
+    prompts: Optional[Dict[str, List[str]]] = None,
+    model: Optional[str] = None,
+    use_history: bool = False,
+    request_params: RequestParams | None = None,
+    human_input: bool = False,
     default: bool = False,
+    elicitation_handler: Optional[
+        ElicitationFnT
+    ] = None,  ## exclude from docs, decide whether allowable
+    api_key: str | None = None,
 ) -> Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]:
     """
     Decorator to create and register a router agent with type-safe signature.
 
     Args:
-        name: Name of the router agent
-        agents: List of agent names to route between
-        instruction: Base instruction for the router agent
+        name: Name of the router
+        agents: List of agent names this router can route to
+        instruction: Base instruction for the router
+        model: Model specification string
+        use_history: Whether to maintain conversation history
+        request_params: Additional request parameters for the LLM
+        human_input: Whether to enable human input capabilities
         default: Whether to mark this as the default agent
+        elicitation_handler: Custom elicitation handler function (ElicitationFnT)
 
     Returns:
         A decorator that registers the router with proper type annotations
     """
-    default_instruction = ROUTING_SYSTEM_INSTRUCTION
-    resolved_instruction = _resolve_instruction(instruction or default_instruction)
+    resolved_instruction = _resolve_instruction(instruction or ROUTING_SYSTEM_INSTRUCTION)
 
     return cast(
         "Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]",
@@ -476,8 +544,18 @@ def router(
             AgentType.ROUTER,
             name=name,
             instruction=resolved_instruction,
-            router_agents=agents,
+            servers=servers,
+            model=model,
+            use_history=use_history,
+            request_params=request_params,
+            human_input=human_input,
             default=default,
+            router_agents=agents,
+            elicitation_handler=elicitation_handler,
+            api_key=api_key,
+            tools=tools,
+            prompts=prompts,
+            resources=resources,
         ),
     )
 
@@ -495,7 +573,7 @@ def chain(
     Decorator to create and register a chain agent with type-safe signature.
 
     Args:
-        name: Name of the chain agent
+        name: Name of the chain
         sequence: List of agent names in the chain, executed in sequence
         instruction: Base instruction for the chain
         cumulative: Whether to use cumulative mode (each agent sees all previous responses)
@@ -624,16 +702,3 @@ def evaluator_optimizer(
             default=default,
         ),
     )
-
-
-__all__ = [
-    "agent",
-    "custom",
-    "orchestrator",
-    "iterative_planner",
-    "router",
-    "chain",
-    "parallel",
-    "evaluator_optimizer",
-    "_resolve_instruction",
-]

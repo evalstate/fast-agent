@@ -5,10 +5,10 @@ from typing import TYPE_CHECKING, List
 import pytest
 from mcp.types import ImageContent
 
+from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import (
     load_prompt_multipart,
 )
-from mcp_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

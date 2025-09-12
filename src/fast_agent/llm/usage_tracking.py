@@ -9,9 +9,20 @@ import time
 from typing import List, Optional, Union
 
 # Proper type imports for each provider
-from anthropic.types import Usage as AnthropicUsage
-from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
-from openai.types.completion_usage import CompletionUsage as OpenAIUsage
+try:
+    from anthropic.types import Usage as AnthropicUsage
+except Exception:  # pragma: no cover - optional dependency
+    AnthropicUsage = object  # type: ignore
+
+try:
+    from google.genai.types import GenerateContentResponseUsageMetadata as GoogleUsage
+except Exception:  # pragma: no cover - optional dependency
+    GoogleUsage = object  # type: ignore
+
+try:
+    from openai.types.completion_usage import CompletionUsage as OpenAIUsage
+except Exception:  # pragma: no cover - optional dependency
+    OpenAIUsage = object  # type: ignore
 from pydantic import BaseModel, Field, computed_field
 
 from fast_agent.llm.model_database import ModelDatabase

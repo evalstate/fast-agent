@@ -5,7 +5,7 @@ import pytest
 if TYPE_CHECKING:
     from a2a_types.types import AgentCard, AgentSkill
 
-    from mcp_agent.agents.agent import Agent
+    from fast_agent.agents.agent import Agent
 
 
 @pytest.mark.integration

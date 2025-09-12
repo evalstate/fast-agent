@@ -1,8 +1,7 @@
 """
 Direct FastAgent implementation that uses the simplified Agent architecture.
-Canonical location under fast_agent.core.fastagent.
-
-A compatibility shim remains at mcp_agent.core.fastagent importing this FastAgent.
+This replaces the traditional FastAgent with a more streamlined approach that
+directly creates Agent instances without proxies.
 """
 
 import argparse
@@ -10,7 +9,8 @@ import asyncio
 import sys
 from contextlib import asynccontextmanager
 from importlib.metadata import version as get_version
-from typing import TYPE_CHECKING, Any, Callable, Dict, Optional, TypeVar
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
 
 import yaml
 from opentelemetry import trace
@@ -67,7 +67,8 @@ from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
-    from mcp_agent.agents.agent import Agent
+    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.types import PromptMessageExtended
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
@@ -265,7 +266,7 @@ class FastAgent:
         Context manager for running the application.
         Initializes all registered agents.
         """
-        active_agents: Dict[str, "Agent"] = {}
+        active_agents: Dict[str, AgentProtocol] = {}
         had_error = False
         await self.app.initialize()
 
@@ -354,114 +355,155 @@ class FastAgent:
                                 host=self.args.host,
                                 port=self.args.port,
                             )
-                            return
-                        except SystemExit as e:
-                            # Server code intentionally raises SystemExit to exit the program
-                            had_error = True
-                            raise e
+                        except KeyboardInterrupt:
+                            if not quiet_mode:
+                                print("\nServer stopped by user (Ctrl+C)")
                         except Exception as e:
-                            had_error = True
-                            handle_error(
-                                e,
-                                "MCP Server Error",
-                                "An error occurred while running the MCP server.",
-                            )
-                            raise SystemExit(1)
+                            if not quiet_mode:
+                                import traceback
 
-                    # Handle --message option
+                                traceback.print_exc()
+                                print(f"\nServer stopped with error: {e}")
+
+                        # Exit after server shutdown
+                        raise SystemExit(0)
+
+                    # Handle direct message sending if  --message is provided
                     if hasattr(self.args, "message") and self.args.message:
+                        agent_name = self.args.agent
                         message = self.args.message
-                        agent_name = self.args.agent if hasattr(self.args, "agent") else None
-                        result = await wrapper.send(message, agent_name=agent_name)
-                        print(result)
-                        return
 
-                    # Handle --prompt-file option
-                    if hasattr(self.args, "prompt_file") and self.args.prompt_file:
-                        try:
-                            from pathlib import Path
-
-                            prompt = load_prompt_multipart(Path(self.args.prompt_file))
-                            agent_name = self.args.agent if hasattr(self.args, "agent") else None
-                            result = await wrapper.send(prompt, agent_name=agent_name)
+                        if agent_name not in active_agents:
+                            available_agents = ", ".join(active_agents.keys())
                             print(
-                                f"\nLoaded {len(prompt)} messages from prompt file '{self.args.prompt_file}'"
-                            )
-                            print(result)
-                            return
-                        except Exception as e:
-                            had_error = True
-                            handle_error(
-                                e,
-                                "Prompt File Error",
-                                "An error occurred while processing the prompt file.",
+                                f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
                             )
                             raise SystemExit(1)
 
-                    # Default: start interactive mode
-                    # Determine agent_name (the rest of CLI expects to select the named agent)
-                    agent_name = (
-                        self.args.agent if hasattr(self.args, "agent") and self.args.agent else None
-                    )
-                    await wrapper.interactive(agent_name=agent_name)
+                        try:
+                            # Get response from the agent
+                            agent = active_agents[agent_name]
+                            response = await agent.send(message)
+
+                            # In quiet mode, just print the raw response
+                            # The chat display should already be turned off by the configuration
+                            if self.args.quiet:
+                                print(f"{response}")
+
+                            raise SystemExit(0)
+                        except Exception as e:
+                            print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
+                            raise SystemExit(1)
+
+                    if hasattr(self.args, "prompt_file") and self.args.prompt_file:
+                        agent_name = self.args.agent
+                        prompt: List[PromptMessageExtended] = load_prompt_multipart(
+                            Path(self.args.prompt_file)
+                        )
+                        if agent_name not in active_agents:
+                            available_agents = ", ".join(active_agents.keys())
+                            print(
+                                f"\n\nError: Agent '{agent_name}' not found. Available agents: {available_agents}"
+                            )
+                            raise SystemExit(1)
+
+                        try:
+                            # Get response from the agent
+                            agent = active_agents[agent_name]
+                            response = await agent.generate(prompt)
+
+                            # In quiet mode, just print the raw response
+                            # The chat display should already be turned off by the configuration
+                            if self.args.quiet:
+                                print(f"{response.last_text()}")
+
+                            raise SystemExit(0)
+                        except Exception as e:
+                            print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
+                            raise SystemExit(1)
+
+                    yield wrapper
+
+            except PromptExitError as e:
+                # User requested exit - not an error, show usage report
+                self._handle_error(e)
+                raise SystemExit(0)
             except (
-                AgentConfigError,
-                ServerInitializationError,
                 ServerConfigError,
                 ProviderKeyError,
-                CircularDependencyError,
+                AgentConfigError,
+                ServerInitializationError,
                 ModelConfigError,
+                CircularDependencyError,
             ) as e:
                 had_error = True
-                handle_error(e)
+                self._handle_error(e)
                 raise SystemExit(1)
-            except SystemExit:
-                # Allow SystemExit to pass through (used by server mode)
-                raise
-            except Exception as e:
-                had_error = True
-                handle_error(e, "Unexpected Error", "An unexpected error occurred.")
-                raise SystemExit(1)
+
             finally:
+                # Ensure progress display is stopped before showing usage summary
                 try:
-                    if not had_error:
-                        self._print_usage_report(active_agents)
-                except Exception:
+                    from fast_agent.ui.progress_display import progress_display
+
+                    progress_display.stop()
+                except:  # noqa: E722
                     pass
 
-    def handle_error(self, e: Exception, error_type: Optional[str] = None) -> None:
+                # Print usage report before cleanup (show for user exits too)
+                if active_agents and not had_error and not quiet_mode:
+                    self._print_usage_report(active_agents)
+
+                # Clean up any active agents (always cleanup, even on errors)
+                if active_agents:
+                    for agent in active_agents.values():
+                        try:
+                            await agent.shutdown()
+                        except Exception:
+                            pass
+
+    def _handle_error(self, e: Exception, error_type: Optional[str] = None) -> None:
         """
-        Handle an error using handle_error helper with type information.
+        Handle errors with consistent formatting and messaging.
+
+        Args:
+            e: The exception that was raised
+            error_type: Optional explicit error type
         """
-        if isinstance(e, ServerInitializationError):
+        if isinstance(e, ServerConfigError):
             handle_error(
                 e,
-                "Server initialization error",
-                "There was an error initializing MCP servers",
-            )
-        elif isinstance(e, ServerConfigError):
-            handle_error(
-                e,
-                "Server configuration error",
-                "The server configuration is invalid or incomplete.",
+                "Server Configuration Error",
+                "Please check your 'fastagent.config.yaml' configuration file and add the missing server definitions.",
             )
         elif isinstance(e, ProviderKeyError):
             handle_error(
                 e,
-                "Provider key error",
-                "An API key required by a provider is missing.",
+                "Provider Configuration Error",
+                "Please check your 'fastagent.secrets.yaml' configuration file and ensure all required API keys are set.",
             )
-        elif isinstance(e, CircularDependencyError):
+        elif isinstance(e, AgentConfigError):
             handle_error(
                 e,
-                "Circular dependency",
-                "A circular dependency was found in your agent configuration.",
+                "Workflow or Agent Configuration Error",
+                "Please check your agent definition and ensure names and references are correct.",
+            )
+        elif isinstance(e, ServerInitializationError):
+            handle_error(
+                e,
+                "MCP Server Startup Error",
+                "There was an error starting up the MCP Server.",
             )
         elif isinstance(e, ModelConfigError):
             handle_error(
                 e,
-                "Model configuration error",
-                "The model configuration is invalid or unsupported.",
+                "Model Configuration Error",
+                "Common models: gpt-4.1, o3-mini, sonnet, haiku. for o3, set reasoning effort with o3-mini.high",
+            )
+        elif isinstance(e, CircularDependencyError):
+            handle_error(
+                e,
+                "Circular Dependency Detected",
+                "Check your agent configuration for circular dependencies.",
             )
         elif isinstance(e, PromptExitError):
             handle_error(
@@ -590,6 +632,3 @@ class FastAgent:
         # Just check if the flag is set, no action here
         # The actual server code will be handled by run()
         return hasattr(self, "args") and self.args.server
-
-
-__all__ = ["FastAgent"]

@@ -10,7 +10,18 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 
 from typing import List, Optional, Tuple
 
-from a2a.types import AgentCapabilities
+try:
+    from a2a.types import AgentCapabilities  # type: ignore
+except Exception:  # pragma: no cover - optional dependency fallback
+    from dataclasses import dataclass
+
+    @dataclass
+    class AgentCapabilities:  # minimal fallback
+        streaming: bool = False
+        push_notifications: bool = False
+        state_transition_history: bool = False
+
+
 from mcp import Tool
 from rich.text import Text
 

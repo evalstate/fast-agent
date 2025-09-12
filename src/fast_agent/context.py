@@ -11,10 +11,7 @@ from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 
 # from opentelemetry.instrumentation.anthropic import AnthropicInstrumentor
-from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
-
 # from opentelemetry.instrumentation.mcp import McpInstrumentor
-from opentelemetry.instrumentation.openai import OpenAIInstrumentor
 from opentelemetry.propagate import set_global_textmap
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -109,9 +106,21 @@ async def configure_otel(config: "Settings") -> None:
 
     # Set as global tracer provider
     trace.set_tracer_provider(tracer_provider)
-    #    AnthropicInstrumentor().instrument()
-    OpenAIInstrumentor().instrument()
-    GoogleGenAiSdkInstrumentor().instrument()
+
+    # Attempt to instrument optional SDKs if available; continue silently if missing
+    try:
+        from opentelemetry.instrumentation.openai import OpenAIInstrumentor
+
+        OpenAIInstrumentor().instrument()
+    except Exception:  # pragma: no cover - optional instrumentation
+        pass
+
+    try:
+        from opentelemetry.instrumentation.google_genai import GoogleGenAiSdkInstrumentor
+
+        GoogleGenAiSdkInstrumentor().instrument()
+    except Exception:  # pragma: no cover - optional instrumentation
+        pass
 
 
 #    McpInstrumentor().instrument()

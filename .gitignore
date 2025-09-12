@@ -161,7 +161,6 @@ examples/**/*.secrets.yaml
 !examples/**/*.secrets.yaml.example
 
 # Build-generated resources (copied from examples/ during build)
-src/mcp_agent/resources/
 src/fast_agent/resources/
 
 # Test data files
