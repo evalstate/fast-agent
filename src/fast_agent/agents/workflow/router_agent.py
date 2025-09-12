@@ -21,6 +21,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from a2a.types import AgentCard
+
     from fast_agent.context import Context
 
 logger = get_logger(__name__)
