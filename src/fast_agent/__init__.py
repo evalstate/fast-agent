@@ -1,4 +1,5 @@
 """fast-agent - An MCP native agent application framework"""
+from typing import TYPE_CHECKING as _TYPE_CHECKING
 
 # Configuration and settings (safe - pure Pydantic models)
 from fast_agent.config import (
@@ -81,6 +82,11 @@ def __getattr__(name: str):
         return FastAgent
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
+
+# Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
+if _TYPE_CHECKING:  # pragma: no cover - typing aid only
+    from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
 
 
 __all__ = [

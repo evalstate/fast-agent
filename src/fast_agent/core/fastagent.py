@@ -251,6 +251,32 @@ class FastAgent:
         return self.app.context
 
     # Decorator methods with type-safe implementations
+    # Provide annotations so IDEs can discover these attributes on instances
+    if TYPE_CHECKING:  # pragma: no cover - typing aid only
+        from typing import Awaitable, ParamSpec, Protocol, TypeVar  # re-import for type block
+        from fast_agent.core.direct_decorators import (
+            DecoratedAgentProtocol,
+            DecoratedChainProtocol,
+            DecoratedEvaluatorOptimizerProtocol,
+            DecoratedOrchestratorProtocol,
+            DecoratedParallelProtocol,
+            DecoratedRouterProtocol,
+        )
+
+        P = ParamSpec("P")
+        R = TypeVar("R")
+
+        # These are declared as attributes so IDEs show autocomplete on `fast.agent` etc.
+        def agent(self, *args, **kwargs) -> "DecoratedAgentProtocol[P, R]": ...
+        def custom(self, *args, **kwargs) -> "DecoratedAgentProtocol[P, R]": ...
+        def orchestrator(self, *args, **kwargs) -> "DecoratedOrchestratorProtocol[P, R]": ...
+        def iterative_planner(self, *args, **kwargs) -> "DecoratedOrchestratorProtocol[P, R]": ...
+        def router(self, *args, **kwargs) -> "DecoratedRouterProtocol[P, R]": ...
+        def chain(self, *args, **kwargs) -> "DecoratedChainProtocol[P, R]": ...
+        def parallel(self, *args, **kwargs) -> "DecoratedParallelProtocol[P, R]": ...
+        def evaluator_optimizer(self, *args, **kwargs) -> "DecoratedEvaluatorOptimizerProtocol[P, R]": ...
+
+    # Runtime bindings (actual implementations)
     agent = agent_decorator
     custom = custom_decorator
     orchestrator = orchestrator_decorator
