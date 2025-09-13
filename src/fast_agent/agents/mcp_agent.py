@@ -43,7 +43,6 @@ from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
-from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
 from fast_agent.mcp.mcp_aggregator import MCPAggregator
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,

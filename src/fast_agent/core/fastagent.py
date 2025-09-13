@@ -254,6 +254,7 @@ class FastAgent:
     # Provide annotations so IDEs can discover these attributes on instances
     if TYPE_CHECKING:  # pragma: no cover - typing aid only
         from typing import Awaitable, ParamSpec, Protocol, TypeVar  # re-import for type block
+
         from fast_agent.core.direct_decorators import (
             DecoratedAgentProtocol,
             DecoratedChainProtocol,
