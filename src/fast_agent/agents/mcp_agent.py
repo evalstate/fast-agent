@@ -624,12 +624,9 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             An instance of the specified model, or None if coercion fails
         """
-        assert self._llm
-        # Normalize all input types to a list of PromptMessageExtended
-        normalized_messages = normalize_to_extended_list(messages)
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
-            return await self._llm.structured(normalized_messages, model, request_params)
+            return await super().structured(messages, model, request_params)
 
     async def apply_prompt_messages(
         self, prompts: List[PromptMessageExtended], request_params: RequestParams | None = None
