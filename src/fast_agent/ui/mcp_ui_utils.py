@@ -39,7 +39,18 @@ def _safe_filename(name: str) -> str:
 
 
 def _ensure_output_dir() -> Path:
-    base = Path.cwd() / ".fastagent" / "ui"
+    # Read output directory from settings, defaulting to .fast-agent/ui
+    try:
+        from fast_agent.config import get_settings
+
+        settings = get_settings()
+        dir_setting = getattr(settings, "mcp_ui_output_dir", ".fast-agent/ui") or ".fast-agent/ui"
+    except Exception:
+        dir_setting = ".fast-agent/ui"
+
+    base = Path(dir_setting)
+    if not base.is_absolute():
+        base = Path.cwd() / base
     base.mkdir(parents=True, exist_ok=True)
     return base
 

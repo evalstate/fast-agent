@@ -470,6 +470,10 @@ class Settings(BaseSettings):
     - "auto": Extract and automatically open ui:// resources.
     """
 
+    # Output directory for MCP-UI generated HTML files (relative to CWD if not absolute)
+    mcp_ui_output_dir: str = ".fast-agent/ui"
+    """Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."""
+
     @classmethod
     def find_config(cls) -> Path | None:
         """Find the config file in the current directory or parent directories."""
