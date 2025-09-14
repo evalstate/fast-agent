@@ -74,7 +74,8 @@ def __getattr__(name: str):
 
         return ToolAgent
     elif name == "McpAgent":
-        from fast_agent.agents import McpAgent
+        # Import directly from submodule to avoid package re-import cycles
+        from fast_agent.agents.mcp_agent import McpAgent
 
         return McpAgent
     elif name == "FastAgent":
