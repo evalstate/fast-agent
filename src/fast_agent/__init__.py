@@ -1,5 +1,6 @@
 """fast-agent - An MCP native agent application framework"""
-from typing import TYPE_CHECKING as _TYPE_CHECKING
+
+from typing import TYPE_CHECKING
 
 # Configuration and settings (safe - pure Pydantic models)
 from fast_agent.config import (
@@ -73,10 +74,12 @@ def __getattr__(name: str):
 
         return ToolAgent
     elif name == "McpAgent":
+        # Import directly from submodule to avoid package re-import cycles
         from fast_agent.agents.mcp_agent import McpAgent
 
         return McpAgent
     elif name == "FastAgent":
+        # Import from the canonical implementation to avoid recursive imports
         from fast_agent.core.fastagent import FastAgent
 
         return FastAgent
@@ -85,7 +88,8 @@ def __getattr__(name: str):
 
 
 # Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
-if _TYPE_CHECKING:  # pragma: no cover - typing aid only
+if TYPE_CHECKING:  # pragma: no cover - typing aid only
+    # Provide a concrete import path for type checkers/IDEs
     from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
 
 
@@ -124,7 +128,6 @@ __all__ = [
     "LlmStopReason",
     "RequestParams",
     # Agents (lazy loaded)
-    "ToolAgentSynchronous",
     "LlmAgent",
     "LlmDecorator",
     "ToolAgent",

@@ -2,45 +2,32 @@
 Core interfaces and decorators for fast-agent.
 
 Public API:
-- `Core`: The core application container (eagerly exported)
-- `FastAgent`: High-level, decorator-driven application class (lazy-loaded)
+- `Core`: The core application container
+- `AgentApp`: Container for interacting with agents
+- `FastAgent`: High-level, decorator-driven application class
 - Decorators: `agent`, `custom`, `orchestrator`, `iterative_planner`,
-  `router`, `chain`, `parallel`, `evaluator_optimizer` (lazy-loaded)
+  `router`, `chain`, `parallel`, `evaluator_optimizer`
+
+Exports are resolved lazily to avoid circular imports during package init.
 """
 
-from typing import TYPE_CHECKING as _TYPE_CHECKING
-
-from .core_app import Core  # Eager export for external applications
-
-__all__ = [
-    "Core",
-    "AgentApp",
-    "FastAgent",
-    # Decorators
-    "agent",
-    "custom",
-    "orchestrator",
-    "iterative_planner",
-    "router",
-    "chain",
-    "parallel",
-    "evaluator_optimizer",
-]
+from typing import TYPE_CHECKING
 
 
 def __getattr__(name: str):
-    # Lazy imports to avoid heavy dependencies and circular imports at init time
-    if name == "FastAgent":
-        from .fastagent import FastAgent
-
-        return FastAgent
     if name == "AgentApp":
         from .agent_app import AgentApp
 
         return AgentApp
+    elif name == "Core":
+        from .core_app import Core
 
-    # Decorators from direct_decorators
-    if name in {
+        return Core
+    elif name == "FastAgent":
+        from .fastagent import FastAgent
+
+        return FastAgent
+    elif name in (
         "agent",
         "custom",
         "orchestrator",
@@ -49,20 +36,22 @@ def __getattr__(name: str):
         "chain",
         "parallel",
         "evaluator_optimizer",
-    }:
+    ):
         from . import direct_decorators as _dd
 
-        return getattr(_dd, name)
-
+        return getattr(
+            _dd,
+            name,
+        )
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
 
-# Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
-if _TYPE_CHECKING:  # pragma: no cover - typing aid only
+if TYPE_CHECKING:  # pragma: no cover - typing aid only
     from .agent_app import AgentApp as AgentApp  # noqa: F401
-    from .direct_decorators import (
+    from .core_app import Core as Core  # noqa: F401
+    from .direct_decorators import (  # noqa: F401
         agent as agent,
-    )  # noqa: F401
+    )
     from .direct_decorators import (
         chain as chain,
     )
@@ -87,5 +76,17 @@ if _TYPE_CHECKING:  # pragma: no cover - typing aid only
     from .fastagent import FastAgent as FastAgent  # noqa: F401
 
 
-def __dir__():  # pragma: no cover - developer experience aid
-    return sorted(__all__)
+__all__ = [
+    "Core",
+    "AgentApp",
+    "FastAgent",
+    # Decorators
+    "agent",
+    "custom",
+    "orchestrator",
+    "iterative_planner",
+    "router",
+    "chain",
+    "parallel",
+    "evaluator_optimizer",
+]

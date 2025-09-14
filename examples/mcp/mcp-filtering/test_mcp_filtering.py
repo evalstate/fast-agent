@@ -1,7 +1,7 @@
 import asyncio
 import sys
 
-from fast_agent.core.fastagent import FastAgent, PromptExitError
+from fast_agent import FastAgent, PromptExitError
 
 fast_agent = FastAgent(name="MCP Filtering Demo", parse_cli_args=False, quiet=False)
 

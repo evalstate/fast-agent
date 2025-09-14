@@ -1,6 +1,6 @@
 import pytest
 
-from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents import McpAgent
 from fast_agent.core.prompt import Prompt
 
 

@@ -189,6 +189,7 @@ class LlmDecorator(AgentProtocol):
             Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Create a completion with the LLM using the provided messages.
@@ -212,7 +213,7 @@ class LlmDecorator(AgentProtocol):
         multipart_messages = normalize_to_extended_list(messages)
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
-            return await self.generate_impl(multipart_messages, request_params, None)
+            return await self.generate_impl(multipart_messages, request_params, tools)
 
     async def generate_impl(
         self,

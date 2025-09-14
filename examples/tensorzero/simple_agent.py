@@ -1,6 +1,6 @@
 import asyncio
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 CONFIG_FILE = "fastagent.config.yaml"
 fast = FastAgent("fast-agent example", config_path=CONFIG_FILE, ignore_unknown_args=True)

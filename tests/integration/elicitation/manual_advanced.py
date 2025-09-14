@@ -1,6 +1,6 @@
 import asyncio
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 from fast_agent.mcp.helpers.content_helpers import get_resource_text
 
 # Create the application with specified model

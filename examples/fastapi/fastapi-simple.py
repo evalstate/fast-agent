@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 # Create FastAgent without parsing CLI args (plays nice with uvicorn)
 fast = FastAgent("fast-agent demo", parse_cli_args=False, quiet=True)

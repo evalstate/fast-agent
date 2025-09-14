@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 
 # Keep the auto-cleanup fixture
