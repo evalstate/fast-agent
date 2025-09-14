@@ -547,6 +547,8 @@ def get_settings(config_path: str | None = None) -> Settings:
         return _settings
 
     # Handle config path - convert string to Path if needed
+    config_file: Path | None
+    secrets_file: Path | None
     if config_path:
         config_file = Path(config_path)
         # If it's a relative path and doesn't exist, try finding it

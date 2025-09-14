@@ -448,32 +448,41 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
-        # Reset tool call counter for new turn
+        # Determine effective params to respect use_history for this turn
+        req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
 
-        # Add all previous messages to history (or all messages if last is from assistant)
-        # if the last message is a "user" inference is required
+        # Prepare prior messages (everything before the last user message), or all if last is assistant
         messages_to_add = (
             multipart_messages[:-1] if last_message.role == "user" else multipart_messages
         )
-        converted = []
+
+        converted_prior: List[ChatCompletionMessageParam] = []
         for msg in messages_to_add:
             # convert_to_openai now returns a list of messages
-            converted.extend(OpenAIConverter.convert_to_openai(msg))
+            converted_prior.extend(OpenAIConverter.convert_to_openai(msg))
 
-        self.history.extend(converted, is_prompt=is_template)
-
-        if "assistant" == last_message.role:
+        # If the last message is from the assistant, no inference required
+        if last_message.role == "assistant":
             return last_message
 
-        converted_messages = OpenAIConverter.convert_to_openai(last_message)
-        if not converted_messages:
+        # Convert the last user message
+        converted_last = OpenAIConverter.convert_to_openai(last_message)
+        if not converted_last:
             # Fallback for empty conversion
-            converted_messages = [{"role": "user", "content": ""}]
+            converted_last = [{"role": "user", "content": ""}]
 
-        # Call completion without additional messages (all messages are now in history)
-        return await self._openai_completion(converted_messages, request_params, tools)
+        # History-aware vs stateless turn construction
+        if req_params.use_history:
+            # Persist prior context to provider memory; send only the last message for this turn
+            self.history.extend(converted_prior, is_prompt=is_template)
+            turn_messages = converted_last
+        else:
+            # Do NOT persist; inline the full turn context to the provider call
+            turn_messages = converted_prior + converted_last
+
+        return await self._openai_completion(turn_messages, req_params, tools)
 
     def _prepare_api_request(
         self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams

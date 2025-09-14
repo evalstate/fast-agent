@@ -186,7 +186,7 @@ def _decorator_impl(
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
     **extra_kwargs,
-) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Core implementation for agent decorators with common behavior and type safety.
 
@@ -203,7 +203,7 @@ def _decorator_impl(
         **extra_kwargs: Additional agent/workflow-specific parameters
     """
 
-    def decorator(func: AgentCallable[P, R]) -> DecoratedAgentProtocol[P, R]:
+    def decorator(func: AgentCallable[P, R]) -> AgentCallable[P, R]:
         @wraps(func)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> Awaitable[R]:
             # Call the original function
@@ -249,7 +249,7 @@ def _decorator_impl(
         for key, value in extra_kwargs.items():
             setattr(wrapper, f"_{key}", value)
 
-        return cast("DecoratedAgentProtocol[P, R]", wrapper)
+        return cast("AgentCallable[P, R]", wrapper)
 
     return decorator
 
@@ -271,7 +271,7 @@ def agent(
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
 
@@ -336,7 +336,7 @@ def custom(
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], DecoratedAgentProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
 
@@ -400,7 +400,7 @@ def orchestrator(
     plan_iterations: int = 5,
     default: bool = False,
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register an orchestrator agent with type-safe signature.
 
@@ -423,24 +423,21 @@ def orchestrator(
     # Create final request params with plan_iterations
     resolved_instruction = _resolve_instruction(instruction)
 
-    return cast(
-        "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
-        _decorator_impl(
-            self,
-            AgentType.ORCHESTRATOR,
-            name=name,
-            instruction=resolved_instruction,
-            servers=[],  # Orchestrators don't connect to servers directly
-            model=model,
-            use_history=use_history,
-            request_params=request_params,
-            human_input=human_input,
-            child_agents=agents,
-            plan_type=plan_type,
-            plan_iterations=plan_iterations,
-            default=default,
-            api_key=api_key,
-        ),
+    return _decorator_impl(
+        self,
+        AgentType.ORCHESTRATOR,
+        name=name,
+        instruction=resolved_instruction,
+        servers=[],  # Orchestrators don't connect to servers directly
+        model=model,
+        use_history=use_history,
+        request_params=request_params,
+        human_input=human_input,
+        child_agents=agents,
+        plan_type=plan_type,
+        plan_iterations=plan_iterations,
+        default=default,
+        api_key=api_key,
     )
 
 
@@ -455,7 +452,7 @@ def iterative_planner(
     plan_iterations: int = -1,
     default: bool = False,
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register an orchestrator agent with type-safe signature.
 
@@ -478,22 +475,19 @@ def iterative_planner(
     # Create final request params with plan_iterations
     resolved_instruction = _resolve_instruction(instruction)
 
-    return cast(
-        "Callable[[AgentCallable[P, R]], DecoratedOrchestratorProtocol[P, R]]",
-        _decorator_impl(
-            self,
-            AgentType.ITERATIVE_PLANNER,
-            name=name,
-            instruction=resolved_instruction,
-            servers=[],  # Orchestrators don't connect to servers directly
-            model=model,
-            use_history=False,
-            request_params=request_params,
-            child_agents=agents,
-            plan_iterations=plan_iterations,
-            default=default,
-            api_key=api_key,
-        ),
+    return _decorator_impl(
+        self,
+        AgentType.ITERATIVE_PLANNER,
+        name=name,
+        instruction=resolved_instruction,
+        servers=[],  # Orchestrators don't connect to servers directly
+        model=model,
+        use_history=False,
+        request_params=request_params,
+        child_agents=agents,
+        plan_iterations=plan_iterations,
+        default=default,
+        api_key=api_key,
     )
 
 
@@ -516,7 +510,7 @@ def router(
         ElicitationFnT
     ] = None,  ## exclude from docs, decide whether allowable
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register a router agent with type-safe signature.
 
@@ -536,26 +530,23 @@ def router(
     """
     resolved_instruction = _resolve_instruction(instruction or ROUTING_SYSTEM_INSTRUCTION)
 
-    return cast(
-        "Callable[[AgentCallable[P, R]], DecoratedRouterProtocol[P, R]]",
-        _decorator_impl(
-            self,
-            AgentType.ROUTER,
-            name=name,
-            instruction=resolved_instruction,
-            servers=servers,
-            model=model,
-            use_history=use_history,
-            request_params=request_params,
-            human_input=human_input,
-            default=default,
-            router_agents=agents,
-            elicitation_handler=elicitation_handler,
-            api_key=api_key,
-            tools=tools,
-            prompts=prompts,
-            resources=resources,
-        ),
+    return _decorator_impl(
+        self,
+        AgentType.ROUTER,
+        name=name,
+        instruction=resolved_instruction,
+        servers=servers,
+        model=model,
+        use_history=use_history,
+        request_params=request_params,
+        human_input=human_input,
+        default=default,
+        router_agents=agents,
+        elicitation_handler=elicitation_handler,
+        api_key=api_key,
+        tools=tools,
+        prompts=prompts,
+        resources=resources,
     )
 
 
@@ -567,7 +558,7 @@ def chain(
     instruction: Optional[str | Path | AnyUrl] = None,
     cumulative: bool = False,
     default: bool = False,
-) -> Callable[[AgentCallable[P, R]], DecoratedChainProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register a chain agent with type-safe signature.
 
@@ -593,17 +584,14 @@ def chain(
     """
     resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
-    return cast(
-        "Callable[[AgentCallable[P, R]], DecoratedChainProtocol[P, R]]",
-        _decorator_impl(
-            self,
-            AgentType.CHAIN,
-            name=name,
-            instruction=resolved_instruction,
-            sequence=sequence,
-            cumulative=cumulative,
-            default=default,
-        ),
+    return _decorator_impl(
+        self,
+        AgentType.CHAIN,
+        name=name,
+        instruction=resolved_instruction,
+        sequence=sequence,
+        cumulative=cumulative,
+        default=default,
     )
 
 
@@ -616,7 +604,7 @@ def parallel(
     instruction: Optional[str | Path | AnyUrl] = None,
     include_request: bool = True,
     default: bool = False,
-) -> Callable[[AgentCallable[P, R]], DecoratedParallelProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register a parallel agent with type-safe signature.
 
@@ -637,19 +625,16 @@ def parallel(
     """
     resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
-    return cast(
-        "Callable[[AgentCallable[P, R]], DecoratedParallelProtocol[P, R]]",
-        _decorator_impl(
-            self,
-            AgentType.PARALLEL,
-            name=name,
-            instruction=resolved_instruction,
-            servers=[],  # Parallel agents don't connect to servers directly
-            fan_in=fan_in,
-            fan_out=fan_out,
-            include_request=include_request,
-            default=default,
-        ),
+    return _decorator_impl(
+        self,
+        AgentType.PARALLEL,
+        name=name,
+        instruction=resolved_instruction,
+        servers=[],  # Parallel agents don't connect to servers directly
+        fan_in=fan_in,
+        fan_out=fan_out,
+        include_request=include_request,
+        default=default,
     )
 
 
@@ -663,7 +648,7 @@ def evaluator_optimizer(
     min_rating: str = "GOOD",
     max_refinements: int = 3,
     default: bool = False,
-) -> Callable[[AgentCallable[P, R]], DecoratedEvaluatorOptimizerProtocol[P, R]]:
+) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
     """
     Decorator to create and register an evaluator-optimizer agent with type-safe signature.
 
@@ -686,18 +671,15 @@ def evaluator_optimizer(
     """
     resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
-    return cast(
-        "Callable[[AgentCallable[P, R]], DecoratedEvaluatorOptimizerProtocol[P, R]]",
-        _decorator_impl(
-            self,
-            AgentType.EVALUATOR_OPTIMIZER,
-            name=name,
-            instruction=resolved_instruction,
-            servers=[],  # Evaluator-optimizer doesn't connect to servers directly
-            generator=generator,
-            evaluator=evaluator,
-            min_rating=min_rating,
-            max_refinements=max_refinements,
-            default=default,
-        ),
+    return _decorator_impl(
+        self,
+        AgentType.EVALUATOR_OPTIMIZER,
+        name=name,
+        instruction=resolved_instruction,
+        servers=[],  # Evaluator-optimizer doesn't connect to servers directly
+        generator=generator,
+        evaluator=evaluator,
+        min_rating=min_rating,
+        max_refinements=max_refinements,
+        default=default,
     )

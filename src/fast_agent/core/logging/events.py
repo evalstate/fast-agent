@@ -5,12 +5,7 @@ Events and event filters for the logger module for the MCP Agent
 import logging
 import random
 from datetime import datetime
-from typing import (
-    Any,
-    Dict,
-    Literal,
-    Set,
-)
+from typing import Any, Dict, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -64,9 +59,9 @@ class EventFilter(BaseModel):
       - a minimum severity level (DEBUG < INFO < WARNING < ERROR)
     """
 
-    types: Set[EventType] | None = Field(default_factory=set)
-    names: Set[str] | None = Field(default_factory=set)
-    namespaces: Set[str] | None = Field(default_factory=set)
+    types: set[EventType] = Field(default_factory=set)
+    names: set[str] = Field(default_factory=set)
+    namespaces: set[str] = Field(default_factory=set)
     min_level: EventType | None = "debug"
 
     def matches(self, event: Event) -> bool:

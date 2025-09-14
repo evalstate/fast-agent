@@ -104,7 +104,7 @@ def generate_server_name(url: str) -> str:
 
 
 def parse_server_urls(
-    urls_param: str, auth_token: str = None
+    urls_param: str, auth_token: str | None = None
 ) -> List[Tuple[str, Literal["http", "sse"], str, Dict[str, str] | None]]:
     """
     Parse a comma-separated list of URLs into server configurations.
@@ -155,7 +155,7 @@ def generate_server_configs(
     Returns:
         Dictionary of server configurations
     """
-    server_configs = {}
+    server_configs: Dict[str, Dict[str, str | Dict[str, str]]] = {}
     # Keep track of server name occurrences to handle collisions
     name_counts = {}
 
@@ -178,7 +178,7 @@ def generate_server_configs(
                 final_name = f"{server_name}_{suffix}"
                 name_counts[server_name] += 1
 
-        config = {
+        config: Dict[str, str | Dict[str, str]] = {
             "transport": transport_type,
             "url": url,
         }

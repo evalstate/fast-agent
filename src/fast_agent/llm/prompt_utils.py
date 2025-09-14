@@ -2,7 +2,7 @@
 XML formatting utilities for consistent prompt engineering across components.
 """
 
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, TypedDict
 
 
 def format_xml_tag(
@@ -100,10 +100,16 @@ def format_server_info(
     return format_fastagent_tag("server", f"\n{server_content}\n", {"name": server_name})
 
 
+class ServerInfo(TypedDict, total=False):
+    name: str
+    description: str
+    tools: List[Dict[str, str]]
+
+
 def format_agent_info(
     agent_name: str,
     description: Optional[str] = None,
-    servers: Optional[List[Dict[str, Union[str, List[Dict[str, str]]]]]] = None,
+    servers: Optional[List[ServerInfo]] = None,
 ) -> str:
     """
     Format agent information consistently across router and orchestrator modules.
@@ -133,8 +139,8 @@ def format_agent_info(
         server_tags = []
         for server in servers:
             server_name = server.get("name", "")
-            server_desc = server.get("description", "")
-            server_tools = server.get("tools", [])
+            server_desc = server.get("description")
+            server_tools = server.get("tools")
             server_tag = format_server_info(server_name, server_desc, server_tools)
             server_tags.append(server_tag)
 

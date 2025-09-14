@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 from rich.console import Console
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.ui.console import console as default_console
@@ -17,7 +17,7 @@ class RichProgressDisplay:
     def __init__(self, console: Optional[Console] = None) -> None:
         """Initialize the progress display."""
         self.console = console or default_console
-        self._taskmap = {}
+        self._taskmap: dict[str, TaskID] = {}
         self._progress = Progress(
             SpinnerColumn(spinner_name="simpleDotsScrolling"),
             TextColumn(
@@ -134,11 +134,13 @@ class RichProgressDisplay:
             description = f"[{self._get_action_style(event.action)}]▎ {event.action.value:<15}"
 
         # Update basic task information
-        update_kwargs = {
+        update_kwargs: dict[str, object] = {
             "description": description,
-            "target": event.target or task_name,  # Use task_name as fallback for target
-            "details": event.details or "",
-            "task_name": task_name,
+            "fields": {
+                "target": event.target or task_name,  # Use task_name as fallback for target
+                "details": event.details or "",
+                "task_name": task_name,
+            },
         }
 
         # For TOOL_PROGRESS events, update progress if available

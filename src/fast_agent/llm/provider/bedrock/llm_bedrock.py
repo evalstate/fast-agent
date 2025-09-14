@@ -1192,6 +1192,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         message_param: BedrockMessageParam,
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
+        pre_messages: List[BedrockMessageParam] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Bedrock and available tools.
@@ -1200,7 +1201,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         client = self._get_bedrock_runtime_client()
 
         try:
-            messages: List[BedrockMessageParam] = []
+            messages: List[BedrockMessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
         except (ClientError, BotoCoreError) as e:
             error_msg = str(e)
@@ -1869,8 +1870,13 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             bedrock_msg = self._convert_multipart_to_bedrock_message(msg)
             converted.append(bedrock_msg)
 
-        # Add messages to history
-        self.history.extend(converted, is_prompt=is_template)
+        # Only persist prior messages when history is enabled; otherwise inline for this call
+        params = self.get_request_params(request_params)
+        pre_messages: List[BedrockMessageParam] | None = None
+        if params.use_history:
+            self.history.extend(converted, is_prompt=is_template)
+        else:
+            pre_messages = converted
 
         if last_message.role == "assistant":
             # For assistant messages: Return the last message (no completion needed)
@@ -1884,8 +1890,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             # Convert the last user message to Bedrock message parameter format
             message_param = self._convert_multipart_to_bedrock_message(last_message)
 
-        # Call the refactored completion method directly
-        return await self._bedrock_completion(message_param, request_params, tools)
+        # Call the completion method with optional pre_messages for no-history mode
+        return await self._bedrock_completion(
+            message_param, request_params, tools, pre_messages=pre_messages
+        )
 
     def _generate_simplified_schema(self, model: Type[ModelT]) -> str:
         """Generates a simplified, human-readable schema with inline enum constraints."""

@@ -291,6 +291,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_params: RequestParams | None = None,
         structured_model: Type[ModelT] | None = None,
         tools: List[Tool] | None = None,
+        pre_messages: List[MessageParam] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -304,7 +305,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         try:
             anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
-            messages: List[MessageParam] = []
+            messages: List[MessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
         except AuthenticationError as e:
             raise ProviderKeyError(
@@ -312,7 +313,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
             ) from e
 
-        # Always include prompt messages, but only include conversation history
+        # Always include prompt messages, but only include conversation history if enabled
         messages.extend(self.history.get(include_completion_history=params.use_history))
         messages.append(message_param)  # message_param is the current user turn
 
@@ -470,6 +471,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
+        # Effective params for this turn
+        params = self.get_request_params(request_params)
+
         # Check the last message role
         last_message = multipart_messages[-1]
 
@@ -477,7 +481,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         messages_to_add = (
             multipart_messages[:-1] if last_message.role == "user" else multipart_messages
         )
-        converted = []
+        converted: List[MessageParam] = []
 
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()
@@ -499,12 +503,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             converted.append(anthropic_msg)
 
-        self.history.extend(converted, is_prompt=is_template)
+        # Persist prior only when history is enabled; otherwise inline for this call
+        pre_messages: List[MessageParam] | None = None
+        if params.use_history:
+            self.history.extend(converted, is_prompt=is_template)
+        else:
+            pre_messages = converted
 
         if last_message.role == "user":
             logger.debug("Last message in prompt is from user, generating assistant response")
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
-            return await self._anthropic_completion(message_param, request_params, tools=tools)
+            return await self._anthropic_completion(
+                message_param, request_params, tools=tools, pre_messages=pre_messages
+            )
         else:
             # For assistant messages: Return the last message content as text
             logger.debug("Last message in prompt is from assistant, returning it directly")
