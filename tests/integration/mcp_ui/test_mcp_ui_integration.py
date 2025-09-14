@@ -16,7 +16,7 @@ from fast_agent.types import PromptMessageExtended
 
 @pytest_asyncio.fixture
 async def passthrough_agent(tmp_path):
-    # Use a temp working directory per test to isolate .fastagent outputs
+    # Use a temp working directory per test to isolate .fast-agent outputs
     cwd = os.getcwd()
     os.chdir(tmp_path)
     try:
@@ -63,8 +63,8 @@ async def test_mcp_ui_html_write_and_link_display(passthrough_agent):
     # Generate assistant response (passthrough provider)
     _ = await agent.generate([user_msg])
 
-    # Verify that a local HTML file was created under .fastagent/ui
-    out_dir = Path.cwd() / ".fastagent" / "ui"
+    # Verify that a local HTML file was created under .fast-agent/ui
+    out_dir = Path.cwd() / ".fast-agent" / "ui"
     assert out_dir.exists(), "UI output directory not created"
     html_files = list(out_dir.glob("*.html"))
     assert html_files, "No HTML files created for MCP-UI"
