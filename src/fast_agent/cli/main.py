@@ -85,7 +85,13 @@ def main(
     Use --help with any command for detailed usage information.
     """
     application.verbosity = 1 if verbose else 0 if not quiet else -1
-    application.console = application.console if color else None
+    if not color:
+        # Recreate consoles without color when --no-color is provided
+        from fast_agent.ui.console import console as base_console
+        from fast_agent.ui.console import error_console as base_error_console
+
+        application.console = base_console.__class__(color_system=None)
+        application.error_console = base_error_console.__class__(color_system=None, stderr=True)
 
     # Handle version flag
     if version:

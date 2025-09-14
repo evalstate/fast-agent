@@ -10,7 +10,19 @@ import sys
 from contextlib import asynccontextmanager
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, TypeVar
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    ParamSpec,
+    TypeVar,
+)
 
 import yaml
 from opentelemetry import trace
@@ -67,6 +79,9 @@ from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
+    from mcp.client.session import ElicitationFnT
+    from pydantic import AnyUrl
+
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -250,32 +265,137 @@ class FastAgent:
         """Access the application context"""
         return self.app.context
 
-    # Decorator methods with type-safe implementations
+    # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
     if TYPE_CHECKING:  # pragma: no cover - typing aid only
-        from typing import Awaitable, ParamSpec, Protocol, TypeVar  # re-import for type block
+        from pathlib import Path
 
-        from fast_agent.core.direct_decorators import (
-            DecoratedAgentProtocol,
-            DecoratedChainProtocol,
-            DecoratedEvaluatorOptimizerProtocol,
-            DecoratedOrchestratorProtocol,
-            DecoratedParallelProtocol,
-            DecoratedRouterProtocol,
-        )
+        from fast_agent.types import RequestParams
 
         P = ParamSpec("P")
         R = TypeVar("R")
 
-        # These are declared as attributes so IDEs show autocomplete on `fast.agent` etc.
-        def agent(self, *args, **kwargs) -> "DecoratedAgentProtocol[P, R]": ...
-        def custom(self, *args, **kwargs) -> "DecoratedAgentProtocol[P, R]": ...
-        def orchestrator(self, *args, **kwargs) -> "DecoratedOrchestratorProtocol[P, R]": ...
-        def iterative_planner(self, *args, **kwargs) -> "DecoratedOrchestratorProtocol[P, R]": ...
-        def router(self, *args, **kwargs) -> "DecoratedRouterProtocol[P, R]": ...
-        def chain(self, *args, **kwargs) -> "DecoratedChainProtocol[P, R]": ...
-        def parallel(self, *args, **kwargs) -> "DecoratedParallelProtocol[P, R]": ...
-        def evaluator_optimizer(self, *args, **kwargs) -> "DecoratedEvaluatorOptimizerProtocol[P, R]": ...
+        def agent(
+            self,
+            name: str = "default",
+            instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+            *,
+            instruction: str | Path | AnyUrl = "You are a helpful agent.",
+            servers: List[str] = [],
+            tools: Optional[Dict[str, List[str]]] = None,
+            resources: Optional[Dict[str, List[str]]] = None,
+            prompts: Optional[Dict[str, List[str]]] = None,
+            model: Optional[str] = None,
+            use_history: bool = True,
+            request_params: RequestParams | None = None,
+            human_input: bool = False,
+            default: bool = False,
+            elicitation_handler: Optional[ElicitationFnT] = None,
+            api_key: str | None = None,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def custom(
+            self,
+            cls,
+            name: str = "default",
+            instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+            *,
+            instruction: str | Path | AnyUrl = "You are a helpful agent.",
+            servers: List[str] = [],
+            tools: Optional[Dict[str, List[str]]] = None,
+            resources: Optional[Dict[str, List[str]]] = None,
+            prompts: Optional[Dict[str, List[str]]] = None,
+            model: Optional[str] = None,
+            use_history: bool = True,
+            request_params: RequestParams | None = None,
+            human_input: bool = False,
+            default: bool = False,
+            elicitation_handler: Optional[ElicitationFnT] = None,
+            api_key: str | None = None,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def orchestrator(
+            self,
+            name: str,
+            *,
+            agents: List[str],
+            instruction: str
+            | Path
+            | AnyUrl = "You are an expert planner. Given an objective task and a list of Agents\n(which are collections of capabilities), your job is to break down the objective\ninto a series of steps, which can be performed by these agents.\n",
+            model: Optional[str] = None,
+            request_params: RequestParams | None = None,
+            use_history: bool = False,
+            human_input: bool = False,
+            plan_type: Literal["full", "iterative"] = "full",
+            plan_iterations: int = 5,
+            default: bool = False,
+            api_key: str | None = None,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def iterative_planner(
+            self,
+            name: str,
+            *,
+            agents: List[str],
+            instruction: str | Path | AnyUrl = "You are an expert planner. Plan iteratively.",
+            model: Optional[str] = None,
+            request_params: RequestParams | None = None,
+            plan_iterations: int = -1,
+            default: bool = False,
+            api_key: str | None = None,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def router(
+            self,
+            name: str,
+            *,
+            agents: List[str],
+            instruction: Optional[str | Path | AnyUrl] = None,
+            servers: List[str] = [],
+            tools: Optional[Dict[str, List[str]]] = None,
+            resources: Optional[Dict[str, List[str]]] = None,
+            prompts: Optional[Dict[str, List[str]]] = None,
+            model: Optional[str] = None,
+            use_history: bool = False,
+            request_params: RequestParams | None = None,
+            human_input: bool = False,
+            default: bool = False,
+            elicitation_handler: Optional[ElicitationFnT] = None,
+            api_key: str | None = None,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def chain(
+            self,
+            name: str,
+            *,
+            sequence: List[str],
+            instruction: Optional[str | Path | AnyUrl] = None,
+            cumulative: bool = False,
+            default: bool = False,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def parallel(
+            self,
+            name: str,
+            *,
+            fan_out: List[str],
+            fan_in: str | None = None,
+            instruction: Optional[str | Path | AnyUrl] = None,
+            include_request: bool = True,
+            default: bool = False,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
+        def evaluator_optimizer(
+            self,
+            name: str,
+            *,
+            generator: str,
+            evaluator: str,
+            instruction: Optional[str | Path | AnyUrl] = None,
+            min_rating: str = "GOOD",
+            max_refinements: int = 3,
+            default: bool = False,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
     # Runtime bindings (actual implementations)
     agent = agent_decorator
@@ -288,7 +408,7 @@ class FastAgent:
     evaluator_optimizer = evaluator_optimizer_decorator
 
     @asynccontextmanager
-    async def run(self):
+    async def run(self) -> AsyncIterator["AgentApp"]:
         """
         Context manager for running the application.
         Initializes all registered agents.
@@ -308,15 +428,14 @@ class FastAgent:
             try:
                 async with self.app.run():
                     # Apply quiet mode if requested
-                    if (
-                        quiet_mode
-                        and hasattr(self.app.context, "config")
-                        and hasattr(self.app.context.config, "logger")
-                    ):
-                        # Update our app's config directly
-                        self.app.context.config.logger.progress_display = False
-                        self.app.context.config.logger.show_chat = False
-                        self.app.context.config.logger.show_tools = False
+                    if quiet_mode:
+                        cfg = self.app.context.config
+                        if cfg is not None and cfg.logger is not None:
+                            # Update our app's config directly
+                            cfg_logger = cfg.logger
+                            cfg_logger.progress_display = False
+                            cfg_logger.show_chat = False
+                            cfg_logger.show_tools = False
 
                         # Directly disable the progress display singleton
                         from fast_agent.ui.progress_display import progress_display
@@ -437,12 +556,12 @@ class FastAgent:
                         try:
                             # Get response from the agent
                             agent = active_agents[agent_name]
-                            response = await agent.generate(prompt)
+                            prompt_result = await agent.generate(prompt)
 
                             # In quiet mode, just print the raw response
                             # The chat display should already be turned off by the configuration
                             if self.args.quiet:
-                                print(f"{response.last_text()}")
+                                print(f"{prompt_result.last_text()}")
 
                             raise SystemExit(0)
                         except Exception as e:
@@ -590,7 +709,7 @@ class FastAgent:
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
         self.args.model = None
-        if hasattr(original_args, "model"):
+        if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
 
         # Run the application, which will detect the server flag and start server mode

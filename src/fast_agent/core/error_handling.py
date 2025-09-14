@@ -5,7 +5,7 @@ Error handling utilities for agent operations.
 from rich import print
 
 
-def handle_error(e: Exception, error_type: str, suggestion: str = None) -> None:
+def handle_error(e: Exception, error_type: str, suggestion: str | None = None) -> None:
     """
     Handle errors with consistent formatting and messaging.
 

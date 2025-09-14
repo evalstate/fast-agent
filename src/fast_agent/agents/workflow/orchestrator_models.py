@@ -72,7 +72,7 @@ class TaskWithResult(Task):
 class StepResult(BaseModel):
     """Result of executing a step"""
 
-    step: Step = Field(description="The step that was executed", default_factory=Step)
+    step: Step = Field(description="The step that was executed")
     task_results: List[TaskWithResult] = Field(
         description="Results of executing each task", default_factory=list
     )
