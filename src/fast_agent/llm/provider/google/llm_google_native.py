@@ -280,9 +280,15 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         )
 
         if messages_to_add:
-            # Convert prior messages to google.genai Content and store in provider history
+            # Convert prior messages to google.genai Content
             converted_prior = self._converter.convert_to_google_content(messages_to_add)
-            self.history.extend(converted_prior, is_prompt=is_template)
+            # Only persist prior context when history is enabled; otherwise inline later
+            if request_params.use_history:
+                self.history.extend(converted_prior, is_prompt=is_template)
+            else:
+                # Prepend prior context directly to the turn message list
+                # This keeps the single-turn chain intact without relying on provider memory
+                pass
 
         if last_message.role == "assistant":
             # No generation required; the provided assistant message is the output
@@ -321,6 +327,11 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             user_contents = self._converter.convert_to_google_content([last_message])
             # convert_to_google_content returns a list; preserve order after tool responses
             turn_messages.extend(user_contents)
+
+        # If not using provider history, include prior messages inline for this turn
+        if messages_to_add and not request_params.use_history:
+            prior_contents = self._converter.convert_to_google_content(messages_to_add)
+            turn_messages = prior_contents + turn_messages
 
         # If we somehow have no provider-native parts, ensure we send an empty user content
         if not turn_messages:

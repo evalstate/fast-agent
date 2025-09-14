@@ -97,7 +97,10 @@ class ToolAgent(LlmAgent):
             )
 
             if LlmStopReason.TOOL_USE == result.stop_reason:
-                messages = [await self.run_tools(result)]
+                if self.config.use_history:
+                    messages = [await self.run_tools(result)]
+                else:
+                    messages.extend([result, await self.run_tools(result)])
             else:
                 break
 
