@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import Body, FastAPI, HTTPException
 
+from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.core import Core
 from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.mcp import PromptMessageExtended

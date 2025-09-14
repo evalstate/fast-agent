@@ -9,7 +9,7 @@ import asyncio
 
 from rich.console import Console
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 # Create the application
 fast = FastAgent(

@@ -3,7 +3,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.request_params import RequestParams
 

@@ -1,6 +1,6 @@
 import pytest
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 from fast_agent.llm.request_params import RequestParams
 
 pytestmark = pytest.mark.usefixtures("tensorzero_docker_env")

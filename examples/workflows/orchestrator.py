@@ -4,7 +4,7 @@ This demonstrates creating multiple agents and an orchestrator to coordinate the
 
 import asyncio
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 # Create the application
 fast = FastAgent("Orchestrator-Workers")

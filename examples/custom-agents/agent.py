@@ -1,7 +1,7 @@
 import asyncio
 
-from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
+from fast_agent.agents import McpAgent
 
 # Create the application
 fast = FastAgent("fast-agent example")

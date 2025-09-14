@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents import McpAgent
 from fast_agent.mcp.ui_mixin import McpUIMixin
 
 if TYPE_CHECKING:
