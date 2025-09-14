@@ -1,6 +1,6 @@
 import asyncio
 
-from fast_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 from fast_agent.llm.fastagent_llm import RequestParams
 
 # Create the application

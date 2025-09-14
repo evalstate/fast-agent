@@ -6,7 +6,7 @@ Tests tool, resource, and prompt filtering across different agent types.
 
 import pytest
 
-from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.agents import McpAgent
 
 
 @pytest.mark.integration

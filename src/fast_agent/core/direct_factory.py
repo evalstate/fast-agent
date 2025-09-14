@@ -5,9 +5,9 @@ Implements type-safe factories with improved error handling.
 
 from typing import Any, Dict, Optional, Protocol, TypeVar
 
+from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.agents.workflow.evaluator_optimizer import (
     EvaluatorOptimizerAgent,
     QualityRating,
