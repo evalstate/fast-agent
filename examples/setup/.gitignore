@@ -22,3 +22,9 @@ fastagent.jsonl
 # Editors (optional)
 .idea/
 .vscode/
+
+# Packaging metadata
+*.dist-info/
+*.egg-info/
+dist/
+build/

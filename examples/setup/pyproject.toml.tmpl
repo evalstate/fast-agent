@@ -15,3 +15,9 @@ package = true
 [project.scripts]
 fast-agent-app = "agent:main"
 
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["agent"]
