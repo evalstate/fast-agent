@@ -8,18 +8,17 @@ from typing import Optional
 
 import typer
 import yaml
-from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
+from fast_agent.ui.console import console
 
 app = typer.Typer(
     help="Check and diagnose FastAgent configuration",
     no_args_is_help=False,  # Allow showing our custom help instead
 )
-console = Console()
 
 
 def find_config_files(start_path: Path) -> dict[str, Optional[Path]]:
@@ -305,6 +304,16 @@ def show_check_summary() -> None:
     env_table.add_column("Setting", style="white")
     env_table.add_column("Value")
 
+    # Determine keyring backend early so it can appear in the top section
+    try:
+        import keyring  # type: ignore
+
+        keyring_backend = keyring.get_keyring()
+        keyring_name = getattr(keyring_backend, "name", keyring_backend.__class__.__name__)
+    except Exception:
+        keyring = None  # type: ignore
+        keyring_name = "unavailable"
+
     # Python info (highlight version and path in green)
     env_table.add_row(
         "Python Version", f"[green]{'.'.join(system_info['python_version'].split('.')[:3])}[/green]"
@@ -338,6 +347,9 @@ def show_check_summary() -> None:
         env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
         default_model_value = config_summary.get("default_model", "haiku (system default)")
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
+
+    # Keyring backend (always shown in application-level settings)
+    env_table.add_row("Keyring Backend", f"[green]{keyring_name}[/green]")
 
     console.print(env_table)
 
@@ -472,13 +484,6 @@ def show_check_summary() -> None:
         if mcp_servers:
             from fast_agent.config import MCPServerSettings
             from fast_agent.mcp.oauth_client import compute_server_identity
-            try:
-                import keyring
-                keyring_backend = keyring.get_keyring()
-                keyring_name = getattr(keyring_backend, "name", keyring_backend.__class__.__name__)
-            except Exception:
-                keyring = None
-                keyring_name = "unavailable"
 
             servers_table = Table(show_header=True, box=None)
             servers_table.add_column("Name", style="white", header_style="bold bright_white")
@@ -502,7 +507,8 @@ def show_check_summary() -> None:
                     command_url = f"[green]{command_url}[/green]"
 
                 # OAuth status and token presence
-                oauth_status = "[dim]off[/dim]"
+                # Default for unsupported transports (e.g., STDIO): show "-" rather than "off"
+                oauth_status = "[dim]-[/dim]"
                 token_status = "[dim]n/a[/dim]"
                 # Attempt to reconstruct minimal server settings for identity check
                 try:
@@ -538,7 +544,6 @@ def show_check_summary() -> None:
 
             _print_section_header("MCP Servers", color="blue")
             console.print(servers_table)
-            console.print(f"Keyring backend: [green]{keyring_name}[/green]")
 
     # Show help tips
     if config_status == "not_found" or secrets_status == "not_found":

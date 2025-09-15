@@ -8,11 +8,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from fast_agent.ui.console import console as shared_console
+
 app = typer.Typer(
     help="Create fast-agent quickstarts",
     no_args_is_help=False,  # Allow showing our custom help instead
 )
-console = Console()
+console = shared_console
 
 EXAMPLE_TYPES = {
     "workflow": {

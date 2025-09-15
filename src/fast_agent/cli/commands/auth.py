@@ -17,6 +17,7 @@ from fast_agent.mcp.oauth_client import (
     compute_server_identity,
     list_keyring_tokens,
 )
+from fast_agent.ui.console import console
 
 app = typer.Typer(help="Manage OAuth authentication state for MCP servers")
 
@@ -107,8 +108,6 @@ def status(
     settings = get_settings(config_path)
     backend = _get_keyring_backend_name()
 
-    from fast_agent.ui.console import console
-
     # Single-target view if target provided
     if target:
         settings = get_settings(config_path)
@@ -140,7 +139,7 @@ def status(
         token_disp = "[bold green]✓[/bold green]" if present else "[dim]✗[/dim]"
         table.add_row(identity, token_disp, servers_for_id)
 
-        typer.echo(f"Keyring backend: {backend}")
+        console.print(f"Keyring backend: [green]{backend}[/green]")
         console.print(table)
         console.print(
             "\n[dim]Run 'fast-agent auth clear --identity "
@@ -149,7 +148,7 @@ def status(
         return
 
     # Full status view
-    typer.echo(f"Keyring backend: {backend}")
+    console.print(f"Keyring backend: [green]{backend}[/green]")
 
     tokens = list_keyring_tokens()
     token_table = Table(show_header=True, box=None)
