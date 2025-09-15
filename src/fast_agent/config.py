@@ -9,14 +9,29 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from mcp import Implementation
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class MCPServerAuthSettings(BaseModel):
-    """Represents authentication configuration for a server."""
+    """Represents authentication configuration for a server.
 
-    api_key: str | None = None
+    Minimal OAuth v2.1 support with sensible defaults.
+    """
+
+    # Enable OAuth for SSE/HTTP transports. If None is provided for the auth block,
+    # the system will assume OAuth is enabled by default.
+    oauth: bool = True
+
+    # Local callback server configuration
+    redirect_port: int = 3030
+    redirect_path: str = "/callback"
+
+    # Optional scope override. If set to a list, values are space-joined.
+    scope: str | list[str] | None = None
+
+    # Token persistence: use OS keychain via 'keyring' by default; fallback to 'memory'.
+    persist: Literal["keyring", "memory"] = "keyring"
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -108,6 +123,42 @@ class MCPServerSettings(BaseModel):
     """Working directory for the executed server command."""
 
     implementation: Implementation | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_transport_inference(cls, values):
+        """Automatically infer transport type based on url/command presence."""
+        import warnings
+
+        if isinstance(values, dict):
+            # Check if transport was explicitly provided in the input
+            transport_explicit = "transport" in values
+            url = values.get("url")
+            command = values.get("command")
+
+            # Only infer if transport was not explicitly set
+            if not transport_explicit:
+                # Check if we have both url and command specified
+                has_url = url is not None and str(url).strip()
+                has_command = command is not None and str(command).strip()
+
+                if has_url and has_command:
+                    warnings.warn(
+                        f"MCP Server config has both 'url' ({url}) and 'command' ({command}) specified. "
+                        "Preferring HTTP transport and ignoring command.",
+                        UserWarning,
+                        stacklevel=4,
+                    )
+                    values["transport"] = "http"
+                    values["command"] = None  # Clear command to avoid confusion
+                elif has_url and not has_command:
+                    values["transport"] = "http"
+                elif has_command and not has_url:
+                    # Keep default "stdio" for command-based servers
+                    values["transport"] = "stdio"
+                # If neither url nor command is specified, keep default "stdio"
+
+        return values
 
 
 class MCPSettings(BaseModel):
@@ -260,8 +311,8 @@ class TensorZeroSettings(BaseModel):
     Settings for using TensorZero via its OpenAI-compatible API.
     """
 
-    base_url: Optional[str] = None
-    api_key: Optional[str] = None
+    base_url: str | None = None
+    api_key: str | None = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -287,7 +338,7 @@ class HuggingFaceSettings(BaseModel):
     Settings for HuggingFace authentication (used for MCP connections).
     """
 
-    api_key: Optional[str] = None
+    api_key: str | None = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -459,7 +510,7 @@ class Settings(BaseSettings):
     groq: GroqSettings | None = None
     """Settings for using the Groq provider in the fast-agent application"""
 
-    logger: LoggerSettings | None = LoggerSettings()
+    logger: LoggerSettings = LoggerSettings()
     """Logger settings for the fast-agent application"""
 
     # MCP UI integration mode for handling ui:// embedded resources from MCP tool results

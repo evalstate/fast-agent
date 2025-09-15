@@ -41,5 +41,4 @@ mcp:
       command: "npx"
       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
     huggingface:
-      transport: "http"
-      url: "https://huggingface.co/mcp"
+      url: "https://huggingface.co/mcp?login"

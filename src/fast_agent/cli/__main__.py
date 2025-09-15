@@ -13,14 +13,17 @@ def main():
         # Check if first arg is not already a subcommand
         first_arg = sys.argv[1]
 
-        if first_arg not in KNOWN_SUBCOMMANDS and any(
-            arg in sys.argv or any(arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS)
-            for arg in sys.argv
-        ):
+        # Only auto-route if any known go-specific options are present
+        has_go_options = any(
+            (arg in GO_SPECIFIC_OPTIONS) or any(arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS)
+            for arg in sys.argv[1:]
+        )
+
+        if first_arg not in KNOWN_SUBCOMMANDS and has_go_options:
             # Find where to insert 'go' - before the first go-specific option
             insert_pos = 1
             for i, arg in enumerate(sys.argv[1:], 1):
-                if arg in GO_SPECIFIC_OPTIONS or any(
+                if (arg in GO_SPECIFIC_OPTIONS) or any(
                     arg.startswith(opt + "=") for opt in GO_SPECIFIC_OPTIONS
                 ):
                     insert_pos = i

@@ -22,4 +22,4 @@ GO_SPECIFIC_OPTIONS = {
 }
 
 # Known subcommands that should not trigger auto-routing
-KNOWN_SUBCOMMANDS = {"go", "setup", "check", "bootstrap", "quickstart", "--help", "-h", "--version"}
+KNOWN_SUBCOMMANDS = {"go", "setup", "check", "auth", "bootstrap", "quickstart", "--help", "-h", "--version"}
