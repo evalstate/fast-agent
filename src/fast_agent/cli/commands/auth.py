@@ -22,14 +22,28 @@ from fast_agent.ui.console import console
 app = typer.Typer(help="Manage OAuth authentication state for MCP servers")
 
 
-def _get_keyring_backend_name() -> str:
+def _get_keyring_status() -> tuple[str, bool]:
+    """Return (backend_name, usable) where usable=False for the fail backend or missing keyring."""
     try:
         import keyring
 
         kr = keyring.get_keyring()
-        return getattr(kr, "name", kr.__class__.__name__)
+        name = getattr(kr, "name", kr.__class__.__name__)
+        try:
+            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
+
+            return name, not isinstance(kr, FailKeyring)
+        except Exception:
+            # If fail backend marker cannot be imported, assume usable
+            return name, True
     except Exception:
-        return "unavailable"
+        return "unavailable", False
+
+
+def _get_keyring_backend_name() -> str:
+    # Backwards-compat helper; prefer _get_keyring_status in new code
+    name, _ = _get_keyring_status()
+    return name
 
 
 def _keyring_get_password(service: str, username: str) -> str | None:
@@ -106,7 +120,7 @@ def status(
 ) -> None:
     """Show keyring backend and token status for configured MCP servers."""
     settings = get_settings(config_path)
-    backend = _get_keyring_backend_name()
+    backend, backend_usable = _get_keyring_status()
 
     # Single-target view if target provided
     if target:
@@ -123,12 +137,15 @@ def status(
 
         # Direct presence check
         present = False
-        try:
-            import keyring
+        if backend_usable:
+            try:
+                import keyring
 
-            present = keyring.get_password("fast-agent-mcp", f"oauth:tokens:{identity}") is not None
-        except Exception:
-            present = False
+                present = (
+                    keyring.get_password("fast-agent-mcp", f"oauth:tokens:{identity}") is not None
+                )
+            except Exception:
+                present = False
 
         table = Table(show_header=True, box=None)
         table.add_column("Identity", header_style="bold")
@@ -139,7 +156,10 @@ def status(
         token_disp = "[bold green]✓[/bold green]" if present else "[dim]✗[/dim]"
         table.add_row(identity, token_disp, servers_for_id)
 
-        console.print(f"Keyring backend: [green]{backend}[/green]")
+        if backend_usable and backend != "unavailable":
+            console.print(f"Keyring backend: [green]{backend}[/green]")
+        else:
+            console.print("Keyring backend: [red]not available[/red]")
         console.print(table)
         console.print(
             "\n[dim]Run 'fast-agent auth clear --identity "
@@ -148,7 +168,10 @@ def status(
         return
 
     # Full status view
-    console.print(f"Keyring backend: [green]{backend}[/green]")
+    if backend_usable and backend != "unavailable":
+        console.print(f"Keyring backend: [green]{backend}[/green]")
+    else:
+        console.print("Keyring backend: [red]not available[/red]")
 
     tokens = list_keyring_tokens()
     token_table = Table(show_header=True, box=None)
@@ -181,25 +204,25 @@ def status(
             )
             # Direct presence check for each identity so status works even without index
             has_token = False
+            token_disp = "[dim]✗[/dim]"
             if persist == "keyring" and row["oauth"]:
-                try:
-                    import keyring
+                if backend_usable:
+                    try:
+                        import keyring
 
-                    has_token = (
-                        keyring.get_password("fast-agent-mcp", f"oauth:tokens:{row['identity']}")
-                        is not None
-                    )
-                except Exception:
-                    has_token = False
-            token_disp = (
-                "[bold green]✓[/bold green]"
-                if has_token
-                else (
-                    "[yellow]memory[/yellow]"
-                    if persist == "memory" and row["oauth"]
-                    else "[dim]✗[/dim]"
-                )
-            )
+                        has_token = (
+                            keyring.get_password(
+                                "fast-agent-mcp", f"oauth:tokens:{row['identity']}"
+                            )
+                            is not None
+                        )
+                    except Exception:
+                        has_token = False
+                    token_disp = "[bold green]✓[/bold green]" if has_token else "[dim]✗[/dim]"
+                else:
+                    token_disp = "[red]not available[/red]"
+            elif persist == "memory" and row["oauth"]:
+                token_disp = "[yellow]memory[/yellow]"
             map_table.add_row(
                 row["name"],
                 row["transport"].upper(),
