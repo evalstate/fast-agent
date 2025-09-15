@@ -89,7 +89,7 @@ async def add_servers_to_config(fast_app: Any, servers: Dict[str, Dict[str, Any]
     ):
         fast_app.app.context.config.mcp.servers = {}
 
-    # Add each server to the config
+    # Add each server to the config (and keep the runtime registry in sync)
     for server_name, server_config in servers.items():
         # Build server settings based on transport type
         server_settings = {"transport": server_config["transport"]}
@@ -103,4 +103,12 @@ async def add_servers_to_config(fast_app: Any, servers: Dict[str, Dict[str, Any]
             if "headers" in server_config:
                 server_settings["headers"] = server_config["headers"]
 
-        fast_app.app.context.config.mcp.servers[server_name] = MCPServerSettings(**server_settings)
+        mcp_server = MCPServerSettings(**server_settings)
+        # Update config model
+        fast_app.app.context.config.mcp.servers[server_name] = mcp_server
+        # Ensure ServerRegistry sees dynamic additions even when no config file exists
+        if (
+            hasattr(fast_app.app.context, "server_registry")
+            and fast_app.app.context.server_registry is not None
+        ):
+            fast_app.app.context.server_registry.registry[server_name] = mcp_server
