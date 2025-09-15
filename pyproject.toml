@@ -12,7 +12,7 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent"
 ]
-requires-python = ">=3.13.7"
+requires-python = ">=3.13.5"
 dependencies = [
     "fastapi>=0.115.6",
     "mcp==1.14.0",
@@ -39,6 +39,7 @@ dependencies = [
     "a2a-sdk>=0.3.0",
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
+    "keyring>=24.3.1",
 ]
 
 # For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]

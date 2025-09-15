@@ -33,6 +33,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+from fast_agent.mcp.oauth_client import build_oauth_provider
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -341,6 +342,8 @@ class MCPConnectionManager(ContextDependent):
 
         def transport_context_factory():
             if config.transport == "stdio":
+                if not config.command:
+                    raise ValueError(f"Server '{server_name}' uses stdio transport but no command is specified")
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
@@ -353,18 +356,33 @@ class MCPConnectionManager(ContextDependent):
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
                 return _add_none_to_context(stdio_client(server_params, errlog=error_handler))
             elif config.transport == "sse":
+                if not config.url:
+                    raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
                 # Suppress MCP library error spam
                 self._suppress_mcp_sse_errors()
-
+                oauth_auth = build_oauth_provider(config)
+                # If using OAuth, strip any pre-existing Authorization headers to avoid conflicts
+                headers = dict(config.headers or {})
+                if oauth_auth is not None:
+                    headers.pop("Authorization", None)
+                    headers.pop("X-HF-Authorization", None)
                 return _add_none_to_context(
                     sse_client(
                         config.url,
-                        config.headers,
+                        headers,
                         sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                        auth=oauth_auth,
                     )
                 )
             elif config.transport == "http":
-                return streamablehttp_client(config.url, config.headers)
+                if not config.url:
+                    raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
+                oauth_auth = build_oauth_provider(config)
+                headers = dict(config.headers or {})
+                if oauth_auth is not None:
+                    headers.pop("Authorization", None)
+                    headers.pop("X-HF-Authorization", None)
+                return streamablehttp_client(config.url, headers, auth=oauth_auth)
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")
 

@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import typer
-from rich.console import Console
 from rich.prompt import Confirm
 
+from fast_agent.ui.console import console as shared_console
+
 app = typer.Typer()
-console = Console()
+console = shared_console
 
 
 def load_template_text(filename: str) -> str:

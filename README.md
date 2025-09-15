@@ -142,6 +142,42 @@ uv run workflow/chaining.py --agent post_writer --message "<url>"
 
 Add the `--quiet` switch to disable progress and message display and return only the final response - useful for simple automations.
 
+## MCP OAuth (v2.1)
+
+For SSE and HTTP MCP servers, OAuth is enabled by default with minimal configuration. A local callback server is used to capture the authorization code, with a paste-URL fallback if the port is unavailable.
+
+- Minimal per-server settings in `fastagent.config.yaml`:
+
+```yaml
+mcp:
+  servers:
+    myserver:
+      transport: http # or sse
+      url: http://localhost:8001/mcp # or /sse for SSE servers
+      auth:
+        oauth: true # default: true
+        redirect_port: 3030 # default: 3030
+        redirect_path: /callback # default: /callback
+        # scope: "user"       # optional; if omitted, server defaults are used
+```
+
+- The OAuth client uses PKCE and in-memory token storage (no tokens written to disk).
+- Token persistence: by default, tokens are stored securely in your OS keychain via `keyring`. If a keychain is unavailable (e.g., headless container), in-memory storage is used for the session.
+- To force in-memory only per server, set:
+
+```yaml
+mcp:
+  servers:
+    myserver:
+      transport: http
+      url: http://localhost:8001/mcp
+      auth:
+        oauth: true
+        persist: memory
+```
+
+- To disable OAuth for a specific server , set `auth.oauth: false` for that server.
+
 ## Workflows
 
 ### Chain
