@@ -197,6 +197,10 @@ class InteractivePrompt:
                         # Handle usage display
                         await self._show_usage(prompt_provider, agent)
                         continue
+                    elif "show_system" in command_result:
+                        # Handle system prompt display
+                        await self._show_system(prompt_provider, agent)
+                        continue
                     elif "show_markdown" in command_result:
                         # Handle markdown display
                         await self._show_markdown(prompt_provider, agent)
@@ -925,6 +929,56 @@ class InteractivePrompt:
 
         except Exception as e:
             rich_print(f"[red]Error showing usage: {e}[/red]")
+
+    async def _show_system(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+        """
+        Show the current system prompt for the agent.
+
+        Args:
+            prompt_provider: Provider that has access to agents
+            agent_name: Name of the current agent
+        """
+        try:
+            # Get agent to display from
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
+
+            # Get the system prompt
+            system_prompt = getattr(agent, 'instruction', None)
+            if not system_prompt:
+                rich_print("[yellow]No system prompt available[/yellow]")
+                return
+
+            # Get server count for display
+            server_count = 0
+            if hasattr(agent, "_aggregator") and hasattr(agent._aggregator, "server_names"):
+                server_count = (
+                    len(agent._aggregator.server_names) if agent._aggregator.server_names else 0
+                )
+
+            # Use the display utility to show the system prompt
+            if hasattr(agent, 'display') and agent.display:
+                agent.display.show_system_message(
+                    system_prompt=system_prompt,
+                    agent_name=agent_name,
+                    server_count=server_count
+                )
+            else:
+                # Fallback to basic display
+                from fast_agent.ui.console_display import ConsoleDisplay
+                display = ConsoleDisplay(config=agent.context.config if hasattr(agent, 'context') else None)
+                display.show_system_message(
+                    system_prompt=system_prompt,
+                    agent_name=agent_name,
+                    server_count=server_count
+                )
+
+        except Exception as e:
+            import traceback
+            rich_print(f"[red]Error showing system prompt: {e}[/red]")
+            rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 
     async def _show_markdown(self, prompt_provider: PromptProvider, agent_name: str) -> None:
         """

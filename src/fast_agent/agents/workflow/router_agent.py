@@ -300,10 +300,18 @@ class RouterAgent(LlmAgent):
             if response.reasoning:
                 routing_message += f" ({response.reasoning})"
 
+            # Convert highlight_items to highlight_index
+            agent_keys = list(self.agent_map.keys())
+            highlight_index = None
+            try:
+                highlight_index = agent_keys.index(response.agent)
+            except ValueError:
+                pass
+
             await self.display.show_assistant_message(
                 routing_message,
-                bottom_items=list(self.agent_map.keys()),
-                highlight_items=[response.agent],
+                bottom_items=agent_keys,
+                highlight_index=highlight_index,
                 name=self.name,
             )
 

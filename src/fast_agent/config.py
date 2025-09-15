@@ -37,7 +37,7 @@ class MCPServerAuthSettings(BaseModel):
 
 
 class MCPSamplingSettings(BaseModel):
-    model: str = "haiku"
+    model: str = "gpt-5-mini.low"
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -121,6 +121,9 @@ class MCPServerSettings(BaseModel):
 
     cwd: str | None = None
     """Working directory for the executed server command."""
+
+    include_instructions: bool = True
+    """Whether to include this server's instructions in the system prompt (default: True)."""
 
     implementation: Implementation | None = None
 

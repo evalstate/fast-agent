@@ -305,14 +305,25 @@ def show_check_summary() -> None:
     env_table.add_column("Value")
 
     # Determine keyring backend early so it can appear in the top section
+    # Also detect whether the backend is actually usable (not the fail backend)
+    keyring_usable = False
     try:
         import keyring  # type: ignore
 
         keyring_backend = keyring.get_keyring()
         keyring_name = getattr(keyring_backend, "name", keyring_backend.__class__.__name__)
+        try:
+            # Detect the "fail" backend explicitly; it's present but unusable
+            from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
+
+            keyring_usable = not isinstance(keyring_backend, FailKeyring)
+        except Exception:
+            # If we can't import the fail backend marker, assume usable
+            keyring_usable = True
     except Exception:
         keyring = None  # type: ignore
         keyring_name = "unavailable"
+        keyring_usable = False
 
     # Python info (highlight version and path in green)
     env_table.add_row(
@@ -345,11 +356,14 @@ def show_check_summary() -> None:
         )
     else:  # parsed successfully
         env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
-        default_model_value = config_summary.get("default_model", "haiku (system default)")
+        default_model_value = config_summary.get("default_model", "gpt-5-mini.low (system default)")
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
     # Keyring backend (always shown in application-level settings)
-    env_table.add_row("Keyring Backend", f"[green]{keyring_name}[/green]")
+    if keyring_usable and keyring_name != "unavailable":
+        env_table.add_row("Keyring Backend", f"[green]{keyring_name}[/green]")
+    else:
+        env_table.add_row("Keyring Backend", "[red]not available[/red]")
 
     console.print(env_table)
 
@@ -514,7 +528,9 @@ def show_check_summary() -> None:
                 try:
                     cfg = MCPServerSettings(
                         name=name,
-                        transport="sse" if transport == "SSE" else ("stdio" if transport == "STDIO" else "http"),
+                        transport="sse"
+                        if transport == "SSE"
+                        else ("stdio" if transport == "STDIO" else "http"),
                         url=(server.get("url") or None),
                         auth=server.get("auth") if isinstance(server.get("auth"), dict) else None,
                     )
@@ -532,11 +548,16 @@ def show_check_summary() -> None:
                     persist = "keyring"
                     if cfg.auth is not None and hasattr(cfg.auth, "persist"):
                         persist = getattr(cfg.auth, "persist") or "keyring"
-                    if keyring and persist == "keyring" and oauth_enabled:
+                    if keyring and keyring_usable and persist == "keyring" and oauth_enabled:
                         identity = compute_server_identity(cfg)
                         tkey = f"oauth:tokens:{identity}"
-                        has = keyring.get_password("fast-agent-mcp", tkey) is not None
+                        try:
+                            has = keyring.get_password("fast-agent-mcp", tkey) is not None
+                        except Exception:
+                            has = False
                         token_status = "[bold green]✓[/bold green]" if has else "[dim]✗[/dim]"
+                    elif persist == "keyring" and not keyring_usable and oauth_enabled:
+                        token_status = "[red]not available[/red]"
                     elif persist == "memory" and oauth_enabled:
                         token_status = "[yellow]memory[/yellow]"
 

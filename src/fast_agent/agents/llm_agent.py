@@ -137,10 +137,24 @@ class LlmAgent(LlmDecorator):
         display_name = name if name is not None else self.name
         display_model = model if model is not None else (self.llm.model_name if self._llm else None)
 
+        # Convert highlight_items to highlight_index
+        highlight_index = None
+        if highlight_items and bottom_items:
+            if isinstance(highlight_items, str):
+                try:
+                    highlight_index = bottom_items.index(highlight_items)
+                except ValueError:
+                    pass
+            elif isinstance(highlight_items, list) and len(highlight_items) > 0:
+                try:
+                    highlight_index = bottom_items.index(highlight_items[0])
+                except ValueError:
+                    pass
+
         await self.display.show_assistant_message(
             message_text,
             bottom_items=bottom_items,
-            highlight_items=highlight_items,
+            highlight_index=highlight_index,
             max_item_length=max_item_length,
             name=display_name,
             model=display_model,

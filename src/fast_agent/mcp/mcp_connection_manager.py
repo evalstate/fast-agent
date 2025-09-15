@@ -105,6 +105,9 @@ class ServerConnection:
         self._error_occurred = False
         self._error_message = None
 
+        # Server instructions from initialization
+        self.server_instructions: str | None = None
+
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
         return self.session is not None and not self._error_occurred
@@ -131,10 +134,20 @@ class ServerConnection:
         Initializes the server connection and session.
         Must be called within an async context.
         """
-
+        assert self.session, "Session must be created before initialization"
         result = await self.session.initialize()
 
         self.server_capabilities = result.capabilities
+
+        # Store instructions if provided by the server and enabled in config
+        if self.server_config.include_instructions:
+            self.server_instructions = getattr(result, 'instructions', None)
+            if self.server_instructions:
+                logger.debug(f"{self.server_name}: Received server instructions", data={"instructions": self.server_instructions})
+        else:
+            self.server_instructions = None
+            logger.debug(f"{self.server_name}: Server instructions disabled by configuration")
+
         # If there's an init hook, run it
 
         # Now the session is ready for use
@@ -343,7 +356,9 @@ class MCPConnectionManager(ContextDependent):
         def transport_context_factory():
             if config.transport == "stdio":
                 if not config.command:
-                    raise ValueError(f"Server '{server_name}' uses stdio transport but no command is specified")
+                    raise ValueError(
+                        f"Server '{server_name}' uses stdio transport but no command is specified"
+                    )
                 server_params = StdioServerParameters(
                     command=config.command,
                     args=config.args if config.args is not None else [],
@@ -357,7 +372,9 @@ class MCPConnectionManager(ContextDependent):
                 return _add_none_to_context(stdio_client(server_params, errlog=error_handler))
             elif config.transport == "sse":
                 if not config.url:
-                    raise ValueError(f"Server '{server_name}' uses sse transport but no url is specified")
+                    raise ValueError(
+                        f"Server '{server_name}' uses sse transport but no url is specified"
+                    )
                 # Suppress MCP library error spam
                 self._suppress_mcp_sse_errors()
                 oauth_auth = build_oauth_provider(config)
@@ -376,7 +393,9 @@ class MCPConnectionManager(ContextDependent):
                 )
             elif config.transport == "http":
                 if not config.url:
-                    raise ValueError(f"Server '{server_name}' uses http transport but no url is specified")
+                    raise ValueError(
+                        f"Server '{server_name}' uses http transport but no url is specified"
+                    )
                 oauth_auth = build_oauth_provider(config)
                 headers = dict(config.headers or {})
                 if oauth_auth is not None:

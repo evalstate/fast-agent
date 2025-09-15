@@ -156,6 +156,9 @@ class McpAgent(ABC, ToolAgent):
         """
         await self.__aenter__()
 
+        # Apply template substitution to the instruction with server instructions
+        await self._apply_instruction_templates()
+
     async def shutdown(self) -> None:
         """
         Shutdown the agent and close all MCP server connections.
@@ -173,6 +176,67 @@ class McpAgent(ABC, ToolAgent):
         """Set the initialized state of both agent and aggregator."""
         self._initialized = value
         self._aggregator.initialized = value
+
+    async def _apply_instruction_templates(self) -> None:
+        """
+        Apply template substitution to the instruction, including server instructions.
+        This is called during initialization after servers are connected.
+        """
+        if not self.instruction:
+            return
+
+        # Gather server instructions if the template includes {{serverInstructions}}
+        if "{{serverInstructions}}" in self.instruction:
+            try:
+                instructions_data = await self._aggregator.get_server_instructions()
+                server_instructions = self._format_server_instructions(instructions_data)
+            except Exception as e:
+                self.logger.warning(f"Failed to get server instructions: {e}")
+                server_instructions = ""
+
+            # Replace the template variable
+            self.instruction = self.instruction.replace("{{serverInstructions}}", server_instructions)
+
+
+        # Update default request params to match
+        if self._default_request_params:
+            self._default_request_params.systemPrompt = self.instruction
+
+        self.logger.debug(f"Applied instruction templates for agent {self._name}")
+
+    def _format_server_instructions(self, instructions_data: Dict[str, tuple[str | None, List[str]]]) -> str:
+        """
+        Format server instructions with XML tags and tool lists.
+
+        Args:
+            instructions_data: Dict mapping server name to (instructions, tool_names)
+
+        Returns:
+            Formatted string with server instructions
+        """
+        if not instructions_data:
+            return ""
+
+        formatted_parts = []
+        for server_name, (instructions, tool_names) in instructions_data.items():
+            # Skip servers with no instructions
+            if instructions is None:
+                continue
+
+            # Format tool names with server prefix
+            prefixed_tools = [f"{server_name}-{tool}" for tool in tool_names]
+            tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
+
+            formatted_parts.append(
+                f"<mcp-server name=\"{server_name}\">\n"
+                f"<tools>{tools_list}</tools>\n"
+                f"<instructions>\n{instructions}\n</instructions>\n"
+                f"</mcp-server>"
+            )
+
+        if formatted_parts:
+            return "\n\n".join(formatted_parts)
+        return ""
 
     async def __call__(
         self,
@@ -549,12 +613,20 @@ class McpAgent(ABC, ToolAgent):
             namespaced_tool = self._aggregator._namespaced_tool_map.get(tool_name)
             display_tool_name = namespaced_tool.tool.name if namespaced_tool else tool_name
 
+            # Find the index of the current tool in available_tools for highlighting
+            highlight_index = None
+            try:
+                highlight_index = available_tools.index(display_tool_name)
+            except ValueError:
+                # Tool not found in list, no highlighting
+                pass
+
             self.display.show_tool_call(
                 name=self._name,
                 tool_args=tool_args,
                 bottom_items=available_tools,
                 tool_name=display_tool_name,
-                highlight_items=tool_name,
+                highlight_index=highlight_index,
                 max_item_length=12,
             )
 

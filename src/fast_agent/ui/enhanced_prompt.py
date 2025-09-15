@@ -297,6 +297,7 @@ class AgentCompleter(Completer):
             "tools": "List available MCP tools",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "agents": "List available agents",
+            "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
@@ -751,6 +752,8 @@ async def get_enhanced_input(
                 return "CLEAR"
             elif cmd == "agents":
                 return "LIST_AGENTS"
+            elif cmd == "system":
+                return "SHOW_SYSTEM"
             elif cmd == "usage":
                 return "SHOW_USAGE"
             elif cmd == "markdown":
@@ -933,6 +936,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /help          - Show this help")
         rich_print("  /clear         - Clear screen")
         rich_print("  /agents        - List available agents")
+        rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
@@ -971,6 +975,10 @@ async def handle_special_commands(command, agent_app=None):
     elif command == "SHOW_USAGE":
         # Return a dictionary to signal that usage should be shown
         return {"show_usage": True}
+
+    elif command == "SHOW_SYSTEM":
+        # Return a dictionary to signal that system prompt should be shown
+        return {"show_system": True}
 
     elif command == "MARKDOWN":
         # Return a dictionary to signal that markdown display should be shown

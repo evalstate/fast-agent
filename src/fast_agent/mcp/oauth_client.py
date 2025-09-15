@@ -109,7 +109,7 @@ class _CallbackHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
 
-    def log_message(self, fmt: str, *args: Any) -> None:  # silence default logging
+    def log_message(self, format: str, *args: Any) -> None:  # silence default logging
         return
 
 
@@ -218,10 +218,33 @@ def keyring_has_token(server_config: MCPServerSettings) -> bool:
         return False
 
 
-async def _print_authorization_link(auth_url: str) -> None:
-    """Emit a clickable authorization link using rich console markup."""
+async def _print_authorization_link(auth_url: str, warn_if_no_keyring: bool = False) -> None:
+    """Emit a clickable authorization link using rich console markup.
+
+    If warn_if_no_keyring is True and the OS keyring backend is unavailable,
+    print a warning to indicate tokens won't be persisted.
+    """
     console.console.print("[bold]Open this link to authorize:[/bold]", markup=True)
     console.console.print(f"[link={auth_url}]{auth_url}[/link]")
+    if warn_if_no_keyring:
+        try:
+            import keyring  # type: ignore
+
+            backend = keyring.get_keyring()
+            try:
+                from keyring.backends.fail import Keyring as FailKeyring  # type: ignore
+
+                if isinstance(backend, FailKeyring):
+                    console.console.print(
+                        "[yellow]Warning:[/yellow] Keyring backend not available — tokens will not be persisted."
+                    )
+            except Exception:
+                # If we cannot detect the fail backend, do nothing
+                pass
+        except Exception:
+            console.console.print(
+                "[yellow]Warning:[/yellow] Keyring backend not available — tokens will not be persisted."
+            )
     logger.info("OAuth authorization URL emitted to console")
 
 
@@ -282,6 +305,7 @@ class KeyringTokenStorage(TokenStorage):
 
 
 # --- Keyring index helpers (to enable cross-platform token enumeration) ---
+
 
 def _index_username() -> str:
     return "oauth:index"
@@ -431,7 +455,11 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
 
     # Local callback server handler
     async def _redirect_handler(authorization_url: str) -> None:
-        await _print_authorization_link(authorization_url)
+        # Warn if persisting to keyring but no backend is available
+        await _print_authorization_link(
+            authorization_url,
+            warn_if_no_keyring=(persist_mode == "keyring"),
+        )
 
     async def _callback_handler() -> tuple[str, str | None]:
         # Try local HTTP capture first
