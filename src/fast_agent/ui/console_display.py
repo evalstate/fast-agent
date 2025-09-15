@@ -26,6 +26,7 @@ class MessageType(Enum):
 
     USER = "user"
     ASSISTANT = "assistant"
+    SYSTEM = "system"
     TOOL_CALL = "tool_call"
     TOOL_RESULT = "tool_result"
 
@@ -43,6 +44,12 @@ MESSAGE_CONFIGS = {
         "arrow": "◀",
         "arrow_style": "dim green",
         "highlight_color": "bright_green",
+    },
+    MessageType.SYSTEM: {
+        "block_color": "yellow",
+        "arrow": "●",
+        "arrow_style": "dim yellow",
+        "highlight_color": "bright_yellow",
     },
     MessageType.TOOL_CALL: {
         "block_color": "magenta",
@@ -268,11 +275,11 @@ class ConsoleDisplay:
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
 
         # Determine the style based on message type
-        # USER and ASSISTANT messages should display in normal style
+        # USER, ASSISTANT, and SYSTEM messages should display in normal style
         # TOOL_CALL and TOOL_RESULT should be dimmed
         if is_error:
             style = "dim red"
-        elif message_type in [MessageType.USER, MessageType.ASSISTANT]:
+        elif message_type in [MessageType.USER, MessageType.ASSISTANT, MessageType.SYSTEM]:
             style = None  # No style means default/normal white
         else:
             style = "dim"
@@ -491,14 +498,7 @@ class ConsoleDisplay:
             sep = Text(" | ", style="dim") if i > 0 else Text("")
 
             # Prepare item text with potential highlighting
-            should_highlight = False
-            if item in highlight_items:
-                should_highlight = True
-            else:
-                for highlight in highlight_items:
-                    if item.startswith(highlight) or highlight.endswith(item):
-                        should_highlight = True
-                        break
+            should_highlight = item in highlight_items
 
             item_text = Text(item, style=(highlight_color if should_highlight else "dim"))
 
@@ -814,6 +814,32 @@ class ConsoleDisplay:
             name=name,
             right_info=right_info,
             truncate_content=False,  # User messages typically shouldn't be truncated
+        )
+
+    def show_system_message(
+        self,
+        system_prompt: str,
+        agent_name: str | None = None,
+        server_count: int = 0,
+    ) -> None:
+        """Display the system prompt in a formatted panel."""
+        if not self.config or not self.config.logger.show_chat:
+            return
+
+        # Build right side info
+        right_parts = []
+        if server_count > 0:
+            server_word = "server" if server_count == 1 else "servers"
+            right_parts.append(f"{server_count} MCP {server_word}")
+
+        right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
+
+        self.display_message(
+            content=system_prompt,
+            message_type=MessageType.SYSTEM,
+            name=agent_name,
+            right_info=right_info,
+            truncate_content=False,  # Don't truncate system prompts
         )
 
     async def show_prompt_loaded(

@@ -122,6 +122,9 @@ class MCPServerSettings(BaseModel):
     cwd: str | None = None
     """Working directory for the executed server command."""
 
+    include_instructions: bool = True
+    """Whether to include this server's instructions in the system prompt (default: True)."""
+
     implementation: Implementation | None = None
 
     @model_validator(mode="before")

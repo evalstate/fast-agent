@@ -461,6 +461,36 @@ class MCPAggregator(ContextDependent):
         for server_name in self.server_names:
             await self._refresh_server_tools(server_name)
 
+    async def get_server_instructions(self) -> Dict[str, tuple[str, List[str]]]:
+        """
+        Get instructions from all connected servers along with their tool names.
+
+        Returns:
+            Dict mapping server name to tuple of (instructions, list of tool names)
+        """
+        instructions = {}
+
+        if self.connection_persistence and hasattr(self, '_persistent_connection_manager'):
+            # Get instructions from persistent connections
+            for server_name in self.server_names:
+                try:
+                    server_conn = await self._persistent_connection_manager.get_server(
+                        server_name, client_session_factory=self._create_session_factory(server_name)
+                    )
+                    # Always include server, even if no instructions
+                    # Get tool names for this server
+                    tool_names = [
+                        namespaced_tool.tool.name
+                        for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items()
+                        if namespaced_tool.server_name == server_name
+                    ]
+                    # Include server even if instructions is None
+                    instructions[server_name] = (server_conn.server_instructions, tool_names)
+                except Exception as e:
+                    logger.debug(f"Failed to get instructions from server {server_name}: {e}")
+
+        return instructions
+
     async def _execute_on_server(
         self,
         server_name: str,

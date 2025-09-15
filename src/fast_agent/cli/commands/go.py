@@ -18,10 +18,16 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
+default_instruction = """You are a helpful AI Agent.
+
+{{serverInstructions}}
+
+The current date is {{currentDate}}."""
+
 
 async def _run_agent(
     name: str = "fast-agent cli",
-    instruction: str = "You are a helpful AI Agent.",
+    instruction: str = default_instruction,
     config_path: Optional[str] = None,
     server_list: Optional[List[str]] = None,
     model: Optional[str] = None,
@@ -352,7 +358,7 @@ def go(
         stdio_commands.append(stdio)
 
     # Resolve instruction from file/URL or use default
-    resolved_instruction = "You are a helpful AI Agent."  # Default
+    resolved_instruction = default_instruction  # Default
     agent_name = "agent"
 
     if instruction:
