@@ -128,11 +128,21 @@ class ToolAgent(LlmAgent):
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
+
+            # Find the index of the current tool in available_tools for highlighting
+            highlight_index = None
+            try:
+                highlight_index = available_tools.index(tool_name)
+            except ValueError:
+                # Tool not found in list, no highlighting
+                pass
+
             self.display.show_tool_call(
                 name=self.name,
                 tool_args=tool_args,
                 bottom_items=available_tools,
                 tool_name=tool_name,
+                highlight_index=highlight_index,
                 max_item_length=12,
             )
 

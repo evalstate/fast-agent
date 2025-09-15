@@ -613,12 +613,20 @@ class McpAgent(ABC, ToolAgent):
             namespaced_tool = self._aggregator._namespaced_tool_map.get(tool_name)
             display_tool_name = namespaced_tool.tool.name if namespaced_tool else tool_name
 
+            # Find the index of the current tool in available_tools for highlighting
+            highlight_index = None
+            try:
+                highlight_index = available_tools.index(display_tool_name)
+            except ValueError:
+                # Tool not found in list, no highlighting
+                pass
+
             self.display.show_tool_call(
                 name=self._name,
                 tool_args=tool_args,
                 bottom_items=available_tools,
                 tool_name=display_tool_name,
-                highlight_items=tool_name,
+                highlight_index=highlight_index,
                 max_item_length=12,
             )
 

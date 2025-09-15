@@ -151,7 +151,7 @@ class ConsoleDisplay:
         name: str | None = None,
         right_info: str = "",
         bottom_metadata: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        highlight_index: int | None = None,
         max_item_length: int | None = None,
         is_error: bool = False,
         truncate_content: bool = True,
@@ -166,7 +166,7 @@ class ConsoleDisplay:
             name: Optional name to display (agent name, user name, etc.)
             right_info: Information to display on the right side of the header
             bottom_metadata: Optional list of items for bottom separator
-            highlight_items: Item(s) to highlight in bottom metadata
+            highlight_index: Index of item to highlight in bottom metadata (0-based), or None
             max_item_length: Optional max length for bottom metadata items (with ellipsis)
             is_error: For tool results, whether this is an error (uses red color)
             truncate_content: Whether to truncate long content
@@ -206,16 +206,6 @@ class ConsoleDisplay:
             if max_item_length:
                 display_items = self._shorten_items(bottom_metadata, max_item_length)
 
-            # Normalize highlight_items
-            if highlight_items is None:
-                highlight_items = []
-            elif isinstance(highlight_items, str):
-                highlight_items = [highlight_items]
-
-            # Shorten highlight items to match if we shortened display items
-            if max_item_length:
-                highlight_items = self._shorten_items(highlight_items, max_item_length)
-
             # Format the metadata with highlighting, clipped to available width
             # Compute available width for the metadata segment (excluding the fixed prefix/suffix)
             total_width = console.console.size.width
@@ -227,7 +217,7 @@ class ConsoleDisplay:
 
             metadata_text = self._format_bottom_metadata(
                 display_items,
-                highlight_items,
+                highlight_index,
                 config["highlight_color"],
                 max_width=available,
             )
@@ -471,7 +461,7 @@ class ConsoleDisplay:
     def _format_bottom_metadata(
         self,
         items: List[str],
-        highlight_items: List[str],
+        highlight_index: int | None,
         highlight_color: str,
         max_width: int | None = None,
     ) -> Text:
@@ -480,8 +470,9 @@ class ConsoleDisplay:
 
         Args:
             items: List of items to display
-            highlight_items: List of items to highlight
+            highlight_index: Index of item to highlight (0-based), or None for no highlighting
             highlight_color: Color to use for highlighting
+            max_width: Maximum width for the formatted text
 
         Returns:
             Formatted Text object with proper separators and highlighting
@@ -498,7 +489,7 @@ class ConsoleDisplay:
             sep = Text(" | ", style="dim") if i > 0 else Text("")
 
             # Prepare item text with potential highlighting
-            should_highlight = item in highlight_items
+            should_highlight = highlight_index is not None and i == highlight_index
 
             item_text = Text(item, style=(highlight_color if should_highlight else "dim"))
 
@@ -569,7 +560,7 @@ class ConsoleDisplay:
         tool_name: str,
         tool_args: Dict[str, Any] | None,
         bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
     ) -> None:
@@ -579,7 +570,7 @@ class ConsoleDisplay:
             tool_name: Name of the tool being called
             tool_args: Arguments being passed to the tool
             bottom_items: Optional list of items for bottom separator (e.g., available tools)
-            highlight_items: Item(s) to highlight in the bottom separator
+            highlight_index: Index of item to highlight in the bottom separator (0-based), or None
             max_item_length: Optional max length for bottom items (with ellipsis)
             name: Optional agent name
         """
@@ -596,7 +587,7 @@ class ConsoleDisplay:
             name=name,
             right_info=right_info,
             bottom_metadata=bottom_items,
-            highlight_items=tool_name,
+            highlight_index=highlight_index,
             max_item_length=max_item_length,
             truncate_content=True,
         )
@@ -683,7 +674,7 @@ class ConsoleDisplay:
         self,
         message_text: Union[str, Text, "PromptMessageExtended"],
         bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -694,7 +685,7 @@ class ConsoleDisplay:
         Args:
             message_text: The message content to display (str, Text, or PromptMessageExtended)
             bottom_items: Optional list of items for bottom separator (e.g., servers, destinations)
-            highlight_items: Item(s) to highlight in the bottom separator
+            highlight_index: Index of item to highlight in the bottom separator (0-based), or None
             max_item_length: Optional max length for bottom items (with ellipsis)
             title: Title for the message (default "ASSISTANT")
             name: Optional agent name
@@ -722,7 +713,7 @@ class ConsoleDisplay:
             name=name,
             right_info=right_info,
             bottom_metadata=bottom_items,
-            highlight_items=highlight_items,
+            highlight_index=highlight_index,
             max_item_length=max_item_length,
             truncate_content=False,  # Assistant messages shouldn't be truncated
             additional_message=additional_message,
