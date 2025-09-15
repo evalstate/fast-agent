@@ -26,9 +26,7 @@ def load_template_text(filename: str) -> str:
         res_name = "pyproject.toml.tmpl"
     else:
         res_name = filename
-    resource_path = (
-        files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
-    )
+    resource_path = files("fast_agent").joinpath("resources").joinpath("setup").joinpath(res_name)
     if resource_path.is_file():
         return resource_path.read_text()
 
@@ -137,9 +135,8 @@ def init(
         # Always use latest fast-agent-mcp (no version pin)
         fast_agent_dep = '"fast-agent-mcp"'
 
-        return (
-            template_text.replace("{{python_requires}}", py_req)
-            .replace("{{fast_agent_dep}}", fast_agent_dep)
+        return template_text.replace("{{python_requires}}", py_req).replace(
+            "{{fast_agent_dep}}", fast_agent_dep
         )
 
     pyproject_template = load_template_text("pyproject.toml")
@@ -169,7 +166,7 @@ def init(
                 "2. Keep fastagent.secrets.yaml secure and never commit it to version control"
             )
             console.print(
-                "3. Update fastagent.config.yaml to set a default model (currently system default is 'haiku')"
+                "3. Update fastagent.config.yaml to set a default model (currently system default is 'gpt-5-mini.low')"
             )
         console.print("\nTo get started, run:")
         console.print("  uv run agent.py")

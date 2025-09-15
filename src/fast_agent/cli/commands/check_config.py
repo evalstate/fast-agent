@@ -356,7 +356,7 @@ def show_check_summary() -> None:
         )
     else:  # parsed successfully
         env_table.add_row("Config File", f"[green]Found[/green] ({config_path})")
-        default_model_value = config_summary.get("default_model", "haiku (system default)")
+        default_model_value = config_summary.get("default_model", "gpt-5-mini.low (system default)")
         env_table.add_row("Default Model", f"[green]{default_model_value}[/green]")
 
     # Keyring backend (always shown in application-level settings)
@@ -528,7 +528,9 @@ def show_check_summary() -> None:
                 try:
                     cfg = MCPServerSettings(
                         name=name,
-                        transport="sse" if transport == "SSE" else ("stdio" if transport == "STDIO" else "http"),
+                        transport="sse"
+                        if transport == "SSE"
+                        else ("stdio" if transport == "STDIO" else "http"),
                         url=(server.get("url") or None),
                         auth=server.get("auth") if isinstance(server.get("auth"), dict) else None,
                     )

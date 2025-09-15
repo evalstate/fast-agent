@@ -37,7 +37,7 @@ class MCPServerAuthSettings(BaseModel):
 
 
 class MCPSamplingSettings(BaseModel):
-    model: str = "haiku"
+    model: str = "gpt-5-mini.low"
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
