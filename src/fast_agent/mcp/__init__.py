@@ -24,11 +24,9 @@ from .helpers import (
     split_thinking_content,
     text_content,
 )
-from .prompt_message_extended import PromptMessageExtended
 
 __all__ = [
     "Prompt",
-    "PromptMessageExtended",
     # Helpers
     "get_text",
     "get_image_data",
@@ -51,4 +49,5 @@ def __getattr__(name: str):
         from .prompt import Prompt  # local import
 
         return Prompt
+
     raise AttributeError(f"module '{__name__}' has no attribute '{name}'")

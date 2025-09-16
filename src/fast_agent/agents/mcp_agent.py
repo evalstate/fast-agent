@@ -195,8 +195,9 @@ class McpAgent(ABC, ToolAgent):
                 server_instructions = ""
 
             # Replace the template variable
-            self.instruction = self.instruction.replace("{{serverInstructions}}", server_instructions)
-
+            self.instruction = self.instruction.replace(
+                "{{serverInstructions}}", server_instructions
+            )
 
         # Update default request params to match
         if self._default_request_params:
@@ -204,7 +205,9 @@ class McpAgent(ABC, ToolAgent):
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 
-    def _format_server_instructions(self, instructions_data: Dict[str, tuple[str | None, List[str]]]) -> str:
+    def _format_server_instructions(
+        self, instructions_data: Dict[str, tuple[str | None, List[str]]]
+    ) -> str:
         """
         Format server instructions with XML tags and tool lists.
 
@@ -228,7 +231,7 @@ class McpAgent(ABC, ToolAgent):
             tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
 
             formatted_parts.append(
-                f"<mcp-server name=\"{server_name}\">\n"
+                f'<mcp-server name="{server_name}">\n'
                 f"<tools>{tools_list}</tools>\n"
                 f"<instructions>\n{instructions}\n</instructions>\n"
                 f"</mcp-server>"
@@ -249,31 +252,31 @@ class McpAgent(ABC, ToolAgent):
     ) -> str:
         return await self.send(message)
 
-    async def send(
-        self,
-        message: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
-        request_params: RequestParams | None = None,
-    ) -> str:
-        """
-        Send a message to the agent and get a response.
+    # async def send(
+    #     self,
+    #     message: Union[
+    #         str,
+    #         PromptMessage,
+    #         PromptMessageExtended,
+    #         Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+    #     ],
+    #     request_params: RequestParams | None = None,
+    # ) -> str:
+    #     """
+    #     Send a message to the agent and get a response.
 
-        Args:
-            message: Message content in various formats:
-                - String: Converted to a user PromptMessageExtended
-                - PromptMessage: Converted to PromptMessageExtended
-                - PromptMessageExtended: Used directly
-                - request_params: Optional request parameters
+    #     Args:
+    #         message: Message content in various formats:
+    #             - String: Converted to a user PromptMessageExtended
+    #             - PromptMessage: Converted to PromptMessageExtended
+    #             - PromptMessageExtended: Used directly
+    #             - request_params: Optional request parameters
 
-        Returns:
-            The agent's response as a string
-        """
-        response = await self.generate(message, request_params)
-        return response.last_text() or ""
+    #     Returns:
+    #         The agent's response as a string
+    #     """
+    #     response = await self.generate(message, request_params)
+    #     return response.last_text() or ""
 
     def _matches_pattern(self, name: str, pattern: str, server_name: str) -> bool:
         """
@@ -668,36 +671,36 @@ class McpAgent(ABC, ToolAgent):
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' apply_prompt_template"):
             return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
-    async def structured(
-        self,
-        messages: Union[
-            str,
-            PromptMessage,
-            PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
-        ],
-        model: Type[ModelT],
-        request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
-        """
-        Apply the prompt and return the result as a Pydantic model.
-        Normalizes input messages and delegates to the attached LLM.
+    # async def structured(
+    #     self,
+    #     messages: Union[
+    #         str,
+    #         PromptMessage,
+    #         PromptMessageExtended,
+    #         Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+    #     ],
+    #     model: Type[ModelT],
+    #     request_params: RequestParams | None = None,
+    # ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    #     """
+    #     Apply the prompt and return the result as a Pydantic model.
+    #     Normalizes input messages and delegates to the attached LLM.
 
-        Args:
-            messages: Message(s) in various formats:
-                - String: Converted to a user PromptMessageExtended
-                - PromptMessage: Converted to PromptMessageExtended
-                - PromptMessageExtended: Used directly
-                - List of any combination of the above
-            model: The Pydantic model class to parse the result into
-            request_params: Optional parameters to configure the LLM request
+    #     Args:
+    #         messages: Message(s) in various formats:
+    #             - String: Converted to a user PromptMessageExtended
+    #             - PromptMessage: Converted to PromptMessageExtended
+    #             - PromptMessageExtended: Used directly
+    #             - List of any combination of the above
+    #         model: The Pydantic model class to parse the result into
+    #         request_params: Optional parameters to configure the LLM request
 
-        Returns:
-            An instance of the specified model, or None if coercion fails
-        """
+    #     Returns:
+    #         An instance of the specified model, or None if coercion fails
+    #     """
 
-        with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
-            return await super().structured(messages, model, request_params)
+    #     with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
+    #         return await super().structured(messages, model, request_params)
 
     async def apply_prompt_messages(
         self, prompts: List[PromptMessageExtended], request_params: RequestParams | None = None

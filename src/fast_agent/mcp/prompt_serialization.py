@@ -83,12 +83,42 @@ def multipart_messages_to_json(messages: List[PromptMessageExtended]) -> str:
     return json.dumps(result_dict, indent=2)
 
 
-def json_to_extended_messages(json_str: str) -> List[PromptMessageExtended]:
+def extended_messages_to_json(messages: List[PromptMessageExtended]) -> str:
     """
-    Parse a JSON string in GetPromptResult format into PromptMessageExtended objects.
+    Convert PromptMessageExtended objects directly to JSON, preserving all extended fields.
+
+    This preserves tool_calls, tool_results, channels, and stop_reason that would be lost
+    in the standard GetPromptResult conversion.
 
     Args:
-        json_str: JSON string representation of GetPromptResult
+        messages: List of PromptMessageExtended objects
+
+    Returns:
+        JSON string representation preserving all PromptMessageExtended data
+    """
+    # Convert each message to dict with proper JSON mode
+    messages_dicts = [
+        msg.model_dump(by_alias=True, mode="json", exclude_none=True)
+        for msg in messages
+    ]
+
+    # Wrap in a container similar to GetPromptResult for consistency
+    result_dict = {"messages": messages_dicts}
+
+    # Convert to JSON string
+    return json.dumps(result_dict, indent=2)
+
+
+def json_to_extended_messages(json_str: str) -> List[PromptMessageExtended]:
+    """
+    Parse a JSON string into PromptMessageExtended objects.
+
+    Handles both:
+    - Enhanced format with full PromptMessageExtended data
+    - Legacy GetPromptResult format (missing extended fields default to None)
+
+    Args:
+        json_str: JSON string representation
 
     Returns:
         List of PromptMessageExtended objects
@@ -96,22 +126,38 @@ def json_to_extended_messages(json_str: str) -> List[PromptMessageExtended]:
     # Parse JSON to dictionary
     result_dict = json.loads(json_str)
 
-    # Parse as GetPromptResult
-    result = GetPromptResult.model_validate(result_dict)
+    # Extract messages array
+    messages_data = result_dict.get("messages", [])
 
-    # Convert to multipart messages
-    return PromptMessageExtended.to_extended(result.messages)
+    # Try to parse each message directly as PromptMessageExtended
+    messages = []
+    for msg_data in messages_data:
+        try:
+            # Direct parsing as PromptMessageExtended (handles both new and legacy formats)
+            msg = PromptMessageExtended.model_validate(msg_data)
+            messages.append(msg)
+        except Exception:
+            # Fallback: parse as basic PromptMessage then convert
+            from mcp.types import PromptMessage
+            basic_msg = PromptMessage.model_validate(msg_data)
+            extended_msgs = PromptMessageExtended.to_extended([basic_msg])
+            messages.extend(extended_msgs)
+
+    return messages
 
 
 def save_messages_to_json_file(messages: List[PromptMessageExtended], file_path: str) -> None:
     """
-    Save PromptMessageExtended objects to a JSON file.
+    Save PromptMessageExtended objects to a JSON file using enhanced format.
+
+    Uses the enhanced format that preserves tool_calls, tool_results, channels,
+    and stop_reason data.
 
     Args:
         messages: List of PromptMessageExtended objects
         file_path: Path to save the JSON file
     """
-    json_str = multipart_messages_to_json(messages)
+    json_str = extended_messages_to_json(messages)
 
     with open(file_path, "w", encoding="utf-8") as f:
         f.write(json_str)
@@ -120,6 +166,8 @@ def save_messages_to_json_file(messages: List[PromptMessageExtended], file_path:
 def load_messages_from_json_file(file_path: str) -> List[PromptMessageExtended]:
     """
     Load PromptMessageExtended objects from a JSON file.
+
+    Handles both enhanced format and legacy GetPromptResult format.
 
     Args:
         file_path: Path to the JSON file

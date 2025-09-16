@@ -5,7 +5,7 @@ import-time circular dependencies. Import the specific submodules or use the
 Fast Agent namespaces instead:
 
 - Helpers: `fast_agent.mcp.helpers`
-- Message type: `fast_agent.mcp.PromptMessageExtended`
+- Message type: `fast_agent.PromptMessageExtended`
 - Interfaces: `fast_agent.interfaces` (generic) and `fast_agent.mcp.interfaces` (MCP-specific)
 """
 

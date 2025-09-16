@@ -35,7 +35,7 @@ class HistoryExporter:
             The path that was written to.
         """
         # Determine a default filename when not provided
-        target = filename or f"{getattr(agent, 'name', 'assistant')}_prompts.txt"
+        target = filename or f"{getattr(agent, 'name', 'assistant')}.json"
 
         messages = agent.message_history
         save_messages_to_file(messages, target)

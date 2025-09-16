@@ -100,50 +100,32 @@ def create_resource_message(
         return message_class(content=embedded_resource)
 
 
-def load_prompt(file: Path) -> List[PromptMessage]:
+def load_prompt(file: Path) -> List[PromptMessageExtended]:
     """
-    Load a prompt from a file and return as PromptMessage objects.
+    Load a prompt from a file and return as PromptMessageExtended objects.
 
     The loader uses file extension to determine the format:
-    - .json files are loaded as MCP SDK compatible GetPromptResult JSON format
+    - .json files are loaded using enhanced format that preserves tool_calls, channels, etc.
     - All other files are loaded using the template-based delimited format
 
     Args:
         file: Path to the prompt file
 
     Returns:
-        List of PromptMessage objects
+        List of PromptMessageExtended objects with full conversation state
     """
-    file_str = str(file).lower()
+    from fast_agent.mcp.prompt_serialization import load_messages_from_file
 
-    if file_str.endswith(".json"):
-        # Handle JSON format as GetPromptResult
-        import json
-
-        from mcp.types import GetPromptResult
-
-        # Load JSON directly into GetPromptResult
-        with open(file, "r", encoding="utf-8") as f:
-            json_data = json.load(f)
-
-        # Parse as GetPromptResult object
-        result = GetPromptResult.model_validate(json_data)
-
-        # Return the messages directly
-        return result.messages
-    else:
-        # Template-based format (delimited text)
-        template: PromptTemplate = PromptTemplateLoader().load_from_file(file)
-        return create_messages_with_resources(template.content_sections, [file])
+    # Use the enhanced loader that preserves all extended fields
+    return load_messages_from_file(str(file))
 
 
 def load_prompt_multipart(file: Path) -> List[PromptMessageExtended]:
     """
     Load a prompt from a file and return as PromptMessageExtended objects.
 
-    The loader uses file extension to determine the format:
-    - .json files are loaded as MCP SDK compatible GetPromptResult JSON format
-    - All other files are loaded using the template-based delimited format
+    This is now just an alias for load_prompt() for backward compatibility.
+    Both functions return the same PromptMessageExtended objects with full state.
 
     Args:
         file: Path to the prompt file
@@ -151,7 +133,27 @@ def load_prompt_multipart(file: Path) -> List[PromptMessageExtended]:
     Returns:
         List of PromptMessageExtended objects
     """
-    # First load as regular PromptMessage objects
+    # Both functions now return the same thing
+    return load_prompt(file)
+
+
+def load_prompt_as_get_prompt_result(file: Path):
+    """
+    Load a prompt from a file and convert to GetPromptResult format for MCP compatibility.
+
+    This loses extended fields (tool_calls, channels, etc.) but provides
+    compatibility with MCP prompt servers.
+
+    Args:
+        file: Path to the prompt file
+
+    Returns:
+        GetPromptResult object for MCP compatibility
+    """
+    from fast_agent.mcp.prompt_serialization import multipart_messages_to_get_prompt_result
+
+    # Load with full data
     messages = load_prompt(file)
-    # Then convert to multipart messages
-    return PromptMessageExtended.to_extended(messages)
+
+    # Convert to GetPromptResult (loses extended fields)
+    return multipart_messages_to_get_prompt_result(messages)
