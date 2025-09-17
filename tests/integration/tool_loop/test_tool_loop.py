@@ -6,6 +6,7 @@ from mcp.types import CallToolRequestParams
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
@@ -59,3 +60,33 @@ async def test_tool_loop_construction():
     tool_agent._llm = tool_llm
     result = await tool_agent.generate("test")
     assert "Another turn" == result.last_text()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_loop_unknown_tool():
+    tool_llm = ToolGeneratingLlm()
+    tool_agent = ToolAgent(AgentConfig("tool_calling"), [])
+    tool_agent._llm = tool_llm
+
+    tool_calls = {
+        "my_id": CallToolRequest(
+            method="tools/call", params=CallToolRequestParams(name="tool_function")
+        )
+    }
+    assistant_message = Prompt.assistant(
+        "Another turn",
+        stop_reason=LlmStopReason.TOOL_USE,
+        tool_calls=tool_calls,
+    )
+
+    tool_response = await tool_agent.run_tools(assistant_message)
+    assert tool_response.channels is not None
+    assert FAST_AGENT_ERROR_CHANNEL in tool_response.channels
+    channel_content = tool_response.channels[FAST_AGENT_ERROR_CHANNEL][0]
+    assert getattr(channel_content, "text", None) == "Tool 'tool_function' is not available"
+
+    result = await tool_agent.generate("test")
+
+    assert result.stop_reason == LlmStopReason.ERROR
+    assert result.last_text() == "Another turn"

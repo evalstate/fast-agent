@@ -6,3 +6,4 @@ Global constants for fast_agent with minimal dependencies to avoid circular impo
 HUMAN_INPUT_TOOL_NAME = "__human_input"
 MCP_UI = "mcp-ui"
 REASONING = "reasoning"
+FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"

@@ -16,8 +16,6 @@ from typing import (
     Mapping,
     Optional,
     Sequence,
-    Tuple,
-    Type,
     TypeVar,
     Union,
 )
@@ -600,6 +598,7 @@ class McpAgent(ABC, ToolAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
+        self._tool_loop_error = None
 
         # Cache available tool names (original, not namespaced) for display
         available_tools = [
@@ -615,6 +614,27 @@ class McpAgent(ABC, ToolAgent):
             # Get the original tool name for display (not namespaced)
             namespaced_tool = self._aggregator._namespaced_tool_map.get(tool_name)
             display_tool_name = namespaced_tool.tool.name if namespaced_tool else tool_name
+
+            tool_available = False
+            if tool_name == HUMAN_INPUT_TOOL_NAME:
+                tool_available = True
+            elif namespaced_tool:
+                tool_available = True
+            else:
+                tool_available = any(
+                    candidate.tool.name == tool_name
+                    for candidate in self._aggregator._namespaced_tool_map.values()
+                )
+
+            if not tool_available:
+                error_message = f"Tool '{display_tool_name}' is not available"
+                self.logger.error(error_message)
+                self._mark_tool_loop_error(
+                    correlation_id=correlation_id,
+                    error_message=error_message,
+                    tool_results=tool_results,
+                )
+                break
 
             # Find the index of the current tool in available_tools for highlighting
             highlight_index = None
@@ -653,7 +673,7 @@ class McpAgent(ABC, ToolAgent):
                 # Show error result too
                 self.display.show_tool_result(name=self._name, result=error_result)
 
-        return PromptMessageExtended(role="user", tool_results=tool_results)
+        return self._finalize_tool_results(tool_results)
 
     async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
         """

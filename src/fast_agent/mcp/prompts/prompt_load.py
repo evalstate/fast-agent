@@ -12,8 +12,6 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
-    PromptTemplate,
-    PromptTemplateLoader,
 )
 from fast_agent.types import PromptMessageExtended
 

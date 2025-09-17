@@ -5,7 +5,7 @@ from mcp.types import CallToolResult, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, HUMAN_INPUT_TOOL_NAME
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -42,6 +42,7 @@ class ToolAgent(LlmAgent):
 
         self._execution_tools: dict[str, FastMCPTool] = {}
         self._tool_schemas: list[Tool] = []
+        self._tool_loop_error: str | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FastMCPTool | Callable] = list(tools) if tools else []
@@ -97,10 +98,19 @@ class ToolAgent(LlmAgent):
             )
 
             if LlmStopReason.TOOL_USE == result.stop_reason:
+                self._tool_loop_error = None
                 if self.config.use_history:
-                    messages = [await self.run_tools(result)]
+                    tool_message = await self.run_tools(result)
+                    if self._tool_loop_error:
+                        result.stop_reason = LlmStopReason.ERROR
+                        break
+                    messages = [tool_message]
                 else:
-                    messages.extend([result, await self.run_tools(result)])
+                    tool_message = await self.run_tools(result)
+                    if self._tool_loop_error:
+                        result.stop_reason = LlmStopReason.ERROR
+                        break
+                    messages.extend([result, tool_message])
             else:
                 break
 
@@ -123,11 +133,22 @@ class ToolAgent(LlmAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
+        self._tool_loop_error = None
         # TODO -- use gather() for parallel results, update display
         available_tools = [t.name for t in (await self.list_tools()).tools]
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
+
+            if tool_name not in self._execution_tools:
+                error_message = f"Tool '{tool_name}' is not available"
+                logger.error(error_message)
+                self._mark_tool_loop_error(
+                    correlation_id=correlation_id,
+                    error_message=error_message,
+                    tool_results=tool_results,
+                )
+                break
 
             # Find the index of the current tool in available_tools for highlighting
             highlight_index = None
@@ -151,7 +172,32 @@ class ToolAgent(LlmAgent):
             tool_results[correlation_id] = result
             self.display.show_tool_result(name=self.name, result=result)
 
-        return PromptMessageExtended(role="user", tool_results=tool_results)
+        return self._finalize_tool_results(tool_results)
+
+    def _mark_tool_loop_error(
+        self,
+        *,
+        correlation_id: str,
+        error_message: str,
+        tool_results: dict[str, CallToolResult],
+    ) -> None:
+        error_result = CallToolResult(
+            content=[text_content(error_message)],
+            isError=True,
+        )
+        tool_results[correlation_id] = error_result
+        self.display.show_tool_result(name=self.name, result=error_result)
+        self._tool_loop_error = error_message
+
+    def _finalize_tool_results(
+        self, tool_results: dict[str, CallToolResult]
+    ) -> PromptMessageExtended:
+        channels = None
+        if self._tool_loop_error:
+            channels = {
+                FAST_AGENT_ERROR_CHANNEL: [text_content(self._tool_loop_error)],
+            }
+        return PromptMessageExtended(role="user", tool_results=tool_results, channels=channels)
 
     async def list_tools(self) -> ListToolsResult:
         """Return available tools for this agent. Overridable by subclasses."""
