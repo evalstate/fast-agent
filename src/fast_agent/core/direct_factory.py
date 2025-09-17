@@ -3,7 +3,8 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
-from typing import Any, Dict, Optional, Protocol, TypeVar, List
+from functools import partial
+from typing import Any, Dict, List, Optional, Protocol, TypeVar
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -28,7 +29,6 @@ from fast_agent.interfaces import (
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.types import RequestParams
-from functools import partial
 
 # Type aliases for improved readability and IDE support
 AgentDict = Dict[str, AgentProtocol]
