@@ -394,14 +394,14 @@ async def active_agents_in_dependency_group(
     """
     type_of_agents = list(map(lambda c: (c, c.value), AgentType))
     for agent_type, agent_type_value in type_of_agents:
-        agents_dict = {
+        agents_dict_local = {
             name: agents_dict[name]
             for name in group
             if agents_dict[name]["type"] == agent_type_value
         }
         agents = await create_agents_by_type(
             app_instance,
-            agents_dict,
+            agents_dict_local,
             agent_type,
             model_factory_func,
             active_agents,
