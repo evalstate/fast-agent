@@ -34,6 +34,8 @@ class AgentApp:
         Args:
             agents: Dictionary of agent instances keyed by name
         """
+        if len(agents) == 0:
+            raise ValueError("No agents provided!")
         self._agents = agents
 
     def __getitem__(self, key: str) -> AgentProtocol:
