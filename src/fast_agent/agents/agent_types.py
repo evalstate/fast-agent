@@ -3,7 +3,7 @@ Type definitions for agents and agent configurations.
 """
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum, auto
 from typing import Dict, List, Optional
 
 from mcp.client.session import ElicitationFnT
@@ -12,18 +12,18 @@ from mcp.client.session import ElicitationFnT
 from fast_agent.types import RequestParams
 
 
-class AgentType(Enum):
+class AgentType(StrEnum):
     """Enumeration of supported agent types."""
 
-    LLM = "llm"  # simple llm delegator
-    BASIC = "agent"
-    CUSTOM = "custom"
-    ORCHESTRATOR = "orchestrator"
-    PARALLEL = "parallel"
-    EVALUATOR_OPTIMIZER = "evaluator_optimizer"
-    ROUTER = "router"
-    CHAIN = "chain"
-    ITERATIVE_PLANNER = "iterative_planner"
+    LLM = auto()
+    BASIC = auto()
+    CUSTOM = auto()
+    ORCHESTRATOR = auto()
+    PARALLEL = auto()
+    EVALUATOR_OPTIMIZER = auto()
+    ROUTER = auto()
+    CHAIN = auto()
+    ITERATIVE_PLANNER = auto()
 
 
 @dataclass

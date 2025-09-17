@@ -3,7 +3,8 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
-from typing import Any, Dict, Optional, Protocol, TypeVar
+from functools import partial
+from typing import Any, Dict, List, Optional, Protocol, TypeVar
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -379,6 +380,35 @@ async def create_agents_by_type(
     return result_agents
 
 
+async def active_agents_in_dependency_group(
+    app_instance: Core,
+    agents_dict: AgentConfigDict,
+    model_factory_func: ModelFactoryFunctionProtocol,
+    group: List[str],
+    active_agents: AgentDict,
+):
+    """
+    For each of the possible agent types, create agents and update the active agents dictionary.
+
+    Notice: This function modifies the active_agents dictionary in-place which is a feature (no copies).
+    """
+    type_of_agents = list(map(lambda c: (c, c.value), AgentType))
+    for agent_type, agent_type_value in type_of_agents:
+        agents_dict_local = {
+            name: agents_dict[name]
+            for name in group
+            if agents_dict[name]["type"] == agent_type_value
+        }
+        agents = await create_agents_by_type(
+            app_instance,
+            agents_dict_local,
+            agent_type,
+            model_factory_func,
+            active_agents,
+        )
+        active_agents.update(agents)
+
+
 async def create_agents_in_dependency_order(
     app_instance: Core,
     agents_dict: AgentConfigDict,
@@ -403,127 +433,16 @@ async def create_agents_in_dependency_order(
     # Create a dictionary to store all active agents/workflows
     active_agents: AgentDict = {}
 
+    active_agents_in_dependency_group_partial = partial(
+        active_agents_in_dependency_group,
+        app_instance,
+        agents_dict,
+        model_factory_func,
+    )
+
     # Create agent proxies for each group in dependency order
     for group in dependencies:
-        # Create basic agents first
-        # Note: We compare string values from config with the Enum's string value
-        if AgentType.BASIC.value in [agents_dict[name]["type"] for name in group]:
-            basic_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.BASIC.value
-                },
-                AgentType.BASIC,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(basic_agents)
-
-        # Create custom agents first
-        if AgentType.CUSTOM.value in [agents_dict[name]["type"] for name in group]:
-            basic_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.CUSTOM.value
-                },
-                AgentType.CUSTOM,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(basic_agents)
-
-        # Create parallel agents
-        if AgentType.PARALLEL.value in [agents_dict[name]["type"] for name in group]:
-            parallel_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.PARALLEL.value
-                },
-                AgentType.PARALLEL,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(parallel_agents)
-
-        # Create router agents
-        if AgentType.ROUTER.value in [agents_dict[name]["type"] for name in group]:
-            router_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.ROUTER.value
-                },
-                AgentType.ROUTER,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(router_agents)
-
-        # Create chain agents
-        if AgentType.CHAIN.value in [agents_dict[name]["type"] for name in group]:
-            chain_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.CHAIN.value
-                },
-                AgentType.CHAIN,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(chain_agents)
-
-        # Create evaluator-optimizer agents
-        if AgentType.EVALUATOR_OPTIMIZER.value in [agents_dict[name]["type"] for name in group]:
-            evaluator_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.EVALUATOR_OPTIMIZER.value
-                },
-                AgentType.EVALUATOR_OPTIMIZER,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(evaluator_agents)
-
-        if AgentType.ORCHESTRATOR.value in [agents_dict[name]["type"] for name in group]:
-            orchestrator_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.ORCHESTRATOR.value
-                },
-                AgentType.ORCHESTRATOR,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(orchestrator_agents)
-
-        # Create orchestrator2 agents last since they might depend on other agents
-        if AgentType.ITERATIVE_PLANNER.value in [agents_dict[name]["type"] for name in group]:
-            orchestrator2_agents = await create_agents_by_type(
-                app_instance,
-                {
-                    name: agents_dict[name]
-                    for name in group
-                    if agents_dict[name]["type"] == AgentType.ITERATIVE_PLANNER.value
-                },
-                AgentType.ITERATIVE_PLANNER,
-                model_factory_func,
-                active_agents,
-            )
-            active_agents.update(orchestrator2_agents)
+        await active_agents_in_dependency_group_partial(group, active_agents)
 
     return active_agents
 
