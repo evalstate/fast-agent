@@ -24,7 +24,6 @@ from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.history.history_exporter import HistoryExporter
-from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.enhanced_prompt import (
