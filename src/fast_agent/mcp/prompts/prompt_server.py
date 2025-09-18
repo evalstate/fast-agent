@@ -20,7 +20,6 @@ from mcp.server.fastmcp.prompts.base import (
     UserMessage,
 )
 from mcp.server.fastmcp.resources import FileResource
-from mcp.types import PromptMessage
 from pydantic import AnyUrl
 
 from fast_agent.mcp import mime_utils, resource_utils
