@@ -81,55 +81,68 @@ class LlmAgent(LlmDecorator):
         """
 
         # Determine display content based on stop reason if not provided
-        if additional_message is None:
-            # Generate additional message based on stop reason
-            match message.stop_reason:
-                case LlmStopReason.END_TURN:
-                    # No additional message needed for normal end turn
-                    additional_message_text = None
+        additional_segments: List[Text] = []
 
-                case LlmStopReason.MAX_TOKENS:
-                    additional_message_text = Text(
+        # Generate additional message based on stop reason
+        match message.stop_reason:
+            case LlmStopReason.END_TURN:
+                pass
+
+            case LlmStopReason.MAX_TOKENS:
+                additional_segments.append(
+                    Text(
                         "\n\nMaximum output tokens reached - generation stopped.",
                         style="dim red italic",
                     )
+                )
 
-                case LlmStopReason.SAFETY:
-                    additional_message_text = Text(
-                        "\n\nContent filter activated - generation stopped.", style="dim red italic"
+            case LlmStopReason.SAFETY:
+                additional_segments.append(
+                    Text(
+                        "\n\nContent filter activated - generation stopped.",
+                        style="dim red italic",
+                    )
+                )
+
+            case LlmStopReason.PAUSE:
+                additional_segments.append(
+                    Text("\n\nLLM has requested a pause.", style="dim green italic")
+                )
+
+            case LlmStopReason.STOP_SEQUENCE:
+                additional_segments.append(
+                    Text(
+                        "\n\nStop Sequence activated - generation stopped.",
+                        style="dim red italic",
+                    )
+                )
+
+            case LlmStopReason.TOOL_USE:
+                if None is message.last_text():
+                    additional_segments.append(
+                        Text("The assistant requested tool calls", style="dim green italic")
                     )
 
-                case LlmStopReason.PAUSE:
-                    additional_message_text = Text(
-                        "\n\nLLM has requested a pause.", style="dim green italic"
-                    )
-
-                case LlmStopReason.STOP_SEQUENCE:
-                    additional_message_text = Text(
-                        "\n\nStop Sequence activated - generation stopped.", style="dim red italic"
-                    )
-
-                case LlmStopReason.TOOL_USE:
-                    if None is message.last_text():
-                        additional_message_text = Text(
-                            "The assistant requested tool calls", style="dim green italic"
-                        )
-                    else:
-                        additional_message_text = None
-
-                case _:
-                    if message.stop_reason:
-                        additional_message_text = Text(
+            case _:
+                if message.stop_reason:
+                    additional_segments.append(
+                        Text(
                             f"\n\nGeneration stopped for an unhandled reason ({message.stop_reason})",
                             style="dim red italic",
                         )
-                    else:
-                        additional_message_text = None
-        else:
-            # Use provided additional message
-            additional_message_text = (
-                additional_message if isinstance(additional_message, Text) else None
+                    )
+
+        if additional_message is not None:
+            additional_segments.append(
+                additional_message if isinstance(additional_message, Text) else Text(str(additional_message))
             )
+
+        additional_message_text = None
+        if additional_segments:
+            combined = Text()
+            for segment in additional_segments:
+                combined += segment
+            additional_message_text = combined
 
         message_text = message.last_text() or ""
 
@@ -182,9 +195,13 @@ class LlmAgent(LlmDecorator):
 
         # TODO -- we should merge the request parameters here with the LLM defaults?
         # TODO - manage error catch, recovery, pause
-        result = await super().generate_impl(messages, request_params, tools)
+        result, summary = await self._generate_with_summary(messages, request_params, tools)
 
-        await self.show_assistant_message(result)
+        summary_text = (
+            Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+        )
+
+        await self.show_assistant_message(result, additional_message=summary_text)
         return result
 
     async def structured_impl(
@@ -196,8 +213,13 @@ class LlmAgent(LlmDecorator):
         if "user" == messages[-1].role:
             self.show_user_message(message=messages[-1])
 
-        result, message = await super().structured_impl(messages, model, request_params)
-        await self.show_assistant_message(message=message)
+        (result, message), summary = await self._structured_with_summary(
+            messages, model, request_params
+        )
+        summary_text = (
+            Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+        )
+        await self.show_assistant_message(message=message, additional_message=summary_text)
         return result, message
 
     # async def show_prompt_loaded(

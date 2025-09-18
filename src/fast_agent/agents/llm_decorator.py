@@ -2,6 +2,9 @@
 Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension of Agents
 """
 
+import json
+from collections import Counter, defaultdict
+from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
     Dict,
@@ -21,33 +24,63 @@ if TYPE_CHECKING:
 from a2a.types import AgentCard
 from mcp import Tool
 from mcp.types import (
+    CallToolResult,
+    ContentBlock,
+    EmbeddedResource,
     GetPromptResult,
+    ImageContent,
     Prompt,
     PromptMessage,
     ReadResourceResult,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
 )
 from opentelemetry import trace
 from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.context import Context
-from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
     AgentProtocol,
     FastAgentLLMProtocol,
     LLMFactoryProtocol,
 )
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
-from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
+from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
+from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.types import PromptMessageExtended, RequestParams
 
-logger = get_logger(__name__)
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 # Define a TypeVar for AugmentedLLM and its subclasses
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
+
+
+@dataclass
+class _RemovedBlock:
+    """Internal representation of a removed content block."""
+
+    category: str
+    mime_type: str | None
+    source: str
+    tool_id: str | None
+    block: ContentBlock
+
+
+@dataclass(frozen=True)
+class RemovedContentSummary:
+    """Summary information about removed content for the last turn."""
+
+    model_name: str | None
+    counts: Dict[str, int]
+    category_mimes: Dict[str, Tuple[str, ...]]
+    alert_flags: frozenset[str]
+    message: str
 
 
 class LlmDecorator(AgentProtocol):
@@ -236,8 +269,8 @@ class LlmDecorator(AgentProtocol):
         Returns:
             The LLM's response as a PromptMessageExtended
         """
-        assert self._llm, "LLM is not attached"
-        return await self._llm.generate(messages, request_params, tools)
+        response, _ = await self._generate_with_summary(messages, request_params, tools)
+        return response
 
     async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
         """
@@ -338,8 +371,324 @@ class LlmDecorator(AgentProtocol):
         Returns:
             A tuple of (parsed model instance or None, assistant response message)
         """
+        result, _ = await self._structured_with_summary(messages, model, request_params)
+        return result
+
+    async def _generate_with_summary(
+        self,
+        messages: List[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
+    ) -> Tuple[PromptMessageExtended, RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
-        return await self._llm.structured(messages, model, request_params)
+        sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
+        response = await self._llm.generate(sanitized_messages, request_params, tools)
+        return response, summary
+
+    async def _structured_with_summary(
+        self,
+        messages: List[PromptMessageExtended],
+        model: Type[ModelT],
+        request_params: RequestParams | None = None,
+    ) -> Tuple[Tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:
+        assert self._llm, "LLM is not attached"
+        sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
+        structured_result = await self._llm.structured(sanitized_messages, model, request_params)
+        return structured_result, summary
+
+    def _sanitize_messages_for_llm(
+        self, messages: List[PromptMessageExtended]
+    ) -> Tuple[List[PromptMessageExtended], RemovedContentSummary | None]:
+        """Filter out content blocks that the current model cannot tokenize."""
+        if not messages:
+            return [], None
+
+        removed_blocks: List[_RemovedBlock] = []
+        sanitized_messages: List[PromptMessageExtended] = []
+
+        for message in messages:
+            sanitized, removed = self._sanitize_message_for_llm(message)
+            sanitized_messages.append(sanitized)
+            removed_blocks.extend(removed)
+
+        summary = self._build_removed_summary(removed_blocks)
+        if summary:
+            # Attach metadata to the last user message for downstream UI usage
+            for msg in reversed(sanitized_messages):
+                if msg.role == "user":
+                    channels = dict(msg.channels or {})
+                    meta_entries = list(channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, []))
+                    meta_entries.extend(self._build_metadata_entries(removed_blocks))
+                    channels[FAST_AGENT_REMOVED_METADATA_CHANNEL] = meta_entries
+                    msg.channels = channels
+                    break
+
+        return sanitized_messages, summary
+
+    def _sanitize_message_for_llm(
+        self, message: PromptMessageExtended
+    ) -> Tuple[PromptMessageExtended, List[_RemovedBlock]]:
+        """Return a sanitized copy of a message and any removed content blocks."""
+        msg_copy = message.model_copy(deep=True)
+        removed: List[_RemovedBlock] = []
+
+        msg_copy.content = self._filter_block_list(
+            list(msg_copy.content or []), removed, source="message"
+        )
+
+        if msg_copy.tool_results:
+            new_tool_results: Dict[str, CallToolResult] = {}
+            for tool_id, tool_result in msg_copy.tool_results.items():
+                original_blocks = list(tool_result.content or [])
+                filtered_blocks = self._filter_block_list(
+                    original_blocks,
+                    removed,
+                    source="tool_result",
+                    tool_id=tool_id,
+                )
+
+                if filtered_blocks != original_blocks:
+                    try:
+                        updated_result = tool_result.model_copy(update={"content": filtered_blocks})
+                    except AttributeError:
+                        updated_result = CallToolResult(
+                            content=filtered_blocks, isError=getattr(tool_result, "isError", False)
+                        )
+                else:
+                    updated_result = tool_result
+
+                new_tool_results[tool_id] = updated_result
+
+            msg_copy.tool_results = new_tool_results
+
+        if removed:
+            channels = dict(msg_copy.channels or {})
+            error_entries = list(channels.get(FAST_AGENT_ERROR_CHANNEL, []))
+            error_entries.extend(self._build_error_channel_entries(removed))
+            channels[FAST_AGENT_ERROR_CHANNEL] = error_entries
+            msg_copy.channels = channels
+
+        return msg_copy, removed
+
+    def _filter_block_list(
+        self,
+        blocks: Sequence[ContentBlock],
+        removed: List[_RemovedBlock],
+        *,
+        source: str,
+        tool_id: str | None = None,
+    ) -> List[ContentBlock]:
+        kept: List[ContentBlock] = []
+        for block in blocks or []:
+            mime_type, category = self._extract_block_metadata(block)
+            if self._block_supported(mime_type, category):
+                kept.append(block)
+            else:
+                removed.append(
+                    _RemovedBlock(
+                        category=category,
+                        mime_type=mime_type,
+                        source=source,
+                        tool_id=tool_id,
+                        block=block,
+                    )
+                )
+        return kept
+
+    def _block_supported(self, mime_type: str | None, category: str) -> bool:
+        """Determine if the current model can process a content block."""
+        if category == "text":
+            return True
+
+        model_name = self._llm.model_name if self._llm else None
+        if not model_name:
+            return False
+
+        if mime_type:
+            return ModelDatabase.supports_mime(model_name, mime_type)
+
+        if category == "vision":
+            return ModelDatabase.supports_any_mime(
+                model_name, ["image/jpeg", "image/png", "image/webp"]
+            )
+
+        if category == "document":
+            return ModelDatabase.supports_mime(model_name, "application/pdf")
+
+        return False
+
+    def _extract_block_metadata(self, block: ContentBlock) -> Tuple[str | None, str]:
+        """Infer the MIME type and high-level category for a content block."""
+        if isinstance(block, TextContent):
+            return "text/plain", "text"
+
+        if isinstance(block, TextResourceContents):
+            mime = getattr(block, "mimeType", None) or "text/plain"
+            return mime, "text"
+
+        if isinstance(block, ImageContent):
+            mime = getattr(block, "mimeType", None) or "image/*"
+            return mime, "vision"
+
+        if isinstance(block, EmbeddedResource):
+            resource = getattr(block, "resource", None)
+            mime = getattr(resource, "mimeType", None)
+            if isinstance(resource, TextResourceContents) or (
+                mime and is_text_mime_type(mime)
+            ):
+                return mime or "text/plain", "text"
+            if mime and mime.startswith("image/"):
+                return mime, "vision"
+            return mime, "document"
+
+        if isinstance(block, ResourceLink):
+            mime = getattr(block, "mimeType", None)
+            if mime and mime.startswith("image/"):
+                return mime, "vision"
+            if mime and is_text_mime_type(mime):
+                return mime, "text"
+            return mime, "document"
+
+        return None, "document"
+
+    def _build_error_channel_entries(self, removed: List[_RemovedBlock]) -> List[ContentBlock]:
+        """Create informative entries for the error channel."""
+        entries: List[ContentBlock] = []
+        model_name = self._llm.model_name if self._llm else None
+        model_display = model_name or "current model"
+
+        for item in removed:
+            mime_display = item.mime_type or "unknown"
+            category_label = self._category_label(item.category)
+            if item.source == "message":
+                source_label = "user content"
+            elif item.tool_id:
+                source_label = f"tool result '{item.tool_id}'"
+            else:
+                source_label = "tool result"
+
+            message = (
+                f"Removed unsupported {category_label} {source_label} ({mime_display}) "
+                f"before sending to {model_display}."
+            )
+            entries.append(text_content(message))
+            entries.append(item.block)
+
+        return entries
+
+    def _build_metadata_entries(self, removed: List[_RemovedBlock]) -> List[ContentBlock]:
+        entries: List[ContentBlock] = []
+        for item in removed:
+            metadata_text = text_content(
+                json.dumps(
+                    {
+                        "type": "fast-agent-removed",
+                        "category": item.category,
+                        "mime_type": item.mime_type,
+                        "source": item.source,
+                        "tool_id": item.tool_id,
+                    }
+                )
+            )
+            entries.append(metadata_text)
+        return entries
+
+    def _build_removed_summary(
+        self, removed: List[_RemovedBlock]
+    ) -> RemovedContentSummary | None:
+        if not removed:
+            return None
+
+        counts = Counter(item.category for item in removed)
+        category_mimes: Dict[str, Tuple[str, ...]] = {}
+        mime_accumulator: Dict[str, set[str]] = defaultdict(set)
+
+        for item in removed:
+            mime_accumulator[item.category].add(item.mime_type or "unknown")
+
+        for category, mimes in mime_accumulator.items():
+            category_mimes[category] = tuple(sorted(mimes))
+
+        alert_flags = frozenset(
+            flag
+            for category in counts
+            for flag in (self._category_to_flag(category),)
+            if flag is not None
+        )
+
+        model_name = self._llm.model_name if self._llm else None
+        model_display = model_name or "current model"
+
+        category_order = ["vision", "document", "other", "text"]
+        segments: List[str] = []
+        for category in category_order:
+            if category not in counts:
+                continue
+            count = counts[category]
+            mime_list = ", ".join(category_mimes.get(category, ()))
+            label = self._category_label(category)
+            plural = "s" if count != 1 else ""
+            if mime_list:
+                segments.append(f"{count} {label} block{plural} ({mime_list})")
+            else:
+                segments.append(f"{count} {label} block{plural}")
+
+        # Append any remaining categories not covered in the preferred order
+        for category, count in counts.items():
+            if category in category_order:
+                continue
+            mime_list = ", ".join(category_mimes.get(category, ()))
+            label = self._category_label(category)
+            plural = "s" if count != 1 else ""
+            if mime_list:
+                segments.append(f"{count} {label} block{plural} ({mime_list})")
+            else:
+                segments.append(f"{count} {label} block{plural}")
+
+        detail = "; ".join(segments) if segments else "unknown content"
+
+        capability_labels = []
+        for flag in alert_flags:
+            match flag:
+                case "V":
+                    capability_labels.append("vision")
+                case "D":
+                    capability_labels.append("document")
+                case "T":
+                    capability_labels.append("text")
+
+        capability_note = ""
+        if capability_labels:
+            unique_caps = ", ".join(sorted(set(capability_labels)))
+            capability_note = f" Missing capability: {unique_caps}."
+
+        message = (
+            f"Removed unsupported content before sending to {model_display}: {detail}."
+            f"{capability_note} Stored original content in '{FAST_AGENT_ERROR_CHANNEL}'."
+        )
+
+        return RemovedContentSummary(
+            model_name=model_name,
+            counts=dict(counts),
+            category_mimes=category_mimes,
+            alert_flags=alert_flags,
+            message=message,
+        )
+
+    @staticmethod
+    def _category_to_flag(category: str) -> str | None:
+        mapping = {"text": "T", "document": "D", "vision": "V"}
+        return mapping.get(category)
+
+    @staticmethod
+    def _category_label(category: str) -> str:
+        if category == "vision":
+            return "vision"
+        if category == "document":
+            return "document"
+        if category == "text":
+            return "text"
+        return "content"
 
     @property
     def message_history(self) -> List[PromptMessageExtended]:

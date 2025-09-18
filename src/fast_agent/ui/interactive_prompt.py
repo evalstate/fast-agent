@@ -14,7 +14,10 @@ Usage:
     )
 """
 
-from typing import Awaitable, Callable, Dict, List, Mapping, Optional, Protocol, Union
+from typing import TYPE_CHECKING, Awaitable, Callable, Dict, List, Optional, Union
+
+if TYPE_CHECKING:
+    from fast_agent.core.agent_app import AgentApp
 
 from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
@@ -41,36 +44,6 @@ SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awa
 AgentGetter = Callable[[str], Optional[object]]
 
 
-class PromptProvider(Protocol):
-    """Protocol for objects that can provide prompt functionality."""
-
-    async def list_prompts(
-        self, namespace: Optional[str] = None, agent_name: Optional[str] = None
-    ) -> Mapping[str, List[Prompt]]:
-        """List available prompts."""
-        ...
-
-    async def apply_prompt(
-        self,
-        prompt_name: str,
-        prompt_title: Optional[str] = None,
-        arguments: Optional[Dict[str, str]] = None,
-        agent_name: Optional[str] = None,
-        as_template: bool = False,
-        **kwargs,
-    ) -> str:
-        """Apply a prompt."""
-        ...
-
-    def _agent(self, agent_name: str) -> AgentProtocol:
-        """Return the concrete agent by name (AgentApp provides this)."""
-        ...
-
-    def _show_turn_usage(self, agent_name: str) -> None:
-        """Display usage for a given agent after a turn."""
-        ...
-
-
 class InteractivePrompt:
     """
     Provides interactive prompt functionality that works with any agent implementation.
@@ -91,7 +64,7 @@ class InteractivePrompt:
         send_func: SendFunc,
         default_agent: str,
         available_agents: List[str],
-        prompt_provider: PromptProvider,
+        prompt_provider: "AgentApp",
         default: str = "",
     ) -> str:
         """
@@ -101,7 +74,7 @@ class InteractivePrompt:
             send_func: Function to send messages to agents
             default_agent: Name of the default agent to use
             available_agents: List of available agent names
-            prompt_provider: Optional provider that implements list_prompts and apply_prompt
+            prompt_provider: AgentApp instance for accessing agents and prompts
             default: Default message to use when user presses enter
 
         Returns:
@@ -290,7 +263,7 @@ class InteractivePrompt:
         rich_print()
 
     async def _get_all_prompts(
-        self, prompt_provider: PromptProvider, agent_name: Optional[str] = None
+        self, prompt_provider: "AgentApp", agent_name: Optional[str] = None
     ):
         """
         Get a list of all available prompts.
@@ -370,7 +343,7 @@ class InteractivePrompt:
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
             return []
 
-    async def _list_prompts(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+    async def _list_prompts(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
         List available prompts for an agent.
 
@@ -474,7 +447,7 @@ class InteractivePrompt:
 
     async def _select_prompt(
         self,
-        prompt_provider: PromptProvider,
+        prompt_provider: "AgentApp",
         agent_name: str,
         requested_name: Optional[str] = None,
         send_func: Optional[SendFunc] = None,
@@ -808,7 +781,7 @@ class InteractivePrompt:
             rich_print(f"[red]Error selecting or applying prompt: {e}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 
-    async def _list_tools(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+    async def _list_tools(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
         List available tools for an agent.
 
@@ -908,7 +881,7 @@ class InteractivePrompt:
             rich_print(f"[red]Error listing tools: {e}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 
-    async def _show_usage(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+    async def _show_usage(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
         Show usage statistics for the current agent(s) in a colorful table format.
 
@@ -930,7 +903,7 @@ class InteractivePrompt:
         except Exception as e:
             rich_print(f"[red]Error showing usage: {e}[/red]")
 
-    async def _show_system(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+    async def _show_system(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
         Show the current system prompt for the agent.
 
@@ -980,7 +953,7 @@ class InteractivePrompt:
             rich_print(f"[red]Error showing system prompt: {e}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 
-    async def _show_markdown(self, prompt_provider: PromptProvider, agent_name: str) -> None:
+    async def _show_markdown(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
         Show the last assistant message without markdown formatting.
 

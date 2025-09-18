@@ -3,12 +3,13 @@ Enhanced prompt functionality with advanced prompt_toolkit features.
 """
 
 import asyncio
+import json
 import os
 import shlex
 import subprocess
 import tempfile
 from importlib.metadata import version
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -20,8 +21,12 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.constants import FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import get_model_info
+
+if TYPE_CHECKING:
+    from fast_agent.core.agent_app import AgentApp
 
 # Get the application version
 try:
@@ -38,6 +43,30 @@ available_agents = set()
 # Keep track of multi-line mode state
 in_multiline_mode = False
 
+
+def _extract_alert_flags_from_meta(blocks) -> set[str]:
+    flags: set[str] = set()
+    for block in blocks or []:
+        text = getattr(block, "text", None)
+        if not text:
+            continue
+        try:
+            payload = json.loads(text)
+        except (TypeError, ValueError):
+            continue
+        if payload.get("type") != "fast-agent-removed":
+            continue
+        category = payload.get("category")
+        match category:
+            case "text":
+                flags.add("T")
+            case "document":
+                flags.add("D")
+            case "vision":
+                flags.add("V")
+    return flags
+
+
 # Track whether help text has been shown globally
 help_message_shown = False
 
@@ -45,20 +74,17 @@ help_message_shown = False
 _agent_info_shown = set()
 
 
-async def _display_agent_info_helper(agent_name: str, agent_provider: object) -> None:
+async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp | None") -> None:
     """Helper function to display agent information."""
     # Only show once per agent
     if agent_name in _agent_info_shown:
         return
 
     try:
-        # Get agent info
-        if hasattr(agent_provider, "_agent"):
-            # This is an AgentApp - get the specific agent
-            agent = agent_provider._agent(agent_name)
-        else:
-            # This is a single agent
-            agent = agent_provider
+        # Get agent info from AgentApp
+        if agent_provider is None:
+            return
+        agent = agent_provider._agent(agent_name)
 
         # Get counts TODO -- add this to the type library or adjust the way aggregator/reporting works
         server_count = 0
@@ -148,7 +174,9 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: object) ->
         pass
 
 
-async def _display_all_agents_with_hierarchy(available_agents: List[str], agent_provider) -> None:
+async def _display_all_agents_with_hierarchy(
+    available_agents: List[str], agent_provider: "AgentApp | None"
+) -> None:
     """Display all agents with tree structure for workflow agents."""
     # Track which agents are children to avoid displaying them twice
     child_agents = set()
@@ -156,10 +184,9 @@ async def _display_all_agents_with_hierarchy(available_agents: List[str], agent_
     # First pass: identify all child agents
     for agent_name in available_agents:
         try:
-            if hasattr(agent_provider, "_agent"):
-                agent = agent_provider._agent(agent_name)
-            else:
-                agent = agent_provider
+            if agent_provider is None:
+                continue
+            agent = agent_provider._agent(agent_name)
 
             if agent.agent_type == AgentType.PARALLEL:
                 if hasattr(agent, "fan_out_agents") and agent.fan_out_agents:
@@ -184,10 +211,9 @@ async def _display_all_agents_with_hierarchy(available_agents: List[str], agent_
             continue
 
         try:
-            if hasattr(agent_provider, "_agent"):
-                agent = agent_provider._agent(agent_name)
-            else:
-                agent = agent_provider
+            if agent_provider is None:
+                continue
+            agent = agent_provider._agent(agent_name)
 
             # Display parent agent
             await _display_agent_info_helper(agent_name, agent_provider)
@@ -202,7 +228,7 @@ async def _display_all_agents_with_hierarchy(available_agents: List[str], agent_
             continue
 
 
-async def _display_parallel_children(parallel_agent, agent_provider) -> None:
+async def _display_parallel_children(parallel_agent, agent_provider: "AgentApp | None") -> None:
     """Display child agents of a parallel agent in tree format."""
     children = []
 
@@ -222,7 +248,7 @@ async def _display_parallel_children(parallel_agent, agent_provider) -> None:
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-async def _display_router_children(router_agent, agent_provider) -> None:
+async def _display_router_children(router_agent, agent_provider: "AgentApp | None") -> None:
     """Display child agents of a router agent in tree format."""
     children = []
 
@@ -239,7 +265,9 @@ async def _display_router_children(router_agent, agent_provider) -> None:
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-async def _display_child_agent_info(child_agent, prefix: str, agent_provider) -> None:
+async def _display_child_agent_info(
+    child_agent, prefix: str, agent_provider: "AgentApp | None"
+) -> None:
     """Display info for a child agent with tree prefix."""
     try:
         # Get counts for child agent
@@ -425,7 +453,9 @@ def get_text_from_editor(initial_text: str = "") -> str:
     return edited_text.strip()  # Added strip() to remove trailing newlines often added by editors
 
 
-def create_keybindings(on_toggle_multiline=None, app=None, agent_provider=None, agent_name=None):
+def create_keybindings(
+    on_toggle_multiline=None, app=None, agent_provider: "AgentApp | None" = None, agent_name=None
+):
     """Create custom key bindings."""
     kb = KeyBindings()
 
@@ -504,30 +534,20 @@ def create_keybindings(on_toggle_multiline=None, app=None, agent_provider=None, 
         """Ctrl+Y: Copy last assistant response to clipboard."""
         if kb.agent_provider and kb.current_agent_name:
             try:
-                # Get the agent
-                if hasattr(kb.agent_provider, "_agent"):
-                    agent = kb.agent_provider._agent(kb.current_agent_name)
-                else:
-                    agent = kb.agent_provider
+                # Get the agent from AgentApp
+                agent = kb.agent_provider._agent(kb.current_agent_name)
 
-                # Get message history
-                if hasattr(agent, "_llm") and agent._llm and agent._llm.message_history:
-                    # Find last assistant message
-                    for msg in reversed(agent._llm.message_history):
-                        if msg.role == "assistant":
-                            content = msg.last_text()
-                            import pyperclip
+                # Find last assistant message
+                for msg in reversed(agent.message_history):
+                    if msg.role == "assistant":
+                        content = msg.last_text()
+                        import pyperclip
 
-                            pyperclip.copy(content)
-                            rich_print("\n[green]✓ Copied to clipboard[/green]")
-                            return
-
-                else:
-                    pass
+                        pyperclip.copy(content)
+                        rich_print("\n[green]✓ Copied to clipboard[/green]")
+                        return
             except Exception:
                 pass
-        else:
-            pass
 
     return kb
 
@@ -542,7 +562,7 @@ async def get_enhanced_input(
     agent_types: dict[str, AgentType] = None,
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
-    agent_provider: object = None,
+    agent_provider: "AgentApp | None" = None,
 ) -> str:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -557,7 +577,7 @@ async def get_enhanced_input(
         agent_types: Dictionary mapping agent names to their types for display
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
-        agent_provider: Optional agent provider for displaying agent info
+        agent_provider: Optional AgentApp for displaying agent info
 
     Returns:
         User input string
@@ -598,18 +618,22 @@ async def get_enhanced_input(
 
         shortcut_text = " | ".join(f"{key}:{action}" for key, action in shortcuts)
 
-        # Resolve model name and TDV from the current agent if available
+        # Resolve model name, turn counter, and TDV from the current agent if available
         model_display = None
         tdv_segment = None
+        turn_count = 0
         try:
-            agent_obj = (
-                agent_provider._agent(agent_name)
-                if agent_provider and hasattr(agent_provider, "_agent")
-                else agent_provider
-            )
-            if agent_obj and hasattr(agent_obj, "llm") and agent_obj.llm:
-                model_name = getattr(agent_obj.llm, "model_name", None)
-                if model_name:
+            if agent_provider:
+                agent = agent_provider._agent(agent_name)
+
+                # Get turn count from message history
+                for message in agent.message_history:
+                    if message.role == "user":
+                        turn_count += 1
+
+                # Get model name from LLM
+                if agent.llm and agent.llm.model_name:
+                    model_name = agent.llm.model_name
                     # Truncate model name to max 25 characters with ellipsis
                     max_len = 25
                     if len(model_name) > max_len:
@@ -619,20 +643,28 @@ async def get_enhanced_input(
                         model_display = model_name
 
                 # Build TDV capability segment based on model database
-                info = get_model_info(agent_obj)
+                info = get_model_info(agent)
                 # Default to text-only if info resolution fails for any reason
                 t, d, v = (True, False, False)
                 if info:
                     t, d, v = info.tdv_flags
 
+                # Check for alert flags in user messages
+                alert_flags: set[str] = set()
+                for message in agent.message_history:
+                    if message.role == "user" and message.channels:
+                        meta_blocks = message.channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, [])
+                        alert_flags.update(_extract_alert_flags_from_meta(meta_blocks))
+
                 def _style_flag(letter: str, supported: bool) -> str:
                     # Enabled uses the same color as NORMAL mode (ansigreen), disabled is dim
+                    if letter in alert_flags:
+                        return f"<style fg='ansired' bg='ansiblack'>{letter}</style>"
+
                     enabled_color = "ansigreen"
-                    return (
-                        f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
-                        if supported
-                        else f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
-                    )
+                    if supported:
+                        return f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
+                    return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
 
                 tdv_segment = f"{_style_flag('T', t)}{_style_flag('D', d)}{_style_flag('V', v)}"
         except Exception:
@@ -640,7 +672,7 @@ async def get_enhanced_input(
             model_display = None
             tdv_segment = None
 
-        # Build dynamic middle segments: model (in green) and optional shortcuts
+        # Build dynamic middle segments: model (in green), turn counter, and optional shortcuts
         middle_segments = []
         if model_display:
             # Model chip + inline TDV flags
@@ -650,6 +682,10 @@ async def get_enhanced_input(
                 )
             else:
                 middle_segments.append(f"<style bg='ansigreen'>{model_display}</style>")
+
+        # Add turn counter (formatted as 3 digits)
+        middle_segments.append(f"{turn_count:03d}")
+
         if shortcut_text:
             middle_segments.append(shortcut_text)
         middle = " | ".join(middle_segments)
@@ -761,7 +797,9 @@ async def get_enhanced_input(
             elif cmd in ("save_history", "save"):
                 # Return a structured action for the interactive loop to handle
                 # Prefer programmatic saving via HistoryExporter; fall back to magic-string there if needed
-                filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+                filename = (
+                    cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+                )
                 return {"save_history": True, "filename": filename}
             elif cmd == "prompt":
                 # Handle /prompt with no arguments as interactive mode
@@ -941,7 +979,9 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /save_history <filename> - Save current chat history to a file")
-        rich_print("      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]")
+        rich_print(
+            "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"
+        )
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
