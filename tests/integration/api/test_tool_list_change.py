@@ -1,9 +1,11 @@
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 import pytest
 
-from fast_agent.mcp.mcp_aggregator import NamespacedTool
+if TYPE_CHECKING:
+    from fast_agent.mcp.mcp_aggregator import NamespacedTool
 
 # Enable debug logging for the test
 logging.basicConfig(level=logging.DEBUG)
