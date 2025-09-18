@@ -660,7 +660,7 @@ async def get_enhanced_input(
                         meta_blocks = message.channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, [])
                         alert_flags.update(_extract_alert_flags_from_meta(meta_blocks))
 
-                if error_seen:
+                if error_seen and not alert_flags:
                     alert_flags.add("T")
 
                 def _style_flag(letter: str, supported: bool) -> str:

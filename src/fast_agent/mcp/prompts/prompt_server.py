@@ -38,6 +38,7 @@ from fast_agent.mcp.prompts.prompt_template import (
     PromptMetadata,
     PromptTemplateLoader,
 )
+from fast_agent.types import PromptMessageExtended
 
 # Configure logging
 logging.basicConfig(level=logging.ERROR)
@@ -47,13 +48,13 @@ logger = logging.getLogger("prompt_server")
 mcp = FastMCP("Prompt Server")
 
 
-def convert_to_fastmcp_messages(prompt_messages: List[PromptMessage]) -> List[Message]:
+def convert_to_fastmcp_messages(prompt_messages: List[PromptMessageExtended]) -> List[Message]:
     """
-    Convert PromptMessage objects from prompt_load to FastMCP Message objects.
+    Convert PromptMessageExtended objects from prompt_load to FastMCP Message objects.
     This adapter prevents double-wrapping of messages.
 
     Args:
-        prompt_messages: List of PromptMessage objects from prompt_load
+        prompt_messages: List of PromptMessageExtended objects from prompt_load
 
     Returns:
         List of FastMCP Message objects
@@ -61,13 +62,16 @@ def convert_to_fastmcp_messages(prompt_messages: List[PromptMessage]) -> List[Me
     result = []
 
     for msg in prompt_messages:
-        if msg.role == "user":
-            result.append(UserMessage(content=msg.content))
-        elif msg.role == "assistant":
-            result.append(AssistantMessage(content=msg.content))
-        else:
-            logger.warning(f"Unknown message role: {msg.role}, defaulting to user")
-            result.append(UserMessage(content=msg.content))
+        # Convert to regular PromptMessage format (flatten multipart content)
+        flat_messages = msg.from_multipart()
+        for flat_msg in flat_messages:
+            if flat_msg.role == "user":
+                result.append(UserMessage(content=flat_msg.content))
+            elif flat_msg.role == "assistant":
+                result.append(AssistantMessage(content=flat_msg.content))
+            else:
+                logger.warning(f"Unknown message role: {flat_msg.role}, defaulting to user")
+                result.append(UserMessage(content=flat_msg.content))
 
     return result
 

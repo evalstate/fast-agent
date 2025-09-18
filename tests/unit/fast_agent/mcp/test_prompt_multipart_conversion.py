@@ -59,7 +59,7 @@ resource2.txt
         assert messages[2].role == "assistant"  # Assistant text message
         assert messages[3].role == "assistant"  # Assistant resource message
 
-        # Step 2: Convert to multipart (this is what happens in load_prompt_multipart)
+        # Step 2: Convert to multipart (this is what happens in load_prompt)
         multipart_messages = PromptMessageExtended.to_extended(messages)
 
         # Here's the issue: we get only 2 messages instead of 4 because consecutive
@@ -112,21 +112,19 @@ assistant2
         assert messages[2].role == "user"
         assert messages[3].role == "assistant"
 
-        # Convert to multipart
-        multipart = PromptMessageExtended.to_extended(messages)
-
+        # Messages are already PromptMessageExtended objects, no conversion needed
         # We should still have 4 messages with alternating roles
-        assert len(multipart) == 4
-        assert multipart[0].role == "user"
-        assert multipart[1].role == "assistant"
-        assert multipart[2].role == "user"
-        assert multipart[3].role == "assistant"
+        assert len(messages) == 4
+        assert messages[0].role == "user"
+        assert messages[1].role == "assistant"
+        assert messages[2].role == "user"
+        assert messages[3].role == "assistant"
 
         # Each should have 1 content item
-        assert len(multipart[0].content) == 1
-        assert len(multipart[1].content) == 1
-        assert len(multipart[2].content) == 1
-        assert len(multipart[3].content) == 1
+        assert len(messages[0].content) == 1
+        assert len(messages[1].content) == 1
+        assert len(messages[2].content) == 1
+        assert len(messages[3].content) == 1
     finally:
         # Clean up
         os.unlink(tf_path)

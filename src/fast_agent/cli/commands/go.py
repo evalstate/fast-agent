@@ -40,7 +40,7 @@ async def _run_agent(
     """Async implementation to run an interactive agent."""
     from pathlib import Path
 
-    from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
 
     # Create the FastAgent instance
 
@@ -110,7 +110,7 @@ async def _run_agent(
                     display = ConsoleDisplay(config=None)
                     display.show_parallel_results(agent.parallel)
                 elif prompt_file:
-                    prompt = load_prompt_multipart(Path(prompt_file))
+                    prompt = load_prompt(Path(prompt_file))
                     await agent.parallel.generate(prompt)
                     display = ConsoleDisplay(config=None)
                     display.show_parallel_results(agent.parallel)
@@ -135,7 +135,7 @@ async def _run_agent(
                     # Print the response and exit
                     print(response)
                 elif prompt_file:
-                    prompt = load_prompt_multipart(Path(prompt_file))
+                    prompt = load_prompt(Path(prompt_file))
                     response = await agent.agent.generate(prompt)
                     print(f"\nLoaded {len(prompt)} messages from prompt file '{prompt_file}'")
                     await agent.interactive()

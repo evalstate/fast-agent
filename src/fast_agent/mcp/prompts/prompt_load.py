@@ -104,7 +104,7 @@ def load_prompt(file: Path) -> List[PromptMessageExtended]:
 
     The loader uses file extension to determine the format:
     - .json files are loaded using enhanced format that preserves tool_calls, channels, etc.
-    - All other files are loaded using the template-based delimited format
+    - All other files are loaded using the template-based delimited format with resource loading
 
     Args:
         file: Path to the prompt file
@@ -112,27 +112,29 @@ def load_prompt(file: Path) -> List[PromptMessageExtended]:
     Returns:
         List of PromptMessageExtended objects with full conversation state
     """
-    from fast_agent.mcp.prompt_serialization import load_messages_from_file
+    path_str = str(file).lower()
 
-    # Use the enhanced loader that preserves all extended fields
-    return load_messages_from_file(str(file))
+    if path_str.endswith(".json"):
+        # JSON files use the serialization module directly
+        from fast_agent.mcp.prompt_serialization import load_messages
+        return load_messages(str(file))
+    else:
+        # Non-JSON files need template processing for resource loading
+        from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
+
+        loader = PromptTemplateLoader()
+        template = loader.load_from_file(file)
+
+        # Render the template without arguments to get the messages
+        messages = create_messages_with_resources(
+            template.content_sections,
+            [file]  # Pass the file path for resource resolution
+        )
+
+        # Convert to PromptMessageExtended
+        return PromptMessageExtended.to_extended(messages)
 
 
-def load_prompt_multipart(file: Path) -> List[PromptMessageExtended]:
-    """
-    Load a prompt from a file and return as PromptMessageExtended objects.
-
-    This is now just an alias for load_prompt() for backward compatibility.
-    Both functions return the same PromptMessageExtended objects with full state.
-
-    Args:
-        file: Path to the prompt file
-
-    Returns:
-        List of PromptMessageExtended objects
-    """
-    # Both functions now return the same thing
-    return load_prompt(file)
 
 
 def load_prompt_as_get_prompt_result(file: Path):
@@ -148,10 +150,10 @@ def load_prompt_as_get_prompt_result(file: Path):
     Returns:
         GetPromptResult object for MCP compatibility
     """
-    from fast_agent.mcp.prompt_serialization import multipart_messages_to_get_prompt_result
+    from fast_agent.mcp.prompt_serialization import to_get_prompt_result
 
     # Load with full data
     messages = load_prompt(file)
 
     # Convert to GetPromptResult (loses extended fields)
-    return multipart_messages_to_get_prompt_result(messages)
+    return to_get_prompt_result(messages)

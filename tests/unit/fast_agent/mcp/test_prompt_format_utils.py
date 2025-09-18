@@ -17,9 +17,9 @@ from mcp.types import (
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (
     delimited_format_to_extended_messages,
-    load_messages_from_delimited_file,
+    load_delimited,
     multipart_messages_to_delimited_format,
-    save_messages_to_delimited_file,
+    save_delimited,
 )
 
 
@@ -300,10 +300,10 @@ analysis.md""")
         ]
 
         # Save to file
-        save_messages_to_delimited_file(messages, str(temp_resource_file))
+        save_delimited(messages, str(temp_resource_file))
 
         # Load from file
-        loaded_messages = load_messages_from_delimited_file(str(temp_resource_file))
+        loaded_messages = load_delimited(str(temp_resource_file))
 
         # Verify structure
         assert len(loaded_messages) == 1
