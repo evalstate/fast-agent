@@ -21,7 +21,7 @@ from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
-from fast_agent.constants import FAST_AGENT_REMOVED_METADATA_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import get_model_info
 
@@ -651,10 +651,17 @@ async def get_enhanced_input(
 
                 # Check for alert flags in user messages
                 alert_flags: set[str] = set()
+                error_seen = False
                 for message in agent.message_history:
+                    if message.channels:
+                        if message.channels.get(FAST_AGENT_ERROR_CHANNEL):
+                            error_seen = True
                     if message.role == "user" and message.channels:
                         meta_blocks = message.channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, [])
                         alert_flags.update(_extract_alert_flags_from_meta(meta_blocks))
+
+                if error_seen:
+                    alert_flags.add("T")
 
                 def _style_flag(letter: str, supported: bool) -> str:
                     # Enabled uses the same color as NORMAL mode (ansigreen), disabled is dim
