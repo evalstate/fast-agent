@@ -11,7 +11,7 @@ class PromptMessageMultipart(PromptMessageExtended):
 # Emit a deprecation warning at import time so callers notice during migration.
 warnings.warn(
     "PromptMessageMultipart is deprecated and will be removed. "
-    "Use fast_agent.mcp.PromptMessageExtended instead.",
+    "Use fast_agent.PromptMessageExtended instead.",
     DeprecationWarning,
     stacklevel=2,
 )

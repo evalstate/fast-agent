@@ -11,7 +11,7 @@ import base64
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import (
@@ -38,6 +38,7 @@ from fast_agent.mcp.prompts.prompt_template import (
     PromptMetadata,
     PromptTemplateLoader,
 )
+from fast_agent.types import PromptMessageExtended
 
 # Configure logging
 logging.basicConfig(level=logging.ERROR)
@@ -47,13 +48,13 @@ logger = logging.getLogger("prompt_server")
 mcp = FastMCP("Prompt Server")
 
 
-def convert_to_fastmcp_messages(prompt_messages: List[PromptMessage]) -> List[Message]:
+def convert_to_fastmcp_messages(prompt_messages: List[Union[PromptMessage, PromptMessageExtended]]) -> List[Message]:
     """
-    Convert PromptMessage objects from prompt_load to FastMCP Message objects.
-    This adapter prevents double-wrapping of messages.
+    Convert PromptMessage or PromptMessageExtended objects to FastMCP Message objects.
+    This adapter prevents double-wrapping of messages and handles both types.
 
     Args:
-        prompt_messages: List of PromptMessage objects from prompt_load
+        prompt_messages: List of PromptMessage or PromptMessageExtended objects
 
     Returns:
         List of FastMCP Message objects
@@ -61,13 +62,27 @@ def convert_to_fastmcp_messages(prompt_messages: List[PromptMessage]) -> List[Me
     result = []
 
     for msg in prompt_messages:
-        if msg.role == "user":
-            result.append(UserMessage(content=msg.content))
-        elif msg.role == "assistant":
-            result.append(AssistantMessage(content=msg.content))
+        # Handle both PromptMessage and PromptMessageExtended
+        if hasattr(msg, 'from_multipart'):
+            # PromptMessageExtended - convert to regular PromptMessage format
+            flat_messages = msg.from_multipart()
+            for flat_msg in flat_messages:
+                if flat_msg.role == "user":
+                    result.append(UserMessage(content=flat_msg.content))
+                elif flat_msg.role == "assistant":
+                    result.append(AssistantMessage(content=flat_msg.content))
+                else:
+                    logger.warning(f"Unknown message role: {flat_msg.role}, defaulting to user")
+                    result.append(UserMessage(content=flat_msg.content))
         else:
-            logger.warning(f"Unknown message role: {msg.role}, defaulting to user")
-            result.append(UserMessage(content=msg.content))
+            # Regular PromptMessage - use directly
+            if msg.role == "user":
+                result.append(UserMessage(content=msg.content))
+            elif msg.role == "assistant":
+                result.append(AssistantMessage(content=msg.content))
+            else:
+                logger.warning(f"Unknown message role: {msg.role}, defaulting to user")
+                result.append(UserMessage(content=msg.content))
 
     return result
 

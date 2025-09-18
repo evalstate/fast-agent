@@ -7,7 +7,7 @@ from mcp.types import (
     ContentBlock,
     TextContent,
 )
-from openai import AsyncOpenAI, AuthenticationError
+from openai import APIError, AsyncOpenAI, AuthenticationError
 from openai.lib.streaming.chat import ChatCompletionStreamState
 
 # from openai.types.beta.chat import
@@ -19,19 +19,17 @@ from openai.types.chat import (
 )
 from pydantic_core import from_json
 
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
-from fast_agent.llm.fastagent_llm import (
-    FastAgentLLM,
-    RequestParams,
-)
+from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.types import PromptMessageExtended
-from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
 
@@ -348,7 +346,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Use basic streaming API
         stream = await self._openai_client().chat.completions.create(**arguments)
         # Process the stream
-        response = await self._process_stream(stream, model_name)
+        try:
+            response = await self._process_stream(stream, model_name)
+        except APIError as error:
+            self.logger.error("Streaming APIError during OpenAI completion", exc_info=error)
+            return self._stream_failure_response(error, model_name)
         # Track usage if response is valid and has usage data
         if (
             hasattr(response, "usage")
@@ -436,6 +438,53 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         return Prompt.assistant(
             *response_content_blocks, stop_reason=stop_reason, tool_calls=requested_tool_calls
+        )
+
+    def _stream_failure_response(self, error: APIError, model_name: str) -> PromptMessageExtended:
+        """Convert streaming API errors into a graceful assistant reply."""
+
+        provider_label = (
+            self.provider.value if isinstance(self.provider, Provider) else str(self.provider)
+        )
+        detail = getattr(error, "message", None) or str(error)
+        detail = detail.strip() if isinstance(detail, str) else ""
+
+        parts: list[str] = [f"{provider_label} request failed"]
+        if model_name:
+            parts.append(f"for model '{model_name}'")
+        code = getattr(error, "code", None)
+        if code:
+            parts.append(f"(code: {code})")
+        status = getattr(error, "status_code", None)
+        if status:
+            parts.append(f"(status={status})")
+
+        message = " ".join(parts)
+        if detail:
+            message = f"{message}: {detail}"
+
+        user_summary = " ".join(message.split()) if message else ""
+        if user_summary and len(user_summary) > 280:
+            user_summary = user_summary[:277].rstrip() + "..."
+
+        if user_summary:
+            assistant_text = f"I hit an internal error while calling the model: {user_summary}"
+            if not assistant_text.endswith((".", "!", "?")):
+                assistant_text += "."
+            assistant_text += " See fast-agent-error for additional details."
+        else:
+            assistant_text = (
+                "I hit an internal error while calling the model; see fast-agent-error for details."
+            )
+
+        assistant_block = text_content(assistant_text)
+        error_block = text_content(message)
+
+        return PromptMessageExtended(
+            role="assistant",
+            content=[assistant_block],
+            channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
+            stop_reason=LlmStopReason.ERROR,
         )
 
     async def _is_tool_stop_reason(self, finish_reason: str) -> bool:

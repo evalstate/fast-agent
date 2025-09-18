@@ -6,9 +6,9 @@ from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceC
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (
-    json_to_extended_messages,
+    from_json,
     multipart_messages_to_delimited_format,
-    multipart_messages_to_json,
+    to_get_prompt_result_json,
 )
 
 
@@ -43,7 +43,7 @@ class TestPromptSerialization:
         ]
 
         # Convert to JSON
-        json_str = multipart_messages_to_json(original_messages)
+        json_str = to_get_prompt_result_json(original_messages)
 
         # Verify JSON contains expected elements
         assert "user" in json_str
@@ -54,7 +54,7 @@ class TestPromptSerialization:
         assert "image/jpeg" in json_str
 
         # Convert back from JSON
-        parsed_messages = json_to_extended_messages(json_str)
+        parsed_messages = from_json(json_str)
 
         # Verify round-trip conversion
         assert len(parsed_messages) == len(original_messages)

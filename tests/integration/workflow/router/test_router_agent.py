@@ -6,7 +6,7 @@ from pydantic import BaseModel
 
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import FIXED_RESPONSE_INDICATOR
-from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
+from fast_agent.mcp.prompts.prompt_load import load_prompt
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -27,7 +27,7 @@ async def test_router_functionality(fast_agent):
         async with fast.run() as agent:
             await agent.target1.send(f"{FIXED_RESPONSE_INDICATOR} target1-result")
             await agent.target2.send(f"{FIXED_RESPONSE_INDICATOR} target2-result")
-            router_setup: list[PromptMessageExtended] = load_prompt_multipart(
+            router_setup: list[PromptMessageExtended] = load_prompt(
                 Path("router_script.txt")
             )
             setup: PromptMessageExtended = await agent.router._llm.generate(router_setup)

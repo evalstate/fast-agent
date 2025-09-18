@@ -12,6 +12,8 @@ from mcp.types import (
 from pydantic import BaseModel
 
 from fast_agent.mcp.helpers.content_helpers import get_text
+
+# Import directly to avoid circular dependency with types/__init__.py
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 

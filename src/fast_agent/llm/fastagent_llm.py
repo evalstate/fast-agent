@@ -198,7 +198,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if messages[-1].first_text().startswith("***SAVE_HISTORY"):
             parts: list[str] = messages[-1].first_text().split(" ", 1)
             filename: str = (
-                parts[1].strip() if len(parts) > 1 else f"{self.name or 'assistant'}_prompts.txt"
+                parts[1].strip() if len(parts) > 1 else f"{self.name or 'assistant'}.json"
             )
             await self._save_history(filename)
             return Prompt.assistant(f"History saved to {filename}")
@@ -589,10 +589,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Uses JSON format for .json files (MCP SDK compatible format) and
         delimited text format for other extensions.
         """
-        from fast_agent.mcp.prompt_serialization import save_messages_to_file
+        from fast_agent.mcp.prompt_serialization import save_messages
 
         # Save messages using the unified save function that auto-detects format
-        save_messages_to_file(self._message_history, filename)
+        save_messages(self._message_history, filename)
 
     @property
     def message_history(self) -> List[PromptMessageExtended]:

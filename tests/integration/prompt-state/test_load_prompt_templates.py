@@ -7,7 +7,7 @@ from mcp.types import ImageContent
 
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import (
-    load_prompt_multipart,
+    load_prompt,
 )
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ async def test_load_simple_conversation_from_file(fast_agent):
     @fast.agent()
     async def agent_function():
         async with fast.run() as agent:
-            loaded: List[PromptMessageExtended] = load_prompt_multipart(Path("conv1_simple.md"))
+            loaded: List[PromptMessageExtended] = load_prompt(Path("conv1_simple.md"))
             assert 4 == len(loaded)
             assert "user" == loaded[0].role
             assert "assistant" == loaded[1].role
@@ -49,7 +49,7 @@ async def test_load_conversation_with_attachments(fast_agent):
     @fast.agent()
     async def agent_function():
         async with fast.run():
-            prompts: list[PromptMessageExtended] = load_prompt_multipart(Path("conv2_attach.md"))
+            prompts: list[PromptMessageExtended] = load_prompt(Path("conv2_attach.md"))
 
             assert 5 == len(prompts)
             assert "user" == prompts[0].role
@@ -86,7 +86,7 @@ async def test_save_state_to_simple_text_file(fast_agent):
             await agent.send("world")
             await agent.send("***SAVE_HISTORY simple.txt")
 
-            prompts: list[PromptMessageExtended] = load_prompt_multipart(Path("simple.txt"))
+            prompts: list[PromptMessageExtended] = load_prompt(Path("simple.txt"))
             assert 4 == len(prompts)
             assert "user" == prompts[0].role
             assert "assistant" == prompts[1].role
@@ -102,7 +102,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
     loaded directly using Pydantic types."""
     from mcp.types import GetPromptResult
 
-    from fast_agent.mcp.prompt_serialization import json_to_extended_messages
+    from fast_agent.mcp.prompt_serialization import from_json
 
     # Use the FastAgent instance from the test directory fixture
     fast = fast_agent
@@ -144,7 +144,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
                 assert "content" in msg
 
             # Validate with Pydantic by parsing to PromptMessageExtended objects
-            prompts = json_to_extended_messages(json_content)
+            prompts = from_json(json_content)
 
             # Verify loaded objects
             assert len(prompts) >= 4
@@ -185,15 +185,30 @@ async def test_round_trip_json_attachments(fast_agent):
             await agent.test.generate([Prompt.user("what's in this image", Path("conv2_img.png"))])
             await agent.send("***SAVE_HISTORY multipart.json")
 
-            prompts: list[PromptMessageExtended] = load_prompt_multipart(Path("./multipart.json"))
+            prompts: list[PromptMessageExtended] = load_prompt(Path("./multipart.json"))
             assert 4 == len(prompts)
 
             assert "assistant" == prompts[1].role
-            assert 2 == len(prompts[2].content)
-            assert isinstance(prompts[2].content[1], ImageContent)
-            assert 12780 == len(prompts[2].content[1].data)
+            # The image content may be in channels due to capability filtering
+            user_message = prompts[2]
+            if len(user_message.content) == 2:
+                # Image is in content
+                assert isinstance(user_message.content[1], ImageContent)
+                assert 12780 == len(user_message.content[1].data)
+            else:
+                # Image is in channels due to filtering
+                assert user_message.channels is not None
+                error_channel = user_message.channels.get("fast-agent-error", [])
+                image_content = [c for c in error_channel if isinstance(c, ImageContent)]
+                assert len(image_content) == 1
+                assert 12780 == len(image_content[0].data)
 
-            assert 2 == len(prompts[2].from_multipart())
+            # from_multipart() only includes content, not channels
+            # So if the image is in channels, we'll only get 1 message instead of 2
+            if len(user_message.content) == 2:
+                assert 2 == len(prompts[2].from_multipart())
+            else:
+                assert 1 == len(prompts[2].from_multipart())
 
             # TODO -- consider serialization of non-text content for non json files. await requirement
 

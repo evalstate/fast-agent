@@ -27,8 +27,11 @@ from fast_agent.config import (
     XAISettings,
 )
 
+# Prompt helpers (safe - no heavy dependencies)
+from fast_agent.mcp.prompt import Prompt
+
 # Type definitions and enums (safe - no dependencies)
-from fast_agent.types import LlmStopReason, RequestParams
+from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 
 
 def __getattr__(name: str):
@@ -91,6 +94,8 @@ def __getattr__(name: str):
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     # Provide a concrete import path for type checkers/IDEs
     from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
+    from fast_agent.mcp.prompt import Prompt as Prompt  # noqa: F401
+    from fast_agent.types import PromptMessageExtended as PromptMessageExtended  # noqa: F401
 
 
 __all__ = [
@@ -127,6 +132,9 @@ __all__ = [
     # Type definitions and enums (eagerly loaded)
     "LlmStopReason",
     "RequestParams",
+    "PromptMessageExtended",
+    # Prompt helpers (eagerly loaded)
+    "Prompt",
     # Agents (lazy loaded)
     "LlmAgent",
     "LlmDecorator",
