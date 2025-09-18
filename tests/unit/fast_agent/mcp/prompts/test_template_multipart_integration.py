@@ -11,7 +11,7 @@ from mcp.types import TextContent
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (
-    load_messages_from_delimited_file,
+    load_delimited,
 )
 from fast_agent.mcp.prompts.prompt_template import (
     PromptTemplate,
@@ -172,7 +172,7 @@ Hi there! I'm here to help with your test.
             print(f"DEBUG: File content:\n{file_content}")
 
         # Load from file
-        loaded_messages = load_messages_from_delimited_file(str(temp_delimited_file))
+        loaded_messages = load_delimited(str(temp_delimited_file))
 
         # DEBUG: Print the loaded messages
         print(f"DEBUG: Loaded messages: {loaded_messages}")

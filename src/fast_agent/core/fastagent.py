@@ -75,7 +75,7 @@ from fast_agent.core.validation import (
     validate_server_references,
     validate_workflow_references,
 )
-from fast_agent.mcp.prompts.prompt_load import load_prompt_multipart
+from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
@@ -543,7 +543,7 @@ class FastAgent:
 
                     if hasattr(self.args, "prompt_file") and self.args.prompt_file:
                         agent_name = self.args.agent
-                        prompt: List[PromptMessageExtended] = load_prompt_multipart(
+                        prompt: List[PromptMessageExtended] = load_prompt(
                             Path(self.args.prompt_file)
                         )
                         if agent_name not in active_agents:

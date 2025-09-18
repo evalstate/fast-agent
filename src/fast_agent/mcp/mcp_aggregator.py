@@ -470,12 +470,13 @@ class MCPAggregator(ContextDependent):
         """
         instructions = {}
 
-        if self.connection_persistence and hasattr(self, '_persistent_connection_manager'):
+        if self.connection_persistence and hasattr(self, "_persistent_connection_manager"):
             # Get instructions from persistent connections
             for server_name in self.server_names:
                 try:
                     server_conn = await self._persistent_connection_manager.get_server(
-                        server_name, client_session_factory=self._create_session_factory(server_name)
+                        server_name,
+                        client_session_factory=self._create_session_factory(server_name),
                     )
                     # Always include server, even if no instructions
                     # Get tool names for this server
@@ -1074,7 +1075,9 @@ class MCPAggregator(ContextDependent):
             logger.debug(f"Server '{server_name}' does not support tools")
             return
 
-        await self.display.show_tool_update(aggregator=self, updated_server=server_name)
+        await self.display.show_tool_update(
+            updated_server=server_name, agent_name="Tool List Change Notification"
+        )
 
         async with self._refresh_lock:
             try:

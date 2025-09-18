@@ -98,8 +98,9 @@ class RichProgressDisplay:
             task_id = self._progress.add_task(
                 "",
                 total=None,
-                target=f"{event.target or task_name}",  # Use task_name as fallback for target
-                details=f"{event.agent_name or ''}",
+                target=event.target or task_name,
+                details=event.details or "",
+                task_name=task_name,
             )
             self._taskmap[task_name] = task_id
         else:
@@ -136,11 +137,9 @@ class RichProgressDisplay:
         # Update basic task information
         update_kwargs: dict[str, object] = {
             "description": description,
-            "fields": {
-                "target": event.target or task_name,  # Use task_name as fallback for target
-                "details": event.details or "",
-                "task_name": task_name,
-            },
+            "target": event.target or task_name,  # Use task_name as fallback for target
+            "details": event.details or "",
+            "task_name": task_name,
         }
 
         # For TOOL_PROGRESS events, update progress if available
@@ -149,8 +148,9 @@ class RichProgressDisplay:
                 update_kwargs["completed"] = event.progress
                 update_kwargs["total"] = event.total
             else:
-                # If no total, just show as indeterminate progress
+                # If no total, reset to indeterminate but keep other fields
                 self._progress.reset(task_id)
+                # Still need to update after reset to apply the fields
 
         self._progress.update(task_id, **update_kwargs)
 
@@ -165,7 +165,9 @@ class RichProgressDisplay:
                 task_id,
                 completed=100,
                 total=100,
+                target=event.target or task_name,
                 details=f" / Elapsed Time {time.strftime('%H:%M:%S', time.gmtime(self._progress.tasks[task_id].elapsed))}",
+                task_name=task_name,
             )
             for task in self._progress.tasks:
                 if task.id != task_id:
@@ -175,7 +177,9 @@ class RichProgressDisplay:
                 task_id,
                 completed=100,
                 total=100,
+                target=event.target or task_name,
                 details=f" / {event.details}",
+                task_name=task_name,
             )
             for task in self._progress.tasks:
                 if task.id != task_id:

@@ -137,11 +137,11 @@ assistant2
         assert messages[2].role == "user"
         assert messages[3].role == "assistant"
 
-        # Verify contents
-        assert "user1" in messages[0].content.text  # type: ignore
-        assert "assistant1" in messages[1].content.text  # type: ignore
-        assert "user2" in messages[2].content.text  # type: ignore
-        assert "assistant2" in messages[3].content.text  # type: ignore
+        # Verify contents (content is now a list of ContentBlock objects)
+        assert "user1" in messages[0].content[0].text  # type: ignore
+        assert "assistant1" in messages[1].content[0].text  # type: ignore
+        assert "user2" in messages[2].content[0].text  # type: ignore
+        assert "assistant2" in messages[3].content[0].text  # type: ignore
     finally:
         # Clean up
         os.unlink(tf_path)
