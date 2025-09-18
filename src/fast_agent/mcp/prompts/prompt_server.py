@@ -11,7 +11,7 @@ import base64
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import (
@@ -20,6 +20,7 @@ from mcp.server.fastmcp.prompts.base import (
     UserMessage,
 )
 from mcp.server.fastmcp.resources import FileResource
+from mcp.types import PromptMessage
 from pydantic import AnyUrl
 
 from fast_agent.mcp import mime_utils, resource_utils
@@ -47,13 +48,13 @@ logger = logging.getLogger("prompt_server")
 mcp = FastMCP("Prompt Server")
 
 
-def convert_to_fastmcp_messages(prompt_messages: List[PromptMessageExtended]) -> List[Message]:
+def convert_to_fastmcp_messages(prompt_messages: List[Union[PromptMessage, PromptMessageExtended]]) -> List[Message]:
     """
-    Convert PromptMessageExtended objects from prompt_load to FastMCP Message objects.
-    This adapter prevents double-wrapping of messages.
+    Convert PromptMessage or PromptMessageExtended objects to FastMCP Message objects.
+    This adapter prevents double-wrapping of messages and handles both types.
 
     Args:
-        prompt_messages: List of PromptMessageExtended objects from prompt_load
+        prompt_messages: List of PromptMessage or PromptMessageExtended objects
 
     Returns:
         List of FastMCP Message objects
@@ -61,16 +62,27 @@ def convert_to_fastmcp_messages(prompt_messages: List[PromptMessageExtended]) ->
     result = []
 
     for msg in prompt_messages:
-        # Convert to regular PromptMessage format (flatten multipart content)
-        flat_messages = msg.from_multipart()
-        for flat_msg in flat_messages:
-            if flat_msg.role == "user":
-                result.append(UserMessage(content=flat_msg.content))
-            elif flat_msg.role == "assistant":
-                result.append(AssistantMessage(content=flat_msg.content))
+        # Handle both PromptMessage and PromptMessageExtended
+        if hasattr(msg, 'from_multipart'):
+            # PromptMessageExtended - convert to regular PromptMessage format
+            flat_messages = msg.from_multipart()
+            for flat_msg in flat_messages:
+                if flat_msg.role == "user":
+                    result.append(UserMessage(content=flat_msg.content))
+                elif flat_msg.role == "assistant":
+                    result.append(AssistantMessage(content=flat_msg.content))
+                else:
+                    logger.warning(f"Unknown message role: {flat_msg.role}, defaulting to user")
+                    result.append(UserMessage(content=flat_msg.content))
+        else:
+            # Regular PromptMessage - use directly
+            if msg.role == "user":
+                result.append(UserMessage(content=msg.content))
+            elif msg.role == "assistant":
+                result.append(AssistantMessage(content=msg.content))
             else:
-                logger.warning(f"Unknown message role: {flat_msg.role}, defaulting to user")
-                result.append(UserMessage(content=flat_msg.content))
+                logger.warning(f"Unknown message role: {msg.role}, defaulting to user")
+                result.append(UserMessage(content=msg.content))
 
     return result
 
