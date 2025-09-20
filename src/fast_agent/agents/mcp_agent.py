@@ -2,7 +2,7 @@
 Base Agent class that implements the AgentProtocol interface.
 
 This class provides default implementations of the standard agent methods
-and delegates operations to an attached AugmentedLLMProtocol instance.
+and delegates operations to an attached FastAgentLLMProtocol instance.
 """
 
 import asyncio
@@ -52,7 +52,6 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
-# Define a TypeVar for AugmentedLLM and its subclasses
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 if TYPE_CHECKING:
@@ -67,7 +66,7 @@ class McpAgent(ABC, ToolAgent):
     A base Agent class that implements the AgentProtocol interface.
 
     This class provides default implementations of the standard agent methods
-    and delegates LLM operations to an attached AugmentedLLMProtocol instance.
+    and delegates LLM operations to an attached FastAgentLLMProtocol instance.
     """
 
     def __init__(

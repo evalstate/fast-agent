@@ -11,7 +11,7 @@ from pydantic import Field
 
 class RequestParams(CreateMessageRequestParams):
     """
-    Parameters to configure the AugmentedLLM 'generate' requests.
+    Parameters to configure the FastAgentLLM 'generate' requests.
     """
 
     messages: List[SamplingMessage] = Field(exclude=True, default=[])

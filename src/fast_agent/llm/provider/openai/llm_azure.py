@@ -23,7 +23,7 @@ DEFAULT_AZURE_API_VERSION = "2024-10-21"
 
 class AzureOpenAILLM(OpenAILLM):
     """
-    Azure OpenAI implementation extending OpenAIAugmentedLLM.
+    Azure OpenAI implementation extending OpenAILLM.
     Handles both API Key and DefaultAzureCredential authentication.
     """
 

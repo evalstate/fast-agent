@@ -8,9 +8,8 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
-# Create a minimal testable subclass of AugmentedLLM
 class StubLLM(FastAgentLLM):
-    """Minimal implementation of AugmentedLLM for testing purposes"""
+    """Minimal implementation of FastAgentLLM for testing purposes"""
 
     def __init__(self, *args, **kwargs):
         super().__init__(provider=Provider.FAST_AGENT, *args, **kwargs)

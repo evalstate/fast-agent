@@ -126,7 +126,7 @@ class ModelCapabilities:
 
 class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
     """
-    AWS Bedrock implementation of AugmentedLLM using the Converse API.
+    AWS Bedrock implementation of FastAgentLLM using the Converse API.
     Supports all Bedrock models including Nova, Claude, Meta, etc.
     """
 

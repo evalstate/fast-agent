@@ -26,7 +26,7 @@ class TensorZeroOpenAILLM(OpenAILLM):
         self._t0_function_name = kwargs.get("model", "")
 
         super().__init__(*args, provider=Provider.TENSORZERO, **kwargs)
-        self.logger.info("TensorZeroOpenAIAugmentedLLM initialized.")
+        self.logger.info("TensorZeroOpenAILLM initialized.")
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """

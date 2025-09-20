@@ -12,9 +12,6 @@ from fast_agent.llm.internal.slow import SlowLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
-# from fast_agent.workflows.llm.augmented_llm_deepseek import DeekSeekAugmentedLLM
-
-
 # Type alias for LLM classes
 LLMClass = Union[Type[PassthroughLLM], Type[PlaybackLLM], Type[SilentLLM], Type[SlowLLM], type]
 
@@ -123,6 +120,8 @@ class ModelFactory:
         "kimi": "groq.moonshotai/kimi-k2-instruct-0905",
         "gpt-oss": "groq.openai/gpt-oss-120b",
         "gpt-oss-20b": "groq.openai/gpt-oss-20b",
+        "grok-4-fast": "xai.grok-4-fast-non-reasoning",
+        "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
     }
 
     @staticmethod

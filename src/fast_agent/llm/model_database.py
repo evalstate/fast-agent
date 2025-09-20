@@ -164,7 +164,11 @@ class ModelDatabase:
     )
 
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
-    GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=XAI_VISION)
+    GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=TEXT_ONLY)
+
+    GROK_4_VLM = ModelParameters(
+        context_window=2000000, max_output_tokens=16385, tokenizes=XAI_VISION
+    )
 
     # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
     # xAI does not document Grok 3 max output tokens, using the above source as a reference.
@@ -240,6 +244,8 @@ class ModelDatabase:
         "gemini-2.5-flash-preview-05-20": GEMINI_FLASH,
         "gemini-2.5-pro-preview-05-06": GEMINI_PRO,
         # xAI Grok Models
+        "grok-4-fast-reasoning": GROK_4_VLM,
+        "grok-4-fast-non-reasoning": GROK_4_VLM,
         "grok-4": GROK_4,
         "grok-4-0709": GROK_4,
         "grok-3": GROK_3,

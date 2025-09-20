@@ -2,7 +2,7 @@
 Agent implementation using the clean BaseAgent adapter.
 
 This provides a streamlined implementation that adheres to AgentProtocol
-while delegating LLM operations to an attached AugmentedLLMProtocol instance.
+while delegating LLM operations to an attached FastAgentLLMProtocol instance.
 """
 
 from typing import TYPE_CHECKING, Any, Dict, Optional, TypeVar
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-# Define a TypeVar for AugmentedLLM and its subclasses
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 

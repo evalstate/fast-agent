@@ -29,7 +29,7 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
         )
 
     def _create_llm(self, cache_mode: str = "off") -> AnthropicLLM:
-        """Create an AnthropicAugmentedLLM instance with specified cache mode."""
+        """Create an AnthropicLLM instance with specified cache mode."""
         self.mock_context.config.anthropic = AnthropicSettings(
             api_key="test_key", cache_mode=cache_mode
         )

@@ -56,7 +56,7 @@ def test_openai_client_with_base_url_only():
 @pytest.mark.asyncio
 async def test_openai_client_with_default_azure_credential(monkeypatch):
     """
-    Test AzureOpenAIAugmentedLLM with use_default_azure_credential: True.
+    Test AzureOpenAILLM with use_default_azure_credential: True.
     Mocks DefaultAzureCredential and AzureOpenAI to ensure correct integration.
     """
 

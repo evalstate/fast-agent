@@ -57,7 +57,6 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
-# Define a TypeVar for AugmentedLLM and its subclasses
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
 
@@ -533,9 +532,7 @@ class LlmDecorator(AgentProtocol):
         if isinstance(block, EmbeddedResource):
             resource = getattr(block, "resource", None)
             mime = getattr(resource, "mimeType", None)
-            if isinstance(resource, TextResourceContents) or (
-                mime and is_text_mime_type(mime)
-            ):
+            if isinstance(resource, TextResourceContents) or (mime and is_text_mime_type(mime)):
                 return mime or "text/plain", "text"
             if mime and mime.startswith("image/"):
                 return mime, "vision"
@@ -593,9 +590,7 @@ class LlmDecorator(AgentProtocol):
             entries.append(metadata_text)
         return entries
 
-    def _build_removed_summary(
-        self, removed: List[_RemovedBlock]
-    ) -> RemovedContentSummary | None:
+    def _build_removed_summary(self, removed: List[_RemovedBlock]) -> RemovedContentSummary | None:
         if not removed:
             return None
 
