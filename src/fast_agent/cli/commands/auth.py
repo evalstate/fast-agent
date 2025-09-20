@@ -293,7 +293,9 @@ def main(
 
 @app.command()
 def login(
-    target: str = typer.Argument(..., help="Server name (from config) or identity (base URL)"),
+    target: Optional[str] = typer.Argument(
+        None, help="Server name (from config) or identity (base URL)"
+    ),
     transport: Optional[str] = typer.Option(
         None, "--transport", help="Transport for identity mode: http or sse"
     ),
@@ -310,6 +312,17 @@ def login(
 
     cfg = None
     resolved_transport = None
+
+    if target is None or not target.strip():
+        typer.echo("Provide a server name or identity URL to log in.")
+        typer.echo(
+            "Example: `fast-agent auth login my-server` "
+            "or `fast-agent auth login https://example.com`."
+        )
+        typer.echo("Run `fast-agent auth login --help` for more details.")
+        raise typer.Exit(1)
+
+    target = target.strip()
 
     if "://" in target:
         # Identity mode

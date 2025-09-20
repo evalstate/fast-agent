@@ -45,7 +45,7 @@ class LlmAgent(LlmDecorator):
 
     This class provides LLM-specific functionality including UI display methods,
     tool call tracking, and chat interaction patterns while delegating core
-    LLM operations to the attached AugmentedLLMProtocol.
+    LLM operations to the attached FastAgentLLMProtocol.
     """
 
     def __init__(
@@ -134,7 +134,9 @@ class LlmAgent(LlmDecorator):
 
         if additional_message is not None:
             additional_segments.append(
-                additional_message if isinstance(additional_message, Text) else Text(str(additional_message))
+                additional_message
+                if isinstance(additional_message, Text)
+                else Text(str(additional_message))
             )
 
         additional_message_text = None
@@ -197,9 +199,7 @@ class LlmAgent(LlmDecorator):
         # TODO - manage error catch, recovery, pause
         result, summary = await self._generate_with_summary(messages, request_params, tools)
 
-        summary_text = (
-            Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
-        )
+        summary_text = Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
 
         await self.show_assistant_message(result, additional_message=summary_text)
         return result
@@ -216,9 +216,7 @@ class LlmAgent(LlmDecorator):
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params
         )
-        summary_text = (
-            Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
-        )
+        summary_text = Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
         await self.show_assistant_message(message=message, additional_message=summary_text)
         return result, message
 

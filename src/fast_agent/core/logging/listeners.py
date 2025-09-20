@@ -55,7 +55,8 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
             if progress_message:  # Only override if message is non-empty
                 details = progress_message
 
-    elif "augmented_llm" in namespace:
+    # TODO: there must be a better way :D?!
+    elif "llm" in namespace:
         model = event_data.get("model", "")
 
         # For all augmented_llm events, put model info in details column

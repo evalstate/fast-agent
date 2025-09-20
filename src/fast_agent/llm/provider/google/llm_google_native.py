@@ -36,10 +36,8 @@ GOOGLE_EXCLUDE_FIELDS = {
     FastAgentLLM.PARAM_MESSAGES,  # Handled by contents
     FastAgentLLM.PARAM_MODEL,  # Handled during client/call setup
     FastAgentLLM.PARAM_SYSTEM_PROMPT,  # Handled by system_instruction in config
-    # AugmentedLLM.PARAM_PARALLEL_TOOL_CALLS, # Handled by tool_config in config
-    FastAgentLLM.PARAM_USE_HISTORY,  # Handled by AugmentedLLM base / this class's logic
+    FastAgentLLM.PARAM_USE_HISTORY,  # Handled by FastAgentLLM base / this class's logic
     FastAgentLLM.PARAM_MAX_ITERATIONS,  # Handled by this class's loop
-    # Add any other OpenAI-specific params not applicable to google.genai
     FastAgentLLM.PARAM_MCP_METADATA,
 }.union(FastAgentLLM.BASE_EXCLUDE_FIELDS)
 

@@ -47,7 +47,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 
 
 class LLMFactoryProtocol(Protocol):
-    """Protocol for LLM factory functions that create AugmentedLLM instances."""
+    """Protocol for LLM factory functions that create FastAgentLLM instances."""
 
     def __call__(self, agent: "LlmAgentProtocol", **kwargs: Any) -> "FastAgentLLMProtocol": ...
 
@@ -59,7 +59,7 @@ class ModelFactoryFunctionProtocol(Protocol):
 
 
 class FastAgentLLMProtocol(Protocol):
-    """Protocol defining the interface for augmented LLMs"""
+    """Protocol defining the interface for LLMs"""
 
     async def structured(
         self,
