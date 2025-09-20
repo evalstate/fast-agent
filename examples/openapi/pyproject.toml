@@ -1,0 +1,23 @@
+[project]
+name = "fast-agent-app"
+version = "0.1.0"
+description = "a simple fast-agent application"
+readme = "README.md"
+requires-python = ">=3.13.5"
+dependencies = [
+  "fast-agent-mcp"
+]
+
+[tool.uv]
+package = true
+
+# Optional convenience entry point if you later package this app:
+[project.scripts]
+fast-agent-app = "agent:main"
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = ["agent"]
