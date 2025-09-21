@@ -41,7 +41,7 @@ Start by installing the [uv package manager](https://docs.astral.sh/uv/) for Pyt
 ```bash
 uv pip install fast-agent-mcp          # install fast-agent!
 fast-agent go                          # start an interactive session
-fast-agent go https://hf.co/mcp        # with a remote MCP
+fast-agent go --url https://hf.co/mcp  # with a remote MCP
 fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
 fast-agent setup                       # create an example agent and config files
 uv run agent.py                        # run your first agent
