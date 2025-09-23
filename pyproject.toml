@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.13.5"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.14.0",
+    "mcp @ git+https://github.com/chughtapan/python-sdk.git@wags-dev",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
