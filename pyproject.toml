@@ -64,6 +64,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.hooks.custom]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.hatch.build]
 include = [
     "src/fast_agent/**/*.py",
