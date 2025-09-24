@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from mcp import Implementation
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import AnyUrl, BaseModel, ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -53,7 +53,7 @@ class MCPRootSettings(BaseModel):
     """Represents a root directory configuration for an MCP server."""
 
     uri: str
-    """The URI identifying the root. Must start with file://"""
+    """The URI identifying the root."""
 
     name: Optional[str] = None
     """Optional name for the root."""
@@ -63,10 +63,10 @@ class MCPRootSettings(BaseModel):
 
     @field_validator("uri", "server_uri_alias")
     @classmethod
-    def validate_uri(cls, v: str) -> str:
-        """Validate that the URI starts with file:// (required by specification 2024-11-05)"""
-        if v and not v.startswith("file://"):
-            raise ValueError("Root URI must start with file://")
+    def validate_uri(cls, v: str | None) -> str | None:
+        """Validate that the URI is properly formatted."""
+        if v is not None:
+            _ = AnyUrl(v)
         return v
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)

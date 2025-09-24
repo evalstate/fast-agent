@@ -28,7 +28,7 @@ from mcp.types import (
     Root,
     ToolListChangedNotification,
 )
-from pydantic import FileUrl
+from pydantic import AnyUrl
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -48,7 +48,7 @@ async def list_roots(ctx: ClientSession) -> ListRootsResult:
         if server_config.roots:
             roots = [
                 Root(
-                    uri=FileUrl(
+                    uri=AnyUrl(
                         root.server_uri_alias or root.uri,
                     ),
                     name=root.name,
