@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.13.5"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.14.0",
+    "mcp==1.15.0",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
@@ -24,10 +24,10 @@ dependencies = [
     "rich>=14.1.0",
     "typer>=0.15.1",
     "anthropic>=0.68.0",
-    "openai>=1.108.0",
+    "openai>=1.109.1",
     "azure-identity>=1.14.0",
     "boto3>=1.35.0",
-    "prompt-toolkit>=3.0.51",
+    "prompt-toolkit>=3.0.52",
     "aiohttp>=3.11.13",
     "opentelemetry-instrumentation-openai>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-anthropic>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
