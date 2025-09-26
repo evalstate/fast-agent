@@ -273,7 +273,7 @@ class AnthropicConverter:
                     title=title,
                     source=URLPDFSourceParam(type="url", url=uri_str),
                 )
-            elif hasattr(resource_content, "blob"):
+            elif isinstance(resource_content, BlobResourceContents):
                 return DocumentBlockParam(
                     type="document",
                     title=title,
@@ -362,8 +362,9 @@ class AnthropicConverter:
         Returns:
             A TextBlockParam with formatted SVG content
         """
-        if hasattr(resource_content, "text"):
-            svg_content = resource_content.text
+        # Use get_text helper to extract text from various content types
+        svg_content = get_text(resource_content)
+        if svg_content:
             return TextBlockParam(type="text", text=f"```xml\n{svg_content}\n```")
         return TextBlockParam(type="text", text="[SVG content could not be extracted]")
 
