@@ -24,6 +24,7 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import get_model_info
+from fast_agent.mcp.mcp_aggregator import ServerStatus
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -72,6 +73,249 @@ help_message_shown = False
 
 # Track which agents have shown their info
 _agent_info_shown = set()
+
+
+def _cap_attr(source, attr: str | None) -> bool:
+    if source is None:
+        return False
+    target = source
+    if attr:
+        if isinstance(source, dict):
+            target = source.get(attr)
+        else:
+            target = getattr(source, attr, None)
+    if isinstance(target, bool):
+        return target
+    return bool(target)
+
+
+def _format_capability_shorthand(status: ServerStatus, template_expected: bool) -> str:
+    caps = status.server_capabilities
+    tools = getattr(caps, "tools", None)
+    prompts = getattr(caps, "prompts", None)
+    resources = getattr(caps, "resources", None)
+    logging_caps = getattr(caps, "logging", None)
+    completion_caps = (
+        getattr(caps, "completion", None)
+        or getattr(caps, "completions", None)
+        or getattr(caps, "respond", None)
+    )
+    experimental_caps = getattr(caps, "experimental", None)
+
+    instructions_available = bool(status.instructions_available)
+    instructions_enabled = status.instructions_enabled
+
+    entries = [
+        ("To", _cap_attr(tools, None), _cap_attr(tools, "listChanged")),
+        ("Pr", _cap_attr(prompts, None), _cap_attr(prompts, "listChanged")),
+        (
+            "Re",
+            _cap_attr(resources, "read") or _cap_attr(resources, None),
+            _cap_attr(resources, "listChanged"),
+        ),
+        ("Rs", _cap_attr(resources, "subscribe"), _cap_attr(resources, "subscribe")),
+        ("Lo", _cap_attr(logging_caps, None), False),
+        ("Co", _cap_attr(completion_caps, None), _cap_attr(completion_caps, "listChanged")),
+        ("Ex", _cap_attr(experimental_caps, None), False),
+    ]
+
+    # Instructions token colouring rules
+    if not instructions_available:
+        entries.append(("In", False, False))
+    elif instructions_enabled is False:
+        entries.append(("In", "red", False))
+    elif instructions_enabled is None and not template_expected:
+        entries.append(("In", "blue", False))
+    elif instructions_enabled is None:
+        entries.append(("In", True, False))
+    elif template_expected:
+        entries.append(("In", True, False))
+    else:
+        entries.append(("In", "blue", False))
+
+    # Roots token
+    if status.roots_configured:
+        entries.append(("Ro", True, False))
+    else:
+        entries.append(("Ro", False, False))
+
+    # Elicitation token
+    mode = (status.elicitation_mode or "").lower()
+    if mode == "auto_cancel":
+        entries.append(("El", "red", False))
+    elif mode and mode != "none":
+        entries.append(("El", True, False))
+    else:
+        entries.append(("El", False, False))
+
+    # Sampling token
+    sampling_mode = (status.sampling_mode or "").lower()
+    if sampling_mode == "configured":
+        entries.append(("Sa", "blue", False))
+    elif sampling_mode == "auto":
+        entries.append(("Sa", True, False))
+    else:
+        entries.append(("Sa", False, False))
+
+    # Spoof token
+    if status.spoofing_enabled:
+        entries.append(("Sp", True, False))
+    else:
+        entries.append(("Sp", False, False))
+
+    parts: list[str] = []
+    for label, supported, highlighted in entries:
+        if supported == "red":
+            parts.append(f"[red]{label}[/red]")
+        elif supported == "blue":
+            parts.append(f"[blue]{label}[/blue]")
+        elif not supported:
+            parts.append(f"[dim]{label}[/dim]")
+        elif highlighted:
+            parts.append(f"[blue]{label}[/blue]")
+        else:
+            parts.append(f"[green]{label}[/green]")
+
+    return "".join(parts)
+
+
+def _format_compact_duration(seconds: float | None) -> str | None:
+    if seconds is None:
+        return None
+    total = int(seconds)
+    if total < 1:
+        return "<1s"
+    mins, secs = divmod(total, 60)
+    if mins == 0:
+        return f"{secs}s"
+    hours, mins = divmod(mins, 60)
+    if hours == 0:
+        return f"{mins}m{secs:02d}s"
+    days, hours = divmod(hours, 24)
+    if days == 0:
+        return f"{hours}h{mins:02d}m"
+    return f"{days}d{hours:02d}h"
+
+
+def _summarise_call_counts(call_counts: dict[str, int]) -> str | None:
+    if not call_counts:
+        return None
+    ordered = sorted(call_counts.items(), key=lambda item: item[0])
+    return ", ".join(f"{name}:{count}" for name, count in ordered)
+
+
+def _format_session_id(session_id: str | None) -> str:
+    if not session_id:
+        return "[dim]session[/dim] none"
+    if session_id == "local":
+        return "[dim]session[/dim] local"
+    if len(session_id) <= 10:
+        return f"[dim]session[/dim] {session_id}"
+    return f"[dim]session[/dim] {session_id[:5]}...{session_id[-5:]}"
+
+
+async def _render_mcp_status(agent, indent: str = "    ") -> None:
+    server_status_map = {}
+    if hasattr(agent, "get_server_status") and callable(getattr(agent, "get_server_status")):
+        try:
+            server_status_map = await agent.get_server_status()
+        except Exception:
+            server_status_map = {}
+
+    if not server_status_map:
+        rich_print(f"{indent}[dim]•[/dim] [dim]No MCP status available[/dim]")
+        return
+
+    template_expected = False
+    if hasattr(agent, "config"):
+        template_expected = "{{serverInstructions}}" in str(
+            getattr(agent.config, "instruction", "")
+        )
+
+    for server, status in sorted(server_status_map.items()):
+        capability_str = _format_capability_shorthand(status, template_expected)
+        impl_bits = []
+        impl_name = status.implementation_name or status.server_name or "unknown"
+        impl_segment = f"[magenta]{impl_name}[/magenta]"
+        if status.implementation_version:
+            impl_segment += f" [magenta]{status.implementation_version}[/magenta]"
+        impl_bits.append(f"[dim]impl[/dim] {impl_segment}")
+
+        client_parts = []
+        if status.client_info_name:
+            client_parts.append(status.client_info_name)
+        if status.client_info_version:
+            client_parts.append(status.client_info_version)
+        if client_parts:
+            impl_bits.append(f"[dim]client {' '.join(client_parts)}[/dim]")
+
+        info_segment = " " + " ".join(impl_bits) if impl_bits else ""
+
+        rich_print(f"{indent}[dim]•[/dim] [cyan]{server}[/cyan]{info_segment} {capability_str}")
+
+        state_bits = []
+        if status.is_connected is True:
+            state_bits.append("[green]connected[/green]")
+        elif status.is_connected is False:
+            state_bits.append("[red]offline[/red]")
+
+        if status.roots_configured and (status.roots_count or 0) > 0:
+            state_bits.append(f"[dim]roots[/dim] {status.roots_count}")
+
+        duration = _format_compact_duration(status.staleness_seconds)
+        if duration:
+            state_bits.append(f"[dim]last[/dim] {duration} [dim]ago[/dim]")
+
+        calls = _summarise_call_counts(status.call_counts)
+        if calls:
+            state_bits.append(f"[dim]calls[/dim] {calls}")
+
+        if status.error_message and status.is_connected is False:
+            state_bits.append(f"[red]{status.error_message}[/red]")
+
+        instr_available = bool(status.instructions_available)
+        if instr_available and status.instructions_enabled is False:
+            state_bits.append("[red]instructions disabled[/red]")
+        elif instr_available and not template_expected:
+            state_bits.append("[yellow]template missing[/yellow]")
+
+        el_mode = (status.elicitation_mode or "").lower()
+        if el_mode == "auto_cancel":
+            state_bits.append("[red]elicitation auto-cancel[/red]")
+        elif el_mode and el_mode != "none":
+            state_bits.append(f"[dim]elicitation[/dim] {el_mode}")
+
+        sampling_mode = (status.sampling_mode or "").lower()
+        if sampling_mode == "configured":
+            state_bits.append("[blue]sampling configured[/blue]")
+        elif sampling_mode == "auto":
+            state_bits.append("[green]sampling auto[/green]")
+        elif sampling_mode == "off":
+            state_bits.append("[dim]sampling off[/dim]")
+
+        if status.spoofing_enabled:
+            state_bits.append("[yellow]client spoof[/yellow]")
+
+        state_bits.append(_format_session_id(status.session_id))
+
+        if state_bits:
+            rich_print(f"{indent}  " + " [dim]|[/dim] ".join(state_bits))
+
+
+async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
+    if agent_provider is None:
+        rich_print("[red]No agent provider available[/red]")
+        return
+
+    try:
+        agent = agent_provider._agent(agent_name)
+    except Exception as exc:
+        rich_print(f"[red]Unable to load agent '{agent_name}': {exc}[/red]")
+        return
+
+    rich_print(f"\n[bold]MCP Status for {agent_name}[/bold]")
+    await _render_mcp_status(agent, indent="  ")
+    rich_print()
 
 
 async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp | None") -> None:
@@ -165,6 +409,7 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                     content = f"{server_text}[dim] available[/dim]"
 
                 rich_print(f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {content}")
+        #               await _render_mcp_status(agent)
 
         # Mark as shown
         _agent_info_shown.add(agent_name)
@@ -325,6 +570,7 @@ class AgentCompleter(Completer):
             "tools": "List available MCP tools",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "agents": "List available agents",
+            "mcp": "Show MCP server status",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
@@ -808,6 +1054,8 @@ async def get_enhanced_input(
                     cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
                 )
                 return {"save_history": True, "filename": filename}
+            elif cmd in ("mcpstatus", "mcp"):
+                return {"show_mcp_status": True}
             elif cmd == "prompt":
                 # Handle /prompt with no arguments as interactive mode
                 if len(cmd_parts) > 1:
@@ -985,6 +1233,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
+        rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history <filename> - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"

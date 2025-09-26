@@ -32,6 +32,7 @@ from fast_agent.ui.enhanced_prompt import (
     get_enhanced_input,
     get_selection_input,
     handle_special_commands,
+    show_mcp_status,
 )
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
@@ -176,6 +177,10 @@ class InteractivePrompt:
                     elif "show_markdown" in command_result:
                         # Handle markdown display
                         await self._show_markdown(prompt_provider, agent)
+                        continue
+                    elif "show_mcp_status" in command_result:
+                        rich_print()
+                        await show_mcp_status(agent, prompt_provider)
                         continue
                     elif "save_history" in command_result:
                         # Save history for the current agent

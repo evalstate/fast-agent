@@ -24,7 +24,7 @@ from mcp.client.stdio import (
     stdio_client,
 )
 from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
-from mcp.types import JSONRPCMessage, ServerCapabilities
+from mcp.types import Implementation, JSONRPCMessage, ServerCapabilities
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
@@ -107,6 +107,13 @@ class ServerConnection:
 
         # Server instructions from initialization
         self.server_instructions: str | None = None
+        self.server_capabilities: ServerCapabilities | None = None
+        self.server_implementation: Implementation | None = None
+        self.client_capabilities: dict | None = None
+        self.server_instructions_available: bool = False
+        self.server_instructions_enabled: bool = server_config.include_instructions if server_config else True
+        self.session_id: str | None = None
+        self._get_session_id_cb: GetSessionIdCallback | None = None
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -138,15 +145,32 @@ class ServerConnection:
         result = await self.session.initialize()
 
         self.server_capabilities = result.capabilities
+        # InitializeResult exposes server info via `serverInfo`; keep fallback for older fields
+        implementation = getattr(result, "serverInfo", None)
+        if implementation is None:
+            implementation = getattr(result, "implementation", None)
+        self.server_implementation = implementation
+
+        raw_instructions = getattr(result, "instructions", None)
+        self.server_instructions_available = bool(raw_instructions)
 
         # Store instructions if provided by the server and enabled in config
         if self.server_config.include_instructions:
-            self.server_instructions = getattr(result, 'instructions', None)
+            self.server_instructions = raw_instructions
             if self.server_instructions:
-                logger.debug(f"{self.server_name}: Received server instructions", data={"instructions": self.server_instructions})
+                logger.debug(
+                    f"{self.server_name}: Received server instructions",
+                    data={"instructions": self.server_instructions},
+                )
         else:
             self.server_instructions = None
-            logger.debug(f"{self.server_name}: Server instructions disabled by configuration")
+            if self.server_instructions_available:
+                logger.debug(
+                    f"{self.server_name}: Server instructions disabled by configuration",
+                    data={"instructions": raw_instructions},
+                )
+            else:
+                logger.debug(f"{self.server_name}: No server instructions provided")
 
         # If there's an init hook, run it
 
@@ -179,6 +203,7 @@ class ServerConnection:
         )
 
         self.session = session
+        self.client_capabilities = getattr(session, "client_capabilities", None)
 
         return session
 
@@ -192,11 +217,30 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     try:
         transport_context = server_conn._transport_context_factory()
 
-        async with transport_context as (read_stream, write_stream, _):
+        async with transport_context as (read_stream, write_stream, get_session_id_cb):
+            server_conn._get_session_id_cb = get_session_id_cb
+
+            if get_session_id_cb is not None:
+                try:
+                    server_conn.session_id = get_session_id_cb()
+                except Exception:
+                    logger.debug(f"{server_name}: Unable to retrieve session id from transport")
+            elif server_conn.server_config.transport == "stdio":
+                server_conn.session_id = "local"
+
             server_conn.create_session(read_stream, write_stream)
 
             async with server_conn.session:
                 await server_conn.initialize_session()
+
+                if get_session_id_cb is not None:
+                    try:
+                        server_conn.session_id = get_session_id_cb() or server_conn.session_id
+                    except Exception:
+                        logger.debug(f"{server_name}: Unable to refresh session id after init")
+                elif server_conn.server_config.transport == "stdio":
+                    server_conn.session_id = "local"
+
                 await server_conn.wait_for_shutdown_request()
 
     except HTTPStatusError as http_exc:
