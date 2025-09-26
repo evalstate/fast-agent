@@ -142,7 +142,6 @@ class GoogleConverter:
                     assert isinstance(part_content, EmbeddedResource)
                     if (
                         "application/pdf" == part_content.resource.mimeType
-                        and hasattr(part_content.resource, "blob")
                         and isinstance(part_content.resource, BlobResourceContents)
                     ):
                         pdf_bytes = base64.b64decode(part_content.resource.blob)
@@ -154,31 +153,15 @@ class GoogleConverter:
                         )
                     else:
                         # Check if the resource itself has text content
-                        resource_text = None
-                        if hasattr(part_content.resource, "text"):  # Direct text attribute
-                            resource_text = part_content.resource.text
-                        # Example: if EmbeddedResource wraps a TextContent-like object in its 'resource' field
-                        elif (
-                            hasattr(part_content.resource, "type")
-                            and part_content.resource.type == "text"
-                            and hasattr(part_content.resource, "text")
-                        ):
-                            resource_text = get_text(part_content.resource)
+                        # Use get_text helper to extract text from various content types
+                        resource_text = get_text(part_content.resource)
 
                         if resource_text is not None:
                             parts.append(types.Part.from_text(text=resource_text))
                         else:
                             # Fallback for other binary types or types without direct text
-                            uri_str = (
-                                part_content.resource.uri
-                                if hasattr(part_content.resource, "uri")
-                                else "unknown_uri"
-                            )
-                            mime_str = (
-                                part_content.resource.mimeType
-                                if hasattr(part_content.resource, "mimeType")
-                                else "unknown_mime"
-                            )
+                            uri_str = getattr(part_content.resource, "uri", "unknown_uri")
+                            mime_str = getattr(part_content.resource, "mimeType", "unknown_mime")
                             parts.append(
                                 types.Part.from_text(
                                     text=f"[Resource: {uri_str}, MIME: {mime_str}]"
@@ -291,30 +274,14 @@ class GoogleConverter:
                             textual_outputs.append(f"[Error processing PDF from tool result: {e}]")
                     else:
                         # Check if the resource itself has text content
-                        resource_text = None
-                        if hasattr(item.resource, "text"):  # Direct text attribute
-                            resource_text = item.resource.text
-                        # Example: if EmbeddedResource wraps a TextContent-like object in its 'resource' field
-                        elif (
-                            hasattr(item.resource, "type")
-                            and item.resource.type == "text"
-                            and hasattr(item.resource, "text")
-                        ):
-                            resource_text = get_text(item.resource)
+                        # Use get_text helper to extract text from various content types
+                        resource_text = get_text(item.resource)
 
                         if resource_text is not None:
                             textual_outputs.append(resource_text)
                         else:
-                            uri_str = (
-                                item.resource.uri
-                                if hasattr(item.resource, "uri")
-                                else "unknown_uri"
-                            )
-                            mime_str = (
-                                item.resource.mimeType
-                                if hasattr(item.resource, "mimeType")
-                                else "unknown_mime"
-                            )
+                            uri_str = getattr(item.resource, "uri", "unknown_uri")
+                            mime_str = getattr(item.resource, "mimeType", "unknown_mime")
                             textual_outputs.append(
                                 f"[Unhandled Resource in Tool: {uri_str}, MIME: {mime_str}]"
                             )
