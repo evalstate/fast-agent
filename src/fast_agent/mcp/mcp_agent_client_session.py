@@ -94,6 +94,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
 
+        # Allow explicit protocol overrides, fallback to server configuration when available
+        protocol_version_override: str | None = kwargs.pop("protocol_version", None)
+        if protocol_version_override is None and self.server_config:
+            protocol_version_override = getattr(self.server_config, "protocol_version", None)
+
         version = version("fast-agent-mcp") or "dev"
         fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
         if self.server_config and self.server_config.implementation:
@@ -178,6 +183,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             sampling_callback=sampling_cb,
             client_info=fast_agent,
             elicitation_callback=elicitation_handler,
+            protocol_version=protocol_version_override,
         )
 
     def _should_enable_auto_sampling(self) -> bool:

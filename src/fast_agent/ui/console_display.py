@@ -523,7 +523,28 @@ class ConsoleDisplay:
 
         # Analyze content to determine display format and status
         content = result.content
-        if result.isError:
+        operation = getattr(result, "operation", None)
+        display_content: Any = content
+        additional_message: Text | None = None
+
+        if operation:
+            status = "async pending"
+            token = getattr(operation, "token", "unknown")
+            keep_alive = getattr(operation, "keepAlive", None)
+
+            details = f"token: {token}"
+            if keep_alive:
+                details += f" • keepAlive: {keep_alive}s"
+            additional_message = Text(details, style="dim magenta")
+
+            if not content:
+                info_text = f"Async operation started (token: {token})."
+                if keep_alive:
+                    info_text += f" Result will remain retrievable for {keep_alive}s after completion."
+                else:
+                    info_text += " Poll for completion to retrieve the result."
+                display_content = info_text
+        elif result.isError:
             status = "ERROR"
         else:
             # Check if it's a list with content blocks
@@ -547,12 +568,13 @@ class ConsoleDisplay:
 
         # Display using unified method
         self.display_message(
-            content=content,
+            content=display_content,
             message_type=MessageType.TOOL_RESULT,
             name=name,
             right_info=right_info,
             is_error=result.isError,
             truncate_content=True,
+            additional_message=additional_message,
         )
 
     def show_tool_call(

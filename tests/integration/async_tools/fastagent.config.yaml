@@ -1,0 +1,16 @@
+default_model: passthrough
+
+logger:
+  level: "error"
+  show_chat: false
+  show_tools: true
+  truncate_tools: true
+
+mcp:
+  servers:
+    async_tools_demo:
+      command: "uv"
+      args: ["run", "async_tools_server.py"]
+      transport: "stdio"
+      cwd: "."
+      protocol_version: "next"

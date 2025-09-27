@@ -24,6 +24,8 @@ import mcp
 from a2a.types import AgentCard, AgentSkill
 from mcp.types import (
     CallToolResult,
+    GetOperationPayloadResult,
+    GetOperationStatusResult,
     EmbeddedResource,
     GetPromptResult,
     ListToolsResult,
@@ -353,6 +355,25 @@ class McpAgent(ABC, ToolAgent):
             return await self._call_human_input_tool(arguments)
         else:
             return await self._aggregator.call_tool(name, arguments)
+
+    async def get_operation_status(self, token: str) -> GetOperationStatusResult:
+        """Proxy async operation status checks to the aggregator."""
+
+        return await self._aggregator.get_operation_status(token)
+
+    async def get_operation_result(self, token: str) -> GetOperationPayloadResult:
+        """Proxy async operation payload retrieval to the aggregator."""
+
+        return await self._aggregator.get_operation_result(token)
+
+    async def wait_for_operation_result(
+        self, token: str, poll_interval: float = 0.5, timeout: float | None = None
+    ) -> CallToolResult:
+        """Convenience wrapper to poll until an async tool call completes."""
+
+        return await self._aggregator.wait_for_operation_result(
+            token, poll_interval=poll_interval, timeout=timeout
+        )
 
     async def _call_human_input_tool(
         self, arguments: Dict[str, Any] | None = None

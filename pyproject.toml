@@ -136,3 +136,6 @@ ignore=["E501"]
 
 [tool.uv.workspace]
 members = ["examples/tensorzero/mcp_server"]
+
+[tool.uv.sources]
+mcp = { path = "../python-sdk" }

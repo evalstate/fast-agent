@@ -1,7 +1,8 @@
-from asyncio import Lock, gather
+from asyncio import Lock, gather, sleep
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import time
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -18,6 +19,8 @@ from mcp.client.session import ClientSession
 from mcp.shared.session import ProgressFnT
 from mcp.types import (
     CallToolResult,
+    GetOperationPayloadResult,
+    GetOperationStatusResult,
     ListToolsResult,
     Prompt,
     ServerCapabilities,
@@ -189,6 +192,10 @@ class MCPAggregator(ContextDependent):
         self._server_stats: Dict[str, ServerStats] = {}
         self._stats_lock = Lock()
 
+        # Track in-flight async operations to their originating server
+        self._operation_server_map: Dict[str, str] = {}
+        self._operation_lock = Lock()
+
     def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
 
@@ -272,6 +279,9 @@ class MCPAggregator(ContextDependent):
         """
 
         def session_factory(read_stream, write_stream, read_timeout, **kwargs):
+            server_config = kwargs.pop("server_config", None)
+            protocol_version = kwargs.pop("protocol_version", None)
+
             # Get agent's model and name from config if available
             agent_model: str | None = None
             agent_name: str | None = None
@@ -285,16 +295,21 @@ class MCPAggregator(ContextDependent):
                 elicitation_handler = self.config.elicitation_handler
                 api_key = self.config.api_key
 
+            if protocol_version is None and server_config is not None:
+                protocol_version = getattr(server_config, "protocol_version", None)
+
             return MCPAgentClientSession(
                 read_stream,
                 write_stream,
                 read_timeout,
+                server_config=server_config,
                 server_name=server_name,
                 agent_model=agent_model,
                 agent_name=agent_name,
                 api_key=api_key,
                 elicitation_handler=elicitation_handler,
                 tool_list_changed_callback=self._handle_tool_list_changed,
+                protocol_version=protocol_version,
                 **kwargs,  # Pass through any additional kwargs like server_config
             )
 
@@ -784,7 +799,9 @@ class MCPAggregator(ContextDependent):
                     },
                 )
                 async with gen_client(
-                    server_name, server_registry=self.context.server_registry
+                    server_name,
+                    server_registry=self.context.server_registry,
+                    client_session_factory=self._create_session_factory(server_name),
                 ) as client:
                     result = await try_execute(client)
                     logger.debug(
@@ -820,7 +837,9 @@ class MCPAggregator(ContextDependent):
                 else:
                     # For non-persistent connections, just try again
                     async with gen_client(
-                        server_name, server_registry=self.context.server_registry
+                        server_name,
+                        server_registry=self.context.server_registry,
+                        client_session_factory=self._create_session_factory(server_name),
                     ) as client:
                         result = await try_execute(client)
 
@@ -886,6 +905,21 @@ class MCPAggregator(ContextDependent):
         # For all other resource types, use the first server
         return (self.server_names[0] if self.server_names else None, name)
 
+    async def _register_operation(self, token: str, server_name: str) -> None:
+        """Track an async operation token to its originating server."""
+        async with self._operation_lock:
+            self._operation_server_map[token] = server_name
+
+    async def _resolve_operation_server(self, token: str) -> str | None:
+        """Resolve the server responsible for the given async operation token."""
+        async with self._operation_lock:
+            return self._operation_server_map.get(token)
+
+    async def _clear_operation(self, token: str) -> None:
+        """Remove operation tracking once a result has been retrieved."""
+        async with self._operation_lock:
+            self._operation_server_map.pop(token, None)
+
     async def call_tool(self, name: str, arguments: dict | None = None) -> CallToolResult:
         """
         Call a namespaced tool, e.g., 'server_name-tool_name'.
@@ -921,7 +955,7 @@ class MCPAggregator(ContextDependent):
             # Create progress callback for this tool execution
             progress_callback = self._create_progress_callback(server_name, local_tool_name)
 
-            return await self._execute_on_server(
+            result = await self._execute_on_server(
                 server_name=server_name,
                 operation_type="tool",
                 operation_name=local_tool_name,
@@ -935,6 +969,97 @@ class MCPAggregator(ContextDependent):
                 ),
                 progress_callback=progress_callback,
             )
+
+        if result and getattr(result, "operation", None):
+            await self._register_operation(result.operation.token, server_name)
+
+        return result
+
+    async def get_operation_status(self, token: str) -> GetOperationStatusResult:
+        """Retrieve the latest status for an async tool invocation."""
+
+        server_name = await self._resolve_operation_server(token)
+        if server_name is None:
+            raise ValueError(f"Unknown async operation token: {token}")
+
+        return await self._execute_on_server(
+            server_name=server_name,
+            operation_type="async-status",
+            operation_name=token,
+            method_name="get_operation_status",
+            method_args={"token": token},
+            error_factory=lambda msg: GetOperationStatusResult(status="unknown", error=msg),
+        )
+
+    async def get_operation_result(self, token: str) -> GetOperationPayloadResult:
+        """Fetch the final payload for a completed async tool invocation."""
+
+        server_name = await self._resolve_operation_server(token)
+        if server_name is None:
+            raise ValueError(f"Unknown async operation token: {token}")
+
+        result = await self._execute_on_server(
+            server_name=server_name,
+            operation_type="async-result",
+            operation_name=token,
+            method_name="get_operation_result",
+            method_args={"token": token},
+            error_factory=lambda msg: GetOperationPayloadResult(
+                result=CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=msg)],
+                )
+            ),
+        )
+
+        if getattr(result, "result", None):
+            await self._clear_operation(token)
+
+        return result
+
+    async def wait_for_operation_result(
+        self,
+        token: str,
+        poll_interval: float = 0.5,
+        timeout: float | None = None,
+    ) -> CallToolResult:
+        """Poll until an async operation completes and return its payload."""
+
+        start = time.monotonic()
+
+        while True:
+            status = await self.get_operation_status(token)
+            state = status.status
+
+            if state == "completed":
+                payload = await self.get_operation_result(token)
+                return payload.result
+            if state == "failed":
+                await self._clear_operation(token)
+                message = status.error or "Async operation failed"
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=message)],
+                )
+            if state in {"canceled", "unknown"}:
+                await self._clear_operation(token)
+                message = status.error or f"Async operation {state}"
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=message)],
+                )
+            if state == "input_required":
+                # Surface a descriptive error for now; future work can route elicitation
+                message = status.error or "Async operation requires additional input"
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=message)],
+                )
+
+            if timeout is not None and (time.monotonic() - start) > timeout:
+                raise TimeoutError(f"Timed out waiting for async operation {token}")
+
+            await sleep(poll_interval)
 
     async def get_prompt(
         self,

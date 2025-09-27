@@ -820,6 +820,10 @@ class InteractivePrompt:
                 tool_line.append(f"[{i:2}] ", style="dim cyan")
                 tool_line.append(tool.name, style="bright_blue bold")
 
+                invocation_mode = getattr(tool, "invocationMode", None)
+                if invocation_mode == "async":
+                    tool_line.append(" ⚡async", style="bright_magenta")
+
                 # Add title if available
                 if tool.title and tool.title.strip():
                     tool_line.append(f" {tool.title}", style="default")

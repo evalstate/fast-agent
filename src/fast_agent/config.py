@@ -127,6 +127,9 @@ class MCPServerSettings(BaseModel):
 
     implementation: Implementation | None = None
 
+    protocol_version: str | None = None
+    """Optional protocol version override (e.g. "next" for async tool support)."""
+
     @model_validator(mode="before")
     @classmethod
     def validate_transport_inference(cls, values):
