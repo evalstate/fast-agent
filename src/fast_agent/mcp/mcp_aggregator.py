@@ -34,6 +34,7 @@ from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_nam
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -78,6 +79,7 @@ class ServerStatus(BaseModel):
     client_capabilities: Mapping[str, Any] | None = None
     client_info_name: str | None = None
     client_info_version: str | None = None
+    transport: str | None = None
     is_connected: bool | None = None
     last_call_at: datetime | None = None
     last_error_at: datetime | None = None
@@ -93,6 +95,7 @@ class ServerStatus(BaseModel):
     sampling_mode: str | None = None
     spoofing_enabled: bool | None = None
     session_id: str | None = None
+    transport_channels: TransportSnapshot | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -582,6 +585,8 @@ class MCPAggregator(ContextDependent):
             server_cfg = None
             session_id = None
             server_conn = None
+            transport: str | None = None
+            transport_snapshot: TransportSnapshot | None = None
 
             manager = getattr(self, "_persistent_connection_manager", None)
             if self.connection_persistence and manager is not None:
@@ -619,6 +624,16 @@ class MCPAggregator(ContextDependent):
                                 session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
                             except Exception:
                                 session_id = None
+                    metrics = getattr(server_conn, "transport_metrics", None)
+                    if metrics is not None:
+                        try:
+                            transport_snapshot = metrics.snapshot()
+                        except Exception:
+                            logger.debug(
+                                "Failed to snapshot transport metrics for server '%s'",
+                                server_name,
+                                exc_info=True,
+                            )
                 except Exception as exc:
                     logger.debug(
                         f"Failed to collect status for server '{server_name}'",
@@ -640,6 +655,7 @@ class MCPAggregator(ContextDependent):
                 roots = getattr(server_cfg, "roots", None)
                 roots_configured = bool(roots)
                 roots_count = len(roots) if roots else 0
+                transport = getattr(server_cfg, "transport", transport)
                 elicitation = getattr(server_cfg, "elicitation", None)
                 elicitation_mode = (
                     getattr(elicitation, "mode", None)
@@ -682,6 +698,7 @@ class MCPAggregator(ContextDependent):
                 client_capabilities=client_capabilities,
                 client_info_name=client_info_name,
                 client_info_version=client_info_version,
+                transport=transport,
                 is_connected=is_connected,
                 last_call_at=last_call,
                 last_error_at=last_error,
@@ -697,6 +714,7 @@ class MCPAggregator(ContextDependent):
                 sampling_mode=sampling_mode,
                 spoofing_enabled=spoofing_enabled,
                 session_id=session_id,
+                transport_channels=transport_snapshot,
             )
 
         return status_map

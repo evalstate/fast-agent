@@ -37,6 +37,7 @@ from fast_agent.mcp.sampling import sample
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
+    from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
 
@@ -90,6 +91,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         custom_elicitation_handler = kwargs.pop("elicitation_handler", None)
         # Extract optional context for ContextDependent mixin without passing it to ClientSession
         self._context = kwargs.pop("context", None)
+        # Extract transport metrics tracker if provided
+        self._transport_metrics: TransportChannelMetrics | None = kwargs.pop(
+            "transport_metrics", None
+        )
 
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
@@ -201,6 +206,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
+        request_id = getattr(self, "_request_id", None)
         try:
             result = await super().send_request(
                 request=request,
@@ -213,6 +219,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 "send_request: response=",
                 data=result.model_dump() if result is not None else "no response returned",
             )
+            self._attach_transport_channel(request_id, result)
             return result
         except Exception as e:
             # Handle connection errors cleanly
@@ -230,6 +237,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             else:
                 logger.error(f"send_request failed: {str(e)}")
                 raise
+
+    def _attach_transport_channel(self, request_id, result) -> None:
+        if self._transport_metrics is None or request_id is None or result is None:
+            return
+        channel = self._transport_metrics.consume_response_channel(request_id)
+        if not channel:
+            return
+        try:
+            setattr(result, "transport_channel", channel)
+        except Exception:
+            # If result cannot be mutated, ignore silently
+            pass
 
     async def _received_notification(self, notification: ServerNotification) -> None:
         """
