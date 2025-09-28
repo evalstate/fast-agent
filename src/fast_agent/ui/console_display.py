@@ -542,6 +542,17 @@ class ConsoleDisplay:
                         f"{len(content)} Content Blocks" if len(content) > 1 else "1 Content Block"
                     )
 
+        channel = getattr(result, "transport_channel", None)
+        if channel:
+            channel_map = {
+                "post-json": "JSON",
+                "post-sse": "SSE",
+                "get": "GET",
+                "resumption": "RESUME",
+            }
+            channel_label = channel_map.get(channel, channel)
+            status = f"{status} via {channel_label}"
+
         # Build right info
         right_info = f"[dim]tool result - {status}[/dim]"
 

@@ -1,4 +1,7 @@
 from asyncio import Lock, gather
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -17,11 +20,12 @@ from mcp.types import (
     CallToolResult,
     ListToolsResult,
     Prompt,
+    ServerCapabilities,
     TextContent,
     Tool,
 )
 from opentelemetry import trace
-from pydantic import AnyUrl, BaseModel, ConfigDict
+from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -30,6 +34,7 @@ from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_nam
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -50,6 +55,49 @@ class NamespacedTool(BaseModel):
     tool: Tool
     server_name: str
     namespaced_tool_name: str
+
+
+@dataclass
+class ServerStats:
+    call_counts: Counter = field(default_factory=Counter)
+    last_call_at: datetime | None = None
+    last_error_at: datetime | None = None
+
+    def record(self, operation_type: str, success: bool) -> None:
+        self.call_counts[operation_type] += 1
+        now = datetime.now(timezone.utc)
+        self.last_call_at = now
+        if not success:
+            self.last_error_at = now
+
+
+class ServerStatus(BaseModel):
+    server_name: str
+    implementation_name: str | None = None
+    implementation_version: str | None = None
+    server_capabilities: ServerCapabilities | None = None
+    client_capabilities: Mapping[str, Any] | None = None
+    client_info_name: str | None = None
+    client_info_version: str | None = None
+    transport: str | None = None
+    is_connected: bool | None = None
+    last_call_at: datetime | None = None
+    last_error_at: datetime | None = None
+    staleness_seconds: float | None = None
+    call_counts: Dict[str, int] = Field(default_factory=dict)
+    error_message: str | None = None
+    instructions_available: bool | None = None
+    instructions_enabled: bool | None = None
+    instructions_included: bool | None = None
+    roots_configured: bool | None = None
+    roots_count: int | None = None
+    elicitation_mode: str | None = None
+    sampling_mode: str | None = None
+    spoofing_enabled: bool | None = None
+    session_id: str | None = None
+    transport_channels: TransportSnapshot | None = None
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class MCPAggregator(ContextDependent):
@@ -139,6 +187,10 @@ class MCPAggregator(ContextDependent):
 
         # Lock for refreshing tools from a server
         self._refresh_lock = Lock()
+
+        # Track runtime stats per server
+        self._server_stats: Dict[str, ServerStats] = {}
+        self._stats_lock = Lock()
 
     def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
@@ -461,6 +513,13 @@ class MCPAggregator(ContextDependent):
         for server_name in self.server_names:
             await self._refresh_server_tools(server_name)
 
+    async def _record_server_call(
+        self, server_name: str, operation_type: str, success: bool
+    ) -> None:
+        async with self._stats_lock:
+            stats = self._server_stats.setdefault(server_name, ServerStats())
+            stats.record(operation_type, success)
+
     async def get_server_instructions(self) -> Dict[str, tuple[str, List[str]]]:
         """
         Get instructions from all connected servers along with their tool names.
@@ -491,6 +550,174 @@ class MCPAggregator(ContextDependent):
                     logger.debug(f"Failed to get instructions from server {server_name}: {e}")
 
         return instructions
+
+    async def collect_server_status(self) -> Dict[str, ServerStatus]:
+        """Return aggregated status information for each configured server."""
+        if not self.initialized:
+            await self.load_servers()
+
+        now = datetime.now(timezone.utc)
+        status_map: Dict[str, ServerStatus] = {}
+
+        for server_name in self.server_names:
+            stats = self._server_stats.get(server_name)
+            last_call = stats.last_call_at if stats else None
+            last_error = stats.last_error_at if stats else None
+            staleness = (now - last_call).total_seconds() if last_call else None
+            call_counts = dict(stats.call_counts) if stats else {}
+
+            implementation_name = None
+            implementation_version = None
+            capabilities: ServerCapabilities | None = None
+            client_capabilities: Mapping[str, Any] | None = None
+            client_info_name = None
+            client_info_version = None
+            is_connected = None
+            error_message = None
+            instructions_available = None
+            instructions_enabled = None
+            instructions_included = None
+            roots_configured = None
+            roots_count = None
+            elicitation_mode = None
+            sampling_mode = None
+            spoofing_enabled = None
+            server_cfg = None
+            session_id = None
+            server_conn = None
+            transport: str | None = None
+            transport_snapshot: TransportSnapshot | None = None
+
+            manager = getattr(self, "_persistent_connection_manager", None)
+            if self.connection_persistence and manager is not None:
+                try:
+                    server_conn = await manager.get_server(
+                        server_name,
+                        client_session_factory=self._create_session_factory(server_name),
+                    )
+                    implementation = getattr(server_conn, "server_implementation", None)
+                    if implementation:
+                        implementation_name = getattr(implementation, "name", None)
+                        implementation_version = getattr(implementation, "version", None)
+                    capabilities = getattr(server_conn, "server_capabilities", None)
+                    client_capabilities = getattr(server_conn, "client_capabilities", None)
+                    session = server_conn.session
+                    client_info = getattr(session, "client_info", None) if session else None
+                    if client_info:
+                        client_info_name = getattr(client_info, "name", None)
+                        client_info_version = getattr(client_info, "version", None)
+                    is_connected = server_conn.is_healthy()
+                    error_message = getattr(server_conn, "_error_message", None)
+                    instructions_available = getattr(
+                        server_conn, "server_instructions_available", None
+                    )
+                    instructions_enabled = getattr(
+                        server_conn, "server_instructions_enabled", None
+                    )
+                    instructions_included = bool(getattr(server_conn, "server_instructions", None))
+                    server_cfg = getattr(server_conn, "server_config", None)
+                    if session:
+                        elicitation_mode = getattr(session, "effective_elicitation_mode", elicitation_mode)
+                        session_id = getattr(server_conn, "session_id", None)
+                        if not session_id and getattr(server_conn, "_get_session_id_cb", None):
+                            try:
+                                session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                            except Exception:
+                                session_id = None
+                    metrics = getattr(server_conn, "transport_metrics", None)
+                    if metrics is not None:
+                        try:
+                            transport_snapshot = metrics.snapshot()
+                        except Exception:
+                            logger.debug(
+                                "Failed to snapshot transport metrics for server '%s'",
+                                server_name,
+                                exc_info=True,
+                            )
+                except Exception as exc:
+                    logger.debug(
+                        f"Failed to collect status for server '{server_name}'",
+                        data={"error": str(exc)},
+                    )
+
+            if server_cfg is None and self.context and getattr(self.context, "server_registry", None):
+                try:
+                    server_cfg = self.context.server_registry.get_server_config(server_name)
+                except Exception:
+                    server_cfg = None
+
+            if server_cfg is not None:
+                instructions_enabled = (
+                    instructions_enabled
+                    if instructions_enabled is not None
+                    else server_cfg.include_instructions
+                )
+                roots = getattr(server_cfg, "roots", None)
+                roots_configured = bool(roots)
+                roots_count = len(roots) if roots else 0
+                transport = getattr(server_cfg, "transport", transport)
+                elicitation = getattr(server_cfg, "elicitation", None)
+                elicitation_mode = (
+                    getattr(elicitation, "mode", None)
+                    if elicitation
+                    else elicitation_mode
+                )
+                sampling_cfg = getattr(server_cfg, "sampling", None)
+                spoofing_enabled = bool(getattr(server_cfg, "implementation", None))
+                if implementation_name is None and getattr(server_cfg, "implementation", None):
+                    implementation_name = server_cfg.implementation.name
+                    implementation_version = getattr(server_cfg.implementation, "version", None)
+                if session_id is None:
+                    if server_cfg.transport == "stdio":
+                        session_id = "local"
+                    elif server_conn and getattr(server_conn, "_get_session_id_cb", None):
+                        try:
+                            session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
+                        except Exception:
+                            session_id = None
+
+                if sampling_cfg is not None:
+                    sampling_mode = "configured"
+                else:
+                    auto_sampling = True
+                    if self.context and getattr(self.context, "config", None):
+                        auto_sampling = getattr(self.context.config, "auto_sampling", True)
+                    sampling_mode = "auto" if auto_sampling else "off"
+            else:
+                # Fall back to defaults when config missing
+                auto_sampling = True
+                if self.context and getattr(self.context, "config", None):
+                    auto_sampling = getattr(self.context.config, "auto_sampling", True)
+                sampling_mode = sampling_mode or ("auto" if auto_sampling else "off")
+
+            status_map[server_name] = ServerStatus(
+                server_name=server_name,
+                implementation_name=implementation_name,
+                implementation_version=implementation_version,
+                server_capabilities=capabilities,
+                client_capabilities=client_capabilities,
+                client_info_name=client_info_name,
+                client_info_version=client_info_version,
+                transport=transport,
+                is_connected=is_connected,
+                last_call_at=last_call,
+                last_error_at=last_error,
+                staleness_seconds=staleness,
+                call_counts=call_counts,
+                error_message=error_message,
+                instructions_available=instructions_available,
+                instructions_enabled=instructions_enabled,
+                instructions_included=instructions_included,
+                roots_configured=roots_configured,
+                roots_count=roots_count,
+                elicitation_mode=elicitation_mode,
+                sampling_mode=sampling_mode,
+                spoofing_enabled=spoofing_enabled,
+                session_id=session_id,
+                transport_channels=transport_snapshot,
+            )
+
+        return status_map
 
     async def _execute_on_server(
         self,
@@ -554,13 +781,17 @@ class MCPAggregator(ContextDependent):
                     # Re-raise the original exception to propagate it
                     raise e
 
+        success_flag: bool | None = None
+        result: R | None = None
+
         # Try initial execution
         try:
             if self.connection_persistence:
                 server_connection = await self._persistent_connection_manager.get_server(
                     server_name, client_session_factory=self._create_session_factory(server_name)
                 )
-                return await try_execute(server_connection.session)
+                result = await try_execute(server_connection.session)
+                success_flag = True
             else:
                 logger.debug(
                     f"Creating temporary connection to server: {server_name}",
@@ -582,7 +813,7 @@ class MCPAggregator(ContextDependent):
                             "agent_name": self.agent_name,
                         },
                     )
-                    return result
+                    success_flag = True
         except ConnectionError:
             # Server offline - attempt reconnection
             from fast_agent.ui import console
@@ -613,7 +844,7 @@ class MCPAggregator(ContextDependent):
 
                 # Success!
                 console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
-                return result
+                success_flag = True
 
             except Exception:
                 # Reconnection failed
@@ -621,10 +852,19 @@ class MCPAggregator(ContextDependent):
                     f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
                 )
                 error_msg = f"MCP server {server_name} offline - failed to reconnect"
+                success_flag = False
                 if error_factory:
-                    return error_factory(error_msg)
+                    result = error_factory(error_msg)
                 else:
                     raise Exception(error_msg)
+        except Exception:
+            success_flag = False
+            raise
+        finally:
+            if success_flag is not None:
+                await self._record_server_call(server_name, operation_type, success_flag)
+
+        return result
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
         """

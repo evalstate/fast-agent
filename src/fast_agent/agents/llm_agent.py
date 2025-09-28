@@ -27,7 +27,9 @@ from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -121,6 +123,28 @@ class LlmAgent(LlmDecorator):
                 if None is message.last_text():
                     additional_segments.append(
                         Text("The assistant requested tool calls", style="dim green italic")
+                    )
+
+            case LlmStopReason.ERROR:
+                # Check if there's detailed error information in the error channel
+                if message.channels and FAST_AGENT_ERROR_CHANNEL in message.channels:
+                    error_blocks = message.channels[FAST_AGENT_ERROR_CHANNEL]
+                    if error_blocks:
+                        # Extract text from the error block using the helper function
+                        error_text = get_text(error_blocks[0])
+                        if error_text:
+                            additional_segments.append(
+                                Text(f"\n\nError details: {error_text}", style="dim red italic")
+                            )
+                        else:
+                            # Fallback if we couldn't extract text
+                            additional_segments.append(
+                                Text(f"\n\nError details: {str(error_blocks[0])}", style="dim red italic")
+                            )
+                else:
+                    # Fallback if no detailed error is available
+                    additional_segments.append(
+                        Text("\n\nAn error occurred during generation.", style="dim red italic")
                     )
 
             case _:

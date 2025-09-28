@@ -23,8 +23,8 @@ from mcp.client.stdio import (
     get_default_environment,
     stdio_client,
 )
-from mcp.client.streamable_http import GetSessionIdCallback, streamablehttp_client
-from mcp.types import JSONRPCMessage, ServerCapabilities
+from mcp.client.streamable_http import GetSessionIdCallback
+from mcp.types import Implementation, JSONRPCMessage, ServerCapabilities
 
 from fast_agent.config import MCPServerSettings
 from fast_agent.context_dependent import ContextDependent
@@ -34,6 +34,8 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.oauth_client import build_oauth_provider
+from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_client
+from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -107,6 +109,14 @@ class ServerConnection:
 
         # Server instructions from initialization
         self.server_instructions: str | None = None
+        self.server_capabilities: ServerCapabilities | None = None
+        self.server_implementation: Implementation | None = None
+        self.client_capabilities: dict | None = None
+        self.server_instructions_available: bool = False
+        self.server_instructions_enabled: bool = server_config.include_instructions if server_config else True
+        self.session_id: str | None = None
+        self._get_session_id_cb: GetSessionIdCallback | None = None
+        self.transport_metrics: TransportChannelMetrics | None = None
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -138,15 +148,32 @@ class ServerConnection:
         result = await self.session.initialize()
 
         self.server_capabilities = result.capabilities
+        # InitializeResult exposes server info via `serverInfo`; keep fallback for older fields
+        implementation = getattr(result, "serverInfo", None)
+        if implementation is None:
+            implementation = getattr(result, "implementation", None)
+        self.server_implementation = implementation
+
+        raw_instructions = getattr(result, "instructions", None)
+        self.server_instructions_available = bool(raw_instructions)
 
         # Store instructions if provided by the server and enabled in config
         if self.server_config.include_instructions:
-            self.server_instructions = getattr(result, 'instructions', None)
+            self.server_instructions = raw_instructions
             if self.server_instructions:
-                logger.debug(f"{self.server_name}: Received server instructions", data={"instructions": self.server_instructions})
+                logger.debug(
+                    f"{self.server_name}: Received server instructions",
+                    data={"instructions": self.server_instructions},
+                )
         else:
             self.server_instructions = None
-            logger.debug(f"{self.server_name}: Server instructions disabled by configuration")
+            if self.server_instructions_available:
+                logger.debug(
+                    f"{self.server_name}: Server instructions disabled by configuration",
+                    data={"instructions": raw_instructions},
+                )
+            else:
+                logger.debug(f"{self.server_name}: No server instructions provided")
 
         # If there's an init hook, run it
 
@@ -175,10 +202,15 @@ class ServerConnection:
         )
 
         session = self._client_session_factory(
-            read_stream, send_stream, read_timeout, server_config=self.server_config
+            read_stream,
+            send_stream,
+            read_timeout,
+            server_config=self.server_config,
+            transport_metrics=self.transport_metrics,
         )
 
         self.session = session
+        self.client_capabilities = getattr(session, "client_capabilities", None)
 
         return session
 
@@ -192,11 +224,30 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     try:
         transport_context = server_conn._transport_context_factory()
 
-        async with transport_context as (read_stream, write_stream, _):
+        async with transport_context as (read_stream, write_stream, get_session_id_cb):
+            server_conn._get_session_id_cb = get_session_id_cb
+
+            if get_session_id_cb is not None:
+                try:
+                    server_conn.session_id = get_session_id_cb()
+                except Exception:
+                    logger.debug(f"{server_name}: Unable to retrieve session id from transport")
+            elif server_conn.server_config.transport == "stdio":
+                server_conn.session_id = "local"
+
             server_conn.create_session(read_stream, write_stream)
 
             async with server_conn.session:
                 await server_conn.initialize_session()
+
+                if get_session_id_cb is not None:
+                    try:
+                        server_conn.session_id = get_session_id_cb() or server_conn.session_id
+                    except Exception:
+                        logger.debug(f"{server_name}: Unable to refresh session id after init")
+                elif server_conn.server_config.transport == "stdio":
+                    server_conn.session_id = "local"
+
                 await server_conn.wait_for_shutdown_request()
 
     except HTTPStatusError as http_exc:
@@ -353,6 +404,8 @@ class MCPConnectionManager(ContextDependent):
 
         logger.debug(f"{server_name}: Found server configuration=", data=config.model_dump())
 
+        transport_metrics = TransportChannelMetrics() if config.transport == "http" else None
+
         def transport_context_factory():
             if config.transport == "stdio":
                 if not config.command:
@@ -401,7 +454,23 @@ class MCPConnectionManager(ContextDependent):
                 if oauth_auth is not None:
                     headers.pop("Authorization", None)
                     headers.pop("X-HF-Authorization", None)
-                return streamablehttp_client(config.url, headers, auth=oauth_auth)
+                channel_hook = None
+                if transport_metrics is not None:
+                    def channel_hook(event):
+                        try:
+                            transport_metrics.record_event(event)
+                        except Exception:  # pragma: no cover - defensive guard
+                            logger.debug(
+                                "%s: transport metrics hook failed", server_name,
+                                exc_info=True,
+                            )
+
+                return tracking_streamablehttp_client(
+                    config.url,
+                    headers,
+                    auth=oauth_auth,
+                    channel_hook=channel_hook,
+                )
             else:
                 raise ValueError(f"Unsupported transport: {config.transport}")
 
@@ -411,6 +480,9 @@ class MCPConnectionManager(ContextDependent):
             transport_context_factory=transport_context_factory,
             client_session_factory=client_session_factory,
         )
+
+        if transport_metrics is not None:
+            server_conn.transport_metrics = transport_metrics
 
         async with self._lock:
             # Check if already running

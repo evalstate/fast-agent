@@ -37,6 +37,7 @@ from fast_agent.mcp.sampling import sample
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
+    from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 logger = get_logger(__name__)
 
@@ -90,6 +91,13 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         custom_elicitation_handler = kwargs.pop("elicitation_handler", None)
         # Extract optional context for ContextDependent mixin without passing it to ClientSession
         self._context = kwargs.pop("context", None)
+        # Extract transport metrics tracker if provided
+        self._transport_metrics: TransportChannelMetrics | None = kwargs.pop(
+            "transport_metrics", None
+        )
+
+        # Track the effective elicitation mode for diagnostics
+        self.effective_elicitation_mode: str | None = "none"
 
         version = version("fast-agent-mcp") or "dev"
         fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
@@ -131,7 +139,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     agent_config = AgentConfig(
                         name=self.agent_name or "unknown",
                         model=self.agent_model or "unknown",
-                        elicitation_handler=None,  # No decorator-level handler since we're in the else block
+                        elicitation_handler=None,
                     )
                     elicitation_handler = resolve_elicitation_handler(
                         agent_config, context.config, self.server_config
@@ -141,11 +149,32 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 pass
 
             # Fallback to forms handler only if factory resolution wasn't attempted
-            # If factory was attempted and returned None, respect that (means no elicitation capability)
             if elicitation_handler is None and not self.server_config:
                 from fast_agent.mcp.elicitation_handlers import forms_elicitation_handler
 
                 elicitation_handler = forms_elicitation_handler
+
+        # Determine effective elicitation mode for diagnostics
+        if self.server_config and getattr(self.server_config, "elicitation", None):
+            self.effective_elicitation_mode = self.server_config.elicitation.mode or "forms"
+        elif elicitation_handler is not None:
+            # Use global config if available to distinguish auto-cancel
+            try:
+                from fast_agent.context import get_current_context
+
+                context = get_current_context()
+                mode = None
+                if context and getattr(context, "config", None):
+                    elicitation_cfg = getattr(context.config, "elicitation", None)
+                    if isinstance(elicitation_cfg, dict):
+                        mode = elicitation_cfg.get("mode")
+                    else:
+                        mode = getattr(elicitation_cfg, "mode", None)
+                self.effective_elicitation_mode = (mode or "forms").lower()
+            except Exception:
+                self.effective_elicitation_mode = "forms"
+        else:
+            self.effective_elicitation_mode = "none"
 
         super().__init__(
             *args,
@@ -177,6 +206,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         progress_callback: ProgressFnT | None = None,
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
+        request_id = getattr(self, "_request_id", None)
         try:
             result = await super().send_request(
                 request=request,
@@ -189,6 +219,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 "send_request: response=",
                 data=result.model_dump() if result is not None else "no response returned",
             )
+            self._attach_transport_channel(request_id, result)
             return result
         except Exception as e:
             # Handle connection errors cleanly
@@ -206,6 +237,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             else:
                 logger.error(f"send_request failed: {str(e)}")
                 raise
+
+    def _attach_transport_channel(self, request_id, result) -> None:
+        if self._transport_metrics is None or request_id is None or result is None:
+            return
+        channel = self._transport_metrics.consume_response_channel(request_id)
+        if not channel:
+            return
+        try:
+            setattr(result, "transport_channel", channel)
+        except Exception:
+            # If result cannot be mutated, ignore silently
+            pass
 
     async def _received_notification(self, notification: ServerNotification) -> None:
         """

@@ -24,6 +24,7 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import get_model_info
+from fast_agent.ui.mcp_display import render_mcp_status
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -72,6 +73,20 @@ help_message_shown = False
 
 # Track which agents have shown their info
 _agent_info_shown = set()
+
+
+async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
+    if agent_provider is None:
+        rich_print("[red]No agent provider available[/red]")
+        return
+
+    try:
+        agent = agent_provider._agent(agent_name)
+    except Exception as exc:
+        rich_print(f"[red]Unable to load agent '{agent_name}': {exc}[/red]")
+        return
+
+    await render_mcp_status(agent)
 
 
 async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp | None") -> None:
@@ -165,6 +180,7 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                     content = f"{server_text}[dim] available[/dim]"
 
                 rich_print(f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {content}")
+        #               await _render_mcp_status(agent)
 
         # Mark as shown
         _agent_info_shown.add(agent_name)
@@ -325,6 +341,7 @@ class AgentCompleter(Completer):
             "tools": "List available MCP tools",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "agents": "List available agents",
+            "mcp": "Show MCP server status",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
@@ -808,6 +825,8 @@ async def get_enhanced_input(
                     cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
                 )
                 return {"save_history": True, "filename": filename}
+            elif cmd in ("mcpstatus", "mcp"):
+                return {"show_mcp_status": True}
             elif cmd == "prompt":
                 # Handle /prompt with no arguments as interactive mode
                 if len(cmd_parts) > 1:
@@ -985,6 +1004,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
+        rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history <filename> - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"

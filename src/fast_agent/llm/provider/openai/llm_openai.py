@@ -344,12 +344,12 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
 
         # Use basic streaming API
-        stream = await self._openai_client().chat.completions.create(**arguments)
-        # Process the stream
         try:
+            stream = await self._openai_client().chat.completions.create(**arguments)
+            # Process the stream
             response = await self._process_stream(stream, model_name)
         except APIError as error:
-            self.logger.error("Streaming APIError during OpenAI completion", exc_info=error)
+            self.logger.error("APIError during OpenAI completion", exc_info=error)
             return self._stream_failure_response(error, model_name)
         # Track usage if response is valid and has usage data
         if (

@@ -41,7 +41,7 @@ from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
-from fast_agent.mcp.mcp_aggregator import MCPAggregator
+from fast_agent.mcp.mcp_aggregator import MCPAggregator, ServerStatus
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
@@ -162,6 +162,12 @@ class McpAgent(ABC, ToolAgent):
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
         await self._aggregator.close()
+
+    async def get_server_status(self) -> Dict[str, ServerStatus]:
+        """Expose server status details for UI and diagnostics consumers."""
+        if not self._aggregator:
+            return {}
+        return await self._aggregator.collect_server_status()
 
     @property
     def initialized(self) -> bool:

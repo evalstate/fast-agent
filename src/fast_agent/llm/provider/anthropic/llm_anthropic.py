@@ -1,7 +1,7 @@
 import json
 from typing import Any, List, Tuple, Type, Union, cast
 
-from anthropic import AsyncAnthropic, AuthenticationError
+from anthropic import APIError, AsyncAnthropic, AuthenticationError
 from anthropic.lib.streaming import AsyncMessageStream
 from anthropic.types import (
     Message,
@@ -22,6 +22,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -36,6 +37,7 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
 )
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage
+from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -243,47 +245,102 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
 
-        # Process the raw event stream to get token counts
-        async for event in stream:
-            # Count tokens in real-time from content_block_delta events
-            if (
-                event.type == "content_block_delta"
-                and hasattr(event, "delta")
-                and event.delta.type == "text_delta"
-            ):
-                # Use base class method for token estimation and progress emission
-                estimated_tokens = self._update_streaming_progress(
-                    event.delta.text, model, estimated_tokens
+        try:
+            # Process the raw event stream to get token counts
+            async for event in stream:
+                # Count tokens in real-time from content_block_delta events
+                if (
+                    event.type == "content_block_delta"
+                    and hasattr(event, "delta")
+                    and event.delta.type == "text_delta"
+                ):
+                    # Use base class method for token estimation and progress emission
+                    estimated_tokens = self._update_streaming_progress(
+                        event.delta.text, model, estimated_tokens
+                    )
+
+                # Also check for final message_delta events with actual usage info
+                elif (
+                    event.type == "message_delta"
+                    and hasattr(event, "usage")
+                    and event.usage.output_tokens
+                ):
+                    actual_tokens = event.usage.output_tokens
+                    # Emit final progress with actual token count
+                    token_str = str(actual_tokens).rjust(5)
+                    data = {
+                        "progress_action": ProgressAction.STREAMING,
+                        "model": model,
+                        "agent_name": self.name,
+                        "chat_turn": self.chat_turn(),
+                        "details": token_str.strip(),
+                    }
+                    logger.info("Streaming progress", data=data)
+
+            # Get the final message with complete usage data
+            message = await stream.get_final_message()
+
+            # Log final usage information
+            if hasattr(message, "usage") and message.usage:
+                logger.info(
+                    f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
                 )
 
-            # Also check for final message_delta events with actual usage info
-            elif (
-                event.type == "message_delta"
-                and hasattr(event, "usage")
-                and event.usage.output_tokens
-            ):
-                actual_tokens = event.usage.output_tokens
-                # Emit final progress with actual token count
-                token_str = str(actual_tokens).rjust(5)
-                data = {
-                    "progress_action": ProgressAction.STREAMING,
-                    "model": model,
-                    "agent_name": self.name,
-                    "chat_turn": self.chat_turn(),
-                    "details": token_str.strip(),
-                }
-                logger.info("Streaming progress", data=data)
+            return message
+        except APIError as error:
+            logger.error("Streaming APIError during Anthropic completion", exc_info=error)
+            raise  # Re-raise to be handled by _anthropic_completion
+        except Exception as error:
+            logger.error("Unexpected error during Anthropic stream processing", exc_info=error)
+            # Convert to APIError for consistent handling
+            raise APIError(f"Stream processing error: {str(error)}") from error
 
-        # Get the final message with complete usage data
-        message = await stream.get_final_message()
+    def _stream_failure_response(self, error: APIError, model_name: str) -> PromptMessageExtended:
+        """Convert streaming API errors into a graceful assistant reply."""
 
-        # Log final usage information
-        if hasattr(message, "usage") and message.usage:
-            logger.info(
-                f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
+        provider_label = (
+            self.provider.value if isinstance(self.provider, Provider) else str(self.provider)
+        )
+        detail = getattr(error, "message", None) or str(error)
+        detail = detail.strip() if isinstance(detail, str) else ""
+
+        parts: list[str] = [f"{provider_label} request failed"]
+        if model_name:
+            parts.append(f"for model '{model_name}'")
+        code = getattr(error, "code", None)
+        if code:
+            parts.append(f"(code: {code})")
+        status = getattr(error, "status_code", None)
+        if status:
+            parts.append(f"(status={status})")
+
+        message = " ".join(parts)
+        if detail:
+            message = f"{message}: {detail}"
+
+        user_summary = " ".join(message.split()) if message else ""
+        if user_summary and len(user_summary) > 280:
+            user_summary = user_summary[:277].rstrip() + "..."
+
+        if user_summary:
+            assistant_text = f"I hit an internal error while calling the model: {user_summary}"
+            if not assistant_text.endswith((".", "!", "?")):
+                assistant_text += "."
+            assistant_text += " See fast-agent-error for additional details."
+        else:
+            assistant_text = (
+                "I hit an internal error while calling the model; see fast-agent-error for details."
             )
 
-        return message
+        assistant_block = text_content(assistant_text)
+        error_block = text_content(message)
+
+        return PromptMessageExtended(
+            role="assistant",
+            content=[assistant_block],
+            channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
+            stop_reason=LlmStopReason.ERROR,
+        )
 
     async def _anthropic_completion(
         self,
@@ -369,9 +426,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         logger.debug(f"{arguments}")
         # Use streaming API with helper
-        async with anthropic.messages.stream(**arguments) as stream:
-            # Process the stream
-            response = await self._process_stream(stream, model)
+        try:
+            async with anthropic.messages.stream(**arguments) as stream:
+                # Process the stream
+                response = await self._process_stream(stream, model)
+        except APIError as error:
+            logger.error("Streaming APIError during Anthropic completion", exc_info=error)
+            return self._stream_failure_response(error, model)
 
         # Track usage if response is valid and has usage data
         if (
@@ -393,27 +454,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
             ) from response
         elif isinstance(response, BaseException):
-            error_details = str(response)
-            logger.error(f"Error: {error_details}", data=BaseException)
-
-            # Try to extract more useful information for API errors
-            if hasattr(response, "status_code") and hasattr(response, "response"):
-                try:
-                    error_json = response.response.json()
-                    error_details = f"Error code: {response.status_code} - {error_json}"
-                except:  # noqa: E722
-                    error_details = f"Error code: {response.status_code} - {str(response)}"
-
-            # Convert other errors to text response
-            error_message = f"Error during generation: {error_details}"
-            response = Message(
-                id="error",
-                model="error",
-                role="assistant",
-                type="message",
-                content=[TextBlock(type="text", text=error_message)],
-                stop_reason="end_turn",
-                usage=Usage(input_tokens=0, output_tokens=0),
+            # This path shouldn't be reached anymore since we handle APIError above,
+            # but keeping for backward compatibility
+            logger.error(f"Unexpected error type: {type(response).__name__}", exc_info=response)
+            return self._stream_failure_response(
+                APIError(f"Unexpected error: {str(response)}"), model
             )
 
         logger.debug(
