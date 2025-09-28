@@ -542,18 +542,25 @@ class ConsoleDisplay:
                         f"{len(content)} Content Blocks" if len(content) > 1 else "1 Content Block"
                     )
 
+        # Build transport channel info for bottom bar
         channel = getattr(result, "transport_channel", None)
+        bottom_metadata = None
         if channel:
-            channel_map = {
-                "post-json": "JSON",
-                "post-sse": "SSE",
-                "get": "GET",
-                "resumption": "RESUME",
-            }
-            channel_label = channel_map.get(channel, channel)
-            status = f"{status} via {channel_label}"
+            # Format channel info for bottom bar
+            if channel == "post-json":
+                transport_info = "Direct Response"
+            elif channel == "post-sse":
+                transport_info = "SSE"
+            elif channel == "get":
+                transport_info = "GET"
+            elif channel == "resumption":
+                transport_info = "Resumption"
+            else:
+                transport_info = channel.upper()
 
-        # Build right info
+            bottom_metadata = [transport_info]
+
+        # Build right info (without channel info)
         right_info = f"[dim]tool result - {status}[/dim]"
 
         # Display using unified method
@@ -562,6 +569,7 @@ class ConsoleDisplay:
             message_type=MessageType.TOOL_RESULT,
             name=name,
             right_info=right_info,
+            bottom_metadata=bottom_metadata,
             is_error=result.isError,
             truncate_content=True,
         )

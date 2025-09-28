@@ -338,18 +338,18 @@ class AgentCompleter(Completer):
         self.agents = agents
         # Map commands to their descriptions for better completion hints
         self.commands = {
+            "mcp": "Show MCP server status",
             "tools": "List available MCP tools",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "agents": "List available agents",
-            "mcp": "Show MCP server status",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "help": "Show commands and shortcuts",
             "clear": "Clear the screen",
-            "STOP": "Stop this prompting session and move to next workflow step",
             "EXIT": "Exit fast-agent, terminating any running workflows",
+            "STOP": "Stop this prompting session and move to next workflow step",
             **(commands or {}),  # Allow custom commands to be passed in
         }
         if is_human_input:

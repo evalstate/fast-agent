@@ -196,125 +196,6 @@ def _format_label(label: str, width: int = 10) -> str:
     return f"{label:<{width}}" if len(label) < width else label
 
 
-def _build_channel_line_with_timeline(
-    label: str,
-    channel: ChannelSnapshot | None,
-    indent: str
-) -> tuple[list[Text], bool]:
-    """Build channel display with metrics and timeline on same line."""
-    lines = []
-
-    # Skip if no channel
-    if channel is None:
-        return lines, False
-
-    # Channel header - compact format without excessive padding
-    header = Text(indent)
-    header.append("│   ", style="dim")
-    header.append(label, style="bright_white bold")
-
-    state = (channel.state or "open").lower()
-    # Only show state for GET channel, or if any channel is not open/connected
-    if label == "GET" and state != "open":
-        state_styles = {
-            "off": "bright_yellow",
-            "disabled": "bright_blue",
-            "error": "bright_red",
-            "idle": "dim",
-        }
-        header.append(" (", style="dim")
-        header.append(state, style=state_styles.get(state, "dim"))
-        # Don't show 405 status codes as they're expected for disabled endpoints
-        if channel.last_status_code and state in {"off", "disabled", "error"} and channel.last_status_code != 405:
-            header.append(f" {channel.last_status_code}", style="bright_white")
-        header.append(")", style="dim")
-    elif label.startswith("POST") and state not in {"open", "connected"}:
-        # Only show non-open states for POST channels
-        state_styles = {
-            "off": "bright_yellow",
-            "disabled": "bright_blue",
-            "error": "bright_red",
-            "idle": "dim",
-        }
-        header.append(" (", style="dim")
-        header.append(state, style=state_styles.get(state, "dim"))
-        # Don't show 405 status codes as they're expected for disabled endpoints
-        if channel.last_status_code and state in {"off", "disabled", "error"} and channel.last_status_code != 405:
-            header.append(f" {channel.last_status_code}", style="bright_white")
-        header.append(")", style="dim")
-
-    # Only show mode for POST-JSON when it's mixed
-    if label == "POST-JSON" and channel.mode == "mixed" and channel.mode_counts:
-        breakdown = ", ".join(
-            f"{name}={count}" for name, count in sorted(channel.mode_counts.items())
-        )
-        header.append(f"  mixed: {breakdown}", style="bright_magenta")
-
-    lines.append(header)
-
-    # Metrics line with timeline shifted right
-    metrics = Text(indent)
-    metrics.append("│       ", style="dim")
-
-    # Show breakdown with colons and left-aligned numbers first
-    metrics.append("req:", style="dim")
-    metrics.append(f"{channel.request_count:<5}", style="bright_yellow")
-    metrics.append("resp:", style="dim")
-    metrics.append(f"{channel.response_count:<5}", style="bright_blue")
-    metrics.append("notif:", style="dim")
-    metrics.append(f"{channel.notification_count:<5}", style="bright_cyan")
-
-    # Add timeline after metrics (shifted right for more space)
-    if hasattr(channel, "activity_buckets") and channel.activity_buckets:
-        # Build timeline directly into the metrics line
-        color_map = {
-            "error": "bright_red",
-            "disabled": "bright_blue",
-            "response": "bright_blue",
-            "request": "bright_yellow",
-            "notification": "bright_cyan",
-            "ping": "bright_green",
-            "none": "dim",
-        }
-        metrics.append("    10m ", style="dim")  # Extra spacing
-        for state in channel.activity_buckets:
-            color = color_map.get(state, "dim")
-            metrics.append("●", style=f"bold {color}")
-        metrics.append(" now", style="dim")
-        timeline = True
-    else:
-        timeline = False
-
-    lines.append(metrics)
-
-    # Ping health for GET channel
-    if label == "GET" and (channel.ping_count or channel.ping_last_at):
-        ping_line = Text(indent)
-        ping_line.append("│       ", style="dim")
-        ping_line.append("ping:", style="dim")
-        ping_count = channel.ping_count or 0
-        ping_line.append(f"{ping_count:<5}", style="bright_green" if ping_count else "dim")
-        ping_line.append("last:", style="dim")
-        ping_line.append(
-            _format_relative_time(channel.ping_last_at),
-            style="bright_green" if channel.ping_last_at else "dim",
-        )
-        lines.append(ping_line)
-
-    # Error line only if there's an error (but suppress 405 Method Not Allowed)
-    if channel.last_error and not ("405" in channel.last_error and "Method Not Allowed" in channel.last_error):
-        error_line = Text(indent)
-        error_line.append("│       ", style="dim")
-        detail = channel.last_error
-        if len(detail) > 60:
-            detail = detail[:57] + "..."
-        error_line.append("error: ", style="dim")
-        error_line.append(detail, style="bright_red")
-        lines.append(error_line)
-
-    return lines, timeline
-
-
 def _build_inline_timeline(buckets: Iterable[str]) -> str:
     """Build a compact timeline string for inline display."""
     color_map = {
@@ -344,7 +225,7 @@ def _build_activity_line(label: str, buckets: Iterable[str], indent: str) -> str
         "request": "bright_yellow",
         "notification": "bright_cyan",
         "ping": "bright_green",
-        "none": "dim",  # Keep idle/none as dim
+        "none": "black dim",  # Keep idle/none as dim
     }
     for state in buckets:
         color = color_map.get(state, "dim")
@@ -362,74 +243,180 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         return
 
     # Always show all three channel types for consistency
-    entries: list[tuple[str, ChannelSnapshot | None]] = [
-        ("POST-JSON", getattr(snapshot, "post_json", None)),
-        ("POST-SSE", getattr(snapshot, "post_sse", None)),
-        ("GET", getattr(snapshot, "get", None)),
+    entries: list[tuple[str, str, ChannelSnapshot | None]] = [
+        ("GET (SSE)", "◀", getattr(snapshot, "get", None)),
+        ("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
+        ("POST (JSON)", "▶", getattr(snapshot, "post_json", None)),
     ]
 
     # Skip if no channels have data
-    if not any(channel is not None for _, channel in entries):
+    if not any(channel is not None for _, _, channel in entries):
         return
 
     console.console.print()  # Add space before channels
+
+    # Header with column labels
     header = Text(indent)
     header.append("┌ Channels", style="dim")
+
+    # The data line structure:
+    # "│ " + arrow + " " + label(13) + "10m " + dots(20) + " now" = 47 chars
+    # Then: "  " + req(5) + " " + resp(5) + " " + notif(5) + " " + ping(5) = 25 chars
+    # Total line = 47 + 25 = 72 chars
+
+    # Header needs to fill to position 47, then add column headers
+    # "┌ Channels" = 10 chars, so need 37 dashes to reach position 47
+    header.append("─" * 37, style="dim")
+
+    # Column headers - matching the exact spacing of the data
+    # "  " + 5-char columns with single spaces between
+    header.append("  req  resp notif  ping", style="dim")
     console.console.print(header)
 
-    timelines_to_show = []
-    for idx, (label, channel) in enumerate(entries):
-        # Build and print channel lines
-        lines, has_timeline = _build_channel_line_with_timeline(label, channel, indent)
+    # Empty row after header for cleaner spacing
+    empty_header = Text(indent)
+    empty_header.append("│", style="dim")
+    console.console.print(empty_header)
 
-        # Print all lines (timeline is now built into metrics line)
-        if lines:
-            for line in lines:
-                console.console.print(line)
+    # Collect any errors to show at bottom
+    errors = []
 
-            if has_timeline:
-                timelines_to_show.append(label)
+    # Build timeline color map
+    timeline_color_map = {
+        "error": "bright_red",
+        "disabled": "bright_blue",
+        "response": "bright_blue",
+        "request": "bright_yellow",
+        "notification": "bright_cyan",
+        "ping": "bright_green",
+        "none": "white dim",
+    }
+
+    for label, arrow, channel in entries:
+        line = Text(indent)
+        line.append("│ ", style="dim")
+
+        # Determine arrow color based on state
+        arrow_style = "black dim"  # default no channel
+        if channel:
+            state = (channel.state or "open").lower()
+
+            # Check for 405 status code (method not allowed = disabled endpoint)
+            if channel.last_status_code == 405:
+                arrow_style = "bright_yellow"
+                # Don't add 405 to errors list - it's just disabled, not an error
+            # Error state (non-405 errors)
+            elif state == "error":
+                arrow_style = "bright_red"
+                if channel.last_error and channel.last_status_code != 405:
+                    error_msg = channel.last_error
+                    if channel.last_status_code:
+                        errors.append(
+                            (label.split()[0], f"{error_msg} ({channel.last_status_code})")
+                        )
+                    else:
+                        errors.append((label.split()[0], error_msg))
+            # Explicitly disabled or off
+            elif state in {"off", "disabled"}:
+                arrow_style = "black dim"
+            # No activity (idle)
+            elif channel.request_count == 0 and channel.response_count == 0:
+                arrow_style = "bright_cyan"
+            # Active/connected with activity
+            elif state in {"open", "connected"}:
+                arrow_style = "bright_green"
+            # Fallback for other states
+            else:
+                arrow_style = "bright_cyan"
+
+        # Arrow and label with better spacing
+        line.append(arrow, style=arrow_style)
+        line.append(f" {label:<13}", style="bright_white")
+
+        # Always show timeline (dim black dots if no data)
+        line.append("10m ", style="dim")
+        if channel and channel.activity_buckets:
+            # Show actual activity
+            for bucket_state in channel.activity_buckets:
+                color = timeline_color_map.get(bucket_state, "dim")
+                line.append("●", style=f"bold {color}")
         else:
-            # Show placeholder for channels with no data to maintain box continuity
-            placeholder = Text(indent)
-            placeholder.append("│   ", style="dim")
-            placeholder.append(label, style="bright_white bold")
-            placeholder.append(" (idle)", style="dim")
-            console.console.print(placeholder)
+            # Show dim black dots for no activity
+            for _ in range(20):
+                line.append("●", style="black dim")
+        line.append(" now", style="dim")
 
-    # Add legend with empty rows around it if any timelines were shown
-    if timelines_to_show:
-        # Empty row before legend
+        # Metrics - right-aligned in columns
+        if channel:
+            req = str(channel.request_count).rjust(5)
+            resp = str(channel.response_count).rjust(5)
+            notif = str(channel.notification_count).rjust(5)
+            ping = str(channel.ping_count if channel.ping_count else "-").rjust(5)
+        else:
+            req = "-".rjust(5)
+            resp = "-".rjust(5)
+            notif = "-".rjust(5)
+            ping = "-".rjust(5)
+
+        line.append(f"  {req} {resp} {notif} {ping}", style="bright_white" if channel else "dim")
+
+        console.console.print(line)
+
+        # Debug: print the raw line length
+        # import sys
+        # print(f"Line length: {len(line.plain)}", file=sys.stderr)
+
+    # Show errors at bottom if any
+    if errors:
+        # Empty row before errors
+        empty_line = Text(indent)
+        empty_line.append("│", style="dim")
+        console.console.print(empty_line)
+
+        for channel_type, error_msg in errors:
+            error_line = Text(indent)
+            error_line.append("│ ", style="dim")
+            error_line.append("⚠ ", style="bright_yellow")
+            error_line.append(f"{channel_type}: ", style="bright_white")
+            # Truncate long error messages
+            if len(error_msg) > 60:
+                error_msg = error_msg[:57] + "..."
+            error_line.append(error_msg, style="bright_red")
+            console.console.print(error_line)
+
+    # Legend if any timelines shown
+    has_timelines = any(channel and channel.activity_buckets for _, _, channel in entries)
+
+    if has_timelines:
+        # Empty row before footer with legend
         empty_before = Text(indent)
         empty_before.append("│", style="dim")
         console.console.print(empty_before)
 
-        # Legend row
-        legend_line = Text(indent)
-        legend_line.append("│ legend ", style="dim")
+    # Footer with legend
+    footer = Text(indent)
+    footer.append("└", style="dim")
+
+    if has_timelines:
+        footer.append(" legend: ", style="dim")
         legend_map = [
             ("error", "bright_red"),
             ("response", "bright_blue"),
             ("request", "bright_yellow"),
             ("notification", "bright_cyan"),
             ("ping", "bright_green"),
-            ("idle", "dim"),
+            ("idle", "white dim"),
         ]
-        for name, color in legend_map:
-            legend_line.append("●", style=f"bold {color}")
-            legend_line.append(f" {name} ", style="dim")
-            legend_line.append(" ", style="dim")
-        console.console.print(legend_line)
+        for i, (name, color) in enumerate(legend_map):
+            if i > 0:
+                footer.append(" ", style="dim")
+            footer.append("●", style=f"bold {color}")
+            footer.append(f" {name}", style="dim")
 
-        # Empty row after legend
-        empty_after = Text(indent)
-        empty_after.append("│", style="dim")
-        console.console.print(empty_after)
-
-    # Footer
-    footer = Text(indent)
-    footer.append("└", style="dim")
     console.console.print(footer)
+
+    # Add blank line for spacing before capabilities
+    console.console.print()
 
 
 async def render_mcp_status(agent, indent: str = "") -> None:
