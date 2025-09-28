@@ -215,39 +215,36 @@ def _build_inline_timeline(buckets: Iterable[str]) -> str:
     return timeline
 
 
-def _build_activity_line(label: str, buckets: Iterable[str], indent: str) -> str:
-    # Using markup string for consistent bright rendering
-    line = f"{indent}[dim]│       [/dim]timeline [dim]{_format_label(label)}[/dim] "
-    color_map = {
-        "error": "bright_red",
-        "disabled": "bright_blue",  # Consider removing this state
-        "response": "bright_blue",  # Changed to blue for better visibility
-        "request": "bright_yellow",
-        "notification": "bright_cyan",
-        "ping": "bright_green",
-        "none": "black dim",  # Keep idle/none as dim
-    }
-    for state in buckets:
-        color = color_map.get(state, "dim")
-        line += f"[bold {color}]●[/bold {color}]"
-    line += "[dim]  (last 10m)[/dim]"
-    return line
-
-
-# Note: _build_activity_legend function removed - legend now built directly in footer
-
-
 def _render_channel_summary(status: ServerStatus, indent: str, total_width: int) -> None:
     snapshot = getattr(status, "transport_channels", None)
     if snapshot is None:
         return
 
-    # Always show all three channel types for consistency
-    entries: list[tuple[str, str, ChannelSnapshot | None]] = [
-        ("GET (SSE)", "◀", getattr(snapshot, "get", None)),
-        ("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
-        ("POST (JSON)", "▶", getattr(snapshot, "post_json", None)),
+    # Show channel types based on what's available
+    entries: list[tuple[str, str, ChannelSnapshot | None]] = []
+
+    # Check if we have HTTP transport channels
+    http_channels = [
+        getattr(snapshot, "get", None),
+        getattr(snapshot, "post_sse", None),
+        getattr(snapshot, "post_json", None),
     ]
+
+    # Check if we have stdio transport channel
+    stdio_channel = getattr(snapshot, "stdio", None)
+
+    if any(channel is not None for channel in http_channels):
+        # HTTP transport - show the original three channels
+        entries = [
+            ("GET (SSE)", "◀", getattr(snapshot, "get", None)),
+            ("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
+            ("POST (JSON)", "▶", getattr(snapshot, "post_json", None)),
+        ]
+    elif stdio_channel is not None:
+        # STDIO transport - show single bidirectional channel
+        entries = [
+            ("STDIO", "⇄", stdio_channel),
+        ]
 
     # Skip if no channels have data
     if not any(channel is not None for _, _, channel in entries):
@@ -255,22 +252,42 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
     console.console.print()  # Add space before channels
 
+    # Determine if we're showing stdio or HTTP channels
+    is_stdio = stdio_channel is not None
+
+    # Get transport type for display
+    transport = getattr(status, "transport", None) or "unknown"
+    transport_display = transport.upper() if transport != "unknown" else "Channels"
+
     # Header with column labels
     header = Text(indent)
-    header.append("┌ Channels", style="dim")
+    header.append(f"┌ {transport_display} ", style="dim")
 
-    # The data line structure:
-    # "│ " + arrow + " " + label(13) + "10m " + dots(20) + " now" = 47 chars
-    # Then: "  " + req(5) + " " + resp(5) + " " + notif(5) + " " + ping(5) = 25 chars
-    # Total line = 47 + 25 = 72 chars
+    # Calculate padding needed based on transport display length
+    # Base structure: "┌ " (2) + transport_display + " " (1) + "─" padding to align with columns
+    header_prefix_len = 3 + len(transport_display)
 
-    # Header needs to fill to position 47, then add column headers
-    # "┌ Channels" = 10 chars, so need 37 dashes to reach position 47
-    header.append("─" * 37, style="dim")
+    if is_stdio:
+        # Simplified header for stdio: just activity column
+        # Need to align with "│ ⇄ STDIO        10m ●●●●●●●●●●●●●●●●●●●● now        29"
+        # That's: "│ " + arrow + " " + label(13) + "10m " + dots(20) + " now" = 47 chars
+        # Then: "  " + activity(8) = 10 chars
+        # Total content width = 47 + 10 = 57 chars
+        # So we need 47 - header_prefix_len dashes before "activity"
+        dash_count = max(1, 47 - header_prefix_len)
+        header.append("─" * dash_count, style="dim")
+        header.append("  activity", style="dim")
+    else:
+        # Original header for HTTP channels
+        # Need to align with the req/resp/notif/ping columns
+        # Structure: "│ " + arrow + " " + label(13) + "10m " + dots(20) + " now" = 47 chars
+        # Then: "  " + req(5) + " " + resp(5) + " " + notif(5) + " " + ping(5) = 25 chars
+        # Total content width = 47 + 25 = 72 chars
+        # So we need 47 - header_prefix_len dashes before the column headers
+        dash_count = max(1, 47 - header_prefix_len)
+        header.append("─" * dash_count, style="dim")
+        header.append("  req  resp notif  ping", style="dim")
 
-    # Column headers - matching the exact spacing of the data
-    # "  " + 5-char columns with single spaces between
-    header.append("  req  resp notif  ping", style="dim")
     console.console.print(header)
 
     # Empty row after header for cleaner spacing
@@ -282,15 +299,27 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     errors = []
 
     # Build timeline color map
-    timeline_color_map = {
-        "error": "bright_red",
-        "disabled": "bright_blue",
-        "response": "bright_blue",
-        "request": "bright_yellow",
-        "notification": "bright_cyan",
-        "ping": "bright_green",
-        "none": "white dim",
-    }
+    if is_stdio:
+        # Simplified color map for stdio: bright green for activity, dim for idle
+        timeline_color_map = {
+            "error": "bright_red",  # Keep error as red
+            "request": "bright_green",  # All activity shows as bright green
+            "response": "bright_green",  # (not used in stdio but just in case)
+            "notification": "bright_green",  # (not used in stdio but just in case)
+            "ping": "bright_green",  # (not used in stdio but just in case)
+            "none": "white dim",
+        }
+    else:
+        # Full color map for HTTP channels
+        timeline_color_map = {
+            "error": "bright_red",
+            "disabled": "bright_blue",
+            "response": "bright_blue",
+            "request": "bright_yellow",
+            "notification": "bright_cyan",
+            "ping": "bright_green",
+            "none": "white dim",
+        }
 
     for label, arrow, channel in entries:
         line = Text(indent)
@@ -346,19 +375,31 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 line.append("●", style="black dim")
         line.append(" now", style="dim")
 
-        # Metrics - right-aligned in columns
-        if channel:
-            req = str(channel.request_count).rjust(5)
-            resp = str(channel.response_count).rjust(5)
-            notif = str(channel.notification_count).rjust(5)
-            ping = str(channel.ping_count if channel.ping_count else "-").rjust(5)
+        # Metrics - different layouts for stdio vs HTTP
+        if is_stdio:
+            # Simplified activity column for stdio
+            if channel and channel.message_count > 0:
+                activity = str(channel.message_count).rjust(8)
+                activity_style = "bright_white"
+            else:
+                activity = "-".rjust(8)
+                activity_style = "dim"
+            line.append(f"  {activity}", style=activity_style)
         else:
-            req = "-".rjust(5)
-            resp = "-".rjust(5)
-            notif = "-".rjust(5)
-            ping = "-".rjust(5)
-
-        line.append(f"  {req} {resp} {notif} {ping}", style="bright_white" if channel else "dim")
+            # Original HTTP columns
+            if channel:
+                req = str(channel.request_count).rjust(5)
+                resp = str(channel.response_count).rjust(5)
+                notif = str(channel.notification_count).rjust(5)
+                ping = str(channel.ping_count if channel.ping_count else "-").rjust(5)
+            else:
+                req = "-".rjust(5)
+                resp = "-".rjust(5)
+                notif = "-".rjust(5)
+                ping = "-".rjust(5)
+            line.append(
+                f"  {req} {resp} {notif} {ping}", style="bright_white" if channel else "dim"
+            )
 
         console.console.print(line)
 
@@ -399,14 +440,24 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
     if has_timelines:
         footer.append(" legend: ", style="dim")
-        legend_map = [
-            ("error", "bright_red"),
-            ("response", "bright_blue"),
-            ("request", "bright_yellow"),
-            ("notification", "bright_cyan"),
-            ("ping", "bright_green"),
-            ("idle", "white dim"),
-        ]
+
+        if is_stdio:
+            # Simplified legend for stdio: just activity vs idle
+            legend_map = [
+                ("activity", "bright_green"),
+                ("idle", "white dim"),
+            ]
+        else:
+            # Full legend for HTTP channels
+            legend_map = [
+                ("error", "bright_red"),
+                ("response", "bright_blue"),
+                ("request", "bright_yellow"),
+                ("notification", "bright_cyan"),
+                ("ping", "bright_green"),
+                ("idle", "white dim"),
+            ]
+
         for i, (name, color) in enumerate(legend_map):
             if i > 0:
                 footer.append(" ", style="dim")
@@ -481,6 +532,7 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         header_label.append(server, style="bright_blue bold")
         render_header(header_label)
 
+        # First line: name and version
         meta_line = Text(indent + "  ")
         meta_fields: list[Text] = []
         meta_fields.append(_build_aligned_field("name", impl_display))
@@ -491,10 +543,6 @@ async def render_mcp_status(agent, indent: str = "") -> None:
             if idx:
                 meta_line.append("  ", style="dim")
             meta_line.append_text(field)
-
-        session_text = _format_session_id(status.session_id)
-        meta_line.append(" | ", style="dim")
-        meta_line.append_text(_build_aligned_field("session", session_text))
 
         client_parts = []
         if status.client_info_name:
@@ -510,23 +558,20 @@ async def render_mcp_status(agent, indent: str = "") -> None:
             meta_line.append_text(_build_aligned_field("client", client_display))
 
         console.console.print(meta_line)
+
+        # Second line: session (on its own line)
+        session_line = Text(indent + "  ")
+        session_text = _format_session_id(status.session_id)
+        session_line.append_text(_build_aligned_field("session", session_text))
+        console.console.print(session_line)
         console.console.print()
 
         # Build status segments
         state_segments: list[Text] = []
-        if status.is_connected is True:
-            state_segments.append(Text("connected", style="bright_green"))
-        elif status.is_connected is False:
-            state_segments.append(Text("offline", style="bright_red"))
-
-        if status.roots_configured and (status.roots_count or 0) > 0:
-            roots_text = Text("roots:", style="white")
-            roots_text.append(str(status.roots_count), style="bright_white")
-            state_segments.append(roots_text)
 
         duration = _format_compact_duration(status.staleness_seconds)
         if duration:
-            last_text = Text("last activity: ", style="white")
+            last_text = Text("last activity: ", style="dim")
             last_text.append(duration, style="bright_white")
             last_text.append(" ago", style="dim")
             state_segments.append(last_text)
@@ -543,16 +588,14 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         if status.spoofing_enabled:
             state_segments.append(Text("client spoof", style="bright_yellow"))
 
-        # Transport and main status line
-        transport = getattr(status, "transport", None) or "unknown"
-        status_line = Text(indent + "  ")
-        transport_value = Text(transport, style="bright_white" if transport != "unknown" else "dim")
-        status_line.append_text(_build_aligned_field("transport", transport_value))
-        for segment in state_segments:
-            status_line.append("  |  ", style="dim")
-            status_line.append_text(segment)
-
-        console.console.print(status_line)
+        # Main status line (without transport and connected)
+        if state_segments:
+            status_line = Text(indent + "  ")
+            for idx, segment in enumerate(state_segments):
+                if idx:
+                    status_line.append("  |  ", style="dim")
+                status_line.append_text(segment)
+            console.console.print(status_line)
 
         # MCP protocol calls made (only shows calls that have actually been invoked)
         calls = _summarise_call_counts(status.call_counts)

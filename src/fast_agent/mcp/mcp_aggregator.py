@@ -520,6 +520,43 @@ class MCPAggregator(ContextDependent):
             stats = self._server_stats.setdefault(server_name, ServerStats())
             stats.record(operation_type, success)
 
+            # For stdio servers, also emit synthetic transport events to create activity timeline
+            await self._notify_stdio_transport_activity(server_name, operation_type, success)
+
+    async def _notify_stdio_transport_activity(
+        self, server_name: str, operation_type: str, success: bool
+    ) -> None:
+        """Notify transport metrics of activity for stdio servers to create activity timeline."""
+        if not self._persistent_connection_manager:
+            return
+
+        try:
+            # Get the server connection and check if it's stdio transport
+            server_conn = self._persistent_connection_manager.running_servers.get(server_name)
+            if not server_conn:
+                return
+
+            server_config = getattr(server_conn, "server_config", None)
+            if not server_config or server_config.transport != "stdio":
+                return
+
+            # Get transport metrics and emit synthetic message event
+            transport_metrics = getattr(server_conn, "transport_metrics", None)
+            if transport_metrics:
+                # Import here to avoid circular imports
+                from fast_agent.mcp.transport_tracking import ChannelEvent
+
+                # Create a synthetic message event to represent the MCP operation
+                event = ChannelEvent(
+                    channel="stdio",
+                    event_type="message",
+                    detail=f"{operation_type} ({'success' if success else 'error'})"
+                )
+                transport_metrics.record_event(event)
+        except Exception:
+            # Don't let transport tracking errors break normal operation
+            logger.debug("Failed to notify stdio transport activity for %s", server_name, exc_info=True)
+
     async def get_server_instructions(self) -> Dict[str, tuple[str, List[str]]]:
         """
         Get instructions from all connected servers along with their tool names.
