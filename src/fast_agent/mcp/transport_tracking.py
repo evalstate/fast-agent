@@ -243,7 +243,9 @@ class TransportChannelMetrics:
             self._get_last_error = event.detail
             self._get_last_event = "error"
             self._get_last_event_at = now
-            self._record_history("get", "error", now)
+            # Record 405 as "disabled" in timeline, not "error"
+            timeline_state = "disabled" if event.status_code == 405 else "error"
+            self._record_history("get", timeline_state, now)
 
     def _handle_resumption_event(self, event: ChannelEvent, now: datetime) -> None:
         if event.event_type == "message" and event.message is not None:

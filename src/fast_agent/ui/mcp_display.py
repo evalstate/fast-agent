@@ -14,6 +14,67 @@ if TYPE_CHECKING:
     from fast_agent.mcp.transport_tracking import ChannelSnapshot
 
 
+# Centralized color configuration
+class Colours:
+    """Color constants for MCP status display elements."""
+
+    # Timeline activity colors (Option A: Mixed Intensity)
+    ERROR = "bright_red"        # Keep error bright
+    DISABLED = "bright_blue"    # Keep disabled bright
+    RESPONSE = "blue"           # Normal blue instead of bright
+    REQUEST = "yellow"          # Normal yellow instead of bright
+    NOTIFICATION = "cyan"       # Normal cyan instead of bright
+    PING = "dim green"          # Keep ping dim
+    IDLE = "white dim"
+    NONE = "dim"
+
+    # Channel arrow states
+    ARROW_ERROR = "bright_red"
+    ARROW_DISABLED = "bright_yellow"  # For explicitly disabled/off
+    ARROW_METHOD_NOT_ALLOWED = "cyan"  # For 405 method not allowed (notification color)
+    ARROW_OFF = "black dim"
+    ARROW_IDLE = "bright_cyan"  # Connected but no activity
+    ARROW_ACTIVE = "bright_green"  # Connected with activity
+
+    # Capability token states
+    TOKEN_ERROR = "bright_red"
+    TOKEN_WARNING = "bright_cyan"
+    TOKEN_DISABLED = "dim"
+    TOKEN_HIGHLIGHTED = "bright_yellow"
+    TOKEN_ENABLED = "bright_green"
+
+    # Text elements
+    TEXT_DIM = "dim"
+    TEXT_DEFAULT = "default"  # Use terminal's default text color
+    TEXT_BRIGHT = "bright_white"
+    TEXT_ERROR = "bright_red"
+    TEXT_WARNING = "bright_yellow"
+    TEXT_SUCCESS = "bright_green"
+    TEXT_INFO = "bright_blue"
+    TEXT_CYAN = "cyan"
+
+
+# Color mappings for different contexts
+TIMELINE_COLORS = {
+    "error": Colours.ERROR,
+    "disabled": Colours.DISABLED,
+    "response": Colours.RESPONSE,
+    "request": Colours.REQUEST,
+    "notification": Colours.NOTIFICATION,
+    "ping": Colours.PING,
+    "none": Colours.IDLE,
+}
+
+TIMELINE_COLORS_STDIO = {
+    "error": Colours.ERROR,
+    "request": Colours.TOKEN_ENABLED,  # All activity shows as bright green
+    "response": Colours.TOKEN_ENABLED,
+    "notification": Colours.TOKEN_ENABLED,
+    "ping": Colours.PING,
+    "none": Colours.IDLE,
+}
+
+
 def _format_compact_duration(seconds: float | None) -> str | None:
     if seconds is None:
         return None
@@ -58,7 +119,7 @@ def _format_session_id(session_id: str | None) -> Text:
 
 
 def _build_aligned_field(
-    label: str, value: Text | str, *, label_width: int = 9, value_style: str = "white"
+    label: str, value: Text | str, *, label_width: int = 9, value_style: str = Colours.TEXT_DEFAULT
 ) -> Text:
     field = Text()
     field.append(f"{label:<{label_width}}: ", style="dim")
@@ -153,14 +214,14 @@ def _format_capability_shorthand(
 
     def token_style(supported, highlighted) -> str:
         if supported == "red":
-            return "bright_red"
+            return Colours.TOKEN_ERROR
         if supported == "blue":
-            return "bright_cyan"
+            return Colours.TOKEN_WARNING
         if not supported:
-            return "dim"
+            return Colours.TOKEN_DISABLED
         if highlighted:
-            return "bright_yellow"
-        return "bright_green"
+            return Colours.TOKEN_HIGHLIGHTED
+        return Colours.TOKEN_ENABLED
 
     tokens = [
         (label, token_style(supported, highlighted)) for label, supported, highlighted in entries
@@ -198,19 +259,16 @@ def _format_label(label: str, width: int = 10) -> str:
 
 def _build_inline_timeline(buckets: Iterable[str]) -> str:
     """Build a compact timeline string for inline display."""
-    color_map = {
-        "error": "bright_red",
-        "disabled": "bright_blue",
-        "response": "bright_blue",
-        "request": "bright_yellow",
-        "notification": "bright_cyan",
-        "ping": "bright_green",
-        "none": "dim",
-    }
     timeline = "  [dim]10m[/dim] "
     for state in buckets:
-        color = color_map.get(state, "dim")
-        timeline += f"[bold {color}]●[/bold {color}]"
+        color = TIMELINE_COLORS.get(state, Colours.NONE)
+        if state in {"idle", "none"}:
+            symbol = "·"
+        elif state == "request":
+            symbol = "◆"  # Diamond for requests - rare and important
+        else:
+            symbol = "●"  # Circle for other activity
+        timeline += f"[bold {color}]{symbol}[/bold {color}]"
     timeline += " [dim]now[/dim]"
     return timeline
 
@@ -298,45 +356,25 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     # Collect any errors to show at bottom
     errors = []
 
-    # Build timeline color map
-    if is_stdio:
-        # Simplified color map for stdio: bright green for activity, dim for idle
-        timeline_color_map = {
-            "error": "bright_red",  # Keep error as red
-            "request": "bright_green",  # All activity shows as bright green
-            "response": "bright_green",  # (not used in stdio but just in case)
-            "notification": "bright_green",  # (not used in stdio but just in case)
-            "ping": "bright_green",  # (not used in stdio but just in case)
-            "none": "white dim",
-        }
-    else:
-        # Full color map for HTTP channels
-        timeline_color_map = {
-            "error": "bright_red",
-            "disabled": "bright_blue",
-            "response": "bright_blue",
-            "request": "bright_yellow",
-            "notification": "bright_cyan",
-            "ping": "bright_green",
-            "none": "white dim",
-        }
+    # Get appropriate timeline color map
+    timeline_color_map = TIMELINE_COLORS_STDIO if is_stdio else TIMELINE_COLORS
 
     for label, arrow, channel in entries:
         line = Text(indent)
         line.append("│ ", style="dim")
 
         # Determine arrow color based on state
-        arrow_style = "black dim"  # default no channel
+        arrow_style = Colours.ARROW_OFF  # default no channel
         if channel:
             state = (channel.state or "open").lower()
 
-            # Check for 405 status code (method not allowed = disabled endpoint)
+            # Check for 405 status code (method not allowed = not an error, just unsupported)
             if channel.last_status_code == 405:
-                arrow_style = "bright_yellow"
-                # Don't add 405 to errors list - it's just disabled, not an error
+                arrow_style = Colours.ARROW_METHOD_NOT_ALLOWED
+                # Don't add 405 to errors list - it's not an error, just method not supported
             # Error state (non-405 errors)
             elif state == "error":
-                arrow_style = "bright_red"
+                arrow_style = Colours.ARROW_ERROR
                 if channel.last_error and channel.last_status_code != 405:
                     error_msg = channel.last_error
                     if channel.last_status_code:
@@ -347,20 +385,27 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                         errors.append((label.split()[0], error_msg))
             # Explicitly disabled or off
             elif state in {"off", "disabled"}:
-                arrow_style = "black dim"
+                arrow_style = Colours.ARROW_OFF
             # No activity (idle)
             elif channel.request_count == 0 and channel.response_count == 0:
-                arrow_style = "bright_cyan"
+                arrow_style = Colours.ARROW_IDLE
             # Active/connected with activity
             elif state in {"open", "connected"}:
-                arrow_style = "bright_green"
+                arrow_style = Colours.ARROW_ACTIVE
             # Fallback for other states
             else:
-                arrow_style = "bright_cyan"
+                arrow_style = Colours.ARROW_IDLE
 
         # Arrow and label with better spacing
-        line.append(arrow, style=arrow_style)
-        line.append(f" {label:<13}", style="bright_white")
+        # Use hollow arrow for 405 Method Not Allowed
+        if channel and channel.last_status_code == 405:
+            # Convert solid arrows to hollow for 405
+            hollow_arrows = {"◀": "◁", "▶": "▷", "⇄": "⇄"}  # bidirectional stays same
+            display_arrow = hollow_arrows.get(arrow, arrow)
+        else:
+            display_arrow = arrow
+        line.append(display_arrow, style=arrow_style)
+        line.append(f" {label:<13}", style=Colours.TEXT_DEFAULT)
 
         # Always show timeline (dim black dots if no data)
         line.append("10m ", style="dim")
@@ -368,11 +413,17 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             # Show actual activity
             for bucket_state in channel.activity_buckets:
                 color = timeline_color_map.get(bucket_state, "dim")
-                line.append("●", style=f"bold {color}")
+                if bucket_state in {"idle", "none"}:
+                    symbol = "·"
+                elif bucket_state == "request":
+                    symbol = "◆"  # Diamond for requests - rare and important
+                else:
+                    symbol = "●"  # Circle for other activity
+                line.append(symbol, style=f"bold {color}")
         else:
-            # Show dim black dots for no activity
+            # Show dim dots for no activity
             for _ in range(20):
-                line.append("●", style="black dim")
+                line.append("·", style="black dim")
         line.append(" now", style="dim")
 
         # Metrics - different layouts for stdio vs HTTP
@@ -380,26 +431,41 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             # Simplified activity column for stdio
             if channel and channel.message_count > 0:
                 activity = str(channel.message_count).rjust(8)
-                activity_style = "bright_white"
+                activity_style = Colours.TEXT_DEFAULT
             else:
                 activity = "-".rjust(8)
-                activity_style = "dim"
+                activity_style = Colours.TEXT_DIM
             line.append(f"  {activity}", style=activity_style)
         else:
             # Original HTTP columns
             if channel:
-                req = str(channel.request_count).rjust(5)
-                resp = str(channel.response_count).rjust(5)
-                notif = str(channel.notification_count).rjust(5)
-                ping = str(channel.ping_count if channel.ping_count else "-").rjust(5)
+                # Show "-" for shut/disabled channels (405, off, disabled states)
+                channel_state = (channel.state or "open").lower()
+                is_shut = (
+                    channel.last_status_code == 405 or
+                    channel_state in {"off", "disabled"} or
+                    (channel_state == "error" and channel.last_status_code == 405)
+                )
+
+                if is_shut:
+                    req = "-".rjust(5)
+                    resp = "-".rjust(5)
+                    notif = "-".rjust(5)
+                    ping = "-".rjust(5)
+                    metrics_style = Colours.TEXT_DIM
+                else:
+                    req = str(channel.request_count).rjust(5)
+                    resp = str(channel.response_count).rjust(5)
+                    notif = str(channel.notification_count).rjust(5)
+                    ping = str(channel.ping_count if channel.ping_count else "-").rjust(5)
+                    metrics_style = Colours.TEXT_DEFAULT
             else:
                 req = "-".rjust(5)
                 resp = "-".rjust(5)
                 notif = "-".rjust(5)
                 ping = "-".rjust(5)
-            line.append(
-                f"  {req} {resp} {notif} {ping}", style="bright_white" if channel else "dim"
-            )
+                metrics_style = Colours.TEXT_DIM
+            line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
 
         console.console.print(line)
 
@@ -416,13 +482,13 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
         for channel_type, error_msg in errors:
             error_line = Text(indent)
-            error_line.append("│ ", style="dim")
-            error_line.append("⚠ ", style="bright_yellow")
-            error_line.append(f"{channel_type}: ", style="bright_white")
+            error_line.append("│ ", style=Colours.TEXT_DIM)
+            error_line.append("⚠ ", style=Colours.TEXT_WARNING)
+            error_line.append(f"{channel_type}: ", style=Colours.TEXT_DEFAULT)
             # Truncate long error messages
             if len(error_msg) > 60:
                 error_msg = error_msg[:57] + "..."
-            error_line.append(error_msg, style="bright_red")
+            error_line.append(error_msg, style=Colours.TEXT_ERROR)
             console.console.print(error_line)
 
     # Legend if any timelines shown
@@ -444,24 +510,30 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         if is_stdio:
             # Simplified legend for stdio: just activity vs idle
             legend_map = [
-                ("activity", "bright_green"),
-                ("idle", "white dim"),
+                ("activity", f"bold {Colours.TOKEN_ENABLED}"),
+                ("idle", Colours.IDLE),
             ]
         else:
             # Full legend for HTTP channels
             legend_map = [
-                ("error", "bright_red"),
-                ("response", "bright_blue"),
-                ("request", "bright_yellow"),
-                ("notification", "bright_cyan"),
-                ("ping", "bright_green"),
-                ("idle", "white dim"),
+                ("error", f"bold {Colours.ERROR}"),
+                ("response", f"bold {Colours.RESPONSE}"),
+                ("request", f"bold {Colours.REQUEST}"),
+                ("notification", f"bold {Colours.NOTIFICATION}"),
+                ("ping", Colours.PING),
+                ("idle", Colours.IDLE),
             ]
 
         for i, (name, color) in enumerate(legend_map):
             if i > 0:
                 footer.append(" ", style="dim")
-            footer.append("●", style=f"bold {color}")
+            if name == "idle":
+                symbol = "·"
+            elif name == "request":
+                symbol = "◆"  # Diamond for requests
+            else:
+                symbol = "●"
+            footer.append(symbol, style=f"{color}")
             footer.append(f" {name}", style="dim")
 
     console.console.print(footer)
@@ -526,10 +598,10 @@ async def render_mcp_status(agent, indent: str = "") -> None:
             version_display = version_display[:9] + "..."
 
         header_label = Text(indent)
-        header_label.append("▎", style="cyan")
-        header_label.append("●", style="dim cyan")
-        header_label.append(f" [{index:2}] ", style="cyan")
-        header_label.append(server, style="bright_blue bold")
+        header_label.append("▎", style=Colours.TEXT_CYAN)
+        header_label.append("●", style=f"dim {Colours.TEXT_CYAN}")
+        header_label.append(f" [{index:2}] ", style=Colours.TEXT_CYAN)
+        header_label.append(server, style=f"{Colours.TEXT_INFO} bold")
         render_header(header_label)
 
         # First line: name and version
@@ -571,22 +643,22 @@ async def render_mcp_status(agent, indent: str = "") -> None:
 
         duration = _format_compact_duration(status.staleness_seconds)
         if duration:
-            last_text = Text("last activity: ", style="dim")
-            last_text.append(duration, style="bright_white")
-            last_text.append(" ago", style="dim")
+            last_text = Text("last activity: ", style=Colours.TEXT_DIM)
+            last_text.append(duration, style=Colours.TEXT_DEFAULT)
+            last_text.append(" ago", style=Colours.TEXT_DIM)
             state_segments.append(last_text)
 
         if status.error_message and status.is_connected is False:
-            state_segments.append(Text(status.error_message, style="bright_red"))
+            state_segments.append(Text(status.error_message, style=Colours.TEXT_ERROR))
 
         instr_available = bool(status.instructions_available)
         if instr_available and status.instructions_enabled is False:
-            state_segments.append(Text("instructions disabled", style="bright_red"))
+            state_segments.append(Text("instructions disabled", style=Colours.TEXT_ERROR))
         elif instr_available and not template_expected:
-            state_segments.append(Text("template missing", style="bright_yellow"))
+            state_segments.append(Text("template missing", style=Colours.TEXT_WARNING))
 
         if status.spoofing_enabled:
-            state_segments.append(Text("client spoof", style="bright_yellow"))
+            state_segments.append(Text("client spoof", style=Colours.TEXT_WARNING))
 
         # Main status line (without transport and connected)
         if state_segments:
@@ -601,8 +673,8 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         calls = _summarise_call_counts(status.call_counts)
         if calls:
             calls_line = Text(indent + "  ")
-            calls_line.append("mcp calls: ", style="dim")
-            calls_line.append(calls, style="bright_white")
+            calls_line.append("mcp calls: ", style=Colours.TEXT_DIM)
+            calls_line.append(calls, style=Colours.TEXT_DEFAULT)
             console.console.print(calls_line)
         _render_channel_summary(status, indent, total_width)
 
