@@ -548,13 +548,15 @@ class ConsoleDisplay:
         if channel:
             # Format channel info for bottom bar
             if channel == "post-json":
-                transport_info = "Direct Response"
+                transport_info = "HTTP (JSON-RPC)"
             elif channel == "post-sse":
-                transport_info = "SSE"
+                transport_info = "HTTP (SSE)"
             elif channel == "get":
-                transport_info = "GET"
+                transport_info = "HTTP (SSE)"
             elif channel == "resumption":
                 transport_info = "Resumption"
+            elif channel == "stdio":
+                transport_info = "STDIO"
             else:
                 transport_info = channel.upper()
 
