@@ -16,7 +16,7 @@ from mcp.types import (
 )
 from pydantic import BaseModel, ConfigDict
 
-ChannelName = Literal["post-json", "post-sse", "get", "resumption"]
+ChannelName = Literal["post-json", "post-sse", "get", "resumption", "stdio"]
 EventType = Literal["message", "connect", "disconnect", "keepalive", "error"]
 
 
@@ -94,6 +94,7 @@ class TransportSnapshot(BaseModel):
     post_sse: ChannelSnapshot | None = None
     get: ChannelSnapshot | None = None
     resumption: ChannelSnapshot | None = None
+    stdio: ChannelSnapshot | None = None
 
 
 class TransportChannelMetrics:
@@ -138,6 +139,20 @@ class TransportChannelMetrics:
         self._resumption_response_count = 0
         self._resumption_notification_count = 0
 
+        self._stdio_connected = False
+        self._stdio_had_connection = False
+        self._stdio_connect_at: datetime | None = None
+        self._stdio_disconnect_at: datetime | None = None
+        self._stdio_count = 0
+        self._stdio_last_summary: str | None = None
+        self._stdio_last_at: datetime | None = None
+        self._stdio_last_event: str | None = None
+        self._stdio_last_event_at: datetime | None = None
+        self._stdio_last_error: str | None = None
+        self._stdio_request_count = 0
+        self._stdio_response_count = 0
+        self._stdio_notification_count = 0
+
         self._response_channel_by_id: dict[RequestId, ChannelName] = {}
 
         self._history_bucket_seconds = 30
@@ -156,6 +171,7 @@ class TransportChannelMetrics:
             "post-sse": deque(maxlen=self._history_bucket_count),
             "get": deque(maxlen=self._history_bucket_count),
             "resumption": deque(maxlen=self._history_bucket_count),
+            "stdio": deque(maxlen=self._history_bucket_count),
         }
 
     def record_event(self, event: ChannelEvent) -> None:
@@ -167,6 +183,8 @@ class TransportChannelMetrics:
                 self._handle_get_event(event, now)
             elif event.channel == "resumption":
                 self._handle_resumption_event(event, now)
+            elif event.channel == "stdio":
+                self._handle_stdio_event(event, now)
 
     def _handle_post_event(self, event: ChannelEvent, now: datetime) -> None:
         mode = "json" if event.channel == "post-json" else "sse"
@@ -240,6 +258,45 @@ class TransportChannelMetrics:
         elif event.event_type == "error":
             self._record_history("resumption", "error", now)
 
+    def _handle_stdio_event(self, event: ChannelEvent, now: datetime) -> None:
+        if event.event_type == "connect":
+            self._stdio_connected = True
+            self._stdio_had_connection = True
+            self._stdio_connect_at = now
+            self._stdio_last_event = "connect"
+            self._stdio_last_event_at = now
+            self._stdio_last_error = None
+        elif event.event_type == "disconnect":
+            self._stdio_connected = False
+            self._stdio_disconnect_at = now
+            self._stdio_last_event = "disconnect"
+            self._stdio_last_event_at = now
+        elif event.event_type == "message":
+            self._stdio_count += 1
+
+            # Handle synthetic events (from ServerStats) vs real message events
+            if event.message is not None:
+                # Real message event with JSON-RPC content
+                classification = self._tally_message_counts("stdio", event.message, now)
+                summary = "ping" if classification == "ping" else _summarise_message(event.message)
+                self._record_response_channel(event)
+            else:
+                # Synthetic event from MCP operation activity
+                classification = "request"  # MCP operations are always requests from client perspective
+                self._stdio_request_count += 1
+                summary = event.detail or "request"
+
+            self._stdio_last_summary = summary
+            self._stdio_last_at = now
+            self._stdio_last_event = "message"
+            self._stdio_last_event_at = now
+            self._record_history("stdio", classification, now)
+        elif event.event_type == "error":
+            self._stdio_last_error = event.detail
+            self._stdio_last_event = "error"
+            self._stdio_last_event_at = now
+            self._record_history("stdio", "error", now)
+
     def _record_response_channel(self, event: ChannelEvent) -> None:
         if event.message is None:
             return
@@ -295,6 +352,13 @@ class TransportChannelMetrics:
                 self._resumption_notification_count += 1
             elif classification == "response":
                 self._resumption_response_count += 1
+        elif channel_key == "stdio":
+            if classification == "request":
+                self._stdio_request_count += 1
+            elif classification == "notification":
+                self._stdio_notification_count += 1
+            elif classification == "response":
+                self._stdio_response_count += 1
 
         return classification
 
@@ -406,7 +470,9 @@ class TransportChannelMetrics:
                 and not self._get_message_count
                 and not self._get_ping_count
                 and not self._resumption_count
+                and not self._stdio_count
                 and not self._get_connected
+                and not self._stdio_connected
             ):
                 return TransportSnapshot()
 
@@ -489,10 +555,44 @@ class TransportChannelMetrics:
                     activity_buckets=self._build_activity_buckets("resumption", now),
                 )
 
+            stdio_snapshot = None
+            if (
+                self._stdio_count
+                or self._stdio_connected
+                or self._stdio_disconnect_at
+                or self._stdio_last_error
+            ):
+                if self._stdio_connected:
+                    state = "open"
+                elif self._stdio_last_error is not None:
+                    state = "error"
+                elif self._stdio_had_connection:
+                    state = "off"
+                else:
+                    state = "idle"
+
+                stdio_snapshot = ChannelSnapshot(
+                    connected=self._stdio_connected,
+                    state=state,
+                    connect_at=self._stdio_connect_at,
+                    disconnect_at=self._stdio_disconnect_at,
+                    message_count=self._stdio_count,
+                    last_message_summary=self._stdio_last_summary,
+                    last_message_at=self._stdio_last_at,
+                    last_error=self._stdio_last_error,
+                    last_event=self._stdio_last_event,
+                    last_event_at=self._stdio_last_event_at,
+                    request_count=self._stdio_request_count,
+                    response_count=self._stdio_response_count,
+                    notification_count=self._stdio_notification_count,
+                    activity_buckets=self._build_activity_buckets("stdio", now),
+                )
+
             return TransportSnapshot(
                 post=post_snapshot,
                 post_json=post_json_snapshot,
                 post_sse=post_sse_snapshot,
                 get=get_snapshot,
                 resumption=resumption_snapshot,
+                stdio=stdio_snapshot,
             )

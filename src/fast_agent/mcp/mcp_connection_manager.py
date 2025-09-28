@@ -21,7 +21,6 @@ from mcp.client.sse import sse_client
 from mcp.client.stdio import (
     StdioServerParameters,
     get_default_environment,
-    stdio_client,
 )
 from mcp.client.streamable_http import GetSessionIdCallback
 from mcp.types import Implementation, JSONRPCMessage, ServerCapabilities
@@ -34,6 +33,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.oauth_client import build_oauth_provider
+from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
 from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_client
 from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
@@ -404,7 +404,7 @@ class MCPConnectionManager(ContextDependent):
 
         logger.debug(f"{server_name}: Found server configuration=", data=config.model_dump())
 
-        transport_metrics = TransportChannelMetrics() if config.transport == "http" else None
+        transport_metrics = TransportChannelMetrics() if config.transport in ("http", "stdio") else None
 
         def transport_context_factory():
             if config.transport == "stdio":
@@ -422,7 +422,11 @@ class MCPConnectionManager(ContextDependent):
                 error_handler = get_stderr_handler(server_name)
                 # Explicitly ensure we're using our custom logger for stderr
                 logger.debug(f"{server_name}: Creating stdio client with custom error handler")
-                return _add_none_to_context(stdio_client(server_params, errlog=error_handler))
+
+                channel_hook = transport_metrics.record_event if transport_metrics else None
+                return _add_none_to_context(
+                    tracking_stdio_client(server_params, channel_hook=channel_hook, errlog=error_handler)
+                )
             elif config.transport == "sse":
                 if not config.url:
                     raise ValueError(
