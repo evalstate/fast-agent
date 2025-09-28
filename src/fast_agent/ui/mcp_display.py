@@ -208,22 +208,40 @@ def _build_channel_line_with_timeline(
     if channel is None:
         return lines, False
 
-    # Channel header - just name and state (no mode for SSE since it's obvious)
+    # Channel header - compact format without excessive padding
     header = Text(indent)
     header.append("│   ", style="dim")
-    header.append(f"{label:<10}", style="bright_white bold")
+    header.append(label, style="bright_white bold")
 
     state = (channel.state or "open").lower()
-    if state != "idle":  # Don't show idle
+    # Only show state for GET channel, or if any channel is not open/connected
+    if label == "GET" and state != "open":
         state_styles = {
-            "open": "bright_green",
             "off": "bright_yellow",
             "disabled": "bright_blue",
             "error": "bright_red",
+            "idle": "dim",
         }
+        header.append(" (", style="dim")
         header.append(state, style=state_styles.get(state, "dim"))
-        if channel.last_status_code and state in {"off", "disabled", "error"}:
-            header.append(f" ({channel.last_status_code})", style="bright_white")
+        # Don't show 405 status codes as they're expected for disabled endpoints
+        if channel.last_status_code and state in {"off", "disabled", "error"} and channel.last_status_code != 405:
+            header.append(f" {channel.last_status_code}", style="bright_white")
+        header.append(")", style="dim")
+    elif label.startswith("POST") and state not in {"open", "connected"}:
+        # Only show non-open states for POST channels
+        state_styles = {
+            "off": "bright_yellow",
+            "disabled": "bright_blue",
+            "error": "bright_red",
+            "idle": "dim",
+        }
+        header.append(" (", style="dim")
+        header.append(state, style=state_styles.get(state, "dim"))
+        # Don't show 405 status codes as they're expected for disabled endpoints
+        if channel.last_status_code and state in {"off", "disabled", "error"} and channel.last_status_code != 405:
+            header.append(f" {channel.last_status_code}", style="bright_white")
+        header.append(")", style="dim")
 
     # Only show mode for POST-JSON when it's mixed
     if label == "POST-JSON" and channel.mode == "mixed" and channel.mode_counts:
@@ -234,11 +252,19 @@ def _build_channel_line_with_timeline(
 
     lines.append(header)
 
-    # Metrics line with timeline on the left
+    # Metrics line with timeline shifted right
     metrics = Text(indent)
     metrics.append("│       ", style="dim")
 
-    # Add timeline inline if available (on the left)
+    # Show breakdown with colons and left-aligned numbers first
+    metrics.append("req:", style="dim")
+    metrics.append(f"{channel.request_count:<5}", style="bright_yellow")
+    metrics.append("resp:", style="dim")
+    metrics.append(f"{channel.response_count:<5}", style="bright_blue")
+    metrics.append("notif:", style="dim")
+    metrics.append(f"{channel.notification_count:<5}", style="bright_cyan")
+
+    # Add timeline after metrics (shifted right for more space)
     if hasattr(channel, "activity_buckets") and channel.activity_buckets:
         # Build timeline directly into the metrics line
         color_map = {
@@ -250,22 +276,14 @@ def _build_channel_line_with_timeline(
             "ping": "bright_green",
             "none": "dim",
         }
-        metrics.append("10m ", style="dim")
+        metrics.append("    10m ", style="dim")  # Extra spacing
         for state in channel.activity_buckets:
             color = color_map.get(state, "dim")
             metrics.append("●", style=f"bold {color}")
-        metrics.append(" now  ", style="dim")
+        metrics.append(" now", style="dim")
         timeline = True
     else:
         timeline = False
-
-    # Show breakdown with colons and left-aligned numbers
-    metrics.append("req:", style="dim")
-    metrics.append(f"{channel.request_count:<5}", style="bright_yellow")
-    metrics.append("resp:", style="dim")
-    metrics.append(f"{channel.response_count:<5}", style="bright_blue")
-    metrics.append("notif:", style="dim")
-    metrics.append(f"{channel.notification_count:<5}", style="bright_cyan")
 
     lines.append(metrics)
 
@@ -283,8 +301,8 @@ def _build_channel_line_with_timeline(
         )
         lines.append(ping_line)
 
-    # Error line only if there's an error
-    if channel.last_error:
+    # Error line only if there's an error (but suppress 405 Method Not Allowed)
+    if channel.last_error and not ("405" in channel.last_error and "Method Not Allowed" in channel.last_error):
         error_line = Text(indent)
         error_line.append("│       ", style="dim")
         detail = channel.last_error
@@ -335,20 +353,7 @@ def _build_activity_line(label: str, buckets: Iterable[str], indent: str) -> str
     return line
 
 
-def _build_activity_legend(indent: str) -> str:
-    # Using markup string instead of Text object for better rendering
-    legend = f"{indent}[dim]│       [/dim]legend "
-    legend_map = [
-        ("error", "bright_red"),
-        ("response", "bright_blue"),  # Using blue for better visibility
-        ("request", "bright_yellow"),
-        ("notification", "bright_cyan"),
-        ("ping", "bright_green"),
-        ("idle", "dim"),  # Keep idle as dim for contrast
-    ]
-    for name, color in legend_map:
-        legend += f"[bold {color}]●[/bold {color}] [dim]{name}[/dim]  "
-    return legend
+# Note: _build_activity_legend function removed - legend now built directly in footer
 
 
 def _render_channel_summary(status: ServerStatus, indent: str, total_width: int) -> None:
@@ -384,16 +389,44 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
             if has_timeline:
                 timelines_to_show.append(label)
+        else:
+            # Show placeholder for channels with no data to maintain box continuity
+            placeholder = Text(indent)
+            placeholder.append("│   ", style="dim")
+            placeholder.append(label, style="bright_white bold")
+            placeholder.append(" (idle)", style="dim")
+            console.console.print(placeholder)
 
-        # Add spacing between channels (except after the last one)
-        if idx < len(entries) - 1 and lines:
-            console.console.print()  # Vertical spacing between channels
-
-    # Add legend if any timelines were shown
+    # Add legend with empty rows around it if any timelines were shown
     if timelines_to_show:
-        console.console.print()  # Space before legend
-        console.console.print(_build_activity_legend(indent))
+        # Empty row before legend
+        empty_before = Text(indent)
+        empty_before.append("│", style="dim")
+        console.console.print(empty_before)
 
+        # Legend row
+        legend_line = Text(indent)
+        legend_line.append("│ legend ", style="dim")
+        legend_map = [
+            ("error", "bright_red"),
+            ("response", "bright_blue"),
+            ("request", "bright_yellow"),
+            ("notification", "bright_cyan"),
+            ("ping", "bright_green"),
+            ("idle", "dim"),
+        ]
+        for name, color in legend_map:
+            legend_line.append("●", style=f"bold {color}")
+            legend_line.append(f" {name} ", style="dim")
+            legend_line.append(" ", style="dim")
+        console.console.print(legend_line)
+
+        # Empty row after legend
+        empty_after = Text(indent)
+        empty_after.append("│", style="dim")
+        console.console.print(empty_after)
+
+    # Footer
     footer = Text(indent)
     footer.append("└", style="dim")
     console.console.print(footer)
@@ -534,11 +567,11 @@ async def render_mcp_status(agent, indent: str = "") -> None:
 
         console.console.print(status_line)
 
-        # Calls summary on separate line if present
+        # MCP protocol calls made (only shows calls that have actually been invoked)
         calls = _summarise_call_counts(status.call_counts)
         if calls:
             calls_line = Text(indent + "  ")
-            calls_line.append("calls: ", style="dim")
+            calls_line.append("mcp calls: ", style="dim")
             calls_line.append(calls, style="bright_white")
             console.console.print(calls_line)
         _render_channel_summary(status, indent, total_width)
