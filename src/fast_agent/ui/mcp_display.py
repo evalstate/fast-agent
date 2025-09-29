@@ -19,12 +19,12 @@ class Colours:
     """Color constants for MCP status display elements."""
 
     # Timeline activity colors (Option A: Mixed Intensity)
-    ERROR = "bright_red"        # Keep error bright
-    DISABLED = "bright_blue"    # Keep disabled bright
-    RESPONSE = "blue"           # Normal blue instead of bright
-    REQUEST = "yellow"          # Normal yellow instead of bright
-    NOTIFICATION = "cyan"       # Normal cyan instead of bright
-    PING = "dim green"          # Keep ping dim
+    ERROR = "bright_red"  # Keep error bright
+    DISABLED = "bright_blue"  # Keep disabled bright
+    RESPONSE = "blue"  # Normal blue instead of bright
+    REQUEST = "yellow"  # Normal yellow instead of bright
+    NOTIFICATION = "cyan"  # Normal cyan instead of bright
+    PING = "dim green"  # Keep ping dim
     IDLE = "white dim"
     NONE = "dim"
 
@@ -195,7 +195,7 @@ def _format_capability_shorthand(
         entries.append(("Ro", False, False))
 
     mode = (status.elicitation_mode or "").lower()
-    if mode == "auto_cancel":
+    if mode == "auto-cancel":
         entries.append(("El", "red", False))
     elif mode and mode != "none":
         entries.append(("El", True, False))
@@ -405,7 +405,21 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         else:
             display_arrow = arrow
         line.append(display_arrow, style=arrow_style)
-        line.append(f" {label:<13}", style=Colours.TEXT_DEFAULT)
+
+        # Determine label style based on activity and special cases
+        if not channel:
+            # No channel = dim
+            label_style = Colours.TEXT_DIM
+        elif channel.last_status_code == 405 and "GET" in label:
+            # Special case: GET (SSE) with 405 = dim (hollow arrow already handled above)
+            label_style = Colours.TEXT_DIM
+        elif channel.request_count == 0 and channel.response_count == 0:
+            # No activity = dim
+            label_style = Colours.TEXT_DIM
+        else:
+            # Has activity = normal
+            label_style = Colours.TEXT_DEFAULT
+        line.append(f" {label:<13}", style=label_style)
 
         # Always show timeline (dim black dots if no data)
         line.append("10m ", style="dim")
@@ -415,6 +429,9 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 color = timeline_color_map.get(bucket_state, "dim")
                 if bucket_state in {"idle", "none"}:
                     symbol = "·"
+                elif is_stdio:
+                    # For STDIO, all activity shows as filled circles since types are combined
+                    symbol = "●"
                 elif bucket_state == "request":
                     symbol = "◆"  # Diamond for requests - rare and important
                 else:
@@ -442,9 +459,9 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 # Show "-" for shut/disabled channels (405, off, disabled states)
                 channel_state = (channel.state or "open").lower()
                 is_shut = (
-                    channel.last_status_code == 405 or
-                    channel_state in {"off", "disabled"} or
-                    (channel_state == "error" and channel.last_status_code == 405)
+                    channel.last_status_code == 405
+                    or channel_state in {"off", "disabled"}
+                    or (channel_state == "error" and channel.last_status_code == 405)
                 )
 
                 if is_shut:

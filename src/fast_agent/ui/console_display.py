@@ -623,33 +623,38 @@ class ConsoleDisplay:
         if not self.config or not self.config.logger.show_tools:
             return
 
-        # Combined separator and status line
-        if agent_name:
-            left = (
-                f"[magenta]▎[/magenta][dim magenta]▶[/dim magenta] [magenta]{agent_name}[/magenta]"
-            )
-        else:
-            left = "[magenta]▎[/magenta][dim magenta]▶[/dim magenta]"
-
-        right = f"[dim]{updated_server}[/dim]"
-        self._create_combined_separator_status(left, right)
-
-        # Display update message
-        message = f"Updating tools for server {updated_server}"
-        console.console.print(message, style="dim", markup=self._markup)
-
-        # Bottom separator
-        console.console.print()
-        console.console.print("─" * console.console.size.width, style="dim")
-        console.console.print()
-
-        # Force prompt_toolkit redraw if active
+        # Check if prompt_toolkit is active
         try:
             from prompt_toolkit.application.current import get_app
 
-            get_app().invalidate()  # Forces prompt_toolkit to redraw
+            app = get_app()
+            # We're in interactive mode - add to notification tracker
+            from fast_agent.ui import notification_tracker
+
+            notification_tracker.add_tool_update(updated_server)
+            app.invalidate()  # Force toolbar redraw
+
         except:  # noqa: E722
-            pass  # No active prompt_toolkit session
+            # No active prompt_toolkit session - display with rich as before
+            # Combined separator and status line
+            if agent_name:
+                left = (
+                    f"[magenta]▎[/magenta][dim magenta]▶[/dim magenta] [magenta]{agent_name}[/magenta]"
+                )
+            else:
+                left = "[magenta]▎[/magenta][dim magenta]▶[/dim magenta]"
+
+            right = f"[dim]{updated_server}[/dim]"
+            self._create_combined_separator_status(left, right)
+
+            # Display update message
+            message = f"Updating tools for server {updated_server}"
+            console.console.print(message, style="dim", markup=self._markup)
+
+            # Bottom separator
+            console.console.print()
+            console.console.print("─" * console.console.size.width, style="dim")
+            console.console.print()
 
     def _create_combined_separator_status(self, left_content: str, right_info: str = "") -> None:
         """

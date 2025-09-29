@@ -1362,22 +1362,15 @@ class MCPAggregator(ContextDependent):
 
         async with self._refresh_lock:
             try:
-                # Fetch new tools from the server
-                if self.connection_persistence:
-                    server_connection = await self._persistent_connection_manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    tools_result = await server_connection.session.list_tools()
-                    new_tools = tools_result.tools or []
-                else:
-                    async with gen_client(
-                        server_name,
-                        server_registry=self.context.server_registry,
-                        client_session_factory=self._create_session_factory(server_name),
-                    ) as client:
-                        tools_result = await client.list_tools()
-                        new_tools = tools_result.tools or []
+                # Fetch new tools from the server using _execute_on_server to properly record stats
+                tools_result = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="tools/list",
+                    operation_name="",
+                    method_name="list_tools",
+                    method_args={},
+                )
+                new_tools = tools_result.tools or []
 
                 # Update tool maps
                 async with self._tool_map_lock:

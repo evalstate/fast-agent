@@ -717,17 +717,33 @@ async def get_enhanced_input(
         # Version/app label in green (dynamic version)
         version_segment = f"fast-agent {app_version}"
 
+        # Add notifications - prioritize active events over completed ones
+        from fast_agent.ui import notification_tracker
+
+        notification_segment = ""
+
+        # Check for active events first (highest priority)
+        active_status = notification_tracker.get_active_status()
+        if active_status:
+            event_type = active_status['type'].upper()
+            server = active_status['server']
+            notification_segment = f" | <style fg='ansired' bg='ansiblack'>◀ {event_type} ({server})</style>"
+        elif notification_tracker.get_count() > 0:
+            # Show completed events summary when no active events
+            summary = notification_tracker.get_summary()
+            notification_segment = f" | ◀ {notification_tracker.get_count()} updates ({summary})"
+
         if middle:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}"
+                f"{version_segment}{notification_segment}"
             )
         else:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}"
+                f"{version_segment}{notification_segment}"
             )
 
     # A more terminal-agnostic style that should work across themes
@@ -766,7 +782,7 @@ async def get_enhanced_input(
     session.app.key_bindings = bindings
 
     # Create formatted prompt text
-    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> > "
+    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> ❯ "
 
     # Add default value display if requested
     if show_default and default and default != "STOP":
