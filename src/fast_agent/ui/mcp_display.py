@@ -406,12 +406,19 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             display_arrow = arrow
         line.append(display_arrow, style=arrow_style)
 
-        # Use dim text for GET (SSE) when 405 status code is present
-        label_style = (
-            Colours.TEXT_DIM
-            if (channel and channel.last_status_code == 405 and "GET" in label)
-            else Colours.TEXT_DEFAULT
-        )
+        # Determine label style based on activity and special cases
+        if not channel:
+            # No channel = dim
+            label_style = Colours.TEXT_DIM
+        elif channel.last_status_code == 405 and "GET" in label:
+            # Special case: GET (SSE) with 405 = dim (hollow arrow already handled above)
+            label_style = Colours.TEXT_DIM
+        elif channel.request_count == 0 and channel.response_count == 0:
+            # No activity = dim
+            label_style = Colours.TEXT_DIM
+        else:
+            # Has activity = normal
+            label_style = Colours.TEXT_DEFAULT
         line.append(f" {label:<13}", style=label_style)
 
         # Always show timeline (dim black dots if no data)

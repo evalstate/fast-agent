@@ -40,7 +40,7 @@ def start_sampling(server_name: str) -> None:
     try:
         from prompt_toolkit.application.current import get_app
         get_app().invalidate()
-    except:
+    except Exception:
         pass
 
 
@@ -62,7 +62,7 @@ def end_sampling(server_name: str) -> None:
     try:
         from prompt_toolkit.application.current import get_app
         get_app().invalidate()
-    except:
+    except Exception:
         pass
 
 
@@ -81,7 +81,7 @@ def start_elicitation(server_name: str) -> None:
     try:
         from prompt_toolkit.application.current import get_app
         get_app().invalidate()
-    except:
+    except Exception:
         pass
 
 
@@ -103,7 +103,7 @@ def end_elicitation(server_name: str) -> None:
     try:
         from prompt_toolkit.application.current import get_app
         get_app().invalidate()
-    except:
+    except Exception:
         pass
 
 
