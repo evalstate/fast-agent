@@ -3,7 +3,7 @@ Integration tests for elicitation handler functionality.
 
 These tests verify that:
 1. Custom elicitation handlers work correctly (decorator precedence)
-2. Config-based elicitation modes work (auto_cancel, forms, none)
+2. Config-based elicitation modes work (auto-cancel, forms, none)
 3. Elicitation capabilities are properly advertised to servers
 """
 

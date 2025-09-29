@@ -53,7 +53,7 @@ def resolve_elicitation_handler(
             if mode == "none":
                 logger.debug(f"Elicitation disabled by server config for agent {agent_config.name}")
                 return None  # Don't advertise elicitation capability
-            elif mode == "auto_cancel":
+            elif mode == "auto-cancel":
                 logger.debug(
                     f"Using auto-cancel elicitation handler (server config) for agent {agent_config.name}"
                 )
@@ -74,7 +74,7 @@ def resolve_elicitation_handler(
     if mode == "none":
         logger.debug(f"Elicitation disabled by global config for agent {agent_config.name}")
         return None  # Don't advertise elicitation capability
-    elif mode == "auto_cancel":
+    elif mode == "auto-cancel":
         logger.debug(
             f"Using auto-cancel elicitation handler (global config) for agent {agent_config.name}"
         )

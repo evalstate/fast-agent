@@ -77,6 +77,19 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
     Returns:
         A CreateMessageResult containing the LLM's response
     """
+    # Get server name for notification tracking
+    server_name = "unknown"
+    if hasattr(mcp_ctx, "session") and hasattr(mcp_ctx.session, "session_server_name"):
+        server_name = mcp_ctx.session.session_server_name or "unknown"
+
+    # Start tracking sampling operation
+    try:
+        from fast_agent.ui import notification_tracker
+        notification_tracker.start_sampling(server_name)
+    except Exception:
+        # Don't let notification tracking break sampling
+        pass
+
     model: str | None = None
     api_key: str | None = None
     try:
@@ -157,6 +170,14 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
         return SamplingConverter.error_result(
             error_message=f"Error in sampling: {str(e)}", model=model
         )
+    finally:
+        # End tracking sampling operation
+        try:
+            from fast_agent.ui import notification_tracker
+            notification_tracker.end_sampling(server_name)
+        except Exception:
+            # Don't let notification tracking break sampling
+            pass
 
 
 def sampling_agent_config(
