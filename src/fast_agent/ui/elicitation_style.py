@@ -7,16 +7,16 @@ ELICITATION_STYLE = Style.from_dict(
     {
         # Dialog structure - use ansidefault for true black, remove problematic shadow
         "dialog": "bg:ansidefault",  # True black dialog using ansidefault
-        "dialog.body": "bg:ansidefault fg:ansiwhite",  # True black dialog body
+        "dialog.body": "bg:ansidefault fg:ansidefault",  # True black dialog body with default text color
         "dialog shadow": "bg:ansidefault",  # Set shadow background to match application
         "dialog.border": "bg:ansidefault",  # True black border background
         # Set application background to true black
         "application": "bg:ansidefault",  # True black application background
         # Title styling with better contrast
-        "title": "fg:ansibrightmagenta bold",  # Bright magenta text
+        "title": "fg:ansidefault bold",  # Default color title for terminal compatibility
         # Buttons - only define focused state to preserve focus highlighting
         "button.focused": "bg:ansibrightgreen fg:ansiblack bold",  # Bright green with black text for contrast
-        "button.arrow": "fg:ansiwhite bold",  # White arrows for visibility
+        "button.arrow": "fg:ansidefault bold",  # Default color arrows for terminal compatibility
         # Form elements with consistent green/yellow theme
         # Checkboxes - green when checked, yellow when focused
         "checkbox": "fg:ansidefault",  # Default color unchecked checkbox (dimmer)
@@ -34,15 +34,15 @@ ELICITATION_STYLE = Style.from_dict(
         # Frame styling with ANSI colors - make borders visible
         "frame.border": "fg:ansibrightblack",  # Bright black borders for subtlety
         "frame.label": "fg:ansigray",  # Gray frame labels (less prominent)
-        # Labels and text - use white for good visibility
-        "label": "fg:ansiwhite",  # White labels for good readability
+        # Labels and text - use default color for terminal compatibility
+        "label": "fg:ansidefault",  # Default color labels for terminal compatibility
         "message": "fg:ansibrightcyan",  # Bright cyan messages (no bold)
         # Agent and server names - make them match
         "agent-name": "fg:ansibrightblue bold",
         "server-name": "fg:ansibrightblue bold",  # Same color as agent
         # Validation errors - better contrast
-        "validation-toolbar": "bg:ansibrightred fg:ansiwhite bold",
-        "validation-toolbar.text": "bg:ansibrightred fg:ansiwhite",
+        "validation-toolbar": "bg:ansibrightred fg:ansidefault bold",
+        "validation-toolbar.text": "bg:ansibrightred fg:ansidefault",
         "validation.border": "fg:ansibrightred",
         "validation-error": "fg:ansibrightred bold",  # For status line errors
         # Separator styling

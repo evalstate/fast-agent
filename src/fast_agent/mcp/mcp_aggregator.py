@@ -334,6 +334,9 @@ class MCPAggregator(ContextDependent):
                     server_name, client_session_factory=self._create_session_factory(server_name)
                 )
 
+                # Record the initialize call that happened during connection setup
+                await self._record_server_call(server_name, "initialize", True)
+
             logger.info(
                 f"MCP Servers initialized for agent '{self.agent_name}'",
                 data={
@@ -342,27 +345,39 @@ class MCPAggregator(ContextDependent):
                 },
             )
 
-        async def fetch_tools(client: ClientSession, server_name: str) -> List[Tool]:
+        async def fetch_tools(server_name: str) -> List[Tool]:
             # Only fetch tools if the server supports them
             if not await self.server_supports_feature(server_name, "tools"):
                 logger.debug(f"Server '{server_name}' does not support tools")
                 return []
 
             try:
-                result: ListToolsResult = await client.list_tools()
+                result: ListToolsResult = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="tools/list",
+                    operation_name="",
+                    method_name="list_tools",
+                    method_args={},
+                )
                 return result.tools or []
             except Exception as e:
                 logger.error(f"Error loading tools from server '{server_name}'", data=e)
                 return []
 
-        async def fetch_prompts(client: ClientSession, server_name: str) -> List[Prompt]:
+        async def fetch_prompts(server_name: str) -> List[Prompt]:
             # Only fetch prompts if the server supports them
             if not await self.server_supports_feature(server_name, "prompts"):
                 logger.debug(f"Server '{server_name}' does not support prompts")
                 return []
 
             try:
-                result = await client.list_prompts()
+                result = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="prompts/list",
+                    operation_name="",
+                    method_name="list_prompts",
+                    method_args={},
+                )
                 return getattr(result, "prompts", [])
             except Exception as e:
                 logger.debug(f"Error loading prompts from server '{server_name}': {e}")
@@ -372,20 +387,9 @@ class MCPAggregator(ContextDependent):
             tools: List[Tool] = []
             prompts: List[Prompt] = []
 
-            if self.connection_persistence:
-                server_connection = await self._persistent_connection_manager.get_server(
-                    server_name, client_session_factory=self._create_session_factory(server_name)
-                )
-                tools = await fetch_tools(server_connection.session, server_name)
-                prompts = await fetch_prompts(server_connection.session, server_name)
-            else:
-                async with gen_client(
-                    server_name,
-                    server_registry=self.context.server_registry,
-                    client_session_factory=self._create_session_factory(server_name),
-                ) as client:
-                    tools = await fetch_tools(client, server_name)
-                    prompts = await fetch_prompts(client, server_name)
+            # Use _execute_on_server for consistent tracking regardless of connection mode
+            tools = await fetch_tools(server_name)
+            prompts = await fetch_prompts(server_name)
 
             return server_name, tools, prompts
 
@@ -978,7 +982,7 @@ class MCPAggregator(ContextDependent):
 
             return await self._execute_on_server(
                 server_name=server_name,
-                operation_type="tool",
+                operation_type="tools/call",
                 operation_name=local_tool_name,
                 method_name="call_tool",
                 method_args={
@@ -1071,7 +1075,7 @@ class MCPAggregator(ContextDependent):
 
             result = await self._execute_on_server(
                 server_name=server_name,
-                operation_type="prompt",
+                operation_type="prompts/get",
                 operation_name=local_prompt_name or "default",
                 method_name="get_prompt",
                 method_args=method_args,
@@ -1119,7 +1123,7 @@ class MCPAggregator(ContextDependent):
 
                     result = await self._execute_on_server(
                         server_name=s_name,
-                        operation_type="prompt",
+                        operation_type="prompts/get",
                         operation_name=local_prompt_name,
                         method_name="get_prompt",
                         method_args=method_args,
@@ -1167,7 +1171,7 @@ class MCPAggregator(ContextDependent):
 
                     result = await self._execute_on_server(
                         server_name=s_name,
-                        operation_type="prompt",
+                        operation_type="prompts/get",
                         operation_name=local_prompt_name,
                         method_name="get_prompt",
                         method_args=method_args,
@@ -1190,7 +1194,7 @@ class MCPAggregator(ContextDependent):
                         try:
                             prompt_list_result = await self._execute_on_server(
                                 server_name=s_name,
-                                operation_type="prompts-list",
+                                operation_type="prompts/list",
                                 operation_name="",
                                 method_name="list_prompts",
                                 error_factory=lambda _: None,
@@ -1264,7 +1268,7 @@ class MCPAggregator(ContextDependent):
             # Fetch from server
             result = await self._execute_on_server(
                 server_name=server_name,
-                operation_type="prompts-list",
+                operation_type="prompts/list",
                 operation_name="",
                 method_name="list_prompts",
                 error_factory=lambda _: None,
@@ -1303,7 +1307,7 @@ class MCPAggregator(ContextDependent):
             try:
                 result = await self._execute_on_server(
                     server_name=s_name,
-                    operation_type="prompts-list",
+                    operation_type="prompts/list",
                     operation_name="",
                     method_name="list_prompts",
                     error_factory=lambda _: None,
@@ -1489,7 +1493,7 @@ class MCPAggregator(ContextDependent):
         # Use the _execute_on_server method to call read_resource on the server
         result = await self._execute_on_server(
             server_name=server_name,
-            operation_type="resource",
+            operation_type="resources/read",
             operation_name=resource_uri,
             method_name="read_resource",
             method_args={"uri": uri},
@@ -1540,7 +1544,7 @@ class MCPAggregator(ContextDependent):
                 # Use the _execute_on_server method to call list_resources on the server
                 result = await self._execute_on_server(
                     server_name=s_name,
-                    operation_type="resources-list",
+                    operation_type="resources/list",
                     operation_name="",
                     method_name="list_resources",
                     method_args={},  # Empty dictionary instead of None
@@ -1593,7 +1597,7 @@ class MCPAggregator(ContextDependent):
                 # Use the _execute_on_server method to call list_tools on the server
                 result = await self._execute_on_server(
                     server_name=s_name,
-                    operation_type="tools-list",
+                    operation_type="tools/list",
                     operation_name="",
                     method_name="list_tools",
                     method_args={},
