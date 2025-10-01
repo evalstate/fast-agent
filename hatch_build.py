@@ -25,17 +25,17 @@ class CustomBuildHook(BuildHookInterface):
             print("Fast-agent build: Cleared existing resources/setup directory")
 
         # Define source to target mappings
+        # Examples:
+        #  examples/workflows -> src/fast_agent/resources/examples/workflows
+        #  examples/mcp/elicitations -> src/fast_agent/resources/examples/mcp/elicitations
+        EXAMPLES_DIR = Path("src") / "fast_agent" / "resources" / "examples"
         example_mappings = {
-            # examples/workflows -> src/fast_agent/resources/examples/workflows
-            "examples/workflows": "src/fast_agent/resources/examples/workflows",
-            # examples/researcher -> src/fast_agent/resources/examples/researcher
-            "examples/researcher": "src/fast_agent/resources/examples/researcher",
-            # examples/data-analysis -> src/fast_agent/resources/examples/data-analysis
-            "examples/data-analysis": "src/fast_agent/resources/examples/data-analysis",
-            # examples/mcp/state-transfer -> src/fast_agent/resources/examples/mcp/state-transfer
-            "examples/mcp/state-transfer": "src/fast_agent/resources/examples/mcp/state-transfer",
-            "examples/mcp/elicitations": "src/fast_agent/resources/examples/mcp/elicitations",
-            "examples/tensorzero": "src/fast_agent/resources/examples/tensorzero",
+            "examples/workflows": EXAMPLES_DIR / "workflows",
+            "examples/researcher": EXAMPLES_DIR / "researcher",
+            "examples/data-analysis": EXAMPLES_DIR / "data-analysis",
+            "examples/mcp/state-transfer": EXAMPLES_DIR / "mcp" / "state-transfer",
+            "examples/mcp/elicitations": EXAMPLES_DIR / "mcp" / "elicitations",
+            "examples/tensorzero": EXAMPLES_DIR / "tensorzero",
         }
 
         # Define setup template mapping (editable templates -> packaged resources)
