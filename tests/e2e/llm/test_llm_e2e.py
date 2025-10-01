@@ -92,6 +92,7 @@ _tool = Tool(
 )
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_basic_generation(llm_agent_setup, model_name):
@@ -102,6 +103,7 @@ async def test_basic_generation(llm_agent_setup, model_name):
     assert result.last_text() is not None
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_max_tokens_limit(llm_agent_setup, model_name):
@@ -113,6 +115,7 @@ async def test_max_tokens_limit(llm_agent_setup, model_name):
     assert result.stop_reason is LlmStopReason.MAX_TOKENS
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_stop_sequence(llm_agent_setup, model_name):
@@ -129,6 +132,7 @@ async def test_stop_sequence(llm_agent_setup, model_name):
         assert result.stop_reason is LlmStopReason.END_TURN
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_structured_output(llm_agent_setup, model_name):
@@ -150,6 +154,7 @@ async def test_structured_output(llm_agent_setup, model_name):
     assert result.last_text() is not None
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_tool_use_stop(llm_agent_setup, model_name):
@@ -164,6 +169,7 @@ async def test_tool_use_stop(llm_agent_setup, model_name):
     assert "weather" == tool_call.params.name
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_tool_user_continuation(llm_agent_setup, model_name):
@@ -187,6 +193,7 @@ async def test_tool_user_continuation(llm_agent_setup, model_name):
     assert "sunny" in result.last_text().lower()
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_tool_calling_agent(llm_agent_setup, model_name):
@@ -210,6 +217,7 @@ async def test_tool_calling_agent(llm_agent_setup, model_name):
     assert "sunny" in result.last_text().lower()
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_vision_model_reads_name(llm_agent_setup, model_name):
@@ -239,6 +247,7 @@ async def test_vision_model_reads_name(llm_agent_setup, model_name):
     )
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_pdf_prompt_summarizes_name(llm_agent_setup, model_name):
@@ -263,6 +272,7 @@ async def test_pdf_prompt_summarizes_name(llm_agent_setup, model_name):
     assert ("fast-agent" in text) or ("llmindset" in text)
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_mcp_tool_result_image_reads_name(llm_agent_setup, model_name):
@@ -317,6 +327,7 @@ async def test_mcp_tool_result_image_reads_name(llm_agent_setup, model_name):
     assert "evalstate" in (result.all_text() or "").lower()
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model_name", TEST_MODELS)
 async def test_mcp_tool_result_pdf_summarizes_name(llm_agent_setup, model_name):

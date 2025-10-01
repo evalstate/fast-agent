@@ -6,6 +6,7 @@ from fast_agent.llm.request_params import RequestParams
 pytestmark = pytest.mark.usefixtures("tensorzero_docker_env")
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_tensorzero_agent_smoke(project_root, chdir_to_tensorzero_example):
     """
