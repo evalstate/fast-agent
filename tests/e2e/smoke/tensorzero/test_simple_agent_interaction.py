@@ -5,6 +5,7 @@ from fast_agent import FastAgent
 pytestmark = pytest.mark.usefixtures("tensorzero_docker_env", "chdir_to_tensorzero_example")
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_tensorzero_simple_agent_smoke():  # Removed unused project_root fixture
     """
@@ -20,8 +21,8 @@ async def test_tensorzero_simple_agent_smoke():  # Removed unused project_root f
     @fast.agent(
         name="simple_default",
         instruction="""
-            You are an agent dedicated to helping developers understand the relationship between TensoZero and fast-agent. If the user makes a request 
-            that requires you to invoke the test tools, please do so. When you use the tool, describe your rationale for doing so. 
+            You are an agent dedicated to helping developers understand the relationship between TensoZero and fast-agent. If the user makes a request
+            that requires you to invoke the test tools, please do so. When you use the tool, describe your rationale for doing so.
         """,
         servers=["tester"],
         model="tensorzero.simple_chat",
