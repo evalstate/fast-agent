@@ -347,7 +347,7 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "help": "Show commands and shortcuts",
-            "clear": "Clear the screen",
+            "clear": "Clear the screen and history of messages",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
             **(commands or {}),  # Allow custom commands to be passed in
@@ -725,9 +725,11 @@ async def get_enhanced_input(
         # Check for active events first (highest priority)
         active_status = notification_tracker.get_active_status()
         if active_status:
-            event_type = active_status['type'].upper()
-            server = active_status['server']
-            notification_segment = f" | <style fg='ansired' bg='ansiblack'>◀ {event_type} ({server})</style>"
+            event_type = active_status["type"].upper()
+            server = active_status["server"]
+            notification_segment = (
+                f" | <style fg='ansired' bg='ansiblack'>◀ {event_type} ({server})</style>"
+            )
         elif notification_tracker.get_count() > 0:
             # Show completed events summary when no active events
             summary = notification_tracker.get_summary()
@@ -1010,11 +1012,13 @@ async def handle_special_commands(command, agent_app=None):
     if isinstance(command, dict):
         return command
 
+    global agent_histories
+
     # Check for special string commands
     if command == "HELP":
         rich_print("\n[bold]Available Commands:[/bold]")
         rich_print("  /help          - Show this help")
-        rich_print("  /clear         - Clear screen")
+        rich_print("  /clear         - Clear screen and agent histories")
         rich_print("  /agents        - List available agents")
         rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
@@ -1039,7 +1043,8 @@ async def handle_special_commands(command, agent_app=None):
         return True
 
     elif command == "CLEAR":
-        # Clear screen (ANSI escape sequence)
+        # Clear screen and agent histories (ANSI escape sequence)
+        agent_histories = {}
         print("\033c", end="")
         return True
 
