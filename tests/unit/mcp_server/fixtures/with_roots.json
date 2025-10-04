@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "filesystem-server": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-filesystem"
+      ],
+      "roots": [
+        {
+          "uri": "file:///Users/username/Documents",
+          "name": "documents"
+        },
+        {
+          "uri": "file:///Users/username/Downloads",
+          "name": "downloads"
+        },
+        {
+          "uri": "file:///Users/username/Projects",
+          "name": "projects"
+        }
+      ]
+    }
+  }
+}
