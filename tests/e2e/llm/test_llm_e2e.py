@@ -48,6 +48,7 @@ def get_test_models():
     else:
         return [
             "gpt-4.1-mini",
+            #            "sonnet",
             "haiku",
             "kimi",
             "o4-mini.low",
