@@ -34,6 +34,7 @@ from fast_agent.ui.enhanced_prompt import (
     handle_special_commands,
     show_mcp_status,
 )
+from fast_agent.ui.history_display import display_history_overview
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
 
@@ -169,6 +170,20 @@ class InteractivePrompt:
                     elif "show_usage" in command_result:
                         # Handle usage display
                         await self._show_usage(prompt_provider, agent)
+                        continue
+                    elif "show_history" in command_result:
+                        target_agent = (
+                            command_result.get("show_history", {}).get("agent") or agent
+                        )
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        history = getattr(agent_obj, "message_history", [])
+                        usage = getattr(agent_obj, "usage_accumulator", None)
+                        display_history_overview(target_agent, history, usage)
                         continue
                     elif "show_system" in command_result:
                         # Handle system prompt display

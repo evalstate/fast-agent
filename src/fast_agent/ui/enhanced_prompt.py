@@ -347,7 +347,7 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "help": "Show commands and shortcuts",
-            "clear": "Clear the screen and history of messages",
+            "history": "Show conversation history overview (optionally another agent)",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
             **(commands or {}),  # Allow custom commands to be passed in
@@ -518,7 +518,15 @@ def create_keybindings(
 
     @kb.add("c-l")
     def _(event) -> None:
-        """Ctrl+L: Clear the input buffer."""
+        """Ctrl+L: Redraw the terminal screen."""
+        app_ref = event.app or app
+        if app_ref and getattr(app_ref, "renderer", None):
+            app_ref.renderer.clear()
+            app_ref.invalidate()
+
+    @kb.add("c-u")
+    def _(event) -> None:
+        """Ctrl+U: Clear the input buffer."""
         event.current_buffer.text = ""
 
     @kb.add("c-e")
@@ -826,14 +834,19 @@ async def get_enhanced_input(
 
             if cmd == "help":
                 return "HELP"
-            elif cmd == "clear":
-                return "CLEAR"
             elif cmd == "agents":
                 return "LIST_AGENTS"
             elif cmd == "system":
                 return "SHOW_SYSTEM"
             elif cmd == "usage":
                 return "SHOW_USAGE"
+            elif cmd == "history":
+                target_agent = None
+                if len(cmd_parts) > 1:
+                    candidate = cmd_parts[1].strip()
+                    if candidate:
+                        target_agent = candidate
+                return {"show_history": {"agent": target_agent}}
             elif cmd == "markdown":
                 return "MARKDOWN"
             elif cmd in ("save_history", "save"):
@@ -1018,11 +1031,11 @@ async def handle_special_commands(command, agent_app=None):
     if command == "HELP":
         rich_print("\n[bold]Available Commands:[/bold]")
         rich_print("  /help          - Show this help")
-        rich_print("  /clear         - Clear screen and agent histories")
         rich_print("  /agents        - List available agents")
         rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
+        rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history <filename> - Save current chat history to a file")
@@ -1038,14 +1051,9 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  Ctrl+T         - Toggle multiline mode")
         rich_print("  Ctrl+E         - Edit in external editor")
         rich_print("  Ctrl+Y         - Copy last assistant response to clipboard")
-        rich_print("  Ctrl+L         - Clear input")
+        rich_print("  Ctrl+L         - Redraw the screen")
+        rich_print("  Ctrl+U         - Clear input")
         rich_print("  Up/Down        - Navigate history")
-        return True
-
-    elif command == "CLEAR":
-        # Clear screen and agent histories (ANSI escape sequence)
-        agent_histories = {}
-        print("\033c", end="")
         return True
 
     elif isinstance(command, str) and command.upper() == "EXIT":
