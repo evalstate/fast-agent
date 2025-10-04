@@ -518,7 +518,7 @@ def create_keybindings(
 
     @kb.add("c-l")
     def _(event) -> None:
-        """Ctrl+L: Redraw the terminal screen."""
+        """Ctrl+L: Clear and redraw the terminal screen."""
         app_ref = event.app or app
         if app_ref and getattr(app_ref, "renderer", None):
             app_ref.renderer.clear()

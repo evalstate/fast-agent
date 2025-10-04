@@ -5,16 +5,17 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional, Sequence
 
 from rich import print as rich_print
-from rich.console import Console
 from rich.text import Text
 
 from fast_agent.mcp.helpers.content_helpers import get_text
-from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Mapping
 
+    from rich.console import Console
+
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.types import PromptMessageExtended
 
 
 NON_TEXT_MARKER = "^"
@@ -218,9 +219,9 @@ def _build_context_bar_line(
     if filled < width:
         bar.append("░" * (width - filled), style="grey58")
     bar.append("|", style="dim")
-    bar.append(f" {percent*100:5.1f}%", style="dim")
+    bar.append(f" {percent * 100:5.1f}%", style="dim")
     if percent > 1.0:
-        bar.append(f" +{(percent-1)*100:.0f}%", style="bold bright_red")
+        bar.append(f" +{(percent - 1) * 100:.0f}%", style="bold bright_red")
 
     detail = Text(f"{format_chars(current)} / {format_chars(window)} →", style="dim")
     return bar, detail
@@ -284,7 +285,9 @@ def display_history_overview(
     printer(detail_line)
 
     printer("")
-    printer(Text(" " + "─" * (history_bar.cell_len + context_bar.cell_len + gap.cell_len), style="dim"))
+    printer(
+        Text(" " + "─" * (history_bar.cell_len + context_bar.cell_len + gap.cell_len), style="dim")
+    )
 
     header_line = Text(" ")
     header_line.append("#  ", style="dim")
