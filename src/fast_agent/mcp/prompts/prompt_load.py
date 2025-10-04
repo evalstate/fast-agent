@@ -117,6 +117,7 @@ def load_prompt(file: Path) -> List[PromptMessageExtended]:
     if path_str.endswith(".json"):
         # JSON files use the serialization module directly
         from fast_agent.mcp.prompt_serialization import load_messages
+
         return load_messages(str(file))
     else:
         # Non-JSON files need template processing for resource loading
@@ -128,13 +129,11 @@ def load_prompt(file: Path) -> List[PromptMessageExtended]:
         # Render the template without arguments to get the messages
         messages = create_messages_with_resources(
             template.content_sections,
-            [file]  # Pass the file path for resource resolution
+            [file],  # Pass the file path for resource resolution
         )
 
         # Convert to PromptMessageExtended
         return PromptMessageExtended.to_extended(messages)
-
-
 
 
 def load_prompt_as_get_prompt_result(file: Path):

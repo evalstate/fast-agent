@@ -25,7 +25,7 @@ class RichProgressDisplay:
                 #                table_column=Column(max_width=16),
             ),
             TextColumn(text_format="{task.fields[target]:<16}", style="Bold Blue"),
-            TextColumn(text_format="{task.fields[details]}", style="dim white"),
+            TextColumn(text_format="{task.fields[details]}", style="white"),
             console=self.console,
             transient=False,
         )
