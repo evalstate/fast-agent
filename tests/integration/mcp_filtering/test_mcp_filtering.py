@@ -11,7 +11,6 @@ from fast_agent.agents import McpAgent
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.e2e
 async def test_tool_filtering_basic_agent(fast_agent):
     """Test tool filtering with basic agent - no filtering vs with filtering"""
     fast = fast_agent
@@ -83,7 +82,6 @@ async def test_tool_filtering_basic_agent(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.e2e
 async def test_resource_filtering_basic_agent(fast_agent):
     """Test resource filtering with basic agent - no filtering vs with filtering"""
     fast = fast_agent
@@ -151,7 +149,6 @@ async def test_resource_filtering_basic_agent(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.e2e
 async def test_prompt_filtering_basic_agent(fast_agent):
     """Test prompt filtering with basic agent - no filtering vs with filtering"""
     fast = fast_agent
@@ -215,9 +212,7 @@ async def test_prompt_filtering_basic_agent(fast_agent):
 
 
 @pytest.mark.integration
-@pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.e2e
 async def test_tool_filtering_custom_agent(fast_agent):
     """Test tool filtering with custom agent"""
     fast = fast_agent
@@ -262,7 +257,6 @@ async def test_tool_filtering_custom_agent(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-@pytest.mark.e2e
 async def test_combined_filtering(fast_agent):
     """Test combined tool, resource, and prompt filtering"""
     fast = fast_agent

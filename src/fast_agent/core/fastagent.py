@@ -17,6 +17,7 @@ from typing import (
     Awaitable,
     Callable,
     Dict,
+    Iterable,
     List,
     Literal,
     Optional,
@@ -85,6 +86,12 @@ if TYPE_CHECKING:
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
+CORE_MODIFIER_T = Callable[
+    [
+        Core,
+    ],
+    Core,
+]
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
 
@@ -408,7 +415,10 @@ class FastAgent:
     evaluator_optimizer = evaluator_optimizer_decorator
 
     @asynccontextmanager
-    async def run(self) -> AsyncIterator["AgentApp"]:
+    async def run(
+        self,
+        core_modifiers: Iterable[CORE_MODIFIER_T] | None = None,
+    ) -> AsyncIterator["AgentApp"]:
         """
         Context manager for running the application.
         Initializes all registered agents.
@@ -416,6 +426,10 @@ class FastAgent:
         active_agents: Dict[str, AgentProtocol] = {}
         had_error = False
         await self.app.initialize()
+        app_core_copy = self.app
+        for modifier in core_modifiers or []:
+            app_core_copy = modifier(app_core_copy)
+        self.app = app_core_copy
 
         # Handle quiet mode and CLI model override safely
         # Define these *before* they are used, checking if self.args exists and has the attributes
