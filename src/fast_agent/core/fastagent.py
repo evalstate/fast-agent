@@ -268,6 +268,7 @@ class FastAgent:
     # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
     if TYPE_CHECKING:  # pragma: no cover - typing aid only
+        from collections.abc import Coroutine
         from pathlib import Path
 
         from fast_agent.types import RequestParams
@@ -292,7 +293,7 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: Optional[ElicitationFnT] = None,
             api_key: str | None = None,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]: ...
 
         def custom(
             self,
