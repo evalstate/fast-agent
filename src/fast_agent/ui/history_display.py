@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from shutil import get_terminal_size
 from typing import TYPE_CHECKING, Optional, Sequence
 
 from rich import print as rich_print
@@ -21,14 +22,36 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 NON_TEXT_MARKER = "^"
 TIMELINE_WIDTH = 20
 SUMMARY_COUNT = 8
+ROLE_COLUMN_WIDTH = 17
 
 
 def _normalize_text(value: Optional[str]) -> str:
     return "" if not value else " ".join(value.split())
 
 
+class Colours:
+    """Central colour palette for history display output."""
+
+    USER = "blue"
+    ASSISTANT = "green"
+    TOOL = "magenta"
+    HEADER = USER
+    TIMELINE_EMPTY = "dim default"
+    CONTEXT_SAFE = "green"
+    CONTEXT_CAUTION = "yellow"
+    CONTEXT_ALERT = "bright_red"
+    TOOL_DETAIL = "dim magenta"
+
+
 def _char_count(value: Optional[str]) -> int:
     return len(_normalize_text(value))
+
+
+def _format_tool_detail(prefix: str, names: Sequence[str]) -> Text:
+    detail = Text(prefix, style=Colours.TOOL_DETAIL)
+    if names:
+        detail.append(", ".join(names), style=Colours.TOOL_DETAIL)
+    return detail
 
 
 def _preview_text(value: Optional[str], limit: int = 80) -> str:
@@ -49,11 +72,22 @@ def _has_non_text_content(message: PromptMessageExtended) -> bool:
 
 
 def _extract_tool_result_summary(result, *, limit: int = 80) -> tuple[str, int, bool]:
+    preview: Optional[str] = None
+    total_chars = 0
+    saw_non_text = False
+
     for block in getattr(result, "content", []) or []:
         text = get_text(block)
         if text:
             normalized = _normalize_text(text)
-            return _preview_text(normalized, limit=limit), len(normalized), False
+            if preview is None:
+                preview = _preview_text(normalized, limit=limit)
+            total_chars += len(normalized)
+        else:
+            saw_non_text = True
+
+    if preview is not None:
+        return preview, total_chars, saw_non_text
     return f"{NON_TEXT_MARKER} non-text tool result", 0, True
 
 
@@ -87,21 +121,18 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         preview = _preview_text(text)
         non_text = _has_non_text_content(message) or chars == 0
 
-        if role == "user":
-            rows.append(
-                {
-                    "role": "user",
-                    "chars": chars,
-                    "preview": preview,
-                    "details": None,
-                    "non_text": non_text,
-                }
-            )
-            continue
-
         tool_calls: Optional[Mapping[str, object]] = getattr(message, "tool_calls", None)
-        details = None
+        tool_results: Optional[Mapping[str, object]] = getattr(message, "tool_results", None)
+
+        detail_sections: list[Text] = []
         row_non_text = non_text
+        has_tool_request = False
+        hide_in_summary = False
+        timeline_role = role
+        include_in_timeline = True
+        result_rows: list[dict] = []
+        tool_result_total_chars = 0
+        tool_result_has_non_text = False
 
         if tool_calls:
             names: list[str] = []
@@ -111,35 +142,71 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 call_name_lookup[call_id] = name
                 names.append(name)
             if names:
-                details = "tool→" + ", ".join(names)
+                detail_sections.append(_format_tool_detail("tool→", names))
                 row_non_text = row_non_text and chars == 0  # treat call as activity
+            has_tool_request = True
         if not normalized_text and tool_calls:
             preview = "(issuing tool request)"
 
+        if tool_results:
+            result_names: list[str] = []
+            for call_id, result in tool_results.items():
+                tool_name = call_name_lookup.get(call_id, call_id)
+                result_names.append(tool_name)
+                summary, result_chars, result_non_text = _extract_tool_result_summary(result)
+                tool_result_total_chars += result_chars
+                tool_result_has_non_text = tool_result_has_non_text or result_non_text
+                detail = _format_tool_detail("result→", [tool_name])
+                result_rows.append(
+                    {
+                        "role": "tool",
+                        "timeline_role": "tool",
+                        "chars": result_chars,
+                        "preview": summary,
+                        "details": detail,
+                        "non_text": result_non_text,
+                        "has_tool_request": False,
+                        "hide_summary": False,
+                        "include_in_timeline": False,
+                    }
+                )
+            if role == "user":
+                timeline_role = "tool"
+                hide_in_summary = True
+            if result_names:
+                detail_sections.append(_format_tool_detail("result→", result_names))
+
+        if detail_sections:
+            if len(detail_sections) == 1:
+                details: Text | None = detail_sections[0]
+            else:
+                details = Text()
+                for index, section in enumerate(detail_sections):
+                    if index > 0:
+                        details.append(" ")
+                    details.append_text(section)
+        else:
+            details = None
+
+        row_chars = chars
+        if timeline_role == "tool" and tool_result_total_chars > 0:
+            row_chars = tool_result_total_chars
+        row_non_text = row_non_text or tool_result_has_non_text
+
         rows.append(
             {
-                "role": "assistant",
-                "chars": chars,
+                "role": role,
+                "timeline_role": timeline_role,
+                "chars": row_chars,
                 "preview": preview,
                 "details": details,
                 "non_text": row_non_text,
+                "has_tool_request": has_tool_request,
+                "hide_summary": hide_in_summary,
+                "include_in_timeline": include_in_timeline,
             }
         )
-
-        tool_results: Optional[Mapping[str, object]] = getattr(message, "tool_results", None)
-        if tool_results:
-            for call_id, result in tool_results.items():
-                summary, result_chars, result_non_text = _extract_tool_result_summary(result)
-                tool_name = call_name_lookup.get(call_id, call_id)
-                rows.append(
-                    {
-                        "role": "tool",
-                        "chars": result_chars,
-                        "preview": summary,
-                        "details": f"result of {tool_name}",
-                        "non_text": result_non_text,
-                    }
-                )
+        rows.extend(result_rows)
 
     return rows
 
@@ -147,11 +214,12 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
 def _aggregate_timeline_entries(rows: Sequence[dict]) -> list[dict]:
     return [
         {
-            "role": row["role"],
+            "role": row.get("timeline_role", row["role"]),
             "chars": row["chars"],
             "non_text": row["non_text"],
         }
         for row in rows
+        if row.get("include_in_timeline", True)
     ]
 
 
@@ -165,25 +233,25 @@ def _shade_block(chars: int, *, non_text: bool, color: str) -> Text:
     if chars < 200:
         return Text("▒", style=f"dim {color}")
     if chars < 500:
+        return Text("▒", style=color)
+    if chars < 2000:
         return Text("▓", style=color)
-    if chars < 1000:
-        return Text("█", style=f"dim {color}")
     return Text("█", style=f"bold {color}")
 
 
 def _build_history_bar(entries: Sequence[dict], width: int = TIMELINE_WIDTH) -> tuple[Text, Text]:
-    color_map = {"user": "cyan", "assistant": "green", "tool": "magenta"}
+    color_map = {"user": Colours.USER, "assistant": Colours.ASSISTANT, "tool": Colours.TOOL}
 
     recent = list(entries[-width:])
     bar = Text(" history |", style="dim")
     for entry in recent:
-        color = color_map.get(entry["role"], "white")
+        color = color_map.get(entry["role"], "ansiwhite")
         bar.append_text(
             _shade_block(entry["chars"], non_text=entry.get("non_text", False), color=color)
         )
     remaining = width - len(recent)
     if remaining > 0:
-        bar.append("░" * remaining, style="grey58")
+        bar.append("░" * remaining, style=Colours.TIMELINE_EMPTY)
     bar.append("|", style="dim")
 
     detail = Text(f"{len(entries)} turns", style="dim")
@@ -198,7 +266,7 @@ def _build_context_bar_line(
     bar = Text(" context |", style="dim")
 
     if not window or window <= 0:
-        bar.append("░" * width, style="grey58")
+        bar.append("░" * width, style=Colours.TIMELINE_EMPTY)
         bar.append("|", style="dim")
         detail = Text(f"{format_chars(current)} tokens (unknown window)", style="dim")
         return bar, detail
@@ -208,16 +276,16 @@ def _build_context_bar_line(
 
     def color_for(pct: float) -> str:
         if pct >= 0.9:
-            return "bright_red"
+            return Colours.CONTEXT_ALERT
         if pct >= 0.7:
-            return "#af8700"
-        return "ansigreen"
+            return Colours.CONTEXT_CAUTION
+        return Colours.CONTEXT_SAFE
 
     color = color_for(percent)
     if filled > 0:
         bar.append("█" * filled, style=color)
     if filled < width:
-        bar.append("░" * (width - filled), style="grey58")
+        bar.append("░" * (width - filled), style=Colours.TIMELINE_EMPTY)
     bar.append("|", style="dim")
     bar.append(f" {percent * 100:5.1f}%", style="dim")
     if percent > 1.0:
@@ -225,6 +293,30 @@ def _build_context_bar_line(
 
     detail = Text(f"{format_chars(current)} / {format_chars(window)} →", style="dim")
     return bar, detail
+
+
+def _render_header_line(agent_name: str, *, console: Optional[Console], printer) -> None:
+    header = Text()
+    header.append("▎", style=Colours.HEADER)
+    header.append("●", style=f"dim {Colours.HEADER}")
+    header.append(" [ 1] ", style=Colours.HEADER)
+    header.append(str(agent_name), style=f"bold {Colours.USER}")
+
+    line = Text()
+    line.append_text(header)
+    line.append(" ")
+
+    try:
+        total_width = console.width if console else get_terminal_size().columns
+    except Exception:
+        total_width = 80
+
+    separator_width = max(1, total_width - line.cell_len)
+    line.append("─" * separator_width, style="dim")
+
+    printer("")
+    printer(line)
+    printer("")
 
 
 def display_history_overview(
@@ -253,11 +345,7 @@ def display_history_overview(
         window = None
     context_bar, context_detail = _build_context_bar_line(current_tokens, window)
 
-    header = Text()
-    header.append("▎", style="cyan")
-    header.append(f" Conversation for {agent_name}", style="bold")
-    printer("")
-    printer(header)
+    _render_header_line(agent_name, console=console, printer=printer)
 
     gap = Text("   ")
     combined_line = Text()
@@ -290,17 +378,20 @@ def display_history_overview(
     )
 
     header_line = Text(" ")
-    header_line.append("#  ", style="dim")
-    header_line.append("Role           ", style="dim")
-    header_line.append("Chars    ", style="dim")
+    header_line.append(" #", style="dim")
+    header_line.append(" ", style="dim")
+    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
+    header_line.append(f" {'Chars':>7}", style="dim")
+    header_line.append("  ", style="dim")
     header_line.append("Summary", style="dim")
     printer(header_line)
 
-    summary_rows = rows[-SUMMARY_COUNT:]
-    start_index = len(rows) - len(summary_rows) + 1
+    summary_candidates = [row for row in rows if not row.get("hide_summary")]
+    summary_rows = summary_candidates[-SUMMARY_COUNT:]
+    start_index = len(summary_candidates) - len(summary_rows) + 1
 
     role_arrows = {"user": "▶", "assistant": "◀", "tool": "▶"}
-    role_styles = {"user": "cyan", "assistant": "green", "tool": "magenta"}
+    role_styles = {"user": Colours.USER, "assistant": Colours.ASSISTANT, "tool": Colours.TOOL}
     role_labels = {"user": "user", "assistant": "assistant", "tool": "tool result"}
 
     for offset, row in enumerate(summary_rows):
@@ -308,28 +399,43 @@ def display_history_overview(
         color = role_styles.get(role, "white")
         arrow = role_arrows.get(role, "▶")
         label = role_labels.get(role, role)
+        if role == "assistant" and row.get("has_tool_request"):
+            label = f"{label}*"
         chars = row["chars"]
         block = _shade_block(chars, non_text=row.get("non_text", False), color=color)
 
         details = row.get("details")
-        if isinstance(details, list):
-            details = ", ".join(filter(None, details))
-        summary = row["preview"]
+        preview_value = row["preview"]
+        if isinstance(preview_value, Text):
+            summary_text = preview_value.copy()
+        else:
+            summary_text = Text(str(preview_value))
+
         if details:
-            summary = f"{summary} {details}"
-        if row.get("non_text") and chars == 0:
-            summary = f"{summary} [dim]{NON_TEXT_MARKER} non-text[/dim]"
+            summary_text.append(" ")
+            if isinstance(details, Text):
+                summary_text.append_text(details)
+            elif isinstance(details, str):
+                summary_text.append(details)
+            elif isinstance(details, Sequence):
+                summary_text.append(", ".join(filter(None, details)))
+            else:
+                summary_text.append(str(details))
+        if row.get("non_text"):
+            summary_text.append(" ")
+            summary_text.append(f"{NON_TEXT_MARKER}", style="dim")
 
         line = Text(" ")
-        line.append(f"{start_index + offset:>2} ", style="dim")
+        line.append(f"{start_index + offset:>2}", style="dim")
+        line.append(" ")
         line.append_text(block)
         line.append(" ")
         line.append(arrow, style=color)
         line.append(" ")
-        line.append(f"{label:<12}", style=color)
+        line.append(f"{label:<{ROLE_COLUMN_WIDTH}}", style=color)
         line.append(f" {format_chars(chars):>7}", style="dim")
         line.append("  ")
-        line.append(summary)
+        line.append_text(summary_text)
         printer(line)
 
     printer("")
