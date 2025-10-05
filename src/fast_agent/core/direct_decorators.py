@@ -4,9 +4,11 @@ These decorators provide type-safe function signatures and IDE support
 for creating agents in the DirectFastAgent framework.
 """
 
+from collections.abc import Coroutine
 from functools import wraps
 from pathlib import Path
 from typing import (
+    Any,
     Awaitable,
     Callable,
     Dict,
@@ -186,7 +188,7 @@ def _decorator_impl(
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
     **extra_kwargs,
-) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
     Core implementation for agent decorators with common behavior and type safety.
 
@@ -203,9 +205,9 @@ def _decorator_impl(
         **extra_kwargs: Additional agent/workflow-specific parameters
     """
 
-    def decorator(func: AgentCallable[P, R]) -> AgentCallable[P, R]:
+    def decorator(func: Callable[P, Coroutine[Any, Any, R]]) -> Callable[P, Coroutine[Any, Any, R]]:
         @wraps(func)
-        def wrapper(*args: P.args, **kwargs: P.kwargs) -> Awaitable[R]:
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> Coroutine[Any, Any, R]:
             # Call the original function
             return func(*args, **kwargs)
 
@@ -249,7 +251,7 @@ def _decorator_impl(
         for key, value in extra_kwargs.items():
             setattr(wrapper, f"_{key}", value)
 
-        return cast("AgentCallable[P, R]", wrapper)
+        return cast("Callable[P, Coroutine[Any, Any, R]]", wrapper)
 
     return decorator
 
@@ -271,7 +273,7 @@ def agent(
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
 
@@ -336,7 +338,7 @@ def custom(
     default: bool = False,
     elicitation_handler: Optional[ElicitationFnT] = None,
     api_key: str | None = None,
-) -> Callable[[AgentCallable[P, R]], AgentCallable[P, R]]:
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
 
