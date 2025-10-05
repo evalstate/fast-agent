@@ -413,6 +413,9 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         elif channel.last_status_code == 405 and "GET" in label:
             # Special case: GET (SSE) with 405 = dim (hollow arrow already handled above)
             label_style = Colours.TEXT_DIM
+        elif arrow_style == Colours.ARROW_ERROR and "GET" in label:
+            # Highlight GET stream errors in red to match the arrow indicator
+            label_style = Colours.TEXT_ERROR
         elif channel.request_count == 0 and channel.response_count == 0:
             # No activity = dim
             label_style = Colours.TEXT_DIM
