@@ -54,6 +54,122 @@ def _format_tool_detail(prefix: str, names: Sequence[str]) -> Text:
     return detail
 
 
+def _ensure_text(value: object | None) -> Text:
+    """Coerce various value types into a Rich Text instance."""
+
+    if isinstance(value, Text):
+        return value.copy()
+    if value is None:
+        return Text("")
+    if isinstance(value, str):
+        return Text(value)
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, Text)):
+        return Text(", ".join(str(item) for item in value if item))
+    return Text(str(value))
+
+
+def _truncate_text_segment(segment: Text, width: int) -> Text:
+    if width <= 0 or segment.cell_len == 0:
+        return Text("")
+    if segment.cell_len <= width:
+        return segment.copy()
+    truncated = segment.copy()
+    truncated.truncate(width, overflow="ellipsis")
+    return truncated
+
+
+def _compose_summary_text(
+    preview: Text,
+    detail: Optional[Text],
+    *,
+    include_non_text: bool,
+    max_width: Optional[int],
+) -> Text:
+    marker_component = Text()
+    if include_non_text:
+        marker_component.append(" ")
+        marker_component.append(NON_TEXT_MARKER, style="dim")
+
+    if max_width is None:
+        combined = Text()
+        combined.append_text(preview)
+        if detail and detail.cell_len > 0:
+            if combined.cell_len > 0:
+                combined.append(" ")
+            combined.append_text(detail)
+        combined.append_text(marker_component)
+        return combined
+
+    width_available = max_width
+    if width_available <= 0:
+        return Text("")
+
+    if marker_component.cell_len > width_available:
+        marker_component = Text("")
+    marker_width = marker_component.cell_len
+    width_after_marker = max(0, width_available - marker_width)
+
+    preview_len = preview.cell_len
+    detail_component = detail.copy() if detail else Text("")
+    detail_len = detail_component.cell_len
+    detail_plain = detail_component.plain
+
+    preview_allow = min(preview_len, width_after_marker)
+    detail_allow = 0
+    if detail_len > 0 and width_after_marker > 0:
+        detail_allow = min(detail_len, max(0, width_after_marker - preview_allow))
+
+        if width_after_marker > 0:
+            min_detail_allow = 1
+            for prefix in ("tool→", "result→"):
+                if detail_plain.startswith(prefix):
+                    min_detail_allow = min(detail_len, len(prefix))
+                    break
+        else:
+            min_detail_allow = 0
+        if detail_allow < min_detail_allow:
+            needed = min_detail_allow - detail_allow
+            reduction = min(preview_allow, needed)
+            preview_allow -= reduction
+            detail_allow += reduction
+
+        preview_allow = max(0, preview_allow)
+        detail_allow = max(0, min(detail_allow, detail_len))
+
+        space = 1 if preview_allow > 0 and detail_allow > 0 else 0
+        total = preview_allow + detail_allow + space
+        if total > width_after_marker:
+            overflow = total - width_after_marker
+            reduction = min(preview_allow, overflow)
+            preview_allow -= reduction
+            overflow -= reduction
+            if overflow > 0:
+                detail_allow = max(0, detail_allow - overflow)
+
+        preview_allow = max(0, preview_allow)
+        detail_allow = max(0, min(detail_allow, detail_len))
+    else:
+        preview_allow = min(preview_len, width_after_marker)
+        detail_allow = 0
+
+    preview_segment = _truncate_text_segment(preview, preview_allow)
+    detail_segment = (
+        _truncate_text_segment(detail_component, detail_allow) if detail_allow > 0 else Text("")
+    )
+
+    combined = Text()
+    combined.append_text(preview_segment)
+    if preview_segment.cell_len > 0 and detail_segment.cell_len > 0:
+        combined.append(" ")
+    combined.append_text(detail_segment)
+
+    if marker_component.cell_len > 0:
+        if combined.cell_len + marker_component.cell_len <= max_width:
+            combined.append_text(marker_component)
+
+    return combined
+
+
 def _preview_text(value: Optional[str], limit: int = 80) -> str:
     normalized = _normalize_text(value)
     if not normalized:
@@ -394,6 +510,11 @@ def display_history_overview(
     role_styles = {"user": Colours.USER, "assistant": Colours.ASSISTANT, "tool": Colours.TOOL}
     role_labels = {"user": "user", "assistant": "assistant", "tool": "tool result"}
 
+    try:
+        total_width = console.width if console else get_terminal_size().columns
+    except Exception:
+        total_width = 80
+
     for offset, row in enumerate(summary_rows):
         role = row["role"]
         color = role_styles.get(role, "white")
@@ -406,24 +527,10 @@ def display_history_overview(
 
         details = row.get("details")
         preview_value = row["preview"]
-        if isinstance(preview_value, Text):
-            summary_text = preview_value.copy()
-        else:
-            summary_text = Text(str(preview_value))
-
-        if details:
-            summary_text.append(" ")
-            if isinstance(details, Text):
-                summary_text.append_text(details)
-            elif isinstance(details, str):
-                summary_text.append(details)
-            elif isinstance(details, Sequence):
-                summary_text.append(", ".join(filter(None, details)))
-            else:
-                summary_text.append(str(details))
-        if row.get("non_text"):
-            summary_text.append(" ")
-            summary_text.append(f"{NON_TEXT_MARKER}", style="dim")
+        preview_text = _ensure_text(preview_value)
+        detail_text = _ensure_text(details) if details else Text("")
+        if detail_text.cell_len == 0:
+            detail_text = None
 
         line = Text(" ")
         line.append(f"{start_index + offset:>2}", style="dim")
@@ -435,6 +542,13 @@ def display_history_overview(
         line.append(f"{label:<{ROLE_COLUMN_WIDTH}}", style=color)
         line.append(f" {format_chars(chars):>7}", style="dim")
         line.append("  ")
+        summary_width = max(0, total_width - line.cell_len)
+        summary_text = _compose_summary_text(
+            preview_text,
+            detail_text,
+            include_non_text=row.get("non_text", False),
+            max_width=summary_width,
+        )
         line.append_text(summary_text)
         printer(line)
 
