@@ -84,6 +84,8 @@ class ModelFactory:
         "claude-opus-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
+        "claude-sonnet-4-5-20250929": Provider.ANTHROPIC,
+        "claude-sonnet-4-5": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         "gemini-2.0-flash": Provider.GOOGLE,
         "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
@@ -101,8 +103,9 @@ class ModelFactory:
     }
 
     MODEL_ALIASES = {
-        "sonnet": "claude-sonnet-4-0",
+        "sonnet": "claude-sonnet-4-5",
         "sonnet4": "claude-sonnet-4-0",
+        "sonnet45": "claude-sonnet-4-5",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
         "claude": "claude-sonnet-4-0",

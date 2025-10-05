@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
@@ -35,7 +35,7 @@ class ToolAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        tools: list[FastMCPTool | Callable] = [],
+        tools: Sequence[FastMCPTool | Callable] = [],
         context: Context | None = None,
     ) -> None:
         super().__init__(config=config, context=context)

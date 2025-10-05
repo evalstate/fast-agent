@@ -1,0 +1,7 @@
+execution_engine: asyncio
+default_model: gpt-4.1
+
+logger:
+  type: file
+  level: error
+  truncate_tools: true

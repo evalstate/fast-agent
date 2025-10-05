@@ -232,6 +232,8 @@ class ModelDatabase:
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES,
         "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
