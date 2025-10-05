@@ -314,6 +314,13 @@ class LlmDecorator(AgentProtocol):
         # Otherwise treat the string as plain content (ignore arguments here)
         return await self.send(prompt)
 
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        """Reset conversation state while optionally retaining applied prompt templates."""
+
+        if not self._llm:
+            return
+        self._llm.clear(clear_prompts=clear_prompts)
+
     async def structured(
         self,
         messages: Union[

@@ -848,6 +848,13 @@ async def get_enhanced_input(
                     if candidate:
                         target_agent = candidate
                 return {"show_history": {"agent": target_agent}}
+            elif cmd == "clear":
+                target_agent = None
+                if len(cmd_parts) > 1:
+                    candidate = cmd_parts[1].strip()
+                    if candidate:
+                        target_agent = candidate
+                return {"clear_history": {"agent": target_agent}}
             elif cmd == "markdown":
                 return "MARKDOWN"
             elif cmd in ("save_history", "save"):
@@ -1037,6 +1044,7 @@ async def handle_special_commands(command, agent_app=None):
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /history [agent_name] - Show chat history overview")
+        rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history <filename> - Save current chat history to a file")

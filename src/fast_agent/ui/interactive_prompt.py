@@ -183,6 +183,27 @@ class InteractivePrompt:
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         display_history_overview(target_agent, history, usage)
                         continue
+                    elif "clear_history" in command_result:
+                        target_agent = command_result.get("clear_history", {}).get("agent") or agent
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        if hasattr(agent_obj, "clear"):
+                            try:
+                                agent_obj.clear()
+                                rich_print(f"[green]History cleared for agent '{target_agent}'.[/green]")
+                            except Exception as exc:
+                                rich_print(
+                                    f"[red]Failed to clear history for '{target_agent}': {exc}[/red]"
+                                )
+                        else:
+                            rich_print(
+                                f"[yellow]Agent '{target_agent}' does not support clearing history.[/yellow]"
+                            )
+                        continue
                     elif "show_system" in command_result:
                         # Handle system prompt display
                         await self._show_system(prompt_provider, agent)
