@@ -741,8 +741,17 @@ async def get_enhanced_input(
             )
         elif notification_tracker.get_count() > 0:
             # Show completed events summary when no active events
-            summary = notification_tracker.get_summary()
-            notification_segment = f" | ◀ {notification_tracker.get_count()} updates ({summary})"
+            counts_by_type = notification_tracker.get_counts_by_type()
+            total_events = sum(counts_by_type.values()) if counts_by_type else 0
+
+            if len(counts_by_type) == 1:
+                event_type, count = next(iter(counts_by_type.items()))
+                label_text = notification_tracker.format_event_label(event_type, count)
+                notification_segment = f" | ◀ {label_text}"
+            else:
+                summary = notification_tracker.get_summary(compact=True)
+                heading = "event" if total_events == 1 else "events"
+                notification_segment = f" | ◀ {total_events} {heading} ({summary})"
 
         if middle:
             return HTML(

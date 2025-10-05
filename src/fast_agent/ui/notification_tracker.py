@@ -6,6 +6,14 @@ Tracks both active events (sampling/elicitation) and completed notifications.
 from datetime import datetime
 from typing import Dict, List, Optional
 
+# Display metadata for toolbar summaries (singular, plural, compact label)
+_EVENT_ORDER = ("tool_update", "sampling", "elicitation")
+_EVENT_DISPLAY = {
+    "tool_update": {"singular": "tool update", "plural": "tool updates", "compact": "tool"},
+    "sampling": {"singular": "sample", "plural": "samples", "compact": "samp"},
+    "elicitation": {"singular": "elicitation", "plural": "elicitations", "compact": "elic"},
+}
+
 # Active events currently in progress
 active_events: Dict[str, Dict[str, str]] = {}
 
@@ -136,32 +144,63 @@ def get_latest() -> Dict[str, str] | None:
     return notifications[-1] if notifications else None
 
 
-def get_summary() -> str:
-    """Get a summary of completed notifications by type.
-
-    Returns:
-        String like "3 tools, 1 sampling, 2 elicitations" or "1 tool update"
-    """
-    if not notifications:
-        return ""
-
-    counts = {}
+def get_counts_by_type() -> Dict[str, int]:
+    """Aggregate completed notifications by event type."""
+    counts: Dict[str, int] = {}
     for notification in notifications:
         event_type = notification['type']
-        if event_type == 'tool_update':
-            counts['tools'] = counts.get('tools', 0) + 1
-        else:
-            # For sampling/elicitation, use the type directly
-            counts[event_type] = counts.get(event_type, 0) + 1
+        counts[event_type] = counts.get(event_type, 0) + 1
 
-    # Build summary string
-    parts = []
-    for event_type, count in sorted(counts.items()):
-        if event_type == 'tools':
-            parts.append(f"{count} tool{'s' if count != 1 else ''}")
-        elif event_type == 'sampling':
-            parts.append(f"{count} sample{'s' if count != 1 else ''}")
-        else:
-            parts.append(f"{count} {event_type}{'s' if count != 1 else ''}")
+    if not counts:
+        return {}
 
-    return ", ".join(parts)
+    ordered: Dict[str, int] = {}
+    for event_type in _EVENT_ORDER:
+        if event_type in counts:
+            ordered[event_type] = counts[event_type]
+
+    for event_type, count in counts.items():
+        if event_type not in ordered:
+            ordered[event_type] = count
+
+    return ordered
+
+
+def format_event_label(event_type: str, count: int, *, compact: bool = False) -> str:
+    """Format a human-readable label for an event count."""
+    event_display = _EVENT_DISPLAY.get(event_type)
+
+    if event_display is None:
+        base = event_type.replace('_', ' ')
+        if compact:
+            return f"{base[:1]}:{count}"
+        label = base if count == 1 else f"{base}s"
+        return f"{count} {label}"
+
+    if compact:
+        return f"{event_display['compact']}:{count}"
+
+    label = event_display['singular'] if count == 1 else event_display['plural']
+    return f"{count} {label}"
+
+
+def get_summary(*, compact: bool = False) -> str:
+    """Get a summary of completed notifications by type.
+
+    Args:
+        compact: When True, use short-form labels for constrained UI areas.
+
+    Returns:
+        String like "3 tool updates, 2 samples" or "tool:3 samp:2" when compact.
+    """
+    counts = get_counts_by_type()
+    if not counts:
+        return ""
+
+    parts = [
+        format_event_label(event_type, count, compact=compact)
+        for event_type, count in counts.items()
+    ]
+
+    separator = " " if compact else ", "
+    return separator.join(parts)
