@@ -17,7 +17,6 @@ from typing import (
     ParamSpec,
     Protocol,
     TypeVar,
-    cast,
 )
 
 from mcp.client.session import ElicitationFnT
