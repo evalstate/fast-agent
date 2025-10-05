@@ -94,6 +94,8 @@ class FastAgentLLMProtocol(Protocol):
     @property
     def model_info(self) -> "ModelInfo | None": ...
 
+    def clear(self, *, clear_prompts: bool = False) -> None: ...
+
 
 class LlmAgentProtocol(Protocol):
     """Protocol defining the minimal interface for LLM agents."""
@@ -110,6 +112,8 @@ class LlmAgentProtocol(Protocol):
     async def initialize(self) -> None: ...
 
     async def shutdown(self) -> None: ...
+
+    def clear(self, *, clear_prompts: bool = False) -> None: ...
 
 
 class AgentProtocol(LlmAgentProtocol):

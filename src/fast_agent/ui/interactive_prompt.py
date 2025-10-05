@@ -34,6 +34,7 @@ from fast_agent.ui.enhanced_prompt import (
     handle_special_commands,
     show_mcp_status,
 )
+from fast_agent.ui.history_display import display_history_overview
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
 
@@ -170,6 +171,39 @@ class InteractivePrompt:
                         # Handle usage display
                         await self._show_usage(prompt_provider, agent)
                         continue
+                    elif "show_history" in command_result:
+                        target_agent = command_result.get("show_history", {}).get("agent") or agent
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        history = getattr(agent_obj, "message_history", [])
+                        usage = getattr(agent_obj, "usage_accumulator", None)
+                        display_history_overview(target_agent, history, usage)
+                        continue
+                    elif "clear_history" in command_result:
+                        target_agent = command_result.get("clear_history", {}).get("agent") or agent
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        if hasattr(agent_obj, "clear"):
+                            try:
+                                agent_obj.clear()
+                                rich_print(f"[green]History cleared for agent '{target_agent}'.[/green]")
+                            except Exception as exc:
+                                rich_print(
+                                    f"[red]Failed to clear history for '{target_agent}': {exc}[/red]"
+                                )
+                        else:
+                            rich_print(
+                                f"[yellow]Agent '{target_agent}' does not support clearing history.[/yellow]"
+                            )
+                        continue
                     elif "show_system" in command_result:
                         # Handle system prompt display
                         await self._show_system(prompt_provider, agent)
@@ -266,9 +300,7 @@ class InteractivePrompt:
         console.print(combined)
         rich_print()
 
-    async def _get_all_prompts(
-        self, prompt_provider: "AgentApp", agent_name: Optional[str] = None
-    ):
+    async def _get_all_prompts(self, prompt_provider: "AgentApp", agent_name: Optional[str] = None):
         """
         Get a list of all available prompts.
 
@@ -923,7 +955,7 @@ class InteractivePrompt:
             agent = prompt_provider._agent(agent_name)
 
             # Get the system prompt
-            system_prompt = getattr(agent, 'instruction', None)
+            system_prompt = getattr(agent, "instruction", None)
             if not system_prompt:
                 rich_print("[yellow]No system prompt available[/yellow]")
                 return
@@ -936,24 +968,24 @@ class InteractivePrompt:
                 )
 
             # Use the display utility to show the system prompt
-            if hasattr(agent, 'display') and agent.display:
+            if hasattr(agent, "display") and agent.display:
                 agent.display.show_system_message(
-                    system_prompt=system_prompt,
-                    agent_name=agent_name,
-                    server_count=server_count
+                    system_prompt=system_prompt, agent_name=agent_name, server_count=server_count
                 )
             else:
                 # Fallback to basic display
                 from fast_agent.ui.console_display import ConsoleDisplay
-                display = ConsoleDisplay(config=agent.context.config if hasattr(agent, 'context') else None)
+
+                display = ConsoleDisplay(
+                    config=agent.context.config if hasattr(agent, "context") else None
+                )
                 display.show_system_message(
-                    system_prompt=system_prompt,
-                    agent_name=agent_name,
-                    server_count=server_count
+                    system_prompt=system_prompt, agent_name=agent_name, server_count=server_count
                 )
 
         except Exception as e:
             import traceback
+
             rich_print(f"[red]Error showing system prompt: {e}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 

@@ -129,6 +129,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
 
         self._message_history: List[PromptMessageExtended] = []
+        self._template_messages: List[PromptMessageExtended] = []
 
         # Initialize the display component
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -575,11 +576,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Convert to PromptMessageExtended objects
         multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
+        # Store a local copy of template messages so we can retain them across clears
+        self._template_messages = [msg.model_copy(deep=True) for msg in multipart_messages]
 
         # Delegate to the provider-specific implementation
         result = await self._apply_prompt_provider_specific(
             multipart_messages, None, is_template=True
         )
+        # Ensure message history always includes the stored template when applied
+        self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
         return result.first_text()
 
     async def _save_history(self, filename: str) -> None:
@@ -606,6 +611,18 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             List of PromptMessageExtended objects representing the conversation history
         """
         return self._message_history
+
+    def clear(self, *, clear_prompts: bool = False) -> None:
+        """Reset stored message history while optionally retaining prompt templates."""
+
+        self.history.clear(clear_prompts=clear_prompts)
+        if clear_prompts:
+            self._template_messages = []
+            self._message_history = []
+            return
+
+        # Restore message history to template messages only; new turns will append as normal
+        self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
 
     def _api_key(self):
         if self._init_api_key:
