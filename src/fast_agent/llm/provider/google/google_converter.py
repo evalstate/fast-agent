@@ -53,6 +53,14 @@ class GoogleConverter:
             if key in unsupported_keys:
                 continue  # Skip this key
 
+            # Rewrite unsupported 'const' to a safe form for Gemini tools
+            # - For string const, convert to enum [value]
+            # - For non-string const (booleans/numbers), drop the constraint
+            if key == "const":
+                if isinstance(value, str):
+                    cleaned_schema["enum"] = [value]
+                continue
+
             if (
                 key == "format"
                 and schema.get("type") == "string"
@@ -140,9 +148,8 @@ class GoogleConverter:
                     )
                 elif is_resource_content(part_content):
                     assert isinstance(part_content, EmbeddedResource)
-                    if (
-                        "application/pdf" == part_content.resource.mimeType
-                        and isinstance(part_content.resource, BlobResourceContents)
+                    if "application/pdf" == part_content.resource.mimeType and isinstance(
+                        part_content.resource, BlobResourceContents
                     ):
                         pdf_bytes = base64.b64decode(part_content.resource.blob)
                         parts.append(
