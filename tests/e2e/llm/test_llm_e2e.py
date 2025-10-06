@@ -55,6 +55,7 @@ def get_test_models():
             "gpt-5-mini.low",
             "gemini25",
             "gpt-oss",
+            #            "responses.gpt-5-mini",
             #     "generic.qwen3:8b",
         ]
 
@@ -90,6 +91,23 @@ _tool = Tool(
     name="weather",
     description="call this to check the weather in a city",
     inputSchema=_input_schema,
+)
+
+_const_input_schema = {
+    "type": "object",
+    "properties": {
+        "mode": {
+            "type": "string",
+            "const": "auto-cancel",
+            "description": "The mode must always be the literal 'auto-cancel'.",
+        }
+    },
+    "required": ["mode"],
+}
+_const_tool = Tool(
+    name="const_mode",
+    description="Demonstrates a tool schema that includes a const constraint.",
+    inputSchema=_const_input_schema,
 )
 
 
@@ -192,6 +210,26 @@ async def test_tool_user_continuation(llm_agent_setup, model_name):
     result = await agent.generate(result_message)
     assert LlmStopReason.END_TURN is result.stop_reason
     assert "sunny" in result.last_text().lower()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", TEST_MODELS)
+async def test_tool_const_schema(llm_agent_setup, model_name):
+    """Ensure providers accept tool schemas that include const constraints."""
+    agent = llm_agent_setup
+    result = await agent.generate(
+        "call the const_mode tool so I can confirm the mode you must use.",
+        tools=[_const_tool],
+        request_params=RequestParams(maxTokens=400),
+    )
+
+    assert result.stop_reason is LlmStopReason.TOOL_USE
+    assert result.tool_calls
+    assert 1 == len(result.tool_calls)
+    tool_id = next(iter(result.tool_calls.keys()))
+    tool_call: CallToolRequest = result.tool_calls[tool_id]
+    assert "const_mode" == tool_call.params.name
 
 
 @pytest.mark.e2e
