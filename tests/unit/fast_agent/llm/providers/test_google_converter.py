@@ -27,3 +27,26 @@ def test_convert_function_results_to_google_text_only():
     assert fn_resp.name == "weather"
     assert isinstance(fn_resp.response, dict)
     assert fn_resp.response.get("tool_name") == "weather"
+
+
+def test_clean_schema_for_google_const_string_to_enum():
+    converter = GoogleConverter()
+    schema = {"type": "string", "const": "all"}
+    cleaned = converter._clean_schema_for_google(schema)
+    # Expect const rewritten to enum ["all"]
+    assert "const" not in cleaned
+    assert cleaned.get("enum") == ["all"]
+
+
+def test_clean_schema_for_google_const_non_string_dropped():
+    converter = GoogleConverter()
+    schema_bool = {"type": "boolean", "const": True}
+    cleaned_bool = converter._clean_schema_for_google(schema_bool)
+    # Non-string const dropped
+    assert "const" not in cleaned_bool
+    assert "enum" not in cleaned_bool
+
+    schema_num = {"type": "number", "const": 3.14}
+    cleaned_num = converter._clean_schema_for_google(schema_num)
+    assert "const" not in cleaned_num
+    assert "enum" not in cleaned_num
