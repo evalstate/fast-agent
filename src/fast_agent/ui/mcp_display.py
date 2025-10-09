@@ -266,6 +266,8 @@ def _build_inline_timeline(buckets: Iterable[str]) -> str:
             symbol = "·"
         elif state == "request":
             symbol = "◆"  # Diamond for requests - rare and important
+        elif state == "notification":
+            symbol = "◦"  # Hollow dot for notifications
         else:
             symbol = "●"  # Circle for other activity
         timeline += f"[bold {color}]{symbol}[/bold {color}]"
@@ -437,6 +439,8 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                     symbol = "●"
                 elif bucket_state == "request":
                     symbol = "◆"  # Diamond for requests - rare and important
+                elif bucket_state == "notification":
+                    symbol = "◦"  # Hollow dot for notifications
                 else:
                     symbol = "●"  # Circle for other activity
                 line.append(symbol, style=f"bold {color}")
@@ -551,6 +555,8 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 symbol = "·"
             elif name == "request":
                 symbol = "◆"  # Diamond for requests
+            elif name == "notification":
+                symbol = "◦"  # Hollow dot for notifications
             else:
                 symbol = "●"
             footer.append(symbol, style=f"{color}")
