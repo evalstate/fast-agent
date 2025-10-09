@@ -56,10 +56,13 @@ class Colours:
 
 # Symbol definitions for timelines and legends
 SYMBOL_IDLE = "·"
-SYMBOL_RESPONSE = "●"
-SYMBOL_NOTIFICATION = "▽"
+SYMBOL_ERROR = "●"
+SYMBOL_RESPONSE = "▼"
+SYMBOL_NOTIFICATION = "●"
 SYMBOL_REQUEST = "◆"
 SYMBOL_STDIO_ACTIVITY = "●"
+SYMBOL_PING = "●"
+SYMBOL_DISABLED = "▽"
 
 
 # Color mappings for different contexts
@@ -276,6 +279,12 @@ def _build_inline_timeline(buckets: Iterable[str]) -> str:
             symbol = SYMBOL_REQUEST
         elif state == "notification":
             symbol = SYMBOL_NOTIFICATION
+        elif state == "error":
+            symbol = SYMBOL_ERROR
+        elif state == "ping":
+            symbol = SYMBOL_PING
+        elif state == "disabled":
+            symbol = SYMBOL_DISABLED
         else:
             symbol = SYMBOL_RESPONSE
         timeline += f"[bold {color}]{symbol}[/bold {color}]"
@@ -453,6 +462,12 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                     symbol = SYMBOL_REQUEST
                 elif bucket_state == "notification":
                     symbol = SYMBOL_NOTIFICATION
+                elif bucket_state == "error":
+                    symbol = SYMBOL_ERROR
+                elif bucket_state == "ping":
+                    symbol = SYMBOL_PING
+                elif bucket_state == "disabled":
+                    symbol = SYMBOL_DISABLED
                 else:
                     symbol = SYMBOL_RESPONSE
                 line.append(symbol, style=f"bold {color}")
@@ -566,9 +581,13 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             if name == "idle":
                 symbol = SYMBOL_IDLE
             elif name == "request":
-                symbol = SYMBOL_REQUEST  # Diamond for requests
+                symbol = SYMBOL_REQUEST
             elif name == "notification":
-                symbol = SYMBOL_NOTIFICATION  # Hollow dot for notifications
+                symbol = SYMBOL_NOTIFICATION
+            elif name == "error":
+                symbol = SYMBOL_ERROR
+            elif name == "ping":
+                symbol = SYMBOL_PING
             else:
                 symbol = SYMBOL_RESPONSE
             footer.append(symbol, style=f"{color}")
