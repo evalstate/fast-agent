@@ -6,6 +6,7 @@ from mcp.types import CallToolResult
 from rich.panel import Panel
 from rich.text import Text
 
+from fast_agent.constants import REASONING
 from fast_agent.ui import console
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
@@ -144,6 +145,25 @@ class ConsoleDisplay:
         self._markup = config.logger.enable_markup if config else True
         self._escape_xml = True
 
+    @staticmethod
+    def _format_elapsed(elapsed: float) -> str:
+        """Format elapsed seconds for display."""
+        if elapsed < 0:
+            elapsed = 0.0
+        if elapsed < 0.001:
+            return "<1ms"
+        if elapsed < 1:
+            return f"{elapsed * 1000:.0f}ms"
+        if elapsed < 10:
+            return f"{elapsed:.2f}s"
+        if elapsed < 60:
+            return f"{elapsed:.1f}s"
+        minutes, seconds = divmod(elapsed, 60)
+        if minutes < 60:
+            return f"{int(minutes)}m {seconds:02.0f}s"
+        hours, minutes = divmod(int(minutes), 60)
+        return f"{hours}h {minutes:02d}m"
+
     def display_message(
         self,
         content: Any,
@@ -156,6 +176,7 @@ class ConsoleDisplay:
         is_error: bool = False,
         truncate_content: bool = True,
         additional_message: Text | None = None,
+        pre_content: Text | None = None,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -170,6 +191,8 @@ class ConsoleDisplay:
             max_item_length: Optional max length for bottom metadata items (with ellipsis)
             is_error: For tool results, whether this is an error (uses red color)
             truncate_content: Whether to truncate long content
+            additional_message: Optional Rich Text appended after the main content
+            pre_content: Optional Rich Text shown before the main content
         """
         # Get configuration for this message type
         config = MESSAGE_CONFIGS[message_type]
@@ -191,6 +214,8 @@ class ConsoleDisplay:
         self._create_combined_separator_status(left, right_info)
 
         # Display the content
+        if pre_content and pre_content.plain:
+            console.console.print(pre_content, markup=self._markup)
         self._display_content(
             content, truncate_content, is_error, message_type, check_markdown_markers=False
         )
@@ -544,7 +569,7 @@ class ConsoleDisplay:
 
         # Build transport channel info for bottom bar
         channel = getattr(result, "transport_channel", None)
-        bottom_metadata = None
+        bottom_metadata_items: List[str] = []
         if channel:
             # Format channel info for bottom bar
             if channel == "post-json":
@@ -560,7 +585,13 @@ class ConsoleDisplay:
             else:
                 transport_info = channel.upper()
 
-            bottom_metadata = [transport_info]
+            bottom_metadata_items.append(transport_info)
+
+        elapsed = getattr(result, "transport_elapsed", None)
+        if isinstance(elapsed, (int, float)):
+            bottom_metadata_items.append(self._format_elapsed(float(elapsed)))
+
+        bottom_metadata = bottom_metadata_items or None
 
         # Build right info (without channel info)
         right_info = f"[dim]tool result - {status}[/dim]"
@@ -724,8 +755,26 @@ class ConsoleDisplay:
         # Extract text from PromptMessageExtended if needed
         from fast_agent.types import PromptMessageExtended
 
+        pre_content: Text | None = None
+
         if isinstance(message_text, PromptMessageExtended):
             display_text = message_text.last_text() or ""
+
+            channels = message_text.channels or {}
+            reasoning_blocks = channels.get(REASONING) or []
+            if reasoning_blocks:
+                from fast_agent.mcp.helpers.content_helpers import get_text
+
+                reasoning_segments = []
+                for block in reasoning_blocks:
+                    text = get_text(block)
+                    if text:
+                        reasoning_segments.append(text)
+
+                if reasoning_segments:
+                    joined = "\n".join(reasoning_segments)
+                    if joined.strip():
+                        pre_content = Text(joined, style="dim default")
         else:
             display_text = message_text
 
@@ -743,6 +792,7 @@ class ConsoleDisplay:
             max_item_length=max_item_length,
             truncate_content=False,  # Assistant messages shouldn't be truncated
             additional_message=additional_message,
+            pre_content=pre_content,
         )
 
         # Handle mermaid diagrams separately (after the main message)
