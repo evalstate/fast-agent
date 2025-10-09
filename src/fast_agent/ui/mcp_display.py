@@ -54,6 +54,17 @@ class Colours:
     TEXT_CYAN = "cyan"
 
 
+# Symbol definitions for timelines and legends
+SYMBOL_IDLE = "·"
+SYMBOL_ERROR = "●"
+SYMBOL_RESPONSE = "▼"
+SYMBOL_NOTIFICATION = "●"
+SYMBOL_REQUEST = "◆"
+SYMBOL_STDIO_ACTIVITY = "●"
+SYMBOL_PING = "●"
+SYMBOL_DISABLED = "▽"
+
+
 # Color mappings for different contexts
 TIMELINE_COLORS = {
     "error": Colours.ERROR,
@@ -263,11 +274,19 @@ def _build_inline_timeline(buckets: Iterable[str]) -> str:
     for state in buckets:
         color = TIMELINE_COLORS.get(state, Colours.NONE)
         if state in {"idle", "none"}:
-            symbol = "·"
+            symbol = SYMBOL_IDLE
         elif state == "request":
-            symbol = "◆"  # Diamond for requests - rare and important
+            symbol = SYMBOL_REQUEST
+        elif state == "notification":
+            symbol = SYMBOL_NOTIFICATION
+        elif state == "error":
+            symbol = SYMBOL_ERROR
+        elif state == "ping":
+            symbol = SYMBOL_PING
+        elif state == "disabled":
+            symbol = SYMBOL_DISABLED
         else:
-            symbol = "●"  # Circle for other activity
+            symbol = SYMBOL_RESPONSE
         timeline += f"[bold {color}]{symbol}[/bold {color}]"
     timeline += " [dim]now[/dim]"
     return timeline
@@ -416,7 +435,12 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         elif arrow_style == Colours.ARROW_ERROR and "GET" in label:
             # Highlight GET stream errors in red to match the arrow indicator
             label_style = Colours.TEXT_ERROR
-        elif channel.request_count == 0 and channel.response_count == 0:
+        elif (
+            channel.request_count == 0
+            and channel.response_count == 0
+            and channel.notification_count == 0
+            and (channel.ping_count or 0) == 0
+        ):
             # No activity = dim
             label_style = Colours.TEXT_DIM
         else:
@@ -431,19 +455,26 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             for bucket_state in channel.activity_buckets:
                 color = timeline_color_map.get(bucket_state, "dim")
                 if bucket_state in {"idle", "none"}:
-                    symbol = "·"
+                    symbol = SYMBOL_IDLE
                 elif is_stdio:
-                    # For STDIO, all activity shows as filled circles since types are combined
-                    symbol = "●"
+                    symbol = SYMBOL_STDIO_ACTIVITY
                 elif bucket_state == "request":
-                    symbol = "◆"  # Diamond for requests - rare and important
+                    symbol = SYMBOL_REQUEST
+                elif bucket_state == "notification":
+                    symbol = SYMBOL_NOTIFICATION
+                elif bucket_state == "error":
+                    symbol = SYMBOL_ERROR
+                elif bucket_state == "ping":
+                    symbol = SYMBOL_PING
+                elif bucket_state == "disabled":
+                    symbol = SYMBOL_DISABLED
                 else:
-                    symbol = "●"  # Circle for other activity
+                    symbol = SYMBOL_RESPONSE
                 line.append(symbol, style=f"bold {color}")
         else:
             # Show dim dots for no activity
             for _ in range(20):
-                line.append("·", style="black dim")
+                line.append(SYMBOL_IDLE, style="black dim")
         line.append(" now", style="dim")
 
         # Metrics - different layouts for stdio vs HTTP
@@ -548,11 +579,17 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             if i > 0:
                 footer.append(" ", style="dim")
             if name == "idle":
-                symbol = "·"
+                symbol = SYMBOL_IDLE
             elif name == "request":
-                symbol = "◆"  # Diamond for requests
+                symbol = SYMBOL_REQUEST
+            elif name == "notification":
+                symbol = SYMBOL_NOTIFICATION
+            elif name == "error":
+                symbol = SYMBOL_ERROR
+            elif name == "ping":
+                symbol = SYMBOL_PING
             else:
-                symbol = "●"
+                symbol = SYMBOL_RESPONSE
             footer.append(symbol, style=f"{color}")
             footer.append(f" {name}", style="dim")
 
@@ -619,7 +656,7 @@ async def render_mcp_status(agent, indent: str = "") -> None:
 
         header_label = Text(indent)
         header_label.append("▎", style=Colours.TEXT_CYAN)
-        header_label.append("●", style=f"dim {Colours.TEXT_CYAN}")
+        header_label.append(SYMBOL_RESPONSE, style=f"dim {Colours.TEXT_CYAN}")
         header_label.append(f" [{index:2}] ", style=Colours.TEXT_CYAN)
         header_label.append(server, style=f"{Colours.TEXT_INFO} bold")
         render_header(header_label)

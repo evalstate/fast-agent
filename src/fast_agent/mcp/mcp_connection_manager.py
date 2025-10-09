@@ -38,6 +38,8 @@ from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_clie
 from fast_agent.mcp.transport_tracking import TransportChannelMetrics
 
 if TYPE_CHECKING:
+    from mcp.client.auth import OAuthClientProvider
+
     from fast_agent.context import Context
     from fast_agent.mcp_server_registry import ServerRegistry
 
@@ -63,6 +65,38 @@ class StreamingContextAdapter:
 def _add_none_to_context(context_manager):
     """Helper to add a None value to context managers that return 2 values instead of 3"""
     return StreamingContextAdapter(context_manager)
+
+
+def _prepare_headers_and_auth(
+    server_config: MCPServerSettings,
+) -> tuple[dict[str, str], Optional["OAuthClientProvider"], set[str]]:
+    """
+    Prepare request headers and determine if OAuth authentication should be used.
+
+    Returns a copy of the headers, an OAuth auth provider when applicable, and the set
+    of user-supplied authorization header keys.
+    """
+    headers: dict[str, str] = dict(server_config.headers or {})
+    auth_header_keys = {"authorization", "x-hf-authorization"}
+    user_provided_auth_keys = {key for key in headers if key.lower() in auth_header_keys}
+
+    # OAuth is only relevant for SSE/HTTP transports and should be skipped when the
+    # user has already supplied explicit Authorization headers.
+    if server_config.transport not in ("sse", "http") or user_provided_auth_keys:
+        return headers, None, user_provided_auth_keys
+
+    oauth_auth = build_oauth_provider(server_config)
+    if oauth_auth is not None:
+        # Scrub Authorization headers so OAuth-managed credentials are the only ones sent.
+        for header_name in (
+            "Authorization",
+            "authorization",
+            "X-HF-Authorization",
+            "x-hf-authorization",
+        ):
+            headers.pop(header_name, None)
+
+    return headers, oauth_auth, user_provided_auth_keys
 
 
 class ServerConnection:
@@ -113,7 +147,9 @@ class ServerConnection:
         self.server_implementation: Implementation | None = None
         self.client_capabilities: dict | None = None
         self.server_instructions_available: bool = False
-        self.server_instructions_enabled: bool = server_config.include_instructions if server_config else True
+        self.server_instructions_enabled: bool = (
+            server_config.include_instructions if server_config else True
+        )
         self.session_id: str | None = None
         self._get_session_id_cb: GetSessionIdCallback | None = None
         self.transport_metrics: TransportChannelMetrics | None = None
@@ -404,7 +440,9 @@ class MCPConnectionManager(ContextDependent):
 
         logger.debug(f"{server_name}: Found server configuration=", data=config.model_dump())
 
-        transport_metrics = TransportChannelMetrics() if config.transport in ("http", "stdio") else None
+        transport_metrics = (
+            TransportChannelMetrics() if config.transport in ("http", "stdio") else None
+        )
 
         def transport_context_factory():
             if config.transport == "stdio":
@@ -425,7 +463,9 @@ class MCPConnectionManager(ContextDependent):
 
                 channel_hook = transport_metrics.record_event if transport_metrics else None
                 return _add_none_to_context(
-                    tracking_stdio_client(server_params, channel_hook=channel_hook, errlog=error_handler)
+                    tracking_stdio_client(
+                        server_params, channel_hook=channel_hook, errlog=error_handler
+                    )
                 )
             elif config.transport == "sse":
                 if not config.url:
@@ -434,12 +474,12 @@ class MCPConnectionManager(ContextDependent):
                     )
                 # Suppress MCP library error spam
                 self._suppress_mcp_sse_errors()
-                oauth_auth = build_oauth_provider(config)
-                # If using OAuth, strip any pre-existing Authorization headers to avoid conflicts
-                headers = dict(config.headers or {})
-                if oauth_auth is not None:
-                    headers.pop("Authorization", None)
-                    headers.pop("X-HF-Authorization", None)
+                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+                if user_auth_keys:
+                    logger.debug(
+                        f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
+                        user_auth_headers=sorted(user_auth_keys),
+                    )
                 return _add_none_to_context(
                     sse_client(
                         config.url,
@@ -453,19 +493,22 @@ class MCPConnectionManager(ContextDependent):
                     raise ValueError(
                         f"Server '{server_name}' uses http transport but no url is specified"
                     )
-                oauth_auth = build_oauth_provider(config)
-                headers = dict(config.headers or {})
-                if oauth_auth is not None:
-                    headers.pop("Authorization", None)
-                    headers.pop("X-HF-Authorization", None)
+                headers, oauth_auth, user_auth_keys = _prepare_headers_and_auth(config)
+                if user_auth_keys:
+                    logger.debug(
+                        f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
+                        user_auth_headers=sorted(user_auth_keys),
+                    )
                 channel_hook = None
                 if transport_metrics is not None:
+
                     def channel_hook(event):
                         try:
                             transport_metrics.record_event(event)
                         except Exception:  # pragma: no cover - defensive guard
                             logger.debug(
-                                "%s: transport metrics hook failed", server_name,
+                                "%s: transport metrics hook failed",
+                                server_name,
                                 exc_info=True,
                             )
 
