@@ -170,7 +170,7 @@ class LlmAgent(LlmDecorator):
                 combined += segment
             additional_message_text = combined
 
-        message_text = message.last_text() or ""
+        message_text = message
 
         # Use provided name/model or fall back to defaults
         display_name = name if name is not None else self.name
