@@ -248,9 +248,10 @@ class LlmDecorator(AgentProtocol):
         """
         # Normalize all input types to a list of PromptMessageExtended
         multipart_messages = normalize_to_extended_list(messages)
+        final_request_params = self.llm.get_request_params(request_params) if self._llm else request_params
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
-            return await self.generate_impl(multipart_messages, request_params, tools)
+            return await self.generate_impl(multipart_messages, final_request_params, tools)
 
     async def generate_impl(
         self,
