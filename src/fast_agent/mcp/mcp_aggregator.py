@@ -137,7 +137,7 @@ class MCPAggregator(ContextDependent):
                 server_registry = context.server_registry
                 if server_registry is None:
                     raise RuntimeError("Context is missing server registry for MCP connections")
-                manager = MCPConnectionManager(server_registry)
+                manager = MCPConnectionManager(server_registry, context=context)
                 await manager.__aenter__()
                 context._connection_manager = manager
             self._persistent_connection_manager = cast(

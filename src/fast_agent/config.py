@@ -49,6 +49,66 @@ class MCPElicitationSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class MCPTimelineSettings(BaseModel):
+    """Configuration for MCP activity timeline display."""
+
+    steps: int = 20
+    """Number of timeline buckets to render."""
+
+    step_seconds: int = 30
+    """Duration of each timeline bucket in seconds."""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    @staticmethod
+    def _parse_duration(value: str) -> int:
+        """Parse simple duration strings like '30s', '2m', '1h' into seconds."""
+        pattern = re.compile(r"^\s*(\d+)\s*([smhd]?)\s*$", re.IGNORECASE)
+        match = pattern.match(value)
+        if not match:
+            raise ValueError("Expected duration in seconds (e.g. 30, '45s', '2m').")
+        amount = int(match.group(1))
+        unit = match.group(2).lower()
+        multiplier = {
+            "": 1,
+            "s": 1,
+            "m": 60,
+            "h": 3600,
+            "d": 86400,
+        }.get(unit)
+        if multiplier is None:
+            raise ValueError("Duration unit must be one of s, m, h, or d.")
+        return amount * multiplier
+
+    @field_validator("steps", mode="before")
+    @classmethod
+    def _coerce_steps(cls, value: Any) -> int:
+        if isinstance(value, str):
+            if not value.strip().isdigit():
+                raise ValueError("Timeline steps must be a positive integer.")
+            value = int(value.strip())
+        elif isinstance(value, float):
+            value = int(value)
+        if not isinstance(value, int):
+            raise TypeError("Timeline steps must be an integer.")
+        if value <= 0:
+            raise ValueError("Timeline steps must be greater than zero.")
+        return value
+
+    @field_validator("step_seconds", mode="before")
+    @classmethod
+    def _coerce_step_seconds(cls, value: Any) -> int:
+        if isinstance(value, str):
+            value = cls._parse_duration(value)
+        elif isinstance(value, (int, float)):
+            value = int(value)
+        else:
+            raise TypeError("Timeline step duration must be a number of seconds.")
+        if value <= 0:
+            raise ValueError("Timeline step duration must be greater than zero.")
+        return value
+
+
 class MCPRootSettings(BaseModel):
     """Represents a root directory configuration for an MCP server."""
 
@@ -527,6 +587,9 @@ class Settings(BaseSettings):
     # Output directory for MCP-UI generated HTML files (relative to CWD if not absolute)
     mcp_ui_output_dir: str = ".fast-agent/ui"
     """Directory where MCP-UI HTML files are written. Relative paths are resolved from CWD."""
+
+    mcp_timeline: MCPTimelineSettings = MCPTimelineSettings()
+    """Display settings for MCP activity timelines."""
 
     @classmethod
     def find_config(cls) -> Path | None:

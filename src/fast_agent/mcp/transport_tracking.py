@@ -82,6 +82,8 @@ class ChannelSnapshot(BaseModel):
     response_count: int = 0
     notification_count: int = 0
     activity_buckets: list[str] | None = None
+    activity_bucket_seconds: int | None = None
+    activity_bucket_count: int | None = None
 
 
 class TransportSnapshot(BaseModel):
@@ -95,12 +97,18 @@ class TransportSnapshot(BaseModel):
     get: ChannelSnapshot | None = None
     resumption: ChannelSnapshot | None = None
     stdio: ChannelSnapshot | None = None
+    activity_bucket_seconds: int | None = None
+    activity_bucket_count: int | None = None
 
 
 class TransportChannelMetrics:
     """Aggregates low-level channel events into user-visible metrics."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        bucket_seconds: int | None = None,
+        bucket_count: int | None = None,
+    ) -> None:
         self._lock = Lock()
 
         self._post_modes: set[str] = set()
@@ -155,8 +163,22 @@ class TransportChannelMetrics:
 
         self._response_channel_by_id: dict[RequestId, ChannelName] = {}
 
-        self._history_bucket_seconds = 30
-        self._history_bucket_count = 20
+        try:
+            seconds = 30 if bucket_seconds is None else int(bucket_seconds)
+        except (TypeError, ValueError):
+            seconds = 30
+        if seconds <= 0:
+            seconds = 30
+
+        try:
+            count = 20 if bucket_count is None else int(bucket_count)
+        except (TypeError, ValueError):
+            count = 20
+        if count <= 0:
+            count = 20
+
+        self._history_bucket_seconds = seconds
+        self._history_bucket_count = count
         self._history_priority = {
             "error": 5,
             "disabled": 4,
@@ -463,6 +485,8 @@ class TransportChannelMetrics:
             last_message_summary=stats.last_summary,
             last_message_at=stats.last_at,
             activity_buckets=self._build_activity_buckets(f"post-{mode}", now),
+            activity_bucket_seconds=self._history_bucket_seconds,
+            activity_bucket_count=self._history_bucket_count,
         )
 
     def snapshot(self) -> TransportSnapshot:
@@ -503,6 +527,8 @@ class TransportChannelMetrics:
                     response_count=self._post_response_count,
                     notification_count=self._post_notification_count,
                     activity_buckets=self._merge_activity_buckets(["post-json", "post-sse"], now),
+                    activity_bucket_seconds=self._history_bucket_seconds,
+                    activity_bucket_count=self._history_bucket_count,
                 )
 
             post_json_snapshot = self._build_post_mode_snapshot("json", now)
@@ -543,6 +569,8 @@ class TransportChannelMetrics:
                     response_count=self._get_response_count,
                     notification_count=self._get_notification_count,
                     activity_buckets=self._build_activity_buckets("get", now),
+                    activity_bucket_seconds=self._history_bucket_seconds,
+                    activity_bucket_count=self._history_bucket_count,
                 )
 
             resumption_snapshot = None
@@ -555,6 +583,8 @@ class TransportChannelMetrics:
                     response_count=self._resumption_response_count,
                     notification_count=self._resumption_notification_count,
                     activity_buckets=self._build_activity_buckets("resumption", now),
+                    activity_bucket_seconds=self._history_bucket_seconds,
+                    activity_bucket_count=self._history_bucket_count,
                 )
 
             stdio_snapshot = None
@@ -588,6 +618,8 @@ class TransportChannelMetrics:
                     response_count=self._stdio_response_count,
                     notification_count=self._stdio_notification_count,
                     activity_buckets=self._build_activity_buckets("stdio", now),
+                    activity_bucket_seconds=self._history_bucket_seconds,
+                    activity_bucket_count=self._history_bucket_count,
                 )
 
             return TransportSnapshot(
@@ -597,4 +629,6 @@ class TransportChannelMetrics:
                 get=get_snapshot,
                 resumption=resumption_snapshot,
                 stdio=stdio_snapshot,
+                activity_bucket_seconds=self._history_bucket_seconds,
+                activity_bucket_count=self._history_bucket_count,
             )

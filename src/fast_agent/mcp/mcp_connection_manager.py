@@ -440,8 +440,24 @@ class MCPConnectionManager(ContextDependent):
 
         logger.debug(f"{server_name}: Found server configuration=", data=config.model_dump())
 
+        timeline_steps = 20
+        timeline_seconds = 30
+        try:
+            ctx = self.context
+        except RuntimeError:
+            ctx = None
+
+        config_obj = getattr(ctx, "config", None)
+        timeline_config = getattr(config_obj, "mcp_timeline", None)
+        if timeline_config:
+            timeline_steps = getattr(timeline_config, "steps", timeline_steps)
+            timeline_seconds = getattr(timeline_config, "step_seconds", timeline_seconds)
+
         transport_metrics = (
-            TransportChannelMetrics()
+            TransportChannelMetrics(
+                bucket_seconds=timeline_seconds,
+                bucket_count=timeline_steps,
+            )
             if config.transport in ("http", "sse", "stdio")
             else None
         )
