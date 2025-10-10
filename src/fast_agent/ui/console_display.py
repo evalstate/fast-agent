@@ -672,6 +672,7 @@ class ConsoleDisplay:
 
                 # Display with bright syntax highlighting
                 import json
+
                 from rich.syntax import Syntax
 
                 json_str = json.dumps(structured_content, indent=2)
