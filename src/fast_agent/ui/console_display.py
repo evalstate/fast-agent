@@ -539,8 +539,21 @@ class ConsoleDisplay:
 
         return formatted
 
-    def show_tool_result(self, result: CallToolResult, name: str | None = None) -> None:
-        """Display a tool result in the new visual style."""
+    def show_tool_result(
+        self,
+        result: CallToolResult,
+        name: str | None = None,
+        tool_name: str | None = None,
+        skybridge_config: "SkybridgeServerConfig | None" = None,
+    ) -> None:
+        """Display a tool result in the new visual style.
+
+        Args:
+            result: The tool result to display
+            name: Optional agent name
+            tool_name: Optional tool name for skybridge detection
+            skybridge_config: Optional skybridge configuration for the server
+        """
         if not self.config or not self.config.logger.show_tools:
             return
 
@@ -549,6 +562,20 @@ class ConsoleDisplay:
 
         # Analyze content to determine display format and status
         content = result.content
+        structured_content = getattr(result, "structuredContent", None)
+        has_structured = structured_content is not None
+
+        # Determine if this is a skybridge tool
+        is_skybridge_tool = False
+        skybridge_resource_uri = None
+        if has_structured and tool_name and skybridge_config:
+            # Check if this tool is a valid skybridge tool
+            for tool_cfg in skybridge_config.tools:
+                if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
+                    is_skybridge_tool = True
+                    skybridge_resource_uri = tool_cfg.resource_uri
+                    break
+
         if result.isError:
             status = "ERROR"
         else:
@@ -592,21 +619,131 @@ class ConsoleDisplay:
         if isinstance(elapsed, (int, float)):
             bottom_metadata_items.append(self._format_elapsed(float(elapsed)))
 
+        # Add structured content indicator if present
+        if has_structured:
+            bottom_metadata_items.append("Structured ■")
+
         bottom_metadata = bottom_metadata_items or None
 
         # Build right info (without channel info)
         right_info = f"[dim]tool result - {status}[/dim]"
 
-        # Display using unified method
-        self.display_message(
-            content=content,
-            message_type=MessageType.TOOL_RESULT,
-            name=name,
-            right_info=right_info,
-            bottom_metadata=bottom_metadata,
-            is_error=result.isError,
-            truncate_content=True,
-        )
+        if has_structured:
+            # Handle structured content display manually to insert it before bottom separator
+            # Display main content without bottom separator
+            config = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
+            block_color = "red" if result.isError else config["block_color"]
+            arrow = config["arrow"]
+            arrow_style = config["arrow_style"]
+            left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+            if name:
+                left += f" [{block_color if not result.isError else 'red'}]{name}[/{block_color if not result.isError else 'red'}]"
+
+            # Top separator
+            self._create_combined_separator_status(left, right_info)
+
+            # Main content
+            self._display_content(
+                content, True, result.isError, MessageType.TOOL_RESULT, check_markdown_markers=False
+            )
+
+            # Structured content separator and display
+            console.console.print()
+            total_width = console.console.size.width
+
+            if is_skybridge_tool:
+                # Skybridge: magenta separator with resource URI
+                resource_label = f"Skybridge Resource: {skybridge_resource_uri}" if skybridge_resource_uri else "Skybridge Resource"
+                prefix = Text("─| ")
+                prefix.stylize("dim")
+                resource_text = Text(resource_label, style="magenta")
+                suffix = Text(" |")
+                suffix.stylize("dim")
+
+                separator_line = Text()
+                separator_line.append_text(prefix)
+                separator_line.append_text(resource_text)
+                separator_line.append_text(suffix)
+                remaining = total_width - separator_line.cell_len
+                if remaining > 0:
+                    separator_line.append("─" * remaining, style="dim")
+                console.console.print(separator_line, markup=self._markup)
+                console.console.print()
+
+                # Display with bright syntax highlighting
+                import json
+                from rich.syntax import Syntax
+
+                json_str = json.dumps(structured_content, indent=2)
+                syntax_obj = Syntax(json_str, "json", theme="monokai", background_color="default")
+                console.console.print(syntax_obj, markup=self._markup)
+            else:
+                # Regular tool: dim separator
+                prefix = Text("─| ")
+                prefix.stylize("dim")
+                label_text = Text("Structured Content", style="dim")
+                suffix = Text(" |")
+                suffix.stylize("dim")
+
+                separator_line = Text()
+                separator_line.append_text(prefix)
+                separator_line.append_text(label_text)
+                separator_line.append_text(suffix)
+                remaining = total_width - separator_line.cell_len
+                if remaining > 0:
+                    separator_line.append("─" * remaining, style="dim")
+                console.console.print(separator_line, markup=self._markup)
+                console.console.print()
+
+                # Display truncated content in dim
+                from rich.pretty import Pretty
+
+                if self.config and self.config.logger.truncate_tools:
+                    pretty_obj = Pretty(structured_content, max_length=10, max_string=50)
+                else:
+                    pretty_obj = Pretty(structured_content)
+                console.console.print(pretty_obj, style="dim", markup=self._markup)
+
+            # Bottom separator with metadata
+            console.console.print()
+            if bottom_metadata:
+                display_items = self._shorten_items(bottom_metadata, 12) if True else bottom_metadata
+                prefix = Text("─| ")
+                prefix.stylize("dim")
+                suffix = Text(" |")
+                suffix.stylize("dim")
+                available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+
+                metadata_text = self._format_bottom_metadata(
+                    display_items,
+                    None,
+                    config["highlight_color"],
+                    max_width=available,
+                )
+
+                line = Text()
+                line.append_text(prefix)
+                line.append_text(metadata_text)
+                line.append_text(suffix)
+                remaining = total_width - line.cell_len
+                if remaining > 0:
+                    line.append("─" * remaining, style="dim")
+                console.console.print(line, markup=self._markup)
+            else:
+                console.console.print("─" * total_width, style="dim")
+            console.console.print()
+
+        else:
+            # No structured content - use standard display
+            self.display_message(
+                content=content,
+                message_type=MessageType.TOOL_RESULT,
+                name=name,
+                right_info=right_info,
+                bottom_metadata=bottom_metadata,
+                is_error=result.isError,
+                truncate_content=True,
+            )
 
     def show_tool_call(
         self,
@@ -741,6 +878,10 @@ class ConsoleDisplay:
         for server_name in sorted(configs.keys()):
             config = configs.get(server_name)
             if not config:
+                continue
+
+            # Skip servers without skybridge enablement
+            if not config.enabled:
                 continue
 
             resources = list(config.ui_resources or [])

@@ -170,7 +170,7 @@ class ToolAgent(LlmAgent):
             # Delegate to call_tool for execution (overridable by subclasses)
             result = await self.call_tool(tool_name, tool_args)
             tool_results[correlation_id] = result
-            self.display.show_tool_result(name=self.name, result=result)
+            self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name)
 
         return self._finalize_tool_results(tool_results)
 
