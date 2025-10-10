@@ -60,6 +60,7 @@ async def main() -> None:
         await agent.interactive(agent_name="route")
         for request in SAMPLE_REQUESTS:
             await agent.route(request)
+        await agent.interactive()
 
 
 if __name__ == "__main__":

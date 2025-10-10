@@ -14,6 +14,7 @@ class ProgressAction(str, Enum):
     INITIALIZED = "Initialized"
     CHATTING = "Chatting"
     STREAMING = "Streaming"  # Special action for real-time streaming updates
+    THINKING = "Thinking"  # Special action for real-time thinking updates
     ROUTING = "Routing"
     PLANNING = "Planning"
     READY = "Ready"
@@ -53,9 +54,7 @@ class ProgressEvent(BaseModel):
             base = f"{self.action.ljust(11)}. {self.target}"
             if self.details:
                 base += f" - {self.details}"
-        
+
         if self.agent_name:
             base = f"[{self.agent_name}] {base}"
         return base
-
-

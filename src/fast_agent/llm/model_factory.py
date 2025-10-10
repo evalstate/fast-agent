@@ -317,6 +317,10 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.llm_groq import GroqLLM
 
                 return GroqLLM
+            if provider == Provider.RESPONSES:
+                from fast_agent.llm.provider.openai.responses import ResponsesLLM
+                return ResponsesLLM
+
         except Exception as e:
             raise ModelConfigError(
                 f"Provider '{provider.value}' is unavailable or missing dependencies: {e}"

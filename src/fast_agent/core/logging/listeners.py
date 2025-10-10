@@ -70,7 +70,7 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
 
     # Extract streaming token count for STREAMING actions
     streaming_tokens = None
-    if progress_action == ProgressAction.STREAMING:
+    if progress_action == ProgressAction.STREAMING or progress_action == ProgressAction.THINKING:
         streaming_tokens = event_data.get("details", "")
 
     # Extract progress data for TOOL_PROGRESS actions
