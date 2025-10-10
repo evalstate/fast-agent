@@ -1,6 +1,6 @@
 from enum import Enum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Union
 
 from mcp.types import CallToolResult
 from rich.panel import Panel
@@ -881,24 +881,36 @@ class ConsoleDisplay:
 
         server_rows: List[Dict[str, Any]] = []
         warnings: List[str] = []
+        warning_seen: Set[str] = set()
+
+        def add_warning(message: str) -> None:
+            formatted = message.strip()
+            if not formatted:
+                return
+            if formatted not in warning_seen:
+                warnings.append(formatted)
+                warning_seen.add(formatted)
 
         for server_name in sorted(configs.keys()):
             config = configs.get(server_name)
             if not config:
                 continue
-
-            # Skip servers without skybridge enablement
-            if not config.enabled:
+            resources = list(config.ui_resources or [])
+            has_skybridge_signal = bool(
+                config.enabled or resources or config.tools or config.warnings
+            )
+            if not has_skybridge_signal:
                 continue
 
-            resources = list(config.ui_resources or [])
+            valid_resource_count = sum(1 for resource in resources if resource.is_skybridge)
 
             server_rows.append(
                 {
                     "server_name": server_name,
                     "config": config,
                     "resources": resources,
-                    "resource_count": len(resources),
+                    "valid_resource_count": valid_resource_count,
+                    "total_resource_count": len(resources),
                     "active_tools": [
                         {
                             "name": tool.display_name,
@@ -907,17 +919,17 @@ class ConsoleDisplay:
                         for tool in config.tools
                         if tool.is_valid
                     ],
+                    "enabled": config.enabled,
                 }
             )
 
-            for resource in resources:
-                warning = resource.warning
-                if warning and not resource.is_skybridge:
-                    warnings.append(f"{server_name} {resource.uri}: {warning}")
-
-            for tool in config.tools:
-                if tool.warning:
-                    warnings.append(f"{server_name} {tool.display_name}: {tool.warning}")
+            for warning in config.warnings:
+                message = warning.strip()
+                if not message:
+                    continue
+                if not message.startswith(server_name):
+                    message = f"{server_name} {message}"
+                add_warning(message)
 
         if not server_rows and not warnings:
             return
@@ -932,17 +944,23 @@ class ConsoleDisplay:
             for row in server_rows:
                 server_name = row["server_name"]
                 config = row["config"]
-                resource_count = row["resource_count"]
+                resource_count = row["valid_resource_count"]
+                total_resource_count = row["total_resource_count"]
                 tool_infos = row["active_tools"]
+                enabled = row["enabled"]
 
                 tool_count = len(tool_infos)
                 tool_word = "tool" if tool_count == 1 else "tools"
-                resource_word = "resource" if resource_count == 1 else "resources"
+                resource_word = (
+                    "skybridge resource" if resource_count == 1 else "skybridge resources"
+                )
                 tool_segment = f"[cyan]{tool_count}[/cyan][dim] {tool_word}[/dim]"
                 resource_segment = f"[cyan]{resource_count}[/cyan][dim] {resource_word}[/dim]"
+                name_style = "cyan" if enabled else "yellow"
+                status_suffix = "" if enabled else "[dim] (issues detected)[/dim]"
 
                 console.console.print(
-                    f"[dim]  ● [/dim][cyan]{server_name}[/cyan]"
+                    f"[dim]  ● [/dim][{name_style}]{server_name}[/{name_style}]{status_suffix}"
                     f"[dim] — [/dim]{tool_segment}[dim], [/dim]{resource_segment}",
                     markup=self._markup,
                 )
@@ -959,6 +977,16 @@ class ConsoleDisplay:
                 if tool_count == 0 and resource_count > 0:
                     console.console.print(
                         "[dim]     ▶ tools not linked[/dim]",
+                        markup=self._markup,
+                    )
+                if not enabled and total_resource_count > resource_count:
+                    invalid_count = total_resource_count - resource_count
+                    invalid_word = "resource" if invalid_count == 1 else "resources"
+                    console.console.print(
+                        (
+                            "[dim]     ▶ "
+                            f"{invalid_count} {invalid_word} detected with non-skybridge MIME type[/dim]"
+                        ),
                         markup=self._markup,
                     )
 

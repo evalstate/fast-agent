@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import logging
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 from opentelemetry import trace
@@ -135,16 +137,42 @@ async def configure_logger(config: "Settings") -> None:
     """
     Configure logging and tracing based on the application config.
     """
+    settings = config.logger
+
+    # Configure the standard Python logger used by LoggingListener so it respects settings.
+    python_logger = logging.getLogger("fast_agent")
+    python_logger.handlers.clear()
+    python_logger.setLevel(settings.level.upper())
+    python_logger.propagate = False
+
+    handler: logging.Handler
+    if settings.type == "console":
+        handler = logging.StreamHandler()
+    elif settings.type == "file":
+        log_path = Path(settings.path)
+        if log_path.parent:
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(log_path)
+    elif settings.type == "none":
+        handler = logging.NullHandler()
+    else:
+        # For transports that handle output elsewhere (e.g., HTTP), suppress console output.
+        handler = logging.NullHandler()
+
+    handler.setLevel(settings.level.upper())
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    python_logger.addHandler(handler)
+
     # Use StreamingExclusionFilter to prevent streaming events from flooding logs
-    event_filter: EventFilter = StreamingExclusionFilter(min_level=config.logger.level)
-    logger.info(f"Configuring logger with level: {config.logger.level}")
-    transport = create_transport(settings=config.logger, event_filter=event_filter)
+    event_filter: EventFilter = StreamingExclusionFilter(min_level=settings.level)
+    logger.info(f"Configuring logger with level: {settings.level}")
+    transport = create_transport(settings=settings, event_filter=event_filter)
     await LoggingConfig.configure(
         event_filter=event_filter,
         transport=transport,
-        batch_size=config.logger.batch_size,
-        flush_interval=config.logger.flush_interval,
-        progress_display=config.logger.progress_display,
+        batch_size=settings.batch_size,
+        flush_interval=settings.flush_interval,
+        progress_display=settings.progress_display,
     )
 
 
