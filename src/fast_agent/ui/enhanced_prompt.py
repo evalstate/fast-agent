@@ -659,60 +659,96 @@ async def get_enhanced_input(
         model_display = None
         tdv_segment = None
         turn_count = 0
-        try:
-            if agent_provider:
+        agent = None
+        if agent_provider:
+            try:
                 agent = agent_provider._agent(agent_name)
+            except Exception as exc:
+                print(f"[toolbar debug] unable to resolve agent '{agent_name}': {exc}")
 
-                # Get turn count from message history
-                for message in agent.message_history:
-                    if message.role == "user":
-                        turn_count += 1
+        if agent:
+            for message in agent.message_history:
+                if message.role == "user":
+                    turn_count += 1
 
-                # Get model name from LLM
-                if agent.llm and agent.llm.model_name:
-                    model_name = agent.llm.model_name
-                    # Truncate model name to max 25 characters with ellipsis
-                    max_len = 25
-                    if len(model_name) > max_len:
-                        # Keep total length at max_len including ellipsis
-                        model_display = model_name[: max_len - 1] + "…"
-                    else:
-                        model_display = model_name
+            # Resolve LLM reference safely (avoid assertion when unattached)
+            llm = None
+            try:
+                llm = agent.llm
+            except AssertionError:
+                llm = getattr(agent, "_llm", None)
+            except Exception as exc:
+                print(f"[toolbar debug] agent.llm access failed for '{agent_name}': {exc}")
 
-                # Build TDV capability segment based on model database
-                info = get_model_info(agent)
-                # Default to text-only if info resolution fails for any reason
-                t, d, v = (True, False, False)
-                if info:
-                    t, d, v = info.tdv_flags
+            model_name = None
+            if llm:
+                model_name = getattr(llm, "model_name", None)
+                if not model_name:
+                    model_name = getattr(getattr(llm, "default_request_params", None), "model", None)
 
-                # Check for alert flags in user messages
-                alert_flags: set[str] = set()
-                error_seen = False
-                for message in agent.message_history:
-                    if message.channels:
-                        if message.channels.get(FAST_AGENT_ERROR_CHANNEL):
-                            error_seen = True
-                    if message.role == "user" and message.channels:
-                        meta_blocks = message.channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, [])
-                        alert_flags.update(_extract_alert_flags_from_meta(meta_blocks))
+            if not model_name:
+                model_name = getattr(agent.config, "model", None)
+            if not model_name and getattr(agent.config, "default_request_params", None):
+                model_name = getattr(agent.config.default_request_params, "model", None)
+            if not model_name:
+                context = getattr(agent, "context", None) or getattr(agent_provider, "context", None)
+                config_obj = getattr(context, "config", None) if context else None
+                model_name = getattr(config_obj, "default_model", None)
 
-                if error_seen and not alert_flags:
-                    alert_flags.add("T")
+            if model_name:
+                max_len = 25
+                model_display = model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+            else:
+                print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
+                model_display = "unknown"
 
-                def _style_flag(letter: str, supported: bool) -> str:
-                    # Enabled uses the same color as NORMAL mode (ansigreen), disabled is dim
-                    if letter in alert_flags:
-                        return f"<style fg='ansired' bg='ansiblack'>{letter}</style>"
+            # Build TDV capability segment based on model database
+            info = None
+            if llm:
+                try:
+                    info = get_model_info(llm)
+                except TypeError:
+                    info = None
+            if not info and model_name:
+                try:
+                    info = get_model_info(model_name)
+                except TypeError:
+                    info = None
+                except Exception as exc:
+                    print(f"[toolbar debug] get_model_info failed for '{agent_name}': {exc}")
+                    info = None
 
-                    enabled_color = "ansigreen"
-                    if supported:
-                        return f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
-                    return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
+            # Default to text-only if info resolution fails for any reason
+            t, d, v = (True, False, False)
+            if info:
+                t, d, v = info.tdv_flags
 
-                tdv_segment = f"{_style_flag('T', t)}{_style_flag('D', d)}{_style_flag('V', v)}"
-        except Exception:
-            # If anything goes wrong determining the model, omit it gracefully
+            # Check for alert flags in user messages
+            alert_flags: set[str] = set()
+            error_seen = False
+            for message in agent.message_history:
+                if message.channels:
+                    if message.channels.get(FAST_AGENT_ERROR_CHANNEL):
+                        error_seen = True
+                if message.role == "user" and message.channels:
+                    meta_blocks = message.channels.get(FAST_AGENT_REMOVED_METADATA_CHANNEL, [])
+                    alert_flags.update(_extract_alert_flags_from_meta(meta_blocks))
+
+            if error_seen and not alert_flags:
+                alert_flags.add("T")
+
+            def _style_flag(letter: str, supported: bool) -> str:
+                # Enabled uses the same color as NORMAL mode (ansigreen), disabled is dim
+                if letter in alert_flags:
+                    return f"<style fg='ansired' bg='ansiblack'>{letter}</style>"
+
+                enabled_color = "ansigreen"
+                if supported:
+                    return f"<style fg='{enabled_color}' bg='ansiblack'>{letter}</style>"
+                return f"<style fg='ansiblack' bg='ansiwhite'>{letter}</style>"
+
+            tdv_segment = f"{_style_flag('T', t)}{_style_flag('D', d)}{_style_flag('V', v)}"
+        else:
             model_display = None
             tdv_segment = None
 
