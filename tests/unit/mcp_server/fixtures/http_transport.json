@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "http-server": {
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${API_TOKEN}",
+        "Content-Type": "application/json"
+      }
+    },
+    "https-server": {
+      "url": "https://api.example.com/mcp",
+      "headers": {
+        "X-API-Key": "${API_KEY}",
+        "User-Agent": "MCPClient/1.0"
+      }
+    }
+  }
+}
