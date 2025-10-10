@@ -297,6 +297,10 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     if snapshot is None:
         return
 
+    transport_value = getattr(status, "transport", None)
+    transport_lower = (transport_value or "").lower()
+    is_sse_transport = transport_lower == "sse"
+
     # Show channel types based on what's available
     entries: list[tuple[str, str, ChannelSnapshot | None]] = []
 
@@ -311,12 +315,13 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     stdio_channel = getattr(snapshot, "stdio", None)
 
     if any(channel is not None for channel in http_channels):
-        # HTTP transport - show the original three channels
+        # HTTP or SSE transport - show available channels
         entries = [
             ("GET (SSE)", "◀", getattr(snapshot, "get", None)),
             ("POST (SSE)", "▶", getattr(snapshot, "post_sse", None)),
-            ("POST (JSON)", "▶", getattr(snapshot, "post_json", None)),
         ]
+        if not is_sse_transport:
+            entries.append(("POST (JSON)", "▶", getattr(snapshot, "post_json", None)))
     elif stdio_channel is not None:
         # STDIO transport - show single bidirectional channel
         entries = [
@@ -333,7 +338,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     is_stdio = stdio_channel is not None
 
     # Get transport type for display
-    transport = getattr(status, "transport", None) or "unknown"
+    transport = transport_value or "unknown"
     transport_display = transport.upper() if transport != "unknown" else "Channels"
 
     # Header with column labels

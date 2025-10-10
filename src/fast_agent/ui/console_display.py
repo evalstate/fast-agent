@@ -1,6 +1,6 @@
 from enum import Enum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
 
 from mcp.types import CallToolResult
 from rich.panel import Panel
@@ -18,6 +18,7 @@ from fast_agent.ui.mermaid_utils import (
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+    from fast_agent.mcp.skybridge import SkybridgeServerConfig
 
 CODE_STYLE = "native"
 
@@ -669,9 +670,7 @@ class ConsoleDisplay:
             # No active prompt_toolkit session - display with rich as before
             # Combined separator and status line
             if agent_name:
-                left = (
-                    f"[magenta]▎[/magenta][dim magenta]▶[/dim magenta] [magenta]{agent_name}[/magenta]"
-                )
+                left = f"[magenta]▎[/magenta][dim magenta]▶[/dim magenta] [magenta]{agent_name}[/magenta]"
             else:
                 left = "[magenta]▎[/magenta][dim magenta]▶[/dim magenta]"
 
@@ -726,6 +725,97 @@ class ConsoleDisplay:
         console.console.print()
         console.console.print(combined, markup=self._markup)
         console.console.print()
+
+    def show_skybridge_summary(
+        self,
+        agent_name: str,
+        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+    ) -> None:
+        """Display Skybridge availability and warnings."""
+        if configs is None:
+            return
+
+        server_rows: List[Dict[str, Any]] = []
+        warnings: List[str] = []
+
+        for server_name in sorted(configs.keys()):
+            config = configs.get(server_name)
+            if not config:
+                continue
+
+            resources = list(config.ui_resources or [])
+
+            server_rows.append(
+                {
+                    "server_name": server_name,
+                    "config": config,
+                    "resources": resources,
+                    "resource_count": len(resources),
+                    "active_tools": [
+                        {
+                            "name": tool.display_name,
+                            "template": str(tool.template_uri) if tool.template_uri else None,
+                        }
+                        for tool in config.tools
+                        if tool.is_valid
+                    ],
+                }
+            )
+
+            for resource in resources:
+                warning = resource.warning
+                if warning and not resource.is_skybridge:
+                    warnings.append(f"{server_name} {resource.uri}: {warning}")
+
+            for tool in config.tools:
+                if tool.warning:
+                    warnings.append(f"{server_name} {tool.display_name}: {tool.warning}")
+
+        heading = "[dim]OpenAI Apps SDK ([/dim][cyan]skybridge[/cyan][dim]) detected:[/dim]"
+        console.console.print()
+        console.console.print(heading, markup=self._markup)
+
+        if not server_rows:
+            console.console.print("[dim]  ● none detected[/dim]", markup=self._markup)
+        else:
+            for row in server_rows:
+                server_name = row["server_name"]
+                config = row["config"]
+                resource_count = row["resource_count"]
+                tool_infos = row["active_tools"]
+
+                tool_count = len(tool_infos)
+                tool_word = "tool" if tool_count == 1 else "tools"
+                resource_word = "resource" if resource_count == 1 else "resources"
+                tool_segment = f"[cyan]{tool_count}[/cyan][dim] {tool_word}[/dim]"
+                resource_segment = f"[cyan]{resource_count}[/cyan][dim] {resource_word}[/dim]"
+
+                console.console.print(
+                    f"[dim]  ● [/dim][cyan]{server_name}[/cyan]"
+                    f"[dim] — [/dim]{tool_segment}[dim], [/dim]{resource_segment}",
+                    markup=self._markup,
+                )
+
+                for tool_info in tool_infos:
+                    template_text = (
+                        f"[dim] ({tool_info['template']})[/dim]" if tool_info["template"] else ""
+                    )
+                    console.console.print(
+                        f"[dim]    ▶ [/dim][white]{tool_info['name']}[/white]{template_text}",
+                        markup=self._markup,
+                    )
+
+                if tool_count == 0 and resource_count > 0:
+                    console.console.print(
+                        "[dim]     ▶ tools not linked[/dim]",
+                        markup=self._markup,
+                    )
+
+        for warning_entry in warnings:
+            console.console.print(
+                f"[yellow]skybridge warning[/yellow] {warning_entry}",
+                markup=self._markup,
+            )
 
     async def show_assistant_message(
         self,

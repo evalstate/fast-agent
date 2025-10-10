@@ -170,6 +170,11 @@ class McpAgent(ABC, ToolAgent):
         return await self._aggregator.collect_server_status()
 
     @property
+    def aggregator(self) -> MCPAggregator:
+        """Expose the MCP aggregator for UI integrations."""
+        return self._aggregator
+
+    @property
     def initialized(self) -> bool:
         """Check if both the agent and aggregator are initialized."""
         return self._initialized and self._aggregator.initialized

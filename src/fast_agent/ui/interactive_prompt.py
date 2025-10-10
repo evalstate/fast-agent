@@ -14,7 +14,7 @@ Usage:
     )
 """
 
-from typing import TYPE_CHECKING, Awaitable, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -25,6 +25,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
+from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
@@ -114,8 +115,9 @@ class InteractivePrompt:
 
                 # Check if we should switch agents
                 if isinstance(command_result, dict):
-                    if "switch_agent" in command_result:
-                        new_agent = command_result["switch_agent"]
+                    command_dict: Dict[str, Any] = command_result
+                    if "switch_agent" in command_dict:
+                        new_agent = command_dict["switch_agent"]
                         if new_agent in available_agents_set:
                             agent = new_agent
                             # Display new agent info immediately when switching
@@ -126,14 +128,14 @@ class InteractivePrompt:
                             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
                             continue
                     # Keep the existing list_prompts handler for backward compatibility
-                    elif "list_prompts" in command_result:
+                    elif "list_prompts" in command_dict:
                         # Use the prompt_provider directly
                         await self._list_prompts(prompt_provider, agent)
                         continue
-                    elif "select_prompt" in command_result:
+                    elif "select_prompt" in command_dict:
                         # Handle prompt selection, using both list_prompts and apply_prompt
-                        prompt_name = command_result.get("prompt_name")
-                        prompt_index = command_result.get("prompt_index")
+                        prompt_name = command_dict.get("prompt_name")
+                        prompt_index = command_dict.get("prompt_index")
 
                         # If a specific index was provided (from /prompt <number>)
                         if prompt_index is not None:
@@ -163,16 +165,20 @@ class InteractivePrompt:
                             # Use the name-based selection
                             await self._select_prompt(prompt_provider, agent, prompt_name)
                         continue
-                    elif "list_tools" in command_result:
+                    elif "list_tools" in command_dict:
                         # Handle tools list display
                         await self._list_tools(prompt_provider, agent)
                         continue
-                    elif "show_usage" in command_result:
+                    elif "show_usage" in command_dict:
                         # Handle usage display
                         await self._show_usage(prompt_provider, agent)
                         continue
-                    elif "show_history" in command_result:
-                        target_agent = command_result.get("show_history", {}).get("agent") or agent
+                    elif "show_history" in command_dict:
+                        history_info = command_dict.get("show_history")
+                        history_agent = (
+                            history_info.get("agent") if isinstance(history_info, dict) else None
+                        )
+                        target_agent = history_agent or agent
                         try:
                             agent_obj = prompt_provider._agent(target_agent)
                         except Exception:
@@ -183,8 +189,12 @@ class InteractivePrompt:
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         display_history_overview(target_agent, history, usage)
                         continue
-                    elif "clear_history" in command_result:
-                        target_agent = command_result.get("clear_history", {}).get("agent") or agent
+                    elif "clear_history" in command_dict:
+                        clear_info = command_dict.get("clear_history")
+                        clear_agent = (
+                            clear_info.get("agent") if isinstance(clear_info, dict) else None
+                        )
+                        target_agent = clear_agent or agent
                         try:
                             agent_obj = prompt_provider._agent(target_agent)
                         except Exception:
@@ -194,7 +204,9 @@ class InteractivePrompt:
                         if hasattr(agent_obj, "clear"):
                             try:
                                 agent_obj.clear()
-                                rich_print(f"[green]History cleared for agent '{target_agent}'.[/green]")
+                                rich_print(
+                                    f"[green]History cleared for agent '{target_agent}'.[/green]"
+                                )
                             except Exception as exc:
                                 rich_print(
                                     f"[red]Failed to clear history for '{target_agent}': {exc}[/red]"
@@ -204,21 +216,21 @@ class InteractivePrompt:
                                 f"[yellow]Agent '{target_agent}' does not support clearing history.[/yellow]"
                             )
                         continue
-                    elif "show_system" in command_result:
+                    elif "show_system" in command_dict:
                         # Handle system prompt display
                         await self._show_system(prompt_provider, agent)
                         continue
-                    elif "show_markdown" in command_result:
+                    elif "show_markdown" in command_dict:
                         # Handle markdown display
                         await self._show_markdown(prompt_provider, agent)
                         continue
-                    elif "show_mcp_status" in command_result:
+                    elif "show_mcp_status" in command_dict:
                         rich_print()
                         await show_mcp_status(agent, prompt_provider)
                         continue
-                    elif "save_history" in command_result:
+                    elif "save_history" in command_dict:
                         # Save history for the current agent
-                        filename = command_result.get("filename")
+                        filename = command_dict.get("filename")
                         try:
                             agent_obj = prompt_provider._agent(agent)
 
@@ -353,15 +365,16 @@ class InteractivePrompt:
                                 )
                             else:
                                 # Handle Prompt objects from mcp.types
+                                prompt_obj = cast("Prompt", prompt)
                                 all_prompts.append(
                                     {
                                         "server": server_name,
-                                        "name": prompt.name,
-                                        "namespaced_name": f"{server_name}{SEP}{prompt.name}",
-                                        "title": prompt.title or None,
-                                        "description": prompt.description or "No description",
-                                        "arg_count": len(prompt.arguments or []),
-                                        "arguments": prompt.arguments or [],
+                                        "name": prompt_obj.name,
+                                        "namespaced_name": f"{server_name}{SEP}{prompt_obj.name}",
+                                        "title": prompt_obj.title or None,
+                                        "description": prompt_obj.description or "No description",
+                                        "arg_count": len(prompt_obj.arguments or []),
+                                        "arguments": prompt_obj.arguments or [],
                                     }
                                 )
 
@@ -856,6 +869,10 @@ class InteractivePrompt:
                 if tool.title and tool.title.strip():
                     tool_line.append(f" {tool.title}", style="default")
 
+                meta = getattr(tool, "meta", {}) or {}
+                if meta.get("openai/skybridgeEnabled"):
+                    tool_line.append(" (skybridge)", style="cyan")
+
                 rich_print(tool_line)
 
                 # Description lines - show 2-3 rows if needed
@@ -908,6 +925,11 @@ class InteractivePrompt:
                             if len(args_text) > 80:
                                 args_text = args_text[:77] + "..."
                             rich_print(f"     [dim magenta]args: {args_text}[/dim magenta]")
+
+                if meta.get("openai/skybridgeEnabled"):
+                    template = meta.get("openai/skybridgeTemplate")
+                    if template:
+                        rich_print(f"     [dim magenta]template:[/dim magenta] {template}")
 
                 rich_print()  # Space between tools
 
@@ -962,22 +984,23 @@ class InteractivePrompt:
 
             # Get server count for display
             server_count = 0
-            if hasattr(agent, "_aggregator") and hasattr(agent._aggregator, "server_names"):
-                server_count = (
-                    len(agent._aggregator.server_names) if agent._aggregator.server_names else 0
-                )
+            if isinstance(agent, McpAgentProtocol):
+                server_names = agent.aggregator.server_names
+                server_count = len(server_names) if server_names else 0
 
             # Use the display utility to show the system prompt
-            if hasattr(agent, "display") and agent.display:
-                agent.display.show_system_message(
+            agent_display = getattr(agent, "display", None)
+            if agent_display:
+                agent_display.show_system_message(
                     system_prompt=system_prompt, agent_name=agent_name, server_count=server_count
                 )
             else:
                 # Fallback to basic display
                 from fast_agent.ui.console_display import ConsoleDisplay
 
+                agent_context = getattr(agent, "context", None)
                 display = ConsoleDisplay(
-                    config=agent.context.config if hasattr(agent, "context") else None
+                    config=agent_context.config if hasattr(agent_context, "config") else None
                 )
                 display.show_system_message(
                     system_prompt=system_prompt, agent_name=agent_name, server_count=server_count
@@ -1005,11 +1028,11 @@ class InteractivePrompt:
             agent = prompt_provider._agent(agent_name)
 
             # Check if agent has message history
-            if not hasattr(agent, "_llm") or not agent._llm:
+            if not agent.llm:
                 rich_print("[yellow]No message history available[/yellow]")
                 return
 
-            message_history = agent._llm.message_history
+            message_history = agent.llm.message_history
             if not message_history:
                 rich_print("[yellow]No messages in history[/yellow]")
                 return

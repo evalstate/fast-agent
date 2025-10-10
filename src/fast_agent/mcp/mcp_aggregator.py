@@ -11,6 +11,7 @@ from typing import (
     Mapping,
     Optional,
     TypeVar,
+    cast,
 )
 
 from mcp import GetPromptResult, ReadResourceResult
@@ -34,6 +35,12 @@ from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_nam
 from fast_agent.mcp.gen_client import gen_client
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
+from fast_agent.mcp.skybridge import (
+    SKYBRIDGE_MIME_TYPE,
+    SkybridgeResourceConfig,
+    SkybridgeServerConfig,
+    SkybridgeToolConfig,
+)
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
@@ -96,6 +103,7 @@ class ServerStatus(BaseModel):
     spoofing_enabled: bool | None = None
     session_id: str | None = None
     transport_channels: TransportSnapshot | None = None
+    skybridge: SkybridgeServerConfig | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -124,12 +132,17 @@ class MCPAggregator(ContextDependent):
         # Keep a connection manager to manage persistent connections for this aggregator
         if self.connection_persistence:
             # Try to get existing connection manager from context
-            if not hasattr(self.context, "_connection_manager"):
-                self.context._connection_manager = MCPConnectionManager(
-                    self.context.server_registry
-                )
-                await self.context._connection_manager.__aenter__()
-            self._persistent_connection_manager = self.context._connection_manager
+            context = self.context
+            if not hasattr(context, "_connection_manager") or context._connection_manager is None:
+                server_registry = context.server_registry
+                if server_registry is None:
+                    raise RuntimeError("Context is missing server registry for MCP connections")
+                manager = MCPConnectionManager(server_registry)
+                await manager.__aenter__()
+                context._connection_manager = manager
+            self._persistent_connection_manager = cast(
+                "MCPConnectionManager", context._connection_manager
+            )
 
         # Import the display component here to avoid circular imports
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -168,7 +181,6 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Store the config for access in session factory
-        self._persistent_connection_manager: MCPConnectionManager = None
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -191,6 +203,9 @@ class MCPAggregator(ContextDependent):
         # Track runtime stats per server
         self._server_stats: Dict[str, ServerStats] = {}
         self._stats_lock = Lock()
+
+        # Track discovered Skybridge configurations per server
+        self._skybridge_configs: Dict[str, SkybridgeServerConfig] = {}
 
     def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
@@ -319,6 +334,8 @@ class MCPAggregator(ContextDependent):
         async with self._prompt_cache_lock:
             self._prompt_cache.clear()
 
+        self._skybridge_configs.clear()
+
         for server_name in self.server_names:
             if self.connection_persistence:
                 logger.info(
@@ -399,6 +416,9 @@ class MCPAggregator(ContextDependent):
             return_exceptions=True,
         )
 
+        total_tool_count = 0
+        total_prompt_count = 0
+
         for result in results:
             if isinstance(result, BaseException):
                 logger.error(f"Error loading server data: {result}")
@@ -419,9 +439,13 @@ class MCPAggregator(ContextDependent):
                 self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
                 self._server_to_tool_map[server_name].append(namespaced_tool)
 
+            total_tool_count += len(tools)
+
             # Process prompts
             async with self._prompt_cache_lock:
                 self._prompt_cache[server_name] = prompts
+
+            total_prompt_count += len(prompts)
 
             logger.debug(
                 f"MCP Aggregator initialized for server '{server_name}'",
@@ -434,7 +458,190 @@ class MCPAggregator(ContextDependent):
                 },
             )
 
+        await self._initialize_skybridge_configs()
+
+        self._display_startup_state(total_tool_count, total_prompt_count)
+
         self.initialized = True
+
+    async def _initialize_skybridge_configs(self) -> None:
+        """Discover Skybridge resources across servers."""
+        if not self.server_names:
+            return
+
+        tasks = [
+            self._evaluate_skybridge_for_server(server_name) for server_name in self.server_names
+        ]
+        results = await gather(*tasks, return_exceptions=True)
+
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.debug("Skybridge discovery failed: %s", str(result))
+                continue
+
+            server_name, config = result
+            self._skybridge_configs[server_name] = config
+
+    async def _evaluate_skybridge_for_server(
+        self, server_name: str
+    ) -> tuple[str, SkybridgeServerConfig]:
+        """Inspect a single server for Skybridge-compatible resources."""
+        config = SkybridgeServerConfig(server_name=server_name)
+
+        tool_entries = self._server_to_tool_map.get(server_name, [])
+        tool_configs: List[SkybridgeToolConfig] = []
+
+        for namespaced_tool in tool_entries:
+            tool_meta = getattr(namespaced_tool.tool, "meta", None) or {}
+            template_value = tool_meta.get("openai/outputTemplate")
+            if not template_value:
+                continue
+
+            try:
+                template_uri = AnyUrl(template_value)
+            except Exception as exc:
+                warning = (
+                    f"Tool '{namespaced_tool.namespaced_tool_name}' outputTemplate "
+                    f"'{template_value}' is invalid: {exc}"
+                )
+                config.warnings.append(warning)
+                logger.error(warning)
+                tool_configs.append(
+                    SkybridgeToolConfig(
+                        tool_name=namespaced_tool.tool.name,
+                        namespaced_tool_name=namespaced_tool.namespaced_tool_name,
+                        warning=warning,
+                    )
+                )
+                continue
+
+            tool_configs.append(
+                SkybridgeToolConfig(
+                    tool_name=namespaced_tool.tool.name,
+                    namespaced_tool_name=namespaced_tool.namespaced_tool_name,
+                    template_uri=template_uri,
+                )
+            )
+
+        supports_resources = await self.server_supports_feature(server_name, "resources")
+        config.supports_resources = supports_resources
+        config.tools = tool_configs
+
+        if not supports_resources:
+            print(f"[skybridge] Server '{server_name}' does not support resources")
+            return server_name, config
+
+        try:
+            resources = await self._list_resources_from_server(server_name, check_support=False)
+        except Exception as exc:  # noqa: BLE001 - logging and surfacing gracefully
+            config.warnings.append(f"Failed to list resources: {exc}")
+            return server_name, config
+
+        for resource_entry in resources:
+            uri = getattr(resource_entry, "uri", None)
+            if not uri:
+                continue
+
+            uri_str = str(uri)
+            if not uri_str.startswith("ui://"):
+                continue
+
+            try:
+                uri_value = AnyUrl(uri_str)
+            except Exception as exc:  # noqa: BLE001
+                warning = f"Ignoring Skybridge candidate '{uri_str}': invalid URI ({exc})"
+                config.warnings.append(warning)
+                logger.debug(warning)
+                continue
+
+            sky_resource = SkybridgeResourceConfig(uri=uri_value)
+            config.ui_resources.append(sky_resource)
+
+            try:
+                read_result: ReadResourceResult = await self._get_resource_from_server(
+                    server_name, uri_str
+                )
+            except Exception as exc:  # noqa: BLE001
+                warning = f"Failed to read resource '{uri_str}': {exc}"
+                sky_resource.warning = warning
+                config.warnings.append(warning)
+                continue
+
+            contents = getattr(read_result, "contents", []) or []
+            seen_mime_types: List[str] = []
+
+            for content in contents:
+                mime_type = getattr(content, "mimeType", None)
+                if mime_type:
+                    seen_mime_types.append(mime_type)
+                if mime_type == SKYBRIDGE_MIME_TYPE:
+                    sky_resource.mime_type = mime_type
+                    sky_resource.is_skybridge = True
+                    break
+
+            if sky_resource.mime_type is None and seen_mime_types:
+                sky_resource.mime_type = seen_mime_types[0]
+
+            if not sky_resource.is_skybridge:
+                warning = "ui:// detected but resource is not of type 'text/html+skybridge'"
+                sky_resource.warning = warning
+                config.warnings.append(f"{uri_str}: {warning}")
+
+        resource_lookup = {str(resource.uri): resource for resource in config.ui_resources}
+        for tool_config in tool_configs:
+            if tool_config.template_uri is None:
+                continue
+
+            resource_match = resource_lookup.get(str(tool_config.template_uri))
+            if not resource_match:
+                warning = (
+                    f"Tool '{tool_config.namespaced_tool_name}' references missing "
+                    f"Skybridge resource '{tool_config.template_uri}'"
+                )
+                tool_config.warning = warning
+                config.warnings.append(warning)
+                logger.error(warning)
+                continue
+
+            tool_config.resource_uri = resource_match.uri
+            tool_config.is_valid = resource_match.is_skybridge
+
+            if not resource_match.is_skybridge:
+                warning = (
+                    f"Tool '{tool_config.namespaced_tool_name}' references resource "
+                    f"'{resource_match.uri}' that is not Skybridge MIME type"
+                )
+                tool_config.warning = warning
+                config.warnings.append(warning)
+                logger.warning(warning)
+
+        config.tools = tool_configs
+
+        valid_tool_count = sum(1 for tool in tool_configs if tool.is_valid)
+        if config.enabled and valid_tool_count == 0:
+            warning = (
+                f"Skybridge resources detected on server '{server_name}' but no tools expose them"
+            )
+            config.warnings.append(warning)
+            logger.warning(warning)
+
+        return server_name, config
+
+    def _display_startup_state(self, total_tool_count: int, total_prompt_count: int) -> None:
+        """Display startup summary and Skybridge status information."""
+        # In interactive contexts the UI helper will render both the agent summary and the
+        # Skybridge status. For non-interactive contexts, the warnings collected during
+        # discovery are emitted through the logger, so we don't need to duplicate output here.
+        if not self._skybridge_configs:
+            return
+
+        logger.debug(
+            "Skybridge discovery completed",
+            data={
+                "agent_name": self.agent_name,
+                "server_count": len(self._skybridge_configs),
+            },
+        )
 
     async def get_capabilities(self, server_name: str):
         """Get server capabilities if available."""
@@ -501,12 +708,30 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        return ListToolsResult(
-            tools=[
-                namespaced_tool.tool.model_copy(update={"name": namespaced_tool_name})
-                for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items()
-            ]
-        )
+        tools: List[Tool] = []
+
+        for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():
+            tool_copy = namespaced_tool.tool.model_copy(
+                deep=True, update={"name": namespaced_tool_name}
+            )
+            skybridge_config = self._skybridge_configs.get(namespaced_tool.server_name)
+            if skybridge_config:
+                matching_tool = next(
+                    (
+                        tool
+                        for tool in skybridge_config.tools
+                        if tool.namespaced_tool_name == namespaced_tool_name and tool.is_valid
+                    ),
+                    None,
+                )
+                if matching_tool:
+                    meta = dict(tool_copy.meta or {})
+                    meta["openai/skybridgeEnabled"] = True
+                    meta["openai/skybridgeTemplate"] = str(matching_tool.template_uri)
+                    tool_copy.meta = meta
+            tools.append(tool_copy)
+
+        return ListToolsResult(tools=tools)
 
     async def refresh_all_tools(self) -> None:
         """
@@ -554,12 +779,14 @@ class MCPAggregator(ContextDependent):
                 event = ChannelEvent(
                     channel="stdio",
                     event_type="message",
-                    detail=f"{operation_type} ({'success' if success else 'error'})"
+                    detail=f"{operation_type} ({'success' if success else 'error'})",
                 )
                 transport_metrics.record_event(event)
         except Exception:
             # Don't let transport tracking errors break normal operation
-            logger.debug("Failed to notify stdio transport activity for %s", server_name, exc_info=True)
+            logger.debug(
+                "Failed to notify stdio transport activity for %s", server_name, exc_info=True
+            )
 
     async def get_server_instructions(self) -> Dict[str, tuple[str, List[str]]]:
         """
@@ -652,13 +879,13 @@ class MCPAggregator(ContextDependent):
                     instructions_available = getattr(
                         server_conn, "server_instructions_available", None
                     )
-                    instructions_enabled = getattr(
-                        server_conn, "server_instructions_enabled", None
-                    )
+                    instructions_enabled = getattr(server_conn, "server_instructions_enabled", None)
                     instructions_included = bool(getattr(server_conn, "server_instructions", None))
                     server_cfg = getattr(server_conn, "server_config", None)
                     if session:
-                        elicitation_mode = getattr(session, "effective_elicitation_mode", elicitation_mode)
+                        elicitation_mode = getattr(
+                            session, "effective_elicitation_mode", elicitation_mode
+                        )
                         session_id = getattr(server_conn, "session_id", None)
                         if not session_id and getattr(server_conn, "_get_session_id_cb", None):
                             try:
@@ -681,7 +908,11 @@ class MCPAggregator(ContextDependent):
                         data={"error": str(exc)},
                     )
 
-            if server_cfg is None and self.context and getattr(self.context, "server_registry", None):
+            if (
+                server_cfg is None
+                and self.context
+                and getattr(self.context, "server_registry", None)
+            ):
                 try:
                     server_cfg = self.context.server_registry.get_server_config(server_name)
                 except Exception:
@@ -699,9 +930,7 @@ class MCPAggregator(ContextDependent):
                 transport = getattr(server_cfg, "transport", transport)
                 elicitation = getattr(server_cfg, "elicitation", None)
                 elicitation_mode = (
-                    getattr(elicitation, "mode", None)
-                    if elicitation
-                    else elicitation_mode
+                    getattr(elicitation, "mode", None) if elicitation else elicitation_mode
                 )
                 sampling_cfg = getattr(server_cfg, "sampling", None)
                 spoofing_enabled = bool(getattr(server_cfg, "implementation", None))
@@ -756,9 +985,16 @@ class MCPAggregator(ContextDependent):
                 spoofing_enabled=spoofing_enabled,
                 session_id=session_id,
                 transport_channels=transport_snapshot,
+                skybridge=self._skybridge_configs.get(server_name),
             )
 
         return status_map
+
+    async def get_skybridge_configs(self) -> Dict[str, SkybridgeServerConfig]:
+        """Expose discovered Skybridge configurations keyed by server."""
+        if not self.initialized:
+            await self.load_servers()
+        return dict(self._skybridge_configs)
 
     async def _execute_on_server(
         self,
@@ -1500,6 +1736,32 @@ class MCPAggregator(ContextDependent):
 
         return result
 
+    async def _list_resources_from_server(
+        self, server_name: str, *, check_support: bool = True
+    ) -> List[Any]:
+        """
+        Internal helper method to list resources from a specific server.
+
+        Args:
+            server_name: Name of the server whose resources to list
+            check_support: Whether to verify the server supports resources before listing
+
+        Returns:
+            A list of resources as returned by the MCP server
+        """
+        if check_support and not await self.server_supports_feature(server_name, "resources"):
+            return []
+
+        result = await self._execute_on_server(
+            server_name=server_name,
+            operation_type="resources/list",
+            operation_name="",
+            method_name="list_resources",
+            method_args={},
+        )
+
+        return getattr(result, "resources", []) or []
+
     async def list_resources(self, server_name: str | None = None) -> Dict[str, List[str]]:
         """
         List available resources from one or all servers.
@@ -1534,20 +1796,13 @@ class MCPAggregator(ContextDependent):
                 continue
 
             try:
-                # Use the _execute_on_server method to call list_resources on the server
-                result = await self._execute_on_server(
-                    server_name=s_name,
-                    operation_type="resources/list",
-                    operation_name="",
-                    method_name="list_resources",
-                    method_args={},  # Empty dictionary instead of None
-                    # No error_factory to allow exceptions to propagate
-                )
-
-                # Get resources from result
-                resources = getattr(result, "resources", [])
-                results[s_name] = [str(r.uri) for r in resources]
-
+                resources = await self._list_resources_from_server(s_name, check_support=False)
+                formatted_resources: List[str] = []
+                for resource in resources:
+                    uri = getattr(resource, "uri", None)
+                    if uri is not None:
+                        formatted_resources.append(str(uri))
+                results[s_name] = formatted_resources
             except Exception as e:
                 logger.error(f"Error fetching resources from {s_name}: {e}")
 

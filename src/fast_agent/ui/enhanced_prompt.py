@@ -9,7 +9,7 @@ import shlex
 import subprocess
 import tempfile
 from importlib.metadata import version
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -24,6 +24,7 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import get_model_info
+from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.mcp_display import render_mcp_status
 
 if TYPE_CHECKING:
@@ -103,10 +104,9 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
 
         # Get counts TODO -- add this to the type library or adjust the way aggregator/reporting works
         server_count = 0
-        if hasattr(agent, "_aggregator") and hasattr(agent._aggregator, "server_names"):
-            server_count = (
-                len(agent._aggregator.server_names) if agent._aggregator.server_names else 0
-            )
+        if isinstance(agent, McpAgentProtocol):
+            server_names = agent.aggregator.server_names
+            server_count = len(server_names) if server_names else 0
 
         tools_result = await agent.list_tools()
         tool_count = (
@@ -181,6 +181,17 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
 
                 rich_print(f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {content}")
         #               await _render_mcp_status(agent)
+
+        # Display Skybridge status (if aggregator discovered any)
+        try:
+            aggregator = agent.aggregator if isinstance(agent, McpAgentProtocol) else None
+            display = getattr(agent, "display", None)
+            if aggregator and display and hasattr(display, "show_skybridge_summary"):
+                skybridge_configs = await aggregator.get_skybridge_configs()
+                display.show_skybridge_summary(agent_name, skybridge_configs)
+        except Exception:
+            # Ignore Skybridge rendering issues to avoid interfering with startup
+            pass
 
         # Mark as shown
         _agent_info_shown.add(agent_name)
@@ -1022,7 +1033,9 @@ async def get_argument_input(
             prompt_session.app.exit()
 
 
-async def handle_special_commands(command, agent_app=None):
+async def handle_special_commands(
+    command: Any, agent_app: "AgentApp | None" = None
+) -> bool | Dict[str, Any]:
     """
     Handle special input commands.
 
