@@ -104,6 +104,38 @@ def _format_compact_duration(seconds: float | None) -> str | None:
     return f"{days}d{hours:02d}h"
 
 
+def _format_timeline_label(total_seconds: int) -> str:
+    total = max(0, int(total_seconds))
+    if total == 0:
+        return "0s"
+
+    days, remainder = divmod(total, 86400)
+    if days:
+        if remainder == 0:
+            return f"{days}d"
+        hours = remainder // 3600
+        if hours == 0:
+            return f"{days}d"
+        return f"{days}d{hours}h"
+
+    hours, remainder = divmod(total, 3600)
+    if hours:
+        if remainder == 0:
+            return f"{hours}h"
+        minutes = remainder // 60
+        if minutes == 0:
+            return f"{hours}h"
+        return f"{hours}h{minutes:02d}m"
+
+    minutes, seconds = divmod(total, 60)
+    if minutes:
+        if seconds == 0:
+            return f"{minutes}m"
+        return f"{minutes}m{seconds:02d}s"
+
+    return f"{seconds}s"
+
+
 def _summarise_call_counts(call_counts: dict[str, int]) -> str | None:
     if not call_counts:
         return None
@@ -268,10 +300,28 @@ def _format_label(label: str, width: int = 10) -> str:
     return f"{label:<{width}}" if len(label) < width else label
 
 
-def _build_inline_timeline(buckets: Iterable[str]) -> str:
+def _build_inline_timeline(
+    buckets: Iterable[str],
+    *,
+    bucket_seconds: int | None = None,
+    bucket_count: int | None = None,
+) -> str:
     """Build a compact timeline string for inline display."""
-    timeline = "  [dim]10m[/dim] "
-    for state in buckets:
+    bucket_list = list(buckets)
+    count = bucket_count or len(bucket_list)
+    if count <= 0:
+        count = len(bucket_list) or 1
+
+    seconds = bucket_seconds or 30
+    total_window = seconds * count
+    timeline = f"  [dim]{_format_timeline_label(total_window)}[/dim] "
+
+    if len(bucket_list) < count:
+        bucket_list.extend(["none"] * (count - len(bucket_list)))
+    elif len(bucket_list) > count:
+        bucket_list = bucket_list[-count:]
+
+    for state in bucket_list:
         color = TIMELINE_COLORS.get(state, Colours.NONE)
         if state in {"idle", "none"}:
             symbol = SYMBOL_IDLE
@@ -337,36 +387,31 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
     # Determine if we're showing stdio or HTTP channels
     is_stdio = stdio_channel is not None
 
+    default_bucket_seconds = getattr(snapshot, "activity_bucket_seconds", None) or 30
+    default_bucket_count = getattr(snapshot, "activity_bucket_count", None) or 20
+    timeline_header_label = _format_timeline_label(default_bucket_seconds * default_bucket_count)
+
+    # Total characters before the metrics section in each row (excluding indent)
+    # Structure: "│ " + arrow + " " + label(13) + timeline_label + " " + buckets + " now"
+    metrics_prefix_width = 22 + len(timeline_header_label) + default_bucket_count
+
     # Get transport type for display
     transport = transport_value or "unknown"
     transport_display = transport.upper() if transport != "unknown" else "Channels"
 
     # Header with column labels
     header = Text(indent)
-    header.append(f"┌ {transport_display} ", style="dim")
+    header_intro = f"┌ {transport_display} "
+    header.append(header_intro, style="dim")
 
     # Calculate padding needed based on transport display length
-    # Base structure: "┌ " (2) + transport_display + " " (1) + "─" padding to align with columns
-    header_prefix_len = 3 + len(transport_display)
+    header_prefix_len = len(header_intro)
 
+    dash_count = max(1, metrics_prefix_width - header_prefix_len + 2)
     if is_stdio:
-        # Simplified header for stdio: just activity column
-        # Need to align with "│ ⇄ STDIO        10m ●●●●●●●●●●●●●●●●●●●● now        29"
-        # That's: "│ " + arrow + " " + label(13) + "10m " + dots(20) + " now" = 47 chars
-        # Then: "  " + activity(8) = 10 chars
-        # Total content width = 47 + 10 = 57 chars
-        # So we need 47 - header_prefix_len dashes before "activity"
-        dash_count = max(1, 47 - header_prefix_len)
         header.append("─" * dash_count, style="dim")
         header.append("  activity", style="dim")
     else:
-        # Original header for HTTP channels
-        # Need to align with the req/resp/notif/ping columns
-        # Structure: "│ " + arrow + " " + label(13) + "10m " + dots(20) + " now" = 47 chars
-        # Then: "  " + req(5) + " " + resp(5) + " " + notif(5) + " " + ping(5) = 25 chars
-        # Total content width = 47 + 25 = 72 chars
-        # So we need 47 - header_prefix_len dashes before the column headers
-        dash_count = max(1, 47 - header_prefix_len)
         header.append("─" * dash_count, style="dim")
         header.append("  req  resp notif  ping", style="dim")
 
@@ -454,10 +499,24 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
         line.append(f" {label:<13}", style=label_style)
 
         # Always show timeline (dim black dots if no data)
-        line.append("10m ", style="dim")
-        if channel and channel.activity_buckets:
+        channel_bucket_seconds = (
+            getattr(channel, "activity_bucket_seconds", None) or default_bucket_seconds
+        )
+        bucket_count = (
+            len(channel.activity_buckets)
+            if channel and channel.activity_buckets
+            else getattr(channel, "activity_bucket_count", None)
+        )
+        if not bucket_count or bucket_count <= 0:
+            bucket_count = default_bucket_count
+        total_window_seconds = channel_bucket_seconds * bucket_count
+        timeline_label = _format_timeline_label(total_window_seconds)
+
+        line.append(f"{timeline_label} ", style="dim")
+        bucket_states = channel.activity_buckets if channel and channel.activity_buckets else None
+        if bucket_states:
             # Show actual activity
-            for bucket_state in channel.activity_buckets:
+            for bucket_state in bucket_states:
                 color = timeline_color_map.get(bucket_state, "dim")
                 if bucket_state in {"idle", "none"}:
                     symbol = SYMBOL_IDLE
@@ -478,7 +537,7 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 line.append(symbol, style=f"bold {color}")
         else:
             # Show dim dots for no activity
-            for _ in range(20):
+            for _ in range(bucket_count):
                 line.append(SYMBOL_IDLE, style="black dim")
         line.append(" now", style="dim")
 

@@ -144,7 +144,7 @@ def get_fastagent_version() -> str:
 
 def get_config_summary(config_path: Optional[Path]) -> dict:
     """Extract key information from the configuration file."""
-    from fast_agent.config import Settings
+    from fast_agent.config import MCPTimelineSettings, Settings
 
     # Get actual defaults from Settings class
     default_settings = Settings()
@@ -163,6 +163,10 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
             "enable_markup": default_settings.logger.enable_markup,
         },
         "mcp_ui_mode": default_settings.mcp_ui_mode,
+        "timeline": {
+            "steps": default_settings.mcp_timeline.steps,
+            "step_seconds": default_settings.mcp_timeline.step_seconds,
+        },
         "mcp_servers": [],
     }
 
@@ -210,6 +214,22 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
         # Get MCP UI mode
         if "mcp_ui_mode" in config:
             result["mcp_ui_mode"] = config["mcp_ui_mode"]
+
+        # Get timeline settings
+        if "mcp_timeline" in config:
+            try:
+                timeline_override = MCPTimelineSettings(**(config.get("mcp_timeline") or {}))
+            except Exception as exc:  # pragma: no cover - defensive
+                console.print(
+                    "[yellow]Warning:[/yellow] Invalid mcp_timeline configuration; "
+                    "using defaults."
+                )
+                console.print(f"[yellow]Details:[/yellow] {exc}")
+            else:
+                result["timeline"] = {
+                    "steps": timeline_override.steps,
+                    "step_seconds": timeline_override.step_seconds,
+                }
 
         # Get MCP server info
         if "mcp" in config and "servers" in config["mcp"]:
@@ -385,6 +405,28 @@ def show_check_summary() -> None:
     else:
         mcp_ui_display = f"[green]{mcp_ui_mode}[/green]"
 
+    timeline_settings = config_summary.get("timeline", {})
+    timeline_steps = timeline_settings.get("steps", 20)
+    timeline_step_seconds = timeline_settings.get("step_seconds", 30)
+
+    def format_step_interval(seconds: int) -> str:
+        try:
+            total = int(seconds)
+        except (TypeError, ValueError):
+            return str(seconds)
+        if total <= 0:
+            return "0s"
+        if total % 86400 == 0:
+            return f"{total // 86400}d"
+        if total % 3600 == 0:
+            return f"{total // 3600}h"
+        if total % 60 == 0:
+            return f"{total // 60}m"
+        minutes, secs = divmod(total, 60)
+        if minutes:
+            return f"{minutes}m{secs:02d}s"
+        return f"{secs}s"
+
     # Prepare all settings as pairs
     settings_data = [
         ("Log Level", logger.get("level", "warning (default)")),
@@ -395,6 +437,8 @@ def show_check_summary() -> None:
         ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),
         ("Truncate Tools", bool_to_symbol(logger.get("truncate_tools", True))),
         ("Enable Markup", bool_to_symbol(logger.get("enable_markup", True))),
+        ("Timeline Steps", f"[green]{timeline_steps}[/green]"),
+        ("Timeline Interval", f"[green]{format_step_interval(timeline_step_seconds)}[/green]"),
     ]
 
     # Add rows in two-column layout, styling some values in green
