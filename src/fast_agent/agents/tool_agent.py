@@ -91,6 +91,7 @@ class ToolAgent(LlmAgent):
             tools = (await self.list_tools()).tools
 
         iterations = 0
+        max_iterations = request_params.max_iterations if request_params and getattr(request_params, "max_iterations", None) is not None else DEFAULT_MAX_ITERATIONS
 
         while True:
             result = await super().generate_impl(
@@ -115,7 +116,7 @@ class ToolAgent(LlmAgent):
                 break
 
             iterations += 1
-            if iterations > DEFAULT_MAX_ITERATIONS:
+            if iterations > max_iterations:
                 logger.warning("Max iterations reached, stopping tool loop")
                 break
         return result
