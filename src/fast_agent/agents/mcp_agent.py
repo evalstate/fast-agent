@@ -170,6 +170,11 @@ class McpAgent(ABC, ToolAgent):
         return await self._aggregator.collect_server_status()
 
     @property
+    def aggregator(self) -> MCPAggregator:
+        """Expose the MCP aggregator for UI integrations."""
+        return self._aggregator
+
+    @property
     def initialized(self) -> bool:
         """Check if both the agent and aggregator are initialized."""
         return self._initialized and self._aggregator.initialized
@@ -663,8 +668,19 @@ class McpAgent(ABC, ToolAgent):
                 result = await self.call_tool(tool_name, tool_args)
                 tool_results[correlation_id] = result
 
+                # Get skybridge config for this tool if available
+                skybridge_config = None
+                if namespaced_tool:
+                    server_name = namespaced_tool.server_name
+                    skybridge_config = self._aggregator._skybridge_configs.get(server_name)
+
                 # Show tool result (like ToolAgent does)
-                self.display.show_tool_result(name=self._name, result=result)
+                self.display.show_tool_result(
+                    name=self._name,
+                    result=result,
+                    tool_name=display_tool_name,
+                    skybridge_config=skybridge_config,
+                )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
             except Exception as e:
@@ -675,7 +691,7 @@ class McpAgent(ABC, ToolAgent):
                 )
                 tool_results[correlation_id] = error_result
 
-                # Show error result too
+                # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
         return self._finalize_tool_results(tool_results)

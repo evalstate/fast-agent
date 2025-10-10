@@ -21,7 +21,7 @@ from typing import (
 
 from a2a.types import AgentCard
 from mcp import Tool
-from mcp.types import GetPromptResult, Prompt, PromptMessage, ReadResourceResult
+from mcp.types import GetPromptResult, ListToolsResult, Prompt, PromptMessage, ReadResourceResult
 from pydantic import BaseModel
 from rich.text import Text
 
@@ -116,7 +116,7 @@ class LlmAgentProtocol(Protocol):
     def clear(self, *, clear_prompts: bool = False) -> None: ...
 
 
-class AgentProtocol(LlmAgentProtocol):
+class AgentProtocol(LlmAgentProtocol, Protocol):
     """Standard agent interface with flexible input types."""
 
     async def __call__(
@@ -189,6 +189,8 @@ class AgentProtocol(LlmAgentProtocol):
     async def list_resources(self, namespace: str | None = None) -> Mapping[str, List[str]]: ...
 
     async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]: ...
+
+    async def list_tools(self) -> ListToolsResult: ...
 
     async def get_resource(
         self, resource_uri: str, namespace: str | None = None

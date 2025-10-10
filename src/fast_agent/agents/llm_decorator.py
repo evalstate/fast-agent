@@ -111,6 +111,11 @@ class LlmDecorator(AgentProtocol):
         self._initialized = False
 
     @property
+    def context(self) -> Context | None:
+        """Optional execution context supplied at construction time."""
+        return self._context
+
+    @property
     def initialized(self) -> bool:
         """Check if the agent is initialized."""
         return self._initialized

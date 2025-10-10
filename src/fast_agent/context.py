@@ -1,6 +1,4 @@
-"""
-A central context object to store global state that is shared across the application.
-"""
+from __future__ import annotations
 
 import asyncio
 import concurrent.futures
@@ -29,11 +27,17 @@ from fast_agent.mcp_server_registry import ServerRegistry
 
 if TYPE_CHECKING:
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
+    from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 else:
     # Runtime placeholders for the types
     SignalWaitCallback = Any
+    MCPConnectionManager = Any
 
 logger = get_logger(__name__)
+
+"""
+A central context object to store global state that is shared across the application.
+"""
 
 
 class Context(BaseModel):
@@ -52,6 +56,7 @@ class Context(BaseModel):
     task_registry: Optional[ActivityRegistry] = None
 
     tracer: trace.Tracer | None = None
+    _connection_manager: "MCPConnectionManager | None" = None
 
     model_config = ConfigDict(
         extra="allow",

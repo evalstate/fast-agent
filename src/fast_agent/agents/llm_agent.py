@@ -58,7 +58,16 @@ class LlmAgent(LlmDecorator):
         super().__init__(config=config, context=context)
 
         # Initialize display component
-        self.display = ConsoleDisplay(config=self._context.config if self._context else None)
+        self._display = ConsoleDisplay(config=self._context.config if self._context else None)
+
+    @property
+    def display(self) -> ConsoleDisplay:
+        """UI display helper for presenting messages and tool activity."""
+        return self._display
+
+    @display.setter
+    def display(self, value: ConsoleDisplay) -> None:
+        self._display = value
 
     async def show_assistant_message(
         self,
@@ -139,7 +148,10 @@ class LlmAgent(LlmDecorator):
                         else:
                             # Fallback if we couldn't extract text
                             additional_segments.append(
-                                Text(f"\n\nError details: {str(error_blocks[0])}", style="dim red italic")
+                                Text(
+                                    f"\n\nError details: {str(error_blocks[0])}",
+                                    style="dim red italic",
+                                )
                             )
                 else:
                     # Fallback if no detailed error is available
@@ -243,33 +255,3 @@ class LlmAgent(LlmDecorator):
         summary_text = Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
         await self.show_assistant_message(message=message, additional_message=summary_text)
         return result, message
-
-    # async def show_prompt_loaded(
-    #     self,
-    #     prompt_name: str,
-    #     description: Optional[str] = None,
-    #     message_count: int = 0,
-    #     arguments: Optional[dict[str, str]] = None,
-    # ) -> None:
-    #     """
-    #     Display information about a loaded prompt template.
-
-    #     Args:
-    #         prompt_name: The name of the prompt
-    #         description: Optional description of the prompt
-    #         message_count: Number of messages in the prompt
-    #         arguments: Optional dictionary of arguments passed to the prompt
-    #     """
-    #     # Get aggregator from attached LLM if available
-    #     aggregator = None
-    #     if self._llm and hasattr(self._llm, "aggregator"):
-    #         aggregator = self._llm.aggregator
-
-    #     await self.display.show_prompt_loaded(
-    #         prompt_name=prompt_name,
-    #         description=description,
-    #         message_count=message_count,
-    #         agent_name=self.name,
-    #         aggregator=aggregator,
-    #         arguments=arguments,
-    #     )

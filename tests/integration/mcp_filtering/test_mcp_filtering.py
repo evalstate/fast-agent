@@ -83,6 +83,35 @@ async def test_tool_filtering_basic_agent(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_tool_call_records_elapsed_time(fast_agent):
+    """Ensure real MCP tool calls record transport metadata."""
+    fast = fast_agent
+
+    @fast.agent(
+        name="elapsed_agent",
+        instruction="Agent that calls a single tool",
+        model="passthrough",
+        servers=["filtering_test_server"],
+    )
+    async def elapsed_agent():
+        async with fast.run() as agent_app:
+            result = await agent_app.elapsed_agent.call_tool(
+                "filtering_test_server-math_add",
+                {"a": 1, "b": 2},
+            )
+
+            elapsed = getattr(result, "transport_elapsed", None)
+            assert (
+                elapsed is not None
+            ), "transport_elapsed should be attached to MCP CallToolResult responses"
+            assert elapsed >= 0, "elapsed time should never be negative"
+            assert elapsed < 120, "elapsed time should be within a credible bound"
+
+    await elapsed_agent()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 @pytest.mark.e2e
 async def test_resource_filtering_basic_agent(fast_agent):
     """Test resource filtering with basic agent - no filtering vs with filtering"""

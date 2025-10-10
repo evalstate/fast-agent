@@ -42,3 +42,8 @@ mcp:
       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
     huggingface:
       url: "https://huggingface.co/mcp?login"
+    everything:
+      url: "http://localhost:3001/mcp"
+      elicitation:
+        mode: "auto-cancel"
+

@@ -17,7 +17,6 @@ from anyio import Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx import HTTPStatusError
 from mcp import ClientSession
-from mcp.client.sse import sse_client
 from mcp.client.stdio import (
     StdioServerParameters,
     get_default_environment,
@@ -33,6 +32,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.logger_textio import get_stderr_handler
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.oauth_client import build_oauth_provider
+from fast_agent.mcp.sse_tracking import tracking_sse_client
 from fast_agent.mcp.stdio_tracking_simple import tracking_stdio_client
 from fast_agent.mcp.streamable_http_tracking import tracking_streamablehttp_client
 from fast_agent.mcp.transport_tracking import TransportChannelMetrics
@@ -441,7 +441,9 @@ class MCPConnectionManager(ContextDependent):
         logger.debug(f"{server_name}: Found server configuration=", data=config.model_dump())
 
         transport_metrics = (
-            TransportChannelMetrics() if config.transport in ("http", "stdio") else None
+            TransportChannelMetrics()
+            if config.transport in ("http", "sse", "stdio")
+            else None
         )
 
         def transport_context_factory():
@@ -480,13 +482,25 @@ class MCPConnectionManager(ContextDependent):
                         f"{server_name}: Using user-specified auth header(s); skipping OAuth provider.",
                         user_auth_headers=sorted(user_auth_keys),
                     )
-                return _add_none_to_context(
-                    sse_client(
-                        config.url,
-                        headers,
-                        sse_read_timeout=config.read_transport_sse_timeout_seconds,
-                        auth=oauth_auth,
-                    )
+                channel_hook = None
+                if transport_metrics is not None:
+
+                    def channel_hook(event):
+                        try:
+                            transport_metrics.record_event(event)
+                        except Exception:  # pragma: no cover - defensive guard
+                            logger.debug(
+                                "%s: transport metrics hook failed",
+                                server_name,
+                                exc_info=True,
+                            )
+
+                return tracking_sse_client(
+                    config.url,
+                    headers,
+                    sse_read_timeout=config.read_transport_sse_timeout_seconds,
+                    auth=oauth_auth,
+                    channel_hook=channel_hook,
                 )
             elif config.transport == "http":
                 if not config.url:
