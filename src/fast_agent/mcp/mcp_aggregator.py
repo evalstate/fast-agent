@@ -528,7 +528,6 @@ class MCPAggregator(ContextDependent):
         config.tools = tool_configs
 
         if not supports_resources:
-            print(f"[skybridge] Server '{server_name}' does not support resources")
             return server_name, config
 
         try:
