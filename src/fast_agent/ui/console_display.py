@@ -653,7 +653,11 @@ class ConsoleDisplay:
 
             if is_skybridge_tool:
                 # Skybridge: magenta separator with resource URI
-                resource_label = f"Skybridge Resource: {skybridge_resource_uri}" if skybridge_resource_uri else "Skybridge Resource"
+                resource_label = (
+                    f"skybridge resource: {skybridge_resource_uri}"
+                    if skybridge_resource_uri
+                    else "skybridge resource"
+                )
                 prefix = Text("─| ")
                 prefix.stylize("dim")
                 resource_text = Text(resource_label, style="magenta")
@@ -676,7 +680,7 @@ class ConsoleDisplay:
                 from rich.syntax import Syntax
 
                 json_str = json.dumps(structured_content, indent=2)
-                syntax_obj = Syntax(json_str, "json", theme="monokai", background_color="default")
+                syntax_obj = Syntax(json_str, "json", theme=CODE_STYLE, background_color="default")
                 console.console.print(syntax_obj, markup=self._markup)
             else:
                 # Regular tool: dim separator
@@ -708,7 +712,9 @@ class ConsoleDisplay:
             # Bottom separator with metadata
             console.console.print()
             if bottom_metadata:
-                display_items = self._shorten_items(bottom_metadata, 12) if True else bottom_metadata
+                display_items = (
+                    self._shorten_items(bottom_metadata, 12) if True else bottom_metadata
+                )
                 prefix = Text("─| ")
                 prefix.stylize("dim")
                 suffix = Text(" |")
@@ -912,6 +918,9 @@ class ConsoleDisplay:
             for tool in config.tools:
                 if tool.warning:
                     warnings.append(f"{server_name} {tool.display_name}: {tool.warning}")
+
+        if not server_rows and not warnings:
+            return
 
         heading = "[dim]OpenAI Apps SDK ([/dim][cyan]skybridge[/cyan][dim]) detected:[/dim]"
         console.console.print()
