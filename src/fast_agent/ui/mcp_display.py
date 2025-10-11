@@ -39,6 +39,7 @@ class Colours:
     # Capability token states
     TOKEN_ERROR = "bright_red"
     TOKEN_WARNING = "bright_cyan"
+    TOKEN_CAUTION = "bright_yellow"
     TOKEN_DISABLED = "dim"
     TOKEN_HIGHLIGHTED = "bright_yellow"
     TOKEN_ENABLED = "bright_green"
@@ -232,6 +233,18 @@ def _format_capability_shorthand(
     else:
         entries.append(("In", "blue", False))
 
+    skybridge_config = getattr(status, "skybridge", None)
+    if not skybridge_config:
+        entries.append(("Sk", False, False))
+    else:
+        has_warnings = bool(getattr(skybridge_config, "warnings", None))
+        if has_warnings:
+            entries.append(("Sk", "warn", False))
+        elif getattr(skybridge_config, "enabled", False):
+            entries.append(("Sk", True, False))
+        else:
+            entries.append(("Sk", False, False))
+
     if status.roots_configured:
         entries.append(("Ro", True, False))
     else:
@@ -260,6 +273,8 @@ def _format_capability_shorthand(
             return Colours.TOKEN_ERROR
         if supported == "blue":
             return Colours.TOKEN_WARNING
+        if supported == "warn":
+            return Colours.TOKEN_CAUTION
         if not supported:
             return Colours.TOKEN_DISABLED
         if highlighted:
@@ -652,6 +667,8 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
                 symbol = SYMBOL_ERROR
             elif name == "ping":
                 symbol = SYMBOL_PING
+            elif is_stdio and name == "activity":
+                symbol = SYMBOL_STDIO_ACTIVITY
             else:
                 symbol = SYMBOL_RESPONSE
             footer.append(symbol, style=f"{color}")

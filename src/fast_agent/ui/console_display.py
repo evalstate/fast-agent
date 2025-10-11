@@ -1,6 +1,6 @@
 from enum import Enum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 from mcp.types import CallToolResult
 from rich.panel import Panel
@@ -870,35 +870,46 @@ class ConsoleDisplay:
         console.console.print(combined, markup=self._markup)
         console.console.print()
 
-    def show_skybridge_summary(
-        self,
-        agent_name: str,
+    @staticmethod
+    def summarize_skybridge_configs(
         configs: Mapping[str, "SkybridgeServerConfig"] | None,
-    ) -> None:
-        """Display Skybridge availability and warnings."""
-        if configs is None:
-            return
-
+    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Convert raw Skybridge configs into display-friendly summary data."""
         server_rows: List[Dict[str, Any]] = []
         warnings: List[str] = []
+        warning_seen: Set[str] = set()
+
+        if not configs:
+            return server_rows, warnings
+
+        def add_warning(message: str) -> None:
+            formatted = message.strip()
+            if not formatted:
+                return
+            if formatted not in warning_seen:
+                warnings.append(formatted)
+                warning_seen.add(formatted)
 
         for server_name in sorted(configs.keys()):
             config = configs.get(server_name)
             if not config:
                 continue
-
-            # Skip servers without skybridge enablement
-            if not config.enabled:
+            resources = list(config.ui_resources or [])
+            has_skybridge_signal = bool(
+                config.enabled or resources or config.tools or config.warnings
+            )
+            if not has_skybridge_signal:
                 continue
 
-            resources = list(config.ui_resources or [])
+            valid_resource_count = sum(1 for resource in resources if resource.is_skybridge)
 
             server_rows.append(
                 {
                     "server_name": server_name,
                     "config": config,
                     "resources": resources,
-                    "resource_count": len(resources),
+                    "valid_resource_count": valid_resource_count,
+                    "total_resource_count": len(resources),
                     "active_tools": [
                         {
                             "name": tool.display_name,
@@ -907,17 +918,27 @@ class ConsoleDisplay:
                         for tool in config.tools
                         if tool.is_valid
                     ],
+                    "enabled": config.enabled,
                 }
             )
 
-            for resource in resources:
-                warning = resource.warning
-                if warning and not resource.is_skybridge:
-                    warnings.append(f"{server_name} {resource.uri}: {warning}")
+            for warning in config.warnings:
+                message = warning.strip()
+                if not message:
+                    continue
+                if not message.startswith(server_name):
+                    message = f"{server_name} {message}"
+                add_warning(message)
 
-            for tool in config.tools:
-                if tool.warning:
-                    warnings.append(f"{server_name} {tool.display_name}: {tool.warning}")
+        return server_rows, warnings
+
+    def show_skybridge_summary(
+        self,
+        agent_name: str,
+        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+    ) -> None:
+        """Display Skybridge availability and warnings."""
+        server_rows, warnings = self.summarize_skybridge_configs(configs)
 
         if not server_rows and not warnings:
             return
@@ -931,18 +952,23 @@ class ConsoleDisplay:
         else:
             for row in server_rows:
                 server_name = row["server_name"]
-                config = row["config"]
-                resource_count = row["resource_count"]
+                resource_count = row["valid_resource_count"]
+                total_resource_count = row["total_resource_count"]
                 tool_infos = row["active_tools"]
+                enabled = row["enabled"]
 
                 tool_count = len(tool_infos)
                 tool_word = "tool" if tool_count == 1 else "tools"
-                resource_word = "resource" if resource_count == 1 else "resources"
+                resource_word = (
+                    "skybridge resource" if resource_count == 1 else "skybridge resources"
+                )
                 tool_segment = f"[cyan]{tool_count}[/cyan][dim] {tool_word}[/dim]"
                 resource_segment = f"[cyan]{resource_count}[/cyan][dim] {resource_word}[/dim]"
+                name_style = "cyan" if enabled else "yellow"
+                status_suffix = "" if enabled else "[dim] (issues detected)[/dim]"
 
                 console.console.print(
-                    f"[dim]  ● [/dim][cyan]{server_name}[/cyan]"
+                    f"[dim]  ● [/dim][{name_style}]{server_name}[/{name_style}]{status_suffix}"
                     f"[dim] — [/dim]{tool_segment}[dim], [/dim]{resource_segment}",
                     markup=self._markup,
                 )
@@ -961,10 +987,20 @@ class ConsoleDisplay:
                         "[dim]     ▶ tools not linked[/dim]",
                         markup=self._markup,
                     )
+                if not enabled and total_resource_count > resource_count:
+                    invalid_count = total_resource_count - resource_count
+                    invalid_word = "resource" if invalid_count == 1 else "resources"
+                    console.console.print(
+                        (
+                            "[dim]     ▶ "
+                            f"[/dim][cyan]{invalid_count}[/cyan][dim] {invalid_word} detected with non-skybridge MIME type[/dim]"
+                        ),
+                        markup=self._markup,
+                    )
 
         for warning_entry in warnings:
             console.console.print(
-                f"[yellow]skybridge warning[/yellow] {warning_entry}",
+                f"[dim red]  ▶ [/dim red][red]warning[/red] [dim]{warning_entry}[/dim]",
                 markup=self._markup,
             )
 
