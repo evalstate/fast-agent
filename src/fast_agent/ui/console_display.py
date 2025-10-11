@@ -603,9 +603,9 @@ class ConsoleDisplay:
             if channel == "post-json":
                 transport_info = "HTTP (JSON-RPC)"
             elif channel == "post-sse":
-                transport_info = "HTTP (SSE)"
+                transport_info = "Legacy SSE"
             elif channel == "get":
-                transport_info = "HTTP (SSE)"
+                transport_info = "Legacy SSE"
             elif channel == "resumption":
                 transport_info = "Resumption"
             elif channel == "stdio":
