@@ -5,7 +5,11 @@ from mcp.types import CallToolResult, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, HUMAN_INPUT_TOOL_NAME
+from fast_agent.constants import (
+    DEFAULT_MAX_ITERATIONS,
+    FAST_AGENT_ERROR_CHANNEL,
+    HUMAN_INPUT_TOOL_NAME,
+)
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -14,13 +18,6 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 logger = get_logger(__name__)
-
-DEFAULT_MAX_TOOL_CALLS = 20
-
-
-# should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
-DEFAULT_MAX_ITERATIONS = 20
-"""Maximum number of User/Assistant turns to take"""
 
 
 class ToolAgent(LlmAgent):
@@ -91,7 +88,7 @@ class ToolAgent(LlmAgent):
             tools = (await self.list_tools()).tools
 
         iterations = 0
-        max_iterations = (request_params.max_iterations or DEFAULT_MAX_ITERATIONS)
+        max_iterations = request_params.max_iterations if request_params else DEFAULT_MAX_ITERATIONS
 
         while True:
             result = await super().generate_impl(

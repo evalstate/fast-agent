@@ -90,3 +90,56 @@ async def test_tool_loop_unknown_tool():
 
     assert result.stop_reason == LlmStopReason.ERROR
     assert result.last_text() == "Another turn"
+
+
+class PersistentToolGeneratingLlm(PassthroughLLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.call_count = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: List[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self.call_count += 1
+        tool_calls = {
+            f"persistent_{self.call_count}": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="tool_function"),
+            )
+        }
+        return Prompt.assistant(
+            "Loop again",
+            stop_reason=LlmStopReason.TOOL_USE,
+            tool_calls=tool_calls,
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_loop_respects_llm_default_max_iterations():
+    tool_llm = PersistentToolGeneratingLlm(request_params=RequestParams(max_iterations=2))
+    tool_agent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
+    tool_agent._llm = tool_llm
+
+    await tool_agent.generate("test default")
+
+    expected_calls = tool_llm.default_request_params.max_iterations + 1
+    assert tool_llm.call_count == expected_calls
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_tool_loop_respects_request_param_override():
+    tool_llm = PersistentToolGeneratingLlm(request_params=RequestParams(max_iterations=5))
+    tool_agent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
+    tool_agent._llm = tool_llm
+
+    override_params = RequestParams(max_iterations=1)
+    await tool_agent.generate("test override", override_params)
+
+    expected_calls = override_params.max_iterations + 1
+    assert tool_llm.call_count == expected_calls
