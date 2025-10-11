@@ -668,13 +668,13 @@ class McpAgent(ABC, ToolAgent):
                 result = await self.call_tool(tool_name, tool_args)
                 tool_results[correlation_id] = result
 
-                # Get skybridge config for this tool if available
+                # Show tool result (like ToolAgent does)
                 skybridge_config = None
                 if namespaced_tool:
-                    server_name = namespaced_tool.server_name
-                    skybridge_config = self._aggregator._skybridge_configs.get(server_name)
+                    skybridge_config = await self._aggregator.get_skybridge_config(
+                        namespaced_tool.server_name
+                    )
 
-                # Show tool result (like ToolAgent does)
                 self.display.show_tool_result(
                     name=self._name,
                     result=result,

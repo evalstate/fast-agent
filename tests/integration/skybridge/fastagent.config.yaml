@@ -1,0 +1,22 @@
+default_model: passthrough
+
+logger:
+  level: "info"
+  progress_display: false
+  show_chat: false
+  show_tools: false
+
+mcp:
+  servers:
+    skybridge_valid:
+      command: "uv"
+      args: ["run", "skybridge_test_server.py", "valid"]
+      description: "Skybridge server with valid resource/tool pairing"
+    skybridge_invalid_mime:
+      command: "uv"
+      args: ["run", "skybridge_test_server.py", "invalid-mime"]
+      description: "Skybridge server exposing ui:// resource without Skybridge MIME type"
+    skybridge_missing_resource:
+      command: "uv"
+      args: ["run", "skybridge_test_server.py", "missing-resource"]
+      description: "Skybridge server with Skybridge resources but missing tool linkage"
