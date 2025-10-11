@@ -1,6 +1,6 @@
 from enum import Enum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 from mcp.types import CallToolResult
 from rich.panel import Panel
@@ -870,18 +870,17 @@ class ConsoleDisplay:
         console.console.print(combined, markup=self._markup)
         console.console.print()
 
-    def show_skybridge_summary(
-        self,
-        agent_name: str,
+    @staticmethod
+    def summarize_skybridge_configs(
         configs: Mapping[str, "SkybridgeServerConfig"] | None,
-    ) -> None:
-        """Display Skybridge availability and warnings."""
-        if configs is None:
-            return
-
+    ) -> Tuple[List[Dict[str, Any]], List[str]]:
+        """Convert raw Skybridge configs into display-friendly summary data."""
         server_rows: List[Dict[str, Any]] = []
         warnings: List[str] = []
         warning_seen: Set[str] = set()
+
+        if not configs:
+            return server_rows, warnings
 
         def add_warning(message: str) -> None:
             formatted = message.strip()
@@ -931,6 +930,16 @@ class ConsoleDisplay:
                     message = f"{server_name} {message}"
                 add_warning(message)
 
+        return server_rows, warnings
+
+    def show_skybridge_summary(
+        self,
+        agent_name: str,
+        configs: Mapping[str, "SkybridgeServerConfig"] | None,
+    ) -> None:
+        """Display Skybridge availability and warnings."""
+        server_rows, warnings = self.summarize_skybridge_configs(configs)
+
         if not server_rows and not warnings:
             return
 
@@ -943,7 +952,6 @@ class ConsoleDisplay:
         else:
             for row in server_rows:
                 server_name = row["server_name"]
-                config = row["config"]
                 resource_count = row["valid_resource_count"]
                 total_resource_count = row["total_resource_count"]
                 tool_infos = row["active_tools"]
@@ -985,14 +993,14 @@ class ConsoleDisplay:
                     console.console.print(
                         (
                             "[dim]     ▶ "
-                            f"{invalid_count} {invalid_word} detected with non-skybridge MIME type[/dim]"
+                            f"[/dim][cyan]{invalid_count}[/cyan][dim] {invalid_word} detected with non-skybridge MIME type[/dim]"
                         ),
                         markup=self._markup,
                     )
 
         for warning_entry in warnings:
             console.console.print(
-                f"[yellow]skybridge warning[/yellow] {warning_entry}",
+                f"[dim red]  ▶ [/dim red][red]warning[/red] [dim]{warning_entry}[/dim]",
                 markup=self._markup,
             )
 

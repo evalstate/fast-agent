@@ -127,14 +127,20 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
     assert len(config.ui_resources) == 1
     assert (
         config.ui_resources[0].warning
-        == "ui:// detected but resource is not of type 'text/html+skybridge'"
+        == "served as 'text/html' instead of 'text/html+skybridge'"
     )
     assert config.warnings
-    assert "ui://component/app" in config.warnings[0]
+    assert config.warnings[0] == (
+        "ui://component/app: served as 'text/html' instead of 'text/html+skybridge'"
+    )
     assert len(config.tools) == 1
     tool_cfg = config.tools[0]
     assert tool_cfg.is_valid is False
-    assert tool_cfg.warning is not None
+    assert (
+        tool_cfg.warning
+        == "Tool 'test.tool_a' references resource 'ui://component/app' served as 'text/html' "
+        "instead of 'text/html+skybridge'"
+    )
     aggregator._list_resources_from_server.assert_awaited_once_with(  # type: ignore[attr-defined]
         "test", check_support=False
     )

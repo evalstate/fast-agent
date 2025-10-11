@@ -162,7 +162,7 @@ class MCPAggregator(ContextDependent):
         server_names: List[str],
         connection_persistence: bool = True,
         context: Optional["Context"] = None,
-        name: str = None,
+        name: str | None = None,
         config: Optional[Any] = None,  # Accept the agent config for elicitation_handler access
         **kwargs,
     ) -> None:
@@ -523,7 +523,8 @@ class MCPAggregator(ContextDependent):
                 )
             )
 
-        supports_resources = await self.server_supports_feature(server_name, "resources")
+        raw_resources_capability = await self.server_supports_feature(server_name, "resources")
+        supports_resources = bool(raw_resources_capability)
         config.supports_resources = supports_resources
         config.tools = tool_configs
 
@@ -582,7 +583,10 @@ class MCPAggregator(ContextDependent):
                 sky_resource.mime_type = seen_mime_types[0]
 
             if not sky_resource.is_skybridge:
-                warning = "ui:// detected but resource is not of type 'text/html+skybridge'"
+                observed_type = sky_resource.mime_type or "unknown MIME type"
+                warning = (
+                    f"served as '{observed_type}' instead of '{SKYBRIDGE_MIME_TYPE}'"
+                )
                 sky_resource.warning = warning
                 config.warnings.append(f"{uri_str}: {warning}")
 
@@ -608,7 +612,8 @@ class MCPAggregator(ContextDependent):
             if not resource_match.is_skybridge:
                 warning = (
                     f"Tool '{tool_config.namespaced_tool_name}' references resource "
-                    f"'{resource_match.uri}' that is not Skybridge MIME type"
+                    f"'{resource_match.uri}' served as '{resource_match.mime_type or 'unknown'}' "
+                    f"instead of '{SKYBRIDGE_MIME_TYPE}'"
                 )
                 tool_config.warning = warning
                 config.warnings.append(warning)
@@ -691,7 +696,15 @@ class MCPAggregator(ContextDependent):
         if not capabilities:
             return False
 
-        return getattr(capabilities, feature, False)
+        feature_value = getattr(capabilities, feature, False)
+        if isinstance(feature_value, bool):
+            return feature_value
+        if feature_value is None:
+            return False
+        try:
+            return bool(feature_value)
+        except Exception:  # noqa: BLE001
+            return True
 
     async def list_servers(self) -> List[str]:
         """Return the list of server names aggregated by this agent."""
@@ -995,6 +1008,12 @@ class MCPAggregator(ContextDependent):
             await self.load_servers()
         return dict(self._skybridge_configs)
 
+    async def get_skybridge_config(self, server_name: str) -> SkybridgeServerConfig | None:
+        """Return the Skybridge configuration for a specific server, loading if necessary."""
+        if not self.initialized:
+            await self.load_servers()
+        return self._skybridge_configs.get(server_name)
+
     async def _execute_on_server(
         self,
         server_name: str,
@@ -1002,7 +1021,7 @@ class MCPAggregator(ContextDependent):
         operation_name: str,
         method_name: str,
         method_args: Dict[str, Any] = None,
-        error_factory: Callable[[str], R] = None,
+        error_factory: Callable[[str], R] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> R:
         """
