@@ -40,6 +40,7 @@ dependencies = [
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
+    "textual>=6.2.1",
 ]
 
 # For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
