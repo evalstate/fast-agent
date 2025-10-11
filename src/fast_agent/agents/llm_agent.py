@@ -231,7 +231,6 @@ class LlmAgent(LlmDecorator):
         if "user" == messages[-1].role:
             self.show_user_message(message=messages[-1])
 
-        # TODO -- we should merge the request parameters here with the LLM defaults?
         # TODO - manage error catch, recovery, pause
         result, summary = await self._generate_with_summary(messages, request_params, tools)
 

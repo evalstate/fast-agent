@@ -79,6 +79,11 @@ class FastAgentLLMProtocol(Protocol):
         self, prompt_result: "GetPromptResult", prompt_name: str
     ) -> str: ...
 
+    def get_request_params(
+        self,
+        request_params: RequestParams | None = None,
+    ) -> RequestParams: ...
+        
     @property
     def message_history(self) -> List[PromptMessageExtended]: ...
 

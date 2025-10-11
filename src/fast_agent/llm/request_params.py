@@ -8,6 +8,8 @@ from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
 from pydantic import Field
 
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
+
 
 class RequestParams(CreateMessageRequestParams):
     """
@@ -34,7 +36,7 @@ class RequestParams(CreateMessageRequestParams):
     Agent/LLM maintains conversation history. Does not include applied Prompts
     """
 
-    max_iterations: int = 20
+    max_iterations: int = DEFAULT_MAX_ITERATIONS
     """
     The maximum number of tool calls allowed in a conversation turn
     """
