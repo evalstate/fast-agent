@@ -213,7 +213,8 @@ class RouterAgent(LlmAgent):
             agent: LlmAgent = self.agent_map[route.agent]
 
             # Dispatch the request to the selected agent
-            return await agent.generate_impl(messages, request_params)
+            # discarded request_params: use llm defaults for subagents
+            return await agent.generate_impl(messages)
 
     async def structured_impl(
         self,
