@@ -1,8 +1,12 @@
+from contextlib import contextmanager
 from enum import Enum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple, Union
 
 from mcp.types import CallToolResult
+from rich.console import Group
+from rich.live import Live
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
@@ -224,44 +228,12 @@ class ConsoleDisplay:
             console.console.print(additional_message, markup=self._markup)
 
         # Handle bottom separator with optional metadata
-        console.console.print()
-
-        if bottom_metadata:
-            # Apply shortening if requested
-            display_items = bottom_metadata
-            if max_item_length:
-                display_items = self._shorten_items(bottom_metadata, max_item_length)
-
-            # Format the metadata with highlighting, clipped to available width
-            # Compute available width for the metadata segment (excluding the fixed prefix/suffix)
-            total_width = console.console.size.width
-            prefix = Text("─| ")
-            prefix.stylize("dim")
-            suffix = Text(" |")
-            suffix.stylize("dim")
-            available = max(0, total_width - prefix.cell_len - suffix.cell_len)
-
-            metadata_text = self._format_bottom_metadata(
-                display_items,
-                highlight_index,
-                config["highlight_color"],
-                max_width=available,
-            )
-
-            # Create the separator line with metadata
-            line = Text()
-            line.append_text(prefix)
-            line.append_text(metadata_text)
-            line.append_text(suffix)
-            remaining = total_width - line.cell_len
-            if remaining > 0:
-                line.append("─" * remaining, style="dim")
-            console.console.print(line, markup=self._markup)
-        else:
-            # No metadata - continuous bar
-            console.console.print("─" * console.console.size.width, style="dim")
-
-        console.console.print()
+        self._render_bottom_metadata(
+            message_type=message_type,
+            bottom_metadata=bottom_metadata,
+            highlight_index=highlight_index,
+            max_item_length=max_item_length,
+        )
 
     def _display_content(
         self,
@@ -483,6 +455,58 @@ class ConsoleDisplay:
             List of shortened strings
         """
         return [item[: max_length - 1] + "…" if len(item) > max_length else item for item in items]
+
+    def _render_bottom_metadata(
+        self,
+        *,
+        message_type: MessageType,
+        bottom_metadata: List[str] | None,
+        highlight_index: int | None,
+        max_item_length: int | None,
+    ) -> None:
+        """
+        Render the bottom separator line with optional metadata.
+
+        Args:
+            message_type: The type of message being displayed
+            bottom_metadata: Optional list of items to show in the separator
+            highlight_index: Optional index of the item to highlight
+            max_item_length: Optional maximum length for individual items
+        """
+        console.console.print()
+
+        if bottom_metadata:
+            display_items = bottom_metadata
+            if max_item_length:
+                display_items = self._shorten_items(bottom_metadata, max_item_length)
+
+            total_width = console.console.size.width
+            prefix = Text("─| ")
+            prefix.stylize("dim")
+            suffix = Text(" |")
+            suffix.stylize("dim")
+            available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+
+            highlight_color = MESSAGE_CONFIGS[message_type]["highlight_color"]
+            metadata_text = self._format_bottom_metadata(
+                display_items,
+                highlight_index,
+                highlight_color,
+                max_width=available,
+            )
+
+            line = Text()
+            line.append_text(prefix)
+            line.append_text(metadata_text)
+            line.append_text(suffix)
+            remaining = total_width - line.cell_len
+            if remaining > 0:
+                line.append("─" * remaining, style="dim")
+            console.console.print(line, markup=self._markup)
+        else:
+            console.console.print("─" * console.console.size.width, style="dim")
+
+        console.console.print()
 
     def _format_bottom_metadata(
         self,
@@ -1004,6 +1028,30 @@ class ConsoleDisplay:
                 markup=self._markup,
             )
 
+    def _extract_reasoning_content(self, message: "PromptMessageExtended") -> Text | None:
+        """Extract reasoning channel content as dim text."""
+        channels = message.channels or {}
+        reasoning_blocks = channels.get(REASONING) or []
+        if not reasoning_blocks:
+            return None
+
+        from fast_agent.mcp.helpers.content_helpers import get_text
+
+        reasoning_segments = []
+        for block in reasoning_blocks:
+            text = get_text(block)
+            if text:
+                reasoning_segments.append(text)
+
+        if not reasoning_segments:
+            return None
+
+        joined = "\n".join(reasoning_segments)
+        if not joined.strip():
+            return None
+
+        return Text(joined, style="dim default")
+
     async def show_assistant_message(
         self,
         message_text: Union[str, Text, "PromptMessageExtended"],
@@ -1036,22 +1084,7 @@ class ConsoleDisplay:
 
         if isinstance(message_text, PromptMessageExtended):
             display_text = message_text.last_text() or ""
-
-            channels = message_text.channels or {}
-            reasoning_blocks = channels.get(REASONING) or []
-            if reasoning_blocks:
-                from fast_agent.mcp.helpers.content_helpers import get_text
-
-                reasoning_segments = []
-                for block in reasoning_blocks:
-                    text = get_text(block)
-                    if text:
-                        reasoning_segments.append(text)
-
-                if reasoning_segments:
-                    joined = "\n".join(reasoning_segments)
-                    if joined.strip():
-                        pre_content = Text(joined, style="dim default")
+            pre_content = self._extract_reasoning_content(message_text)
         else:
             display_text = message_text
 
@@ -1082,6 +1115,53 @@ class ConsoleDisplay:
             diagrams = extract_mermaid_diagrams(plain_text)
             if diagrams:
                 self._display_mermaid_diagrams(diagrams)
+
+    @contextmanager
+    def streaming_assistant_message(
+        self,
+        *,
+        bottom_items: List[str] | None = None,
+        highlight_index: int | None = None,
+        max_item_length: int | None = None,
+        name: str | None = None,
+        model: str | None = None,
+    ) -> Iterator["_StreamingMessageHandle"]:
+        """Create a streaming context for assistant messages."""
+        logger_settings = getattr(self.config, "logger", None)
+        streaming_enabled = (
+            getattr(logger_settings, "streaming_display", True) if logger_settings else True
+        )
+        show_chat = getattr(logger_settings, "show_chat", True) if logger_settings else True
+
+        if not streaming_enabled or not show_chat:
+            yield _NullStreamingHandle()
+            return
+
+        from fast_agent.ui.progress_display import progress_display
+
+        config = MESSAGE_CONFIGS[MessageType.ASSISTANT]
+        block_color = config["block_color"]
+        arrow = config["arrow"]
+        arrow_style = config["arrow_style"]
+
+        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        if name:
+            left += f"[{block_color}]{name}[/{block_color}]"
+
+        right_info = f"[dim]{model}[/dim]" if model else ""
+
+        with progress_display.paused():
+            self._create_combined_separator_status(left, right_info)
+            handle = _StreamingMessageHandle(
+                display=self,
+                bottom_items=bottom_items,
+                highlight_index=highlight_index,
+                max_item_length=max_item_length,
+            )
+            try:
+                yield handle
+            finally:
+                handle.close()
 
     def _display_mermaid_diagrams(self, diagrams: List[MermaidDiagram]) -> None:
         """Display mermaid diagram links."""
@@ -1373,3 +1453,112 @@ class ConsoleDisplay:
         summary_text = " • ".join(summary_parts)
         console.console.print(f"[dim]{summary_text}[/dim]")
         console.console.print()
+
+
+class _NullStreamingHandle:
+    """No-op streaming handle used when streaming is disabled."""
+
+    def update(self, _chunk: str) -> None:
+        return
+
+    def finalize(
+        self,
+        _message: "PromptMessageExtended | str",
+        *,
+        additional_message: Optional[Text] = None,
+    ) -> None:
+        return
+
+    def close(self) -> None:
+        return
+
+
+class _StreamingMessageHandle:
+    """Helper that manages live rendering for streaming assistant responses."""
+
+    def __init__(
+        self,
+        *,
+        display: ConsoleDisplay,
+        bottom_items: List[str] | None,
+        highlight_index: int | None,
+        max_item_length: int | None,
+    ) -> None:
+        self._display = display
+        self._bottom_items = bottom_items
+        self._highlight_index = highlight_index
+        self._max_item_length = max_item_length
+        self._buffer: List[str] = []
+        self._live: Live | None = Live(
+            "",
+            console=console.console,
+            vertical_overflow="visible",
+            refresh_per_second=12,
+        )
+        self._active = True
+        self._finalized = False
+        if self._live:
+            self._live.__enter__()
+
+    def update(self, chunk: str) -> None:
+        if not self._active or not chunk:
+            return
+        self._buffer.append(chunk)
+        text = "".join(self._buffer)
+        prepared = _prepare_markdown_content(text, self._display._escape_xml)
+        if self._live:
+            self._live.update(Markdown(prepared))
+
+    def finalize(
+        self,
+        message: "PromptMessageExtended | str",
+        *,
+        additional_message: Optional[Text] = None,
+    ) -> None:
+        if not self._active or self._finalized:
+            return
+
+        self._finalized = True
+
+        if isinstance(message, str):
+            final_text = message
+            reasoning_text = None
+        else:
+            final_text = message.last_text() or ""
+            reasoning_text = self._display._extract_reasoning_content(message)
+
+        if not final_text:
+            final_text = "".join(self._buffer)
+
+        prepared = _prepare_markdown_content(final_text, self._display._escape_xml)
+        renderable = Markdown(prepared)
+        if reasoning_text:
+            renderable = Group(reasoning_text, renderable)
+
+        if self._live:
+            self._live.update(renderable)
+            self._live.__exit__(None, None, None)
+            self._live = None
+
+        self._active = False
+
+        if additional_message:
+            console.console.print(additional_message, markup=self._display._markup)
+
+        self._display._render_bottom_metadata(
+            message_type=MessageType.ASSISTANT,
+            bottom_metadata=self._bottom_items,
+            highlight_index=self._highlight_index,
+            max_item_length=self._max_item_length,
+        )
+
+        plain_text = final_text
+        diagrams = extract_mermaid_diagrams(plain_text) if isinstance(plain_text, str) else None
+        if diagrams:
+            self._display._display_mermaid_diagrams(diagrams)
+
+    def close(self) -> None:
+        if self._live:
+            self._live.__exit__(None, None, None)
+            self._live = None
+        self._active = False
