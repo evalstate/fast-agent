@@ -272,7 +272,9 @@ class LlmAgent(LlmDecorator):
                 if summary:
                     summary_text = Text(f"\n\n{summary.message}", style="dim red italic")
 
-                stream_handle.finalize(result, additional_message=summary_text)
+                stream_handle.finalize(result)
+
+            await self.show_assistant_message(result, additional_message=summary_text)
         else:
             result, summary = await self._generate_with_summary(messages, request_params, tools)
 

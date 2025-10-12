@@ -4,7 +4,6 @@ from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple, Union
 
 from mcp.types import CallToolResult
-from rich.console import Group
 from rich.live import Live
 from rich.markdown import Markdown
 from rich.panel import Panel
@@ -1150,6 +1149,18 @@ class ConsoleDisplay:
 
         right_info = f"[dim]{model}[/dim]" if model else ""
 
+        # handle = _StreamingMessageHandle(
+        #     display=self,
+        #     bottom_items=bottom_items,
+        #     highlight_index=highlight_index,
+        #     max_item_length=max_item_length,
+        # )
+
+        # try:
+        #     yield handle
+        # finally:
+        #     handle.close()
+
         with progress_display.paused():
             self._create_combined_separator_status(left, right_info)
             handle = _StreamingMessageHandle(
@@ -1461,12 +1472,7 @@ class _NullStreamingHandle:
     def update(self, _chunk: str) -> None:
         return
 
-    def finalize(
-        self,
-        _message: "PromptMessageExtended | str",
-        *,
-        additional_message: Optional[Text] = None,
-    ) -> None:
+    def finalize(self, _message: "PromptMessageExtended | str") -> None:
         return
 
     def close(self) -> None:
@@ -1489,11 +1495,15 @@ class _StreamingMessageHandle:
         self._highlight_index = highlight_index
         self._max_item_length = max_item_length
         self._buffer: List[str] = []
+        self._final_text: str | None = None
+        self._markdown: Markdown = Markdown("")
         self._live: Live | None = Live(
-            "",
+            self._markdown,
             console=console.console,
-            vertical_overflow="visible",
-            refresh_per_second=12,
+            vertical_overflow="ellipsis",
+            #            screen=True,
+            refresh_per_second=6,
+            #            transient=True,
         )
         self._active = True
         self._finalized = False
@@ -1509,12 +1519,7 @@ class _StreamingMessageHandle:
         if self._live:
             self._live.update(Markdown(prepared))
 
-    def finalize(
-        self,
-        message: "PromptMessageExtended | str",
-        *,
-        additional_message: Optional[Text] = None,
-    ) -> None:
+    def finalize(self, message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
 
@@ -1522,43 +1527,23 @@ class _StreamingMessageHandle:
 
         if isinstance(message, str):
             final_text = message
-            reasoning_text = None
         else:
             final_text = message.last_text() or ""
-            reasoning_text = self._display._extract_reasoning_content(message)
 
         if not final_text:
             final_text = "".join(self._buffer)
 
-        prepared = _prepare_markdown_content(final_text, self._display._escape_xml)
-        renderable = Markdown(prepared)
-        if reasoning_text:
-            renderable = Group(reasoning_text, renderable)
+        self._final_text = final_text
 
-        if self._live:
-            self._live.update(renderable)
-            self._live.__exit__(None, None, None)
-            self._live = None
-
-        self._active = False
-
-        if additional_message:
-            console.console.print(additional_message, markup=self._display._markup)
-
-        self._display._render_bottom_metadata(
-            message_type=MessageType.ASSISTANT,
-            bottom_metadata=self._bottom_items,
-            highlight_index=self._highlight_index,
-            max_item_length=self._max_item_length,
-        )
-
-        plain_text = final_text
-        diagrams = extract_mermaid_diagrams(plain_text) if isinstance(plain_text, str) else None
-        if diagrams:
-            self._display._display_mermaid_diagrams(diagrams)
+        self.close()
 
     def close(self) -> None:
         if self._live:
             self._live.__exit__(None, None, None)
             self._live = None
         self._active = False
+
+    @property
+    def final_text(self) -> str | None:
+        """Return the final text captured during streaming (if any)."""
+        return self._final_text
