@@ -181,9 +181,8 @@ After <tag>"""
     def test_adjacent_inline_code(self):
         """Test adjacent inline code blocks.
 
-        Note: The current regex pattern doesn't handle adjacent inline code blocks
-        correctly when they're directly adjacent with no space. This is a known
-        limitation but unlikely to occur in real usage.
+        With the markdown-it parser approach, adjacent inline code is properly
+        identified and preserved (unlike the old regex approach).
         """
         # Test with space between inline code blocks (works correctly)
         content = "`<code1>` `<code2>` and <tag>"
@@ -192,12 +191,13 @@ After <tag>"""
         assert "`<code2>`" in result
         assert "and &lt;tag&gt;" in result
 
-        # Adjacent without space doesn't work as expected - documenting actual behavior
+        # Adjacent without space - markdown-it parser handles this correctly
         content_adjacent = "`<code1>``<code2>` and <tag>"
         result_adjacent = _prepare_markdown_content(content_adjacent)
-        # The regex doesn't match this pattern correctly, so content gets escaped
-        assert "&lt;code1&gt;" in result_adjacent
-        assert "&lt;code2&gt;" in result_adjacent
+        # With parser-based approach, inline code is properly identified and preserved
+        assert "`<code1>`" in result_adjacent
+        assert "`<code2>`" in result_adjacent
+        assert "and &lt;tag&gt;" in result_adjacent
 
     def test_realistic_xml_content(self):
         """Test with realistic XML content that should be escaped."""
@@ -219,3 +219,150 @@ But in code it's preserved:
 
         # Inside code should be preserved
         assert '    <child attr="value">Content & more</child>' in result
+
+    def test_multiple_code_blocks_with_language_tags(self):
+        """Test handling of multiple code blocks with language specifiers (e.g., ```html, ```typescript)."""
+        content = """I'll create a compact, self-contained TypeScript game (~200 lines) that runs in the browser.
+It's a mini "Dodge-Faller" arcade: you move left/right with arrow keys, avoid falling blocks, and survive as long as possible. Everything (HTML, CSS, TS) is in one snippet so you can copy-paste it into a single `.ts` file, compile with `tsc`, and open the resulting `.html`.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Dodge-Faller</title>
+  <style>
+    body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; }
+    canvas { background: #000; border: 2px solid #fff; }
+  </style>
+</head>
+<body>
+  <canvas id="c" width="400" height="600"></canvas>
+  <script src="game.js"></script>
+</body>
+</html>
+```
+
+```typescript
+// game.ts
+const canvas = document.getElementById("c") as HTMLCanvasElement;
+const ctx = canvas.getContext("2d")!;
+const W = canvas.width;
+const H = canvas.height;
+
+const PLAYER_W = 40;
+const PLAYER_H = 20;
+const PLAYER_SPEED = 6;
+const BLOCK_W = 30;
+const BLOCK_H = 30;
+const BLOCK_SPEED = 3;
+const BLOCK_SPAWN_EVERY = 45; // frames
+
+let playerX = W / 2 - PLAYER_W / 2;
+let playerY = H - PLAYER_H - 10;
+let blocks: { x: number; y: number }[] = [];
+let frame = 0;
+let running = true;
+let score = 0;
+
+const keys: Record<string, boolean> = {};
+window.addEventListener("keydown", e => keys[e.key] = true);
+window.addEventListener("keyup", e => keys[e.key] = false);
+
+function rand(min: number, max: number) {
+  return Math.random() * (max - min) + min;
+}
+
+function collides(ax: number, ay: number, aw: number, ah: number,
+              bx: number, by: number, bw: number, bh: number) {
+  return ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+}
+
+function update() {
+  if (!running) return;
+  frame++;
+
+  // move player
+  if (keys["ArrowLeft"]) playerX = Math.max(0, playerX - PLAYER_SPEED);
+  if (keys["ArrowRight"]) playerX = Math.min(W - PLAYER_W, playerX + PLAYER_SPEED);
+
+  // spawn blocks
+  if (frame % BLOCK_SPAWN_EVERY === 0) {
+    blocks.push({ x: rand(0, W - BLOCK_W), y: -BLOCK_H });
+  }
+
+  // move blocks
+  for (const b of blocks) b.y += BLOCK_SPEED;
+
+  // remove off-screen blocks
+  blocks = blocks.filter(b => b.y < H + BLOCK_H);
+
+  // collisions
+  for (const b of blocks) {
+    if (collides(playerX, playerY, PLAYER_W, PLAYER_H, b.x, b.y, BLOCK_W, BLOCK_H)) {
+      running = false;
+    }
+  }
+
+  score = Math.max(score, Math.floor(frame / 10));
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // player
+  ctx.fillStyle = "#0af";
+  ctx.fillRect(playerX, playerY, PLAYER_W, PLAYER_H);
+
+  // blocks
+  ctx.fillStyle = "#f44";
+  for (const b of blocks) ctx.fillRect(b.x, b.y, BLOCK_W, BLOCK_H);
+
+  // score
+  ctx.fillStyle = "#fff";
+  ctx.font = "20px monospace";
+  ctx.fillText(`Score: ${score}`, 10, 30);
+
+  if (!running) {
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = "#fff";
+    ctx.font = "30px monospace";
+    ctx.fillText("Game Over", W / 2 - 70, H / 2);
+    ctx.font = "16px monospace";
+    ctx.fillText("Refresh to play again", W / 2 - 90, H / 2 + 30);
+  }
+}
+
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+```
+
+Compile with
+`tsc game.ts --target ES2020 --module none --outFile game.js`
+and open the HTML file in your browser."""
+
+        result = _prepare_markdown_content(content)
+
+        # Debug: print the result to see what's happening
+        print("\n=== RESULT ===")
+        print(result)
+        print("\n=== END RESULT ===")
+
+        # The code blocks should be preserved exactly as they are (no HTML encoding inside)
+        assert '<meta charset="utf-8" />' in result, "HTML code block content should not be escaped"
+        assert 'ctx.fillText("Game Over", W / 2 - 70, H / 2)' in result, "TypeScript string literals should not be escaped"
+
+        # Content should not be duplicated
+        # Note: "Game Over" appears once, but requestAnimationFrame(loop) appears twice
+        # (once inside loop(), once to call it initially)
+        assert result.count('ctx.fillText("Game Over"') == 1, "Content should not be duplicated"
+        assert result.count('requestAnimationFrame(loop)') == 2, "Should match the 2 instances in original code (not 4 like the bug produced)"
+
+        # Outside code blocks, backticks for inline code should be preserved
+        assert "`tsc game.ts" in result or "tsc game.ts" in result, "Inline code or plain text should be present"

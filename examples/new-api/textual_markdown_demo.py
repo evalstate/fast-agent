@@ -8,7 +8,7 @@ import json
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from rich.console import Group
 from rich.markdown import Markdown
@@ -18,16 +18,19 @@ from textual.widgets import Footer, Header, Input, RichLog
 
 from fast_agent import FastAgent
 from fast_agent.constants import REASONING
-from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.console_display import (
     MESSAGE_CONFIGS,
     ConsoleDisplay,
     MessageType,
     _prepare_markdown_content,
 )
-from fast_agent.types import PromptMessageExtended
-from mcp.types import CallToolResult
+
+if TYPE_CHECKING:
+    from mcp.types import CallToolResult
+
+    from fast_agent.interfaces import AgentProtocol
 
 DEFAULT_PROMPT = (
     "Provide a short markdown summary with a heading and bullet list describing how "
@@ -102,7 +105,9 @@ class ChatDisplay(RichLog):
     """Rich log that renders chat messages with familiar console styling."""
 
     def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, auto_scroll=False, highlight=False, markup=False, wrap=False, **kwargs)
+        super().__init__(
+            *args, auto_scroll=False, highlight=False, markup=False, wrap=False, **kwargs
+        )
         self._messages: list[ChatMessage] = []
         self.can_focus = True
         self.show_vertical_scrollbar = True
@@ -263,7 +268,11 @@ class ChatDisplay(RichLog):
 
         for index, item in enumerate(items):
             sep = RichText(" | ", style="dim") if index > 0 else RichText()
-            item_style = highlight_color if highlight_index is not None and index == highlight_index else "dim"
+            item_style = (
+                highlight_color
+                if highlight_index is not None and index == highlight_index
+                else "dim"
+            )
             item_text = RichText(item, style=item_style)
 
             additional_len = sep.cell_len + item_text.cell_len
@@ -371,6 +380,7 @@ class TextualDisplay(ConsoleDisplay):
         skybridge_config=None,
     ) -> None:
         self._app.handle_display_tool_result(result, agent_name=name, tool_name=tool_name)
+
 
 class MarkdownLLMApp(App[None]):
     """Textual application that displays an LLM response in a chat-style Markdown widget."""
@@ -811,7 +821,9 @@ class MarkdownLLMApp(App[None]):
 
 def parse_args(argv: Sequence[str] | None = None) -> AppOptions:
     """Parse CLI arguments for the textual demo."""
-    parser = argparse.ArgumentParser(description="Render a chat-style LLM conversation inside Textual.")
+    parser = argparse.ArgumentParser(
+        description="Render a chat-style LLM conversation inside Textual."
+    )
     parser.add_argument(
         "--prompt",
         help="Prompt to send to the LLM (markdown is rendered directly).",

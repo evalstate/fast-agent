@@ -474,6 +474,17 @@ class FastAgent:
                     # Create a wrapper with all agents for simplified access
                     wrapper = AgentApp(active_agents)
 
+                    # Disable streaming if parallel agents are present
+                    from fast_agent.agents.agent_types import AgentType
+
+                    has_parallel = any(
+                        agent.agent_type == AgentType.PARALLEL for agent in active_agents.values()
+                    )
+                    if has_parallel:
+                        cfg = self.app.context.config
+                        if cfg is not None and cfg.logger is not None:
+                            cfg.logger.streaming_display = False
+
                     # Handle command line options that should be processed after agent initialization
 
                     # Handle --server option

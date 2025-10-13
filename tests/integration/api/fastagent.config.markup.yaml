@@ -28,7 +28,6 @@ logger:
   # Truncate long tool responses on the console
   truncate_tools: true
   enable_markup: false
-  use_legacy_display: true
 
 # MCP Servers
 mcp:

@@ -448,8 +448,8 @@ class LoggerSettings(BaseModel):
     """Truncate display of long tool calls"""
     enable_markup: bool = True
     """Enable markup in console output. Disable for outputs that may conflict with rich console formatting"""
-    use_legacy_display: bool = False
-    """Use the legacy console display instead of the new style display"""
+    streaming_display: bool = True
+    """Stream assistant responses live in the console when supported"""
 
 
 def find_fastagent_config_files(start_path: Path) -> Tuple[Optional[Path], Optional[Path]]:

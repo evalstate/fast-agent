@@ -684,20 +684,26 @@ async def get_enhanced_input(
             if llm:
                 model_name = getattr(llm, "model_name", None)
                 if not model_name:
-                    model_name = getattr(getattr(llm, "default_request_params", None), "model", None)
+                    model_name = getattr(
+                        getattr(llm, "default_request_params", None), "model", None
+                    )
 
             if not model_name:
                 model_name = getattr(agent.config, "model", None)
             if not model_name and getattr(agent.config, "default_request_params", None):
                 model_name = getattr(agent.config.default_request_params, "model", None)
             if not model_name:
-                context = getattr(agent, "context", None) or getattr(agent_provider, "context", None)
+                context = getattr(agent, "context", None) or getattr(
+                    agent_provider, "context", None
+                )
                 config_obj = getattr(context, "config", None) if context else None
                 model_name = getattr(config_obj, "default_model", None)
 
             if model_name:
                 max_len = 25
-                model_display = model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+                model_display = (
+                    model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+                )
             else:
                 print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
                 model_display = "unknown"
@@ -875,6 +881,43 @@ async def get_enhanced_input(
             if agent_provider and not is_human_input:
                 # Display info for all available agents with tree structure for workflows
                 await _display_all_agents_with_hierarchy(available_agents, agent_provider)
+
+            # Show streaming status message
+            if agent_provider:
+                # Get logger settings from the agent's context (not agent_provider)
+                logger_settings = None
+                try:
+                    agent = agent_provider._agent(agent_name)
+                    agent_context = agent._context or agent.context
+                    logger_settings = agent_context.config.logger
+                except Exception:
+                    # If we can't get the agent or its context, logger_settings stays None
+                    pass
+
+                # Only show streaming messages if chat display is enabled AND we have logger_settings
+                if logger_settings:
+                    show_chat = getattr(logger_settings, "show_chat", True)
+
+                    if show_chat:
+                        # Check for parallel agents
+                        has_parallel = any(
+                            agent.agent_type == AgentType.PARALLEL
+                            for agent in agent_provider._agents.values()
+                        )
+
+                        # Note: streaming may have been disabled by fastagent.py if parallel agents exist
+                        # So we check has_parallel first to show the appropriate message
+                        if has_parallel:
+                            # Streaming is disabled due to parallel agents
+                            rich_print(
+                                "[dim]Markdown Streaming disabled (Parallel Agents configured)[/dim]"
+                            )
+                        else:
+                            # Check if streaming is enabled
+                            streaming_enabled = getattr(logger_settings, "streaming_display", True)
+                            if streaming_enabled:
+                                # Streaming is enabled - notify users since it's experimental
+                                rich_print("[dim]Markdown Streaming enabled (experimental).[/dim] ")
 
         rich_print()
         help_message_shown = True

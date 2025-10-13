@@ -1,0 +1,821 @@
+"""Smart markdown truncation that preserves markdown context.
+
+This module provides intelligent truncation of markdown text for streaming displays,
+ensuring that markdown structures (code blocks, lists, blockquotes) are preserved
+when possible, and gracefully degrading when single blocks are too large.
+
+KEY CONCEPT: Two Truncation Strategies
+=======================================
+
+This truncator uses DIFFERENT strategies depending on content type:
+
+1. TABLES (show FIRST page - keep beginning, remove end)
+   - Why: Table headers define the meaning of all data. Without the header,
+     seeing random rows is meaningless.
+   - When: Content is >50% table lines (see _is_primary_content_table)
+   - Example: Tool listing 100 files - show header + first 20, not last 20
+
+2. STREAMING TEXT (show MOST RECENT - keep end, remove beginning)
+   - Why: In live streaming, users are following along. They want to see the
+     current position, not what was written minutes ago.
+   - When: Content is ≤50% table lines (mostly prose/code)
+   - Example: Assistant explaining code - show the conclusion, not the intro
+
+Context Preservation
+====================
+
+When truncating removes the opening of a structure, we restore it:
+- CODE BLOCKS: Prepend ```language fence (only if it was removed)
+- TABLES: Prepend header + separator rows (only if they were removed)
+
+This ensures truncated content still renders correctly as markdown.
+"""
+
+from dataclasses import dataclass
+from typing import Iterable, List, Optional
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.segment import Segment
+
+
+@dataclass
+class TruncationPoint:
+    """Represents a position in text where truncation is safe."""
+
+    char_position: int
+    block_type: str
+    token: Token
+    is_closing: bool
+
+
+class MarkdownTruncator:
+    """Handles intelligent truncation of markdown text while preserving context."""
+
+    def __init__(self, target_height_ratio: float = 0.7):
+        """Initialize the truncator.
+
+        Args:
+            target_height_ratio: Target height as ratio of terminal height (0.0-1.0).
+                After truncation, aim to keep content at this ratio of terminal height.
+        """
+        self.target_height_ratio = target_height_ratio
+        self.parser = MarkdownIt().enable("strikethrough").enable("table")
+
+    def truncate(
+        self,
+        text: str,
+        terminal_height: int,
+        console: Console,
+        code_theme: str = "monokai",
+        prefer_recent: bool = False,
+    ) -> str:
+        """Truncate markdown text to fit within terminal height.
+
+        This method attempts to truncate at safe block boundaries (between paragraphs,
+        after code blocks, etc.). If no safe boundary works (e.g., single block is
+        too large), it falls back to character-based truncation.
+
+        Args:
+            text: The markdown text to truncate.
+            terminal_height: Height of the terminal in lines.
+            console: Rich Console instance for measuring rendered height.
+            code_theme: Theme for code syntax highlighting.
+            prefer_recent: If True, always show most recent content (streaming mode).
+                This overrides table-dominant detection to ensure streaming tables
+                show the latest rows, not the first rows.
+
+        Returns:
+            Truncated markdown text that fits within target height.
+        """
+        if not text:
+            return text
+
+        # Measure current height
+        current_height = self._measure_rendered_height(text, console, code_theme)
+
+        if current_height <= terminal_height:
+            # No truncation needed
+            return text
+
+        target_height = int(terminal_height * self.target_height_ratio)
+
+        # Find safe truncation points (block boundaries)
+        safe_points = self._find_safe_truncation_points(text)
+
+        if not safe_points:
+            # No safe points found, fall back to character truncation
+            truncated = self._truncate_by_characters(text, target_height, console, code_theme)
+            # Ensure code fence is preserved if we truncated within a code block
+            truncated = self._ensure_code_fence_if_needed(text, truncated)
+            # Ensure table header is preserved if we truncated within a table body
+            return self._ensure_table_header_if_needed(text, truncated)
+
+        # Try to find the best truncation point
+        best_point = self._find_best_truncation_point(
+            text, safe_points, target_height, console, code_theme
+        )
+
+        if best_point is None:
+            # No safe point works, fall back to character truncation
+            truncated = self._truncate_by_characters(text, target_height, console, code_theme)
+            # Ensure code fence is preserved if we truncated within a code block
+            truncated = self._ensure_code_fence_if_needed(text, truncated)
+            # Ensure table header is preserved if we truncated within a table body
+            return self._ensure_table_header_if_needed(text, truncated)
+
+        # ============================================================================
+        # TRUNCATION STRATEGY: Two Different Behaviors
+        # ============================================================================
+        #
+        # We use different truncation strategies depending on content type:
+        #
+        # 1. TABLES: Show FIRST page (keep beginning, remove end)
+        #    - Rationale: Tables are structured data where the header defines meaning.
+        #      Users need to see the header and first rows to understand the data.
+        #      Showing the "most recent" rows without context is meaningless.
+        #    - Example: A file listing table - seeing the last 10 files without the
+        #      header columns (name, size, date) is useless.
+        #    - NOTE: This is overridden when prefer_recent=True (streaming mode)
+        #
+        # 2. STREAMING TEXT: Show MOST RECENT (keep end, remove beginning)
+        #    - Rationale: In streaming assistant responses, the most recent content
+        #      is usually the most relevant. The user is following along as text
+        #      appears, so they want to see "where we are now" not "where we started".
+        #    - Example: A code explanation - seeing the conclusion is more valuable
+        #      than seeing the introduction paragraph that scrolled off.
+        #
+        # Detection: Content is considered "table-dominant" if >50% of lines are
+        # part of table structures (see _is_primary_content_table).
+        # OVERRIDE: When prefer_recent=True, always use "show most recent" strategy.
+        # ============================================================================
+
+        # In streaming mode (prefer_recent=True), always show most recent content
+        # even for tables - we want to see the latest rows being written
+        is_table_content = False if prefer_recent else self._is_primary_content_table(text)
+
+        if is_table_content:
+            # For tables: keep BEGINNING, truncate END (show first N rows)
+            # Use safe point as END boundary, keep everything before it
+            truncated_text = text[: best_point.char_position]
+
+            # ========================================================================
+            # TABLE HEADER INTEGRITY CHECK
+            # ========================================================================
+            # Markdown tables require both a header row AND a separator line:
+            #
+            #   | Name    | Size | Date       |   <-- Header row
+            #   |---------|------|------------|   <-- Separator (required!)
+            #   | file.py | 2KB  | 2024-01-15 |   <-- Data rows
+            #
+            # If we truncate between the header and separator, the table won't
+            # render at all in markdown. So we need to ensure both are present.
+            # ========================================================================
+            if truncated_text.strip() and "|" in truncated_text:
+                lines_result = truncated_text.split("\n")
+                # Check if we have header but missing separator (dashes)
+                has_header = any("|" in line and "---" not in line for line in lines_result)
+                has_separator = any("---" in line for line in lines_result)
+
+                if has_header and not has_separator:
+                    # We cut off the separator! Find it in original and include it
+                    original_lines = text.split("\n")
+                    for i, line in enumerate(original_lines):
+                        if "---" in line and "|" in line:
+                            # Found separator line - include up to and including this line
+                            truncated_text = "\n".join(original_lines[: i + 1])
+                            break
+        else:
+            # ========================================================================
+            # STREAMING TEXT: Keep END, truncate BEGINNING (show most recent)
+            # ========================================================================
+            # This is the primary use case: assistant is streaming a response, and
+            # the terminal can't show all of it. We want to show what's currently
+            # being written (the end), not what was written minutes ago (the start).
+            # ========================================================================
+            truncated_text = text[best_point.char_position :]
+
+            # ========================================================================
+            # CONTEXT PRESERVATION for Truncated Structures
+            # ========================================================================
+            # When truncating removes the beginning of a structure (code block or
+            # table), we need to restore the opening context so it renders properly.
+            #
+            # CODE BLOCKS: If we truncate mid-block, prepend the opening fence
+            #   Original:  ```python\ndef foo():\n  return 42\n```
+            #   Truncate:  [```python removed] def foo():\n  return 42\n```
+            #   Fixed:     ```python\ndef foo():\n  return 42\n```
+            #
+            # TABLES: If we truncate table data rows, prepend the header
+            #   Original:  | Name | Size |\n|------|------|\n| a | 1 |\n| b | 2 |
+            #   Truncate:  [header removed] | b | 2 |
+            #   Fixed:     | Name | Size |\n|------|------|\n| b | 2 |
+            # ========================================================================
+
+            # Check if we need special handling for code blocks
+            if self._is_truncating_within_code_block(text, best_point):
+                truncated_text = self._handle_code_block_truncation(
+                    text, best_point, truncated_text
+                )
+
+            # Check if we need special handling for table bodies
+            if self._is_truncating_within_table_body(text, best_point):
+                truncated_text = self._ensure_table_header_if_needed(text, truncated_text)
+
+        return truncated_text
+
+    def _find_safe_truncation_points(self, text: str) -> List[TruncationPoint]:
+        """Find safe positions to truncate at (block boundaries).
+
+        Args:
+            text: The markdown text to analyze.
+
+        Returns:
+            List of TruncationPoint objects representing safe truncation positions.
+        """
+        tokens = self.parser.parse(text)
+        safe_points = []
+
+        # Don't flatten - we need to process top-level tokens
+        lines = text.split("\n")
+
+        for token in tokens:
+            # We're interested in block-level tokens with map information
+            # Opening tokens (nesting=1) and self-closing tokens (nesting=0) have map info
+            if token.map is not None:
+                # token.map gives [start_line, end_line] (0-indexed)
+                end_line = token.map[1]
+
+                # Calculate character position at end of this block
+                if end_line <= len(lines):
+                    char_pos = sum(len(line) + 1 for line in lines[:end_line])
+
+                    safe_points.append(
+                        TruncationPoint(
+                            char_position=char_pos,
+                            block_type=token.type,
+                            token=token,
+                            is_closing=(token.nesting == 0),  # Self-closing or block end
+                        )
+                    )
+
+        return safe_points
+
+    def _find_best_truncation_point(
+        self,
+        text: str,
+        safe_points: List[TruncationPoint],
+        target_height: int,
+        console: Console,
+        code_theme: str,
+    ) -> Optional[TruncationPoint]:
+        """Find the truncation point that gets closest to target height.
+
+        Args:
+            text: The full markdown text.
+            safe_points: List of potential truncation points.
+            target_height: Target height in terminal lines.
+            console: Rich Console for measuring.
+            code_theme: Code syntax highlighting theme.
+
+        Returns:
+            The best TruncationPoint, or None if none work.
+        """
+        best_point = None
+        best_diff = float("inf")
+
+        for point in safe_points:
+            # Test truncating at this point
+            truncated = text[point.char_position :]
+
+            # Skip if truncation would result in empty or nearly empty text
+            if not truncated.strip():
+                continue
+
+            height = self._measure_rendered_height(truncated, console, code_theme)
+
+            # Calculate how far we are from target
+            diff = abs(height - target_height)
+
+            # We prefer points that keep us at or below target
+            if height <= target_height and diff < best_diff:
+                best_point = point
+                best_diff = diff
+
+        return best_point
+
+    def _truncate_by_characters(
+        self, text: str, target_height: int, console: Console, code_theme: str
+    ) -> str:
+        """Fall back to character-based truncation using binary search.
+
+        This is used when no safe block boundary works (e.g., single block too large).
+
+        Args:
+            text: The markdown text to truncate.
+            target_height: Target height in terminal lines.
+            console: Rich Console for measuring.
+            code_theme: Code syntax highlighting theme.
+
+        Returns:
+            Truncated text that fits within target height.
+        """
+        if not text:
+            return text
+
+        # Binary search on character position
+        left, right = 0, len(text) - 1
+        best_pos = None
+
+        while left <= right:
+            mid = (left + right) // 2
+            test_text = text[mid:]
+
+            if not test_text.strip():
+                # Skip empty results
+                right = mid - 1
+                continue
+
+            height = self._measure_rendered_height(test_text, console, code_theme)
+
+            if height <= target_height:
+                # Can keep more text - try removing less
+                best_pos = mid
+                right = mid - 1
+            else:
+                # Need to truncate more
+                left = mid + 1
+
+        # If nothing fits at all, return the last portion of text that's minimal
+        if best_pos is None:
+            # Return last few characters or lines that might fit
+            # Take approximately the last 20% of the text as a fallback
+            fallback_pos = int(len(text) * 0.8)
+            return text[fallback_pos:] if fallback_pos < len(text) else text
+
+        return text[best_pos:]
+
+    def _is_truncating_within_code_block(
+        self, text: str, truncation_point: TruncationPoint
+    ) -> bool:
+        """Check if truncation point is within a code block.
+
+        Args:
+            text: The full markdown text.
+            truncation_point: The point where we're truncating.
+
+        Returns:
+            True if we're truncating within a code block.
+        """
+        # Parse to find all code block boundaries
+        tokens = self.parser.parse(text)
+        flat_tokens = list(self._flatten_tokens(tokens))
+
+        lines = text.split("\n")
+
+        for token in flat_tokens:
+            if token.type in ("fence", "code_block") and token.map:
+                start_line = token.map[0]
+                end_line = token.map[1]
+
+                # Calculate character positions for this code block
+                start_pos = sum(len(line) + 1 for line in lines[:start_line])
+                end_pos = sum(len(line) + 1 for line in lines[:end_line])
+
+                # Check if truncation point is inside this block
+                if start_pos < truncation_point.char_position < end_pos:
+                    return True
+
+        return False
+
+    def _handle_code_block_truncation(
+        self, original_text: str, truncation_point: TruncationPoint, truncated_text: str
+    ) -> str:
+        """Handle truncation within a code block by preserving the opening fence.
+
+        When truncating within a code block, we need to ensure the opening fence
+        (```language) is preserved so the remaining content renders correctly.
+
+        Args:
+            original_text: The original full text.
+            truncation_point: Where we're truncating.
+            truncated_text: The text after truncation.
+
+        Returns:
+            Modified truncated text with code fence preserved.
+        """
+        # Find the code block that contains the truncation point
+        tokens = self.parser.parse(original_text)
+        flat_tokens = list(self._flatten_tokens(tokens))
+
+        lines = original_text.split("\n")
+
+        for token in flat_tokens:
+            if token.type in ("fence", "code_block") and token.map:
+                start_line = token.map[0]
+                end_line = token.map[1]
+
+                start_pos = sum(len(line) + 1 for line in lines[:start_line])
+                end_pos = sum(len(line) + 1 for line in lines[:end_line])
+
+                if start_pos < truncation_point.char_position < end_pos:
+                    # Found the code block we're truncating within
+                    # Extract language from the original fence in the ORIGINAL text
+                    language = token.info or "" if hasattr(token, "info") else ""
+                    fence = f"```{language}"
+
+                    # ================================================================
+                    # FENCE MANAGEMENT: Ensure exactly ONE complete fence at top
+                    # ================================================================
+                    # Goal: Code blocks MUST start with "```<language>\n" for proper
+                    # rendering. During streaming with repeated truncation, we can get:
+                    #
+                    # 1. Complete fence at top: "```python\n..." → keep as-is
+                    # 2. Partial fence at top: "``python\n..." or "`python\n..."
+                    #    → remove partial, prepend complete
+                    # 3. No fence at top: "def foo():\n..." → prepend complete
+                    #
+                    # Partial fences occur when character truncation cuts through a
+                    # previously-prepended fence.
+                    # ================================================================
+
+                    # Check what's at the beginning after stripping whitespace
+                    stripped_text = truncated_text.lstrip()
+
+                    # ================================================================
+                    # SIMPLIFIED FENCE LOGIC
+                    # ================================================================
+                    # Case 1: Complete fence (3+ backticks) - keep as-is
+                    # Case 2: Partial fence (1-2 backticks) - clean and prepend
+                    # Case 3: No backticks - prepend
+                    # ================================================================
+
+                    if not stripped_text:
+                        # Empty text - just prepend fence
+                        return f"{fence}\n"
+
+                    # Count leading backticks
+                    backtick_count = 0
+                    i = 0
+                    while i < len(stripped_text) and stripped_text[i] == "`":
+                        backtick_count += 1
+                        i += 1
+
+                    if backtick_count >= 3:
+                        # Case 1: Complete fence already present (```...)
+                        # Assume it's correct and keep as-is
+                        return truncated_text
+
+                    elif backtick_count > 0:
+                        # Case 2: Partial fence (` or ``) - corrupted by truncation
+                        # Clean it and prepend complete fence
+                        # Skip any language name after the partial backticks
+                        while i < len(stripped_text) and stripped_text[i] not in ("\n", " ", "\t"):
+                            i += 1
+                        # Skip whitespace/newlines
+                        while i < len(stripped_text) and stripped_text[i] in ("\n", " ", "\t"):
+                            i += 1
+                        # Prepend complete fence to cleaned content
+                        cleaned_content = stripped_text[i:]
+                        return f"{fence}\n{cleaned_content}"
+
+                    else:
+                        # Case 3: No backticks at all - prepend complete fence
+                        return f"{fence}\n{truncated_text}"
+
+        return truncated_text
+
+    def _ensure_code_fence_if_needed(self, original_text: str, truncated_text: str) -> str:
+        """Ensure code fence is prepended if truncation happened within a code block.
+
+        This is used after character-based truncation to check if we need to add
+        a code fence to the beginning of the truncated text.
+
+        Args:
+            original_text: The original full text before truncation.
+            truncated_text: The truncated text.
+
+        Returns:
+            Truncated text with code fence prepended if needed.
+        """
+        if not truncated_text or truncated_text == original_text:
+            return truncated_text
+
+        # Find where the truncated text starts in the original
+        truncation_pos = original_text.find(truncated_text)
+        if truncation_pos == -1:
+            # Couldn't find truncated text in original (shouldn't happen)
+            return truncated_text
+
+        # Parse original text to find code blocks
+        tokens = self.parser.parse(original_text)
+        flat_tokens = list(self._flatten_tokens(tokens))
+        lines = original_text.split("\n")
+
+        for token in flat_tokens:
+            if token.type in ("fence", "code_block") and token.map:
+                start_line = token.map[0]
+                end_line = token.map[1]
+
+                start_pos = sum(len(line) + 1 for line in lines[:start_line])
+                end_pos = sum(len(line) + 1 for line in lines[:end_line])
+
+                # Check if truncation point is inside this code block
+                if start_pos < truncation_pos < end_pos:
+                    # Truncated within this code block - prepend fence if needed
+                    # Extract language from the original fence in the ORIGINAL text
+                    language = token.info or "" if hasattr(token, "info") else ""
+                    fence = f"```{language}"
+
+                    # ================================================================
+                    # FENCE MANAGEMENT: Ensure exactly ONE complete fence at top
+                    # ================================================================
+                    # Same logic as _handle_code_block_truncation - ensure we have
+                    # exactly one complete fence at the top of the truncated text.
+                    # ================================================================
+
+                    # Check what's at the beginning after stripping whitespace
+                    stripped_text = truncated_text.lstrip()
+
+                    # ================================================================
+                    # SIMPLIFIED FENCE LOGIC
+                    # ================================================================
+                    # Case 1: Complete fence (3+ backticks) - keep as-is
+                    # Case 2: Partial fence (1-2 backticks) - clean and prepend
+                    # Case 3: No backticks - prepend
+                    # ================================================================
+
+                    if not stripped_text:
+                        # Empty text - just prepend fence
+                        return f"{fence}\n"
+
+                    # Count leading backticks
+                    backtick_count = 0
+                    i = 0
+                    while i < len(stripped_text) and stripped_text[i] == "`":
+                        backtick_count += 1
+                        i += 1
+
+                    if backtick_count >= 3:
+                        # Case 1: Complete fence already present (```...)
+                        # Assume it's correct and keep as-is
+                        return truncated_text
+
+                    elif backtick_count > 0:
+                        # Case 2: Partial fence (` or ``) - corrupted by truncation
+                        # Clean it and prepend complete fence
+                        # Skip any language name after the partial backticks
+                        while i < len(stripped_text) and stripped_text[i] not in ("\n", " ", "\t"):
+                            i += 1
+                        # Skip whitespace/newlines
+                        while i < len(stripped_text) and stripped_text[i] in ("\n", " ", "\t"):
+                            i += 1
+                        # Prepend complete fence to cleaned content
+                        cleaned_content = stripped_text[i:]
+                        return f"{fence}\n{cleaned_content}"
+
+                    else:
+                        # Case 3: No backticks at all - prepend complete fence
+                        return f"{fence}\n{truncated_text}"
+
+        return truncated_text
+
+    def _ensure_table_header_if_needed(self, original_text: str, truncated_text: str) -> str:
+        """Ensure table header is prepended if truncation happened within a table body.
+
+        When truncating within a table body, we need to preserve the header row(s)
+        so the remaining table rows have context and meaning.
+
+        Args:
+            original_text: The original full text before truncation.
+            truncated_text: The truncated text.
+
+        Returns:
+            Truncated text with table header prepended if needed.
+        """
+        if not truncated_text or truncated_text == original_text:
+            return truncated_text
+
+        # Find where the truncated text starts in the original
+        truncation_pos = original_text.find(truncated_text)
+        if truncation_pos == -1:
+            # Couldn't find truncated text in original (shouldn't happen)
+            return truncated_text
+
+        # Parse original text to find tables
+        tokens = self.parser.parse(original_text)
+        lines = original_text.split("\n")
+
+        # Find all table structures
+        for i, token in enumerate(tokens):
+            if token.type == "table_open" and token.map:
+                table_start_line = token.map[0]
+                table_end_line = token.map[1]
+
+                # Find thead and tbody within this table
+                thead_start_line = None
+                thead_end_line = None
+                tbody_start_line = None
+                tbody_end_line = None
+
+                # Look ahead in tokens to find thead and tbody
+                for j in range(i + 1, len(tokens)):
+                    if tokens[j].type == "thead_open" and tokens[j].map:
+                        thead_start_line = tokens[j].map[0]
+                        thead_end_line = tokens[j].map[1]
+                    elif tokens[j].type == "tbody_open" and tokens[j].map:
+                        tbody_start_line = tokens[j].map[0]
+                        tbody_end_line = tokens[j].map[1]
+                    elif tokens[j].type == "table_close":
+                        # End of this table
+                        break
+
+                # Check if we have both thead and tbody
+                if (
+                    thead_start_line is not None
+                    and thead_end_line is not None
+                    and tbody_start_line is not None
+                    and tbody_end_line is not None
+                ):
+                    # Calculate character positions for thead and tbody
+                    thead_start_pos = sum(len(line) + 1 for line in lines[:thead_start_line])
+                    thead_end_pos = sum(len(line) + 1 for line in lines[:thead_end_line])
+                    tbody_start_pos = sum(len(line) + 1 for line in lines[:tbody_start_line])
+                    tbody_end_pos = sum(len(line) + 1 for line in lines[:tbody_end_line])
+
+                    # Check if truncation happened within tbody (after thead)
+                    if thead_end_pos <= truncation_pos < tbody_end_pos:
+                        # Truncated within table body - need to prepend header
+                        # thead_start_line = first line of header row
+                        # thead_end_line = line after header (exclusive) = separator line number
+                        # tbody_start_line = first tbody data row
+                        # The separator line is at index thead_end_line (or tbody_start_line - 1)
+
+                        # ================================================================
+                        # ALWAYS prepend both header + separator for table integrity.
+                        # ================================================================
+                        # Previous logic tried to detect if separator was already present
+                        # and skip it, but this had edge cases (whitespace issues,
+                        # truncation mid-line, etc.) that caused tables to break.
+                        #
+                        # Better to always include both header + separator, even if it
+                        # means an occasional duplicate separator row (which renders as
+                        # a data row) rather than a missing separator (which breaks the
+                        # entire table and shows raw markdown).
+                        # ================================================================
+                        header_lines = lines[thead_start_line:tbody_start_line]
+
+                        header_text = "\n".join(header_lines) + "\n"
+
+                        # Prepend header to truncated text
+                        return header_text + truncated_text
+
+        return truncated_text
+
+    def _is_primary_content_table(self, text: str) -> bool:
+        """Check if the document's primary content is a table.
+
+        This heuristic determines if we should use "show first page" truncation
+        (for tables) vs "show most recent" truncation (for streaming text).
+
+        Detection Logic:
+        ----------------
+        A document is considered "table-dominant" if MORE THAN 50% of its lines
+        are part of table structures.
+
+        Why 50%?
+        - Below 50%: Content is mostly text with some tables mixed in.
+                     Show most recent (standard streaming behavior).
+        - Above 50%: Content is primarily tabular data.
+                     Show beginning so users see the header defining the columns.
+
+        Examples:
+        ---------
+        TABLE-DOMINANT (>50%, will show first page):
+          | Name | Size |
+          |------|------|
+          | a    | 1    |
+          | b    | 2    |
+          | c    | 3    |
+          (5 lines, 5 table lines = 100% table)
+
+        NOT TABLE-DOMINANT (≤50%, will show most recent):
+          Here's a file listing:
+          | Name | Size |
+          |------|------|
+          | a    | 1    |
+          This shows the files in the directory.
+          (6 lines, 3 table lines = 50% table)
+
+        Args:
+            text: The full markdown text.
+
+        Returns:
+            True if document is primarily a table (table content > 50% of lines).
+        """
+        if not text.strip():
+            return False
+
+        tokens = self.parser.parse(text)
+        lines = text.split("\n")
+        total_lines = len(lines)
+
+        if total_lines == 0:
+            return False
+
+        # Count lines that are part of tables
+        table_lines = 0
+        for token in tokens:
+            if token.type == "table_open" and token.map:
+                start_line = token.map[0]
+                end_line = token.map[1]
+                table_lines += end_line - start_line
+
+        # If more than 50% of content is table, consider it table-dominant
+        return table_lines > (total_lines * 0.5)
+
+    def _is_truncating_within_table_body(
+        self, text: str, truncation_point: TruncationPoint
+    ) -> bool:
+        """Check if truncation point is within a table body (tbody).
+
+        Args:
+            text: The full markdown text.
+            truncation_point: The point where we're truncating.
+
+        Returns:
+            True if we're truncating within a table body.
+        """
+        tokens = self.parser.parse(text)
+        lines = text.split("\n")
+
+        # Find all table structures
+        for i, token in enumerate(tokens):
+            if token.type == "table_open" and token.map:
+                # Find thead and tbody for this table
+                thead_end_line = None
+                tbody_start_line = None
+                tbody_end_line = None
+
+                for j in range(i + 1, len(tokens)):
+                    if tokens[j].type == "thead_open" and tokens[j].map:
+                        thead_end_line = tokens[j].map[1]
+                    elif tokens[j].type == "tbody_open" and tokens[j].map:
+                        tbody_start_line = tokens[j].map[0]
+                        tbody_end_line = tokens[j].map[1]
+                    elif tokens[j].type == "table_close":
+                        break
+
+                if (
+                    thead_end_line is not None
+                    and tbody_start_line is not None
+                    and tbody_end_line is not None
+                ):
+                    thead_end_pos = sum(len(line) + 1 for line in lines[:thead_end_line])
+                    tbody_end_pos = sum(len(line) + 1 for line in lines[:tbody_end_line])
+
+                    # Check if truncation is after thead but within tbody
+                    if thead_end_pos <= truncation_point.char_position < tbody_end_pos:
+                        return True
+
+        return False
+
+    def _measure_rendered_height(self, text: str, console: Console, code_theme: str) -> int:
+        """Measure how many terminal lines the rendered markdown takes.
+
+        Args:
+            text: The markdown text to measure.
+            console: Rich Console for rendering.
+            code_theme: Code syntax highlighting theme.
+
+        Returns:
+            Height in terminal lines.
+        """
+        if not text.strip():
+            return 0
+
+        md = Markdown(text, code_theme=code_theme)
+        options = console.options
+        lines = console.render_lines(md, options)
+        _, height = Segment.get_shape(lines)
+
+        return height
+
+    def _flatten_tokens(self, tokens: Iterable[Token]) -> Iterable[Token]:
+        """Flatten nested token structure.
+
+        Args:
+            tokens: Iterable of Token objects from markdown-it.
+
+        Yields:
+            Flattened tokens.
+        """
+        for token in tokens:
+            is_fence = token.type == "fence"
+            is_image = token.tag == "img"
+            if token.children and not (is_image or is_fence):
+                yield from self._flatten_tokens(token.children)
+            else:
+                yield token

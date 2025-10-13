@@ -11,6 +11,7 @@ from rich.text import Text
 
 from fast_agent.constants import REASONING
 from fast_agent.ui import console
+from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
@@ -86,33 +87,104 @@ def _prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
     This ensures XML/HTML tags are displayed as visible text rather than
     being interpreted as markup by the markdown renderer.
 
-    Note: This method does not handle overlapping code blocks (e.g., if inline
-    code appears within a fenced code block range). In practice, this is not
-    an issue since markdown syntax doesn't support such overlapping.
+    Uses markdown-it parser to properly identify code regions, avoiding
+    the issues with regex-based approaches (e.g., backticks inside fenced
+    code blocks being misidentified as inline code).
     """
     if not escape_xml or not isinstance(content, str):
         return content
 
+    # Import markdown-it for proper parsing
+    from markdown_it import MarkdownIt
+
+    # Parse the markdown to identify code regions
+    parser = MarkdownIt()
+    try:
+        tokens = parser.parse(content)
+    except Exception:
+        # If parsing fails, fall back to escaping everything
+        # (better safe than corrupting content)
+        result = content
+        for char, replacement in HTML_ESCAPE_CHARS.items():
+            result = result.replace(char, replacement)
+        return result
+
+    # Collect protected ranges from tokens
     protected_ranges = []
+    lines = content.split("\n")
+
+    def _flatten_tokens(tokens):
+        """Recursively flatten token tree."""
+        for token in tokens:
+            yield token
+            if token.children:
+                yield from _flatten_tokens(token.children)
+
+    # Process all tokens to find code blocks and inline code
+    for token in _flatten_tokens(tokens):
+        if token.map is not None:
+            # Block-level tokens with line mapping (fence, code_block)
+            if token.type in ("fence", "code_block"):
+                start_line = token.map[0]
+                end_line = token.map[1]
+                start_pos = sum(len(line) + 1 for line in lines[:start_line])
+                end_pos = sum(len(line) + 1 for line in lines[:end_line])
+                protected_ranges.append((start_pos, end_pos))
+
+        # Inline code tokens don't have map, but have content
+        if token.type == "code_inline":
+            # For inline code, we need to find its position in the source
+            # The token has the content, but we need to search for it
+            # We'll look for the pattern `content` in the content string
+            code_content = token.content
+            if code_content:
+                # Search for this inline code in the content
+                # We need to account for the backticks: `content`
+                pattern = f"`{code_content}`"
+                start = 0
+                while True:
+                    pos = content.find(pattern, start)
+                    if pos == -1:
+                        break
+                    # Check if this position is already in a protected range
+                    in_protected = any(s <= pos < e for s, e in protected_ranges)
+                    if not in_protected:
+                        protected_ranges.append((pos, pos + len(pattern)))
+                    start = pos + len(pattern)
+
+    # Check for incomplete code blocks (streaming scenario)
+    # Count opening vs closing fences
     import re
 
-    # Protect fenced code blocks (don't escape anything inside these)
-    code_block_pattern = r"```[\s\S]*?```"
-    for match in re.finditer(code_block_pattern, content):
-        protected_ranges.append((match.start(), match.end()))
+    fence_pattern = r"^```"
+    fences = list(re.finditer(fence_pattern, content, re.MULTILINE))
 
-    # Protect inline code (don't escape anything inside these)
-    inline_code_pattern = r"(?<!`)`(?!``)[^`\n]+`(?!`)"
-    for match in re.finditer(inline_code_pattern, content):
-        protected_ranges.append((match.start(), match.end()))
+    # If we have an odd number of fences, the last one is incomplete
+    if len(fences) % 2 == 1:
+        # Protect from the last fence to the end
+        last_fence_pos = fences[-1].start()
+        # Only add if not already protected
+        in_protected = any(s <= last_fence_pos < e for s, e in protected_ranges)
+        if not in_protected:
+            protected_ranges.append((last_fence_pos, len(content)))
 
+    # Sort and merge overlapping ranges
     protected_ranges.sort(key=lambda x: x[0])
+
+    # Merge overlapping ranges
+    merged_ranges = []
+    for start, end in protected_ranges:
+        if merged_ranges and start <= merged_ranges[-1][1]:
+            # Overlapping or adjacent - merge
+            merged_ranges[-1] = (merged_ranges[-1][0], max(end, merged_ranges[-1][1]))
+        else:
+            merged_ranges.append((start, end))
 
     # Build the escaped content
     result = []
     last_end = 0
 
-    for start, end in protected_ranges:
+    for start, end in merged_ranges:
         # Escape everything outside protected ranges
         unprotected_text = content[last_end:start]
         for char, replacement in HTML_ESCAPE_CHARS.items():
@@ -626,7 +698,7 @@ class ConsoleDisplay:
             if channel == "post-json":
                 transport_info = "HTTP (JSON-RPC)"
             elif channel == "post-sse":
-                transport_info = "Legacy SSE"
+                transport_info = "HTTP (SSE)"
             elif channel == "get":
                 transport_info = "Legacy SSE"
             elif channel == "resumption":
@@ -1143,31 +1215,26 @@ class ConsoleDisplay:
         arrow = config["arrow"]
         arrow_style = config["arrow_style"]
 
-        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}]"
+        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
         if name:
             left += f"[{block_color}]{name}[/{block_color}]"
 
         right_info = f"[dim]{model}[/dim]" if model else ""
 
-        # handle = _StreamingMessageHandle(
-        #     display=self,
-        #     bottom_items=bottom_items,
-        #     highlight_index=highlight_index,
-        #     max_item_length=max_item_length,
-        # )
-
-        # try:
-        #     yield handle
-        # finally:
-        #     handle.close()
+        # Check for plain text streaming config option
+        use_plain_text = (
+            getattr(logger_settings, "streaming_plain_text", False) if logger_settings else False
+        )
 
         with progress_display.paused():
-            self._create_combined_separator_status(left, right_info)
             handle = _StreamingMessageHandle(
                 display=self,
                 bottom_items=bottom_items,
                 highlight_index=highlight_index,
                 max_item_length=max_item_length,
+                use_plain_text=use_plain_text,
+                header_left=left,
+                header_right=right_info,
             )
             try:
                 yield handle
@@ -1489,24 +1556,33 @@ class _StreamingMessageHandle:
         bottom_items: List[str] | None,
         highlight_index: int | None,
         max_item_length: int | None,
+        use_plain_text: bool = False,
+        header_left: str = "",
+        header_right: str = "",
     ) -> None:
         self._display = display
         self._bottom_items = bottom_items
         self._highlight_index = highlight_index
         self._max_item_length = max_item_length
+        self._use_plain_text = use_plain_text
+        self._header_left = header_left
+        self._header_right = header_right
         self._buffer: List[str] = []
         self._final_text: str | None = None
-        self._markdown: Markdown = Markdown("")
         self._live: Live | None = Live(
-            self._markdown,
+            Markdown(""),
             console=console.console,
-            vertical_overflow="ellipsis",
-            #            screen=True,
-            refresh_per_second=6,
-            #            transient=True,
+            vertical_overflow="crop",
+            refresh_per_second=12,
+            transient=True,
         )
         self._active = True
         self._finalized = False
+        # Height tracking for overflow management
+        self._last_overflow_check = 0
+        self._overflow_check_interval = 5  # Check every N chunks
+        # Smart markdown truncator for preserving markdown structure
+        self._truncator = MarkdownTruncator(target_height_ratio=0.6)
         if self._live:
             self._live.__enter__()
 
@@ -1514,10 +1590,141 @@ class _StreamingMessageHandle:
         if not self._active or not chunk:
             return
         self._buffer.append(chunk)
+
+        # Check overflow periodically
+        self._last_overflow_check += 1
+        if self._last_overflow_check >= self._overflow_check_interval:
+            self._check_and_truncate_buffer()
+            self._last_overflow_check = 0
+
         text = "".join(self._buffer)
-        prepared = _prepare_markdown_content(text, self._display._escape_xml)
+
         if self._live:
-            self._live.update(Markdown(prepared))
+            # Build the header bar
+            header = self._build_header()
+
+            # Build the content renderable
+            if self._use_plain_text:
+                # Plain text rendering - no markdown processing
+                content = Text(text)
+            else:
+                # Markdown rendering with XML escaping
+                prepared = _prepare_markdown_content(text, self._display._escape_xml)
+                prepared_for_display = self._close_incomplete_code_blocks(prepared)
+                content = Markdown(prepared_for_display, code_theme=CODE_STYLE)
+
+            # Combine header and content using Group
+            from rich.console import Group
+
+            combined = Group(header, Text(""), content)
+            self._live.update(combined)
+
+    def _build_header(self) -> Text:
+        """Build the header bar as a Text renderable.
+
+        Returns:
+            Text object representing the header bar.
+        """
+        width = console.console.size.width
+
+        # Create left text
+        left_text = Text.from_markup(self._header_left)
+
+        # Create right text if we have info
+        if self._header_right and self._header_right.strip():
+            # Add dim brackets around the right info
+            right_text = Text()
+            right_text.append("[", style="dim")
+            right_text.append_text(Text.from_markup(self._header_right))
+            right_text.append("]", style="dim")
+            # Calculate separator count
+            separator_count = width - left_text.cell_len - right_text.cell_len
+            if separator_count < 1:
+                separator_count = 1  # Always at least 1 separator
+        else:
+            right_text = Text("")
+            separator_count = width - left_text.cell_len
+
+        # Build the combined line
+        combined = Text()
+        combined.append_text(left_text)
+        combined.append(" ", style="default")
+        combined.append("─" * (separator_count - 1), style="dim")
+        combined.append_text(right_text)
+
+        return combined
+
+    def _close_incomplete_code_blocks(self, text: str) -> str:
+        """Add temporary closing fence to incomplete code blocks for display.
+
+        During streaming, incomplete code blocks (opening fence without closing)
+        are rendered as literal text by Rich's Markdown renderer. This method
+        adds a temporary closing fence so the code can be syntax-highlighted
+        during streaming display.
+
+        When the real closing fence arrives in a subsequent chunk, this method
+        will detect the now-complete block and stop adding the temporary fence.
+
+        Args:
+            text: The markdown text that may contain incomplete code blocks.
+
+        Returns:
+            Text with temporary closing fences added for incomplete code blocks.
+        """
+        import re
+
+        # Count opening and closing fences
+        opening_fences = len(re.findall(r"^```", text, re.MULTILINE))
+        closing_fences = len(re.findall(r"^```\s*$", text, re.MULTILINE))
+
+        # If we have more opening fences than closing fences, and the text
+        # doesn't end with a closing fence, we have an incomplete code block
+        if opening_fences > closing_fences:
+            # Check if text ends with a closing fence (might be partial line)
+            if not re.search(r"```\s*$", text):
+                # Add temporary closing fence for display only
+                return text + "\n```\n"
+
+        return text
+
+    def _check_and_truncate_buffer(self) -> None:
+        """Check if rendered content exceeds terminal height and truncate buffer if needed."""
+        if not self._buffer:
+            return
+
+        text = "".join(self._buffer)
+        terminal_height = console.console.size.height
+
+        if self._use_plain_text:
+            # For plain text, use simple character truncation
+            from rich.segment import Segment
+
+            options = console.console.options
+            lines = console.console.render_lines(Text(text), options)
+            _, height = Segment.get_shape(lines)
+
+            if height > terminal_height:
+                # Simple fallback for plain text
+                target_height = int(terminal_height * 0.7)
+                truncated = self._truncator._truncate_by_characters(
+                    text, target_height, console.console, CODE_STYLE
+                )
+                self._buffer = [truncated] if truncated else self._buffer
+
+        else:
+            # Use smart markdown-aware truncation
+            prepared = _prepare_markdown_content(text, self._display._escape_xml)
+            truncated = self._truncator.truncate(
+                prepared,
+                terminal_height=terminal_height,
+                console=console.console,
+                code_theme=CODE_STYLE,
+                prefer_recent=True,  # Streaming mode: always show most recent content
+            )
+
+            # Only update buffer if truncation actually happened
+            if truncated != prepared:
+                self._buffer = [truncated]
 
     def finalize(self, message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
