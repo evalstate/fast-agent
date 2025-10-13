@@ -602,3 +602,42 @@ class TestMarkdownTruncator:
         # Mixed case - depends on exact line count
         # Just verify it doesn't crash
         assert isinstance(result, bool)
+
+    def test_repeated_streaming_truncation(self, truncator, console):
+        """Test repeated truncation passes as would occur during streaming.
+
+        This simulates streaming behavior where content is repeatedly truncated
+        as new content arrives. The fence should be correctly prepended each time,
+        and never duplicated - this was the bug being fixed.
+        """
+        # Start with a long code block
+        code_lines = [f"line_{i} = {i}" for i in range(1, 51)]
+        text = "```python\n" + "\n".join(code_lines) + "\n```"
+
+        # First truncation pass - moderate truncation
+        pass1 = truncator.truncate(text, terminal_height=20, console=console)
+
+        # Should have fence since we truncated within the block
+        assert "```python" in pass1
+        # Verify we have some code content
+        assert "line_" in pass1
+
+        # Second truncation pass - truncate the already-truncated text more
+        pass2 = truncator.truncate(pass1, terminal_height=15, console=console)
+
+        # Should still have fence (not duplicated)
+        # This is the key test: after repeated truncation, should have exactly 1 fence
+        assert pass2.count("```python") == 1
+        # Verify fence is on its own line (not mangled)
+        lines = pass2.split("\n")
+        assert lines[0] == "```python"
+
+        # Third truncation pass - simulate aggressive truncation
+        pass3 = truncator.truncate(pass2, terminal_height=10, console=console)
+
+        # Should STILL have exactly one fence - this validates the fix
+        # The old code could create duplicate/partial fences here
+        assert pass3.count("```python") == 1
+        # And it should be clean (first line)
+        lines3 = pass3.split("\n")
+        assert lines3[0] == "```python"
