@@ -29,6 +29,8 @@ class StringField:
             schema["minLength"] = self.min_length
         if self.max_length is not None:
             schema["maxLength"] = self.max_length
+        if self.pattern is not None:
+            schema["pattern"] = self.pattern
         if self.format:
             schema["format"] = self.format
 
@@ -178,10 +180,11 @@ def string(
     default: Optional[str] = None,
     min_length: Optional[int] = None,
     max_length: Optional[int] = None,
+    pattern: Optional[str] = None,
     format: Optional[str] = None,
 ) -> StringField:
     """Create a string field."""
-    return StringField(title, description, default, min_length, max_length, format)
+    return StringField(title, description, default, min_length, max_length, pattern, format)
 
 
 def email(

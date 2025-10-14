@@ -1,5 +1,6 @@
 """Simplified, robust elicitation form dialog."""
 
+import re
 from datetime import date, datetime
 from typing import Any, Dict, Optional
 
@@ -63,9 +64,15 @@ class SimpleNumberValidator(Validator):
 class SimpleStringValidator(Validator):
     """Simple string validator with real-time feedback."""
 
-    def __init__(self, min_length: Optional[int] = None, max_length: Optional[int] = None):
+    def __init__(
+        self,
+        min_length: Optional[int] = None,
+        max_length: Optional[int] = None,
+        pattern: Optional[str] = None
+    ):
         self.min_length = min_length
         self.max_length = max_length
+        self.pattern = re.compile(pattern, re.DOTALL) if pattern else None
 
     def validate(self, document):
         text = document.text
@@ -81,6 +88,12 @@ class SimpleStringValidator(Validator):
             raise ValidationError(
                 message=f"Too long by {len(text) - self.max_length} chars",
                 cursor_position=self.max_length,
+            )
+
+        if self.pattern is not None and self.pattern.fullmatch(text) is None:
+            # TODO: Wrap or truncate line if too long
+            raise ValidationError(
+                message=f"Must match pattern '{self.pattern.pattern}'", cursor_position=len(text)
             )
 
 
@@ -429,6 +442,8 @@ class ElicitationForm:
             constraints["minLength"] = field_def["minLength"]
         if field_def.get("maxLength") is not None:
             constraints["maxLength"] = field_def["maxLength"]
+        if field_def.get("pattern") is not None:
+            constraints["pattern"] = field_def["pattern"]
 
         # Check anyOf constraints (for Optional fields)
         if "anyOf" in field_def:
@@ -438,6 +453,8 @@ class ElicitationForm:
                         constraints["minLength"] = variant["minLength"]
                     if variant.get("maxLength") is not None:
                         constraints["maxLength"] = variant["maxLength"]
+                    if variant.get("pattern") is not None:
+                        constraints["pattern"] = variant["pattern"]
                     break
 
         return constraints
@@ -467,6 +484,10 @@ class ElicitationForm:
                 hints.append(f"min {constraints['minLength']} chars")
             if constraints.get("maxLength"):
                 hints.append(f"max {constraints['maxLength']} chars")
+
+            if constraints.get("pattern"):
+                # TODO: Wrap or truncate line if too long
+                format_hint = f"Pattern: {constraints['pattern']}"
 
             # Handle format hints separately (these go on next line)
             format_type = field_def.get("format")
@@ -545,6 +566,7 @@ class ElicitationForm:
                     validator = SimpleStringValidator(
                         min_length=constraints.get("minLength"),
                         max_length=constraints.get("maxLength"),
+                        pattern=constraints.get("pattern"),
                     )
             else:
                 constraints = {}
