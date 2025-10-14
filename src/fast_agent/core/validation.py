@@ -200,6 +200,34 @@ def get_dependencies(
     return deps
 
 
+def get_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
+    deps: set[str] = set()
+    agent_dependency_attribute_names = {
+        AgentType.CHAIN: ("sequence",),
+        AgentType.EVALUATOR_OPTIMIZER: ("evaluator", "generator", "eval_optimizer_agents"),
+        AgentType.ITERATIVE_PLANNER: ("child_agents",),
+        AgentType.ORCHESTRATOR: ("child_agents",),
+        AgentType.PARALLEL: ("fan_out", "fan_in", "parallel_agents"),
+        AgentType.ROUTER: ("router_agents",),
+    }
+    agent_type = agent_data["type"]
+    dependency_names = agent_dependency_attribute_names.get(agent_type, None)
+    if dependency_names is None:
+        return deps
+
+    for dependency_name in dependency_names:
+        dependency_value = agent_data.get(dependency_name)
+        if dependency_value is None:
+            continue
+        if isinstance(dependency_value, str):
+            deps.add(dependency_value)
+        else:
+            # here, we have an implicit assumption that if it is not a None or a string, then it is a list
+            deps.update(dependency_value)
+
+    return deps
+
+
 def get_dependencies_groups(
     agents_dict: Dict[str, Dict[str, Any]], allow_cycles: bool = False
 ) -> List[List[str]]:
@@ -221,39 +249,9 @@ def get_dependencies_groups(
     agent_names = list(agents_dict.keys())
 
     # Dictionary to store dependencies for each agent
-    dependencies = {name: set() for name in agent_names}
-
-    # Build the dependency graph
-    for name, agent_data in agents_dict.items():
-        agent_type = agent_data["type"]  # This is a string from config
-
-        # Note: Compare string values from config with the Enum's string value
-        if agent_type == AgentType.PARALLEL.value:
-            # Parallel agents depend on their fan-out and fan-in agents
-            dependencies[name].update(agent_data.get("parallel_agents", []))
-            # Also add explicit fan_out dependencies if present
-            if "fan_out" in agent_data:
-                dependencies[name].update(agent_data["fan_out"])
-            # Add explicit fan_in dependency if present
-            if "fan_in" in agent_data and agent_data["fan_in"]:
-                dependencies[name].add(agent_data["fan_in"])
-        elif agent_type == AgentType.CHAIN.value:
-            # Chain agents depend on the agents in their sequence
-            dependencies[name].update(agent_data.get("sequence", []))
-        elif agent_type == AgentType.ROUTER.value:
-            # Router agents depend on the agents they route to
-            dependencies[name].update(agent_data.get("router_agents", []))
-        elif agent_type == AgentType.ORCHESTRATOR.value:
-            # Orchestrator agents depend on their child agents
-            dependencies[name].update(agent_data.get("child_agents", []))
-        elif agent_type == AgentType.EVALUATOR_OPTIMIZER.value:
-            # Evaluator-Optimizer agents depend on their evaluator and generator agents
-            if "evaluator" in agent_data:
-                dependencies[name].add(agent_data["evaluator"])
-            if "generator" in agent_data:
-                dependencies[name].add(agent_data["generator"])
-            # For backward compatibility - also check eval_optimizer_agents if present
-            dependencies[name].update(agent_data.get("eval_optimizer_agents", []))
+    dependencies = {
+        name: get_agent_dependencies(agent_data) for name, agent_data in agents_dict.items()
+    }
 
     # Check for cycles if not allowed
     if not allow_cycles:
