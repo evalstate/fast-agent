@@ -4,29 +4,27 @@ This module provides intelligent truncation of markdown text for streaming displ
 ensuring that markdown structures (code blocks, lists, blockquotes) are preserved
 when possible, and gracefully degrading when single blocks are too large.
 
-KEY CONCEPT: Two Truncation Strategies
-=======================================
+KEY CONCEPT: Truncation Strategy
+=================================
 
-This truncator uses DIFFERENT strategies depending on content type:
+In STREAMING MODE (prefer_recent=True):
+  - Always show MOST RECENT content (keep end, remove beginning)
+  - Why: Users are following along as content streams in. They want to see the
+    current position, not what was written at the start.
+  - For TABLES: Show the most recent rows while preserving the header
+  - Example: Table with 100 rows - show header + last 20 rows (not first 20)
 
-1. TABLES (show FIRST page - keep beginning, remove end)
-   - Why: Table headers define the meaning of all data. Without the header,
-     seeing random rows is meaningless.
-   - When: Content is >50% table lines (see _is_primary_content_table)
-   - Example: Tool listing 100 files - show header + first 20, not last 20
-
-2. STREAMING TEXT (show MOST RECENT - keep end, remove beginning)
-   - Why: In live streaming, users are following along. They want to see the
-     current position, not what was written minutes ago.
-   - When: Content is ≤50% table lines (mostly prose/code)
-   - Example: Assistant explaining code - show the conclusion, not the intro
+In STATIC MODE (prefer_recent=False):
+  - For TABLE-DOMINANT content (>50% table lines): Show FIRST page
+  - For TEXT content: Show MOST RECENT
+  - Example: Tool output listing 100 files - show header + first 20 rows
 
 Context Preservation
 ====================
 
 When truncating removes the opening of a structure, we restore it:
 - CODE BLOCKS: Prepend ```language fence (only if it was removed)
-- TABLES: Prepend header + separator rows (only if they were removed)
+- TABLES: Prepend header row + separator row (only if they were removed)
 
 This ensures truncated content still renders correctly as markdown.
 """
@@ -78,7 +76,7 @@ class TableInfo:
 class MarkdownTruncator:
     """Handles intelligent truncation of markdown text while preserving context."""
 
-    def __init__(self, target_height_ratio: float = 0.7):
+    def __init__(self, target_height_ratio: float = 0.8):
         """Initialize the truncator.
 
         Args:
@@ -137,9 +135,14 @@ class MarkdownTruncator:
             # Ensure table header is preserved if we truncated within a table body
             return self._ensure_table_header_if_needed(text, truncated)
 
+        # Determine truncation strategy BEFORE finding best point
+        # This is needed because _find_best_truncation_point needs to know
+        # which direction to test (keep beginning vs keep end)
+        is_table_content = False if prefer_recent else self._is_primary_content_table(text)
+
         # Try to find the best truncation point
         best_point = self._find_best_truncation_point(
-            text, safe_points, target_height, console, code_theme
+            text, safe_points, target_height, console, code_theme, keep_beginning=is_table_content
         )
 
         if best_point is None:
@@ -176,9 +179,7 @@ class MarkdownTruncator:
         # OVERRIDE: When prefer_recent=True, always use "show most recent" strategy.
         # ============================================================================
 
-        # In streaming mode (prefer_recent=True), always show most recent content
-        # even for tables - we want to see the latest rows being written
-        is_table_content = False if prefer_recent else self._is_primary_content_table(text)
+        # Note: is_table_content was already determined above before calling _find_best_truncation_point
 
         if is_table_content:
             # For tables: keep BEGINNING, truncate END (show first N rows)
@@ -257,20 +258,22 @@ class MarkdownTruncator:
             # Get table info once for efficient position-based checks
             tables = self._get_table_info(text)
 
-            # Find which table (if any) contains the truncation point in tbody
-            containing_table = None
+            # Find ANY table whose content is in the truncated text but whose header was removed
             for table in tables:
-                if table.thead_end_pos <= best_point.char_position < table.tbody_end_pos:
-                    containing_table = table
-                    break
-
-            # Check if we need special handling for table bodies
-            if containing_table:
-                # Truncated within table body - check if header scrolled off
-                if best_point.char_position > containing_table.thead_start_pos:
-                    # Header scrolled off - prepend it
-                    header_text = "\n".join(containing_table.header_lines) + "\n"
-                    truncated_text = header_text + truncated_text
+                # Check if we truncated somewhere within this table (after the start)
+                # and the truncated text still contains part of this table
+                if (
+                    best_point.char_position > table.start_pos
+                    and best_point.char_position < table.end_pos
+                ):
+                    # We truncated within this table
+                    # Check if the header was removed
+                    # Use >= because if we truncate AT thead_end_pos, the header is already gone
+                    if best_point.char_position >= table.thead_end_pos:
+                        # Header was removed - prepend it
+                        header_text = "\n".join(table.header_lines) + "\n"
+                        truncated_text = header_text + truncated_text
+                        break  # Only restore one table header
 
         return truncated_text
 
@@ -393,7 +396,14 @@ class MarkdownTruncator:
                     # Calculate character positions
                     table_start_line = token.map[0]
                     table_end_line = token.map[1]
-                    table_start_pos = sum(len(line) + 1 for line in lines[:table_start_line])
+
+                    # markdown-it reports table_start_line as pointing to the HEADER ROW,
+                    # not the separator. So table_start_line should already be correct.
+                    # We just need to capture from table_start_line to tbody_start_line
+                    # to get both the header row and separator row.
+                    actual_table_start_line = table_start_line
+
+                    table_start_pos = sum(len(line) + 1 for line in lines[:actual_table_start_line])
                     table_end_pos = sum(len(line) + 1 for line in lines[:table_end_line])
                     thead_start_pos = sum(len(line) + 1 for line in lines[:thead_start_line])
                     thead_end_pos = sum(len(line) + 1 for line in lines[:thead_end_line])
@@ -401,7 +411,10 @@ class MarkdownTruncator:
                     tbody_end_pos = sum(len(line) + 1 for line in lines[:tbody_end_line])
 
                     # Extract header lines (header row + separator)
-                    header_lines = lines[thead_start_line:tbody_start_line]
+                    # table_start_line points to the header row,
+                    # and tbody_start_line is where data rows start.
+                    # So lines[table_start_line:tbody_start_line] gives us both header and separator
+                    header_lines = lines[actual_table_start_line:tbody_start_line]
 
                     tables.append(
                         TableInfo(
@@ -424,6 +437,7 @@ class MarkdownTruncator:
         target_height: int,
         console: Console,
         code_theme: str,
+        keep_beginning: bool = False,
     ) -> Optional[TruncationPoint]:
         """Find the truncation point that gets closest to target height.
 
@@ -433,6 +447,8 @@ class MarkdownTruncator:
             target_height: Target height in terminal lines.
             console: Rich Console for measuring.
             code_theme: Code syntax highlighting theme.
+            keep_beginning: If True, test keeping text BEFORE point (table mode).
+                           If False, test keeping text AFTER point (streaming mode).
 
         Returns:
             The best TruncationPoint, or None if none work.
@@ -442,7 +458,13 @@ class MarkdownTruncator:
 
         for point in safe_points:
             # Test truncating at this point
-            truncated = text[point.char_position :]
+            # Direction depends on truncation strategy
+            if keep_beginning:
+                # Table mode: keep beginning, remove end
+                truncated = text[: point.char_position]
+            else:
+                # Streaming mode: keep end, remove beginning
+                truncated = text[point.char_position :]
 
             # Skip if truncation would result in empty or nearly empty text
             if not truncated.strip():
@@ -534,12 +556,14 @@ class MarkdownTruncator:
         # Simple check: did we remove the opening fence?
         # If truncation happened after the fence line, it scrolled off
         if truncation_point.char_position > code_block.start_pos:
-            # Fence scrolled off - prepend it
+            # Check if fence is already at the beginning (avoid duplicates)
             fence = f"```{code_block.language}\n"
-            return fence + truncated_text
-        else:
-            # Fence still on screen - keep as-is
-            return truncated_text
+            if not truncated_text.startswith(fence):
+                # Fence scrolled off - prepend it
+                return fence + truncated_text
+
+        # Fence still on screen or already prepended - keep as-is
+        return truncated_text
 
     def _ensure_code_fence_if_needed(self, original_text: str, truncated_text: str) -> str:
         """Ensure code fence is prepended if truncation happened within a code block.
@@ -574,12 +598,13 @@ class MarkdownTruncator:
                 # Truncated within this code block
                 # Simple check: did truncation remove the fence?
                 if truncation_pos > block.start_pos:
-                    # Fence scrolled off - prepend it
+                    # Check if fence is already at the beginning (avoid duplicates)
                     fence = f"```{block.language}\n"
-                    return fence + truncated_text
-                else:
-                    # Fence still on screen
-                    return truncated_text
+                    if not truncated_text.startswith(fence):
+                        # Fence scrolled off - prepend it
+                        return fence + truncated_text
+                # Fence still on screen or already prepended
+                return truncated_text
 
         return truncated_text
 
@@ -616,8 +641,9 @@ class MarkdownTruncator:
             if table.thead_end_pos <= truncation_pos < table.tbody_end_pos:
                 # Truncated within table body
                 # Simple check: did truncation remove the header?
-                if truncation_pos > table.thead_start_pos:
-                    # Header scrolled off - prepend it
+                # Use >= because if we truncate AT thead_end_pos, the header is already gone
+                if truncation_pos >= table.thead_end_pos:
+                    # Header completely scrolled off - prepend it
                     header_text = "\n".join(table.header_lines) + "\n"
                     return header_text + truncated_text
                 else:

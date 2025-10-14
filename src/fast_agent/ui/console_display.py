@@ -1573,31 +1573,52 @@ class _StreamingMessageHandle:
             Markdown(""),
             console=console.console,
             vertical_overflow="crop",
-            refresh_per_second=12,
+            refresh_per_second=6,
             transient=True,
         )
         self._active = True
         self._finalized = False
-        # Height tracking for overflow management
-        self._last_overflow_check = 0
-        self._overflow_check_interval = 5  # Check every N chunks
-        # Smart markdown truncator for preserving markdown structure
-        self._truncator = MarkdownTruncator(target_height_ratio=0.6)
+        # Track whether we're in a table to batch updates
+        self._in_table = False
+        self._pending_table_row = ""
+        # Smart markdown truncator for creating display window (doesn't mutate buffer)
+        self._truncator = MarkdownTruncator(target_height_ratio=0.8)
         if self._live:
             self._live.__enter__()
 
     def update(self, chunk: str) -> None:
         if not self._active or not chunk:
             return
+
+        # Detect if we're streaming table content
+        # Tables have rows starting with '|' and we want to batch updates until we get a complete row
+        text_so_far = "".join(self._buffer)
+
+        # Check if we're currently in a table (last non-empty line starts with |)
+        lines = text_so_far.strip().split('\n')
+        last_line = lines[-1] if lines else ""
+        currently_in_table = last_line.strip().startswith('|')
+
+        # If we're in a table and the chunk doesn't contain a newline, accumulate it
+        if currently_in_table and '\n' not in chunk:
+            self._pending_table_row += chunk
+            # Don't update display yet - wait for complete row
+            return
+
+        # If we have a pending table row, flush it now
+        if self._pending_table_row:
+            self._buffer.append(self._pending_table_row)
+            self._pending_table_row = ""
+
         self._buffer.append(chunk)
 
-        # Check overflow periodically
-        self._last_overflow_check += 1
-        if self._last_overflow_check >= self._overflow_check_interval:
-            self._check_and_truncate_buffer()
-            self._last_overflow_check = 0
-
         text = "".join(self._buffer)
+
+        # Trim buffer periodically to avoid unbounded growth
+        # Keep only what can fit in ~1.5x terminal height
+        if len(self._buffer) > 10:
+            text = self._trim_to_displayable(text)
+            self._buffer = [text]
 
         if self._live:
             # Build the header bar
@@ -1687,44 +1708,134 @@ class _StreamingMessageHandle:
 
         return text
 
-    def _check_and_truncate_buffer(self) -> None:
-        """Check if rendered content exceeds terminal height and truncate buffer if needed."""
-        if not self._buffer:
-            return
+    def _trim_to_displayable(self, text: str) -> str:
+        """Trim text to keep only displayable content plus small buffer.
 
-        text = "".join(self._buffer)
+        Keeps ~1.5x terminal height worth of recent content.
+        For streaming, uses fast line-based truncation.
+
+        Args:
+            text: Full text to trim
+
+        Returns:
+            Trimmed text (most recent content)
+        """
+        if not text:
+            return text
+
         terminal_height = console.console.size.height
+        target_height = int(terminal_height * 1.5)
 
-        if self._use_plain_text:
-            # For plain text, use simple character truncation
-            from rich.segment import Segment
+        # Fast path: simple line-based truncation for streaming
+        # This avoids expensive markdown parsing on every update
+        lines = text.split('\n')
 
-            options = console.console.options
-            lines = console.console.render_lines(Text(text), options)
-            _, height = Segment.get_shape(lines)
+        # Quick estimate: assume ~1 line of text = ~1 terminal line
+        # Keep last N lines that roughly fit
+        if len(lines) > target_height * 2:
+            # Keep approximately 2x target lines (generous buffer)
+            keep_lines = int(target_height * 2)
+            trimmed_lines = lines[-keep_lines:]
 
-            if height > terminal_height:
-                # Simple fallback for plain text
-                target_height = int(terminal_height * 0.7)
-                truncated = self._truncator._truncate_by_characters(
-                    text, target_height, console.console, CODE_STYLE
-                )
-                self._buffer = [truncated] if truncated else self._buffer
+            # Check if we're truncating mid-code-block
+            # Count fences to see if we need to prepend one
+            remaining_text = '\n'.join(trimmed_lines)
+            original_fence_count = text.count('```')
+            remaining_fence_count = remaining_text.count('```')
 
-        else:
-            # Use smart markdown-aware truncation
-            prepared = _prepare_markdown_content(text, self._display._escape_xml)
-            truncated = self._truncator.truncate(
-                prepared,
-                terminal_height=terminal_height,
-                console=console.console,
-                code_theme=CODE_STYLE,
-                prefer_recent=True,  # Streaming mode: always show most recent content
-            )
+            # If we removed an odd number of fences, we cut into a code block
+            if (original_fence_count - remaining_fence_count) % 2 == 1:
+                # Find the language from the opening fence we removed
+                import re
+                # Look for last fence before truncation point
+                before_truncation = '\n'.join(lines[:-keep_lines])
+                fences = list(re.finditer(r'^```(\w*)', before_truncation, re.MULTILINE))
+                if fences:
+                    # Get the last fence's language
+                    last_fence = fences[-1]
+                    language = last_fence.group(1) if last_fence.group(1) else ''
+                    # Prepend the fence
+                    remaining_text = f'```{language}\n{remaining_text}'
 
-            # Only update buffer if truncation actually happened
-            if truncated != prepared:
-                self._buffer = [truncated]
+            # Check if we're truncating mid-table (only if NOT in a code block)
+            # Tables have rows with | characters
+            if '|' in remaining_text and (original_fence_count == remaining_fence_count or (original_fence_count - remaining_fence_count) % 2 == 0):
+                # Only process tables if we're not inside a code block
+                # Use markdown-it parser to detect tables properly
+                from markdown_it import MarkdownIt
+
+                try:
+                    parser = MarkdownIt()
+                    tokens = parser.parse(remaining_text)
+
+                    # Look for table tokens
+                    has_table = any(token.type == 'table_open' for token in tokens)
+
+                    if has_table:
+                        # Extract table structure from remaining_text
+                        # Tables in markdown always have: header row, separator row, then data rows
+                        remaining_lines = remaining_text.split('\n')
+
+                        # Find the table header and separator
+                        header_idx = None
+                        separator_idx = None
+
+                        for i, line in enumerate(remaining_lines):
+                            if '|' in line and ('---' in line or '–––' in line or '—' in line):
+                                # This is the separator row
+                                separator_idx = i
+                                # Header should be the previous line (if it exists and has |)
+                                if i > 0 and '|' in remaining_lines[i-1]:
+                                    header_idx = i - 1
+                                break
+
+                        # If we found a separator but header was truncated, look backward
+                        if separator_idx is not None and header_idx is None:
+                            # Look backward in removed lines for the header
+                            before_truncation = '\n'.join(lines[:-keep_lines])
+                            before_lines = before_truncation.split('\n')
+
+                            # Find the last line with | but not --- (that's the header)
+                            for i in range(len(before_lines) - 1, -1, -1):
+                                line = before_lines[i]
+                                if '|' in line and '---' not in line and '–––' not in line and '—' not in line:
+                                    # Found the header - use it
+                                    header_line = line
+                                    separator_line = remaining_lines[separator_idx]
+                                    # Get data rows after separator
+                                    data_rows = remaining_lines[separator_idx+1:]
+
+                                    # Apply rolling window to data rows
+                                    available_for_data = max(1, terminal_height - 4)
+                                    if len(data_rows) > available_for_data:
+                                        data_rows = data_rows[-available_for_data:]
+
+                                    # Reconstruct ONLY the table
+                                    remaining_text = f'{header_line}\n{separator_line}\n' + '\n'.join(data_rows)
+                                    break
+
+                        # If we have both header and separator in remaining_text
+                        elif header_idx is not None and separator_idx is not None:
+                            header_line = remaining_lines[header_idx]
+                            separator_line = remaining_lines[separator_idx]
+                            # Get data rows after separator
+                            data_rows = remaining_lines[separator_idx+1:]
+
+                            # Apply rolling window to data rows
+                            available_for_data = max(1, terminal_height - 4)
+                            if len(data_rows) > available_for_data:
+                                data_rows = data_rows[-available_for_data:]
+
+                            # Reconstruct ONLY the table
+                            remaining_text = f'{header_line}\n{separator_line}\n' + '\n'.join(data_rows)
+
+                except Exception:
+                    # If markdown parsing fails, skip table handling
+                    pass
+
+            return remaining_text
+
+        return text
 
     def finalize(self, message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
