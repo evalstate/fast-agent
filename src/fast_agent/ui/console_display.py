@@ -1597,7 +1597,10 @@ class _StreamingMessageHandle:
 
         # Get display text (with truncation if needed)
         terminal_height = console.console.size.height
-        text = self._buffer.get_display_text(terminal_height)
+        terminal_width = console.console.size.width
+        text = self._buffer.get_display_text(
+            terminal_height, terminal_width=terminal_width
+        )
 
         if self._live:
             # Build the header bar

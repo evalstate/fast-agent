@@ -18,7 +18,8 @@ KISS (Keep It Simple, Stupid):
 """
 
 from dataclasses import dataclass
-from typing import List
+from math import ceil
+from typing import List, Optional
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -75,7 +76,12 @@ class StreamBuffer:
         """
         return "".join(self._chunks)
 
-    def get_display_text(self, terminal_height: int, target_ratio: float = 1.5) -> str:
+    def get_display_text(
+        self,
+        terminal_height: int,
+        target_ratio: float = 0.7,
+        terminal_width: Optional[int] = None,
+    ) -> str:
         """Get text for display, truncated to fit terminal.
 
         This applies intelligent truncation when content exceeds terminal height:
@@ -87,6 +93,7 @@ class StreamBuffer:
         Args:
             terminal_height: Height of terminal in lines
             target_ratio: Keep this multiple of terminal height (default 1.5)
+            terminal_width: Optional terminal width for estimating wrapped lines
 
         Returns:
             Text ready for display (truncated if needed)
@@ -94,15 +101,20 @@ class StreamBuffer:
         full_text = self.get_full_text()
         if not full_text:
             return full_text
-
-        return self._truncate_for_display(full_text, terminal_height, target_ratio)
+        return self._truncate_for_display(
+            full_text, terminal_height, target_ratio, terminal_width
+        )
 
     def clear(self) -> None:
         """Clear the buffer."""
         self._chunks.clear()
 
     def _truncate_for_display(
-        self, text: str, terminal_height: int, target_ratio: float
+        self,
+        text: str,
+        terminal_height: int,
+        target_ratio: float,
+        terminal_width: Optional[int],
     ) -> str:
         """Truncate text to fit display with context preservation.
 
@@ -123,23 +135,59 @@ class StreamBuffer:
             Truncated text with preserved context
         """
         lines = text.split("\n")
-        target_lines = int(terminal_height * target_ratio)
 
-        # Fast path: no truncation needed
-        if len(lines) <= target_lines:
+        if target_ratio <= 1:
+            extra_lines = 0
+        else:
+            extra_lines = int(ceil(terminal_height * (target_ratio - 1)))
+        raw_target_lines = terminal_height + extra_lines
+
+        # Estimate how many rendered lines the text will occupy
+        if terminal_width and terminal_width > 0:
+            # Treat each logical line as taking at least one row, expanding based on width
+            display_counts = self._estimate_display_counts(lines, terminal_width)
+            total_display_lines = sum(display_counts)
+        else:
+            display_counts = None
+            total_display_lines = len(lines)
+
+        # Fast path: no truncation needed if content still fits the viewport
+        if total_display_lines <= terminal_height:
             # Still need to check for unclosed code blocks
             return self._add_closing_fence_if_needed(text)
 
-        # Keep last N lines (most recent content)
-        keep_lines = target_lines
-        truncated_lines = lines[-keep_lines:]
-        truncated_text = "\n".join(truncated_lines)
+        # Determine how many display lines we want to keep after truncation
+        desired_display_lines = min(total_display_lines, raw_target_lines)
+        if desired_display_lines > terminal_height:
+            window_lines = max(1, terminal_height // 5)  # keep ~20% headroom
+            desired_display_lines = max(terminal_height, desired_display_lines - window_lines)
+        else:
+            desired_display_lines = terminal_height
 
-        # Find where truncation happened in original text
-        truncation_pos = text.find(truncated_text)
-        if truncation_pos == -1:
-            # Shouldn't happen, but handle gracefully
-            return truncated_text
+        # Determine how many logical lines we can keep based on estimated display rows
+        if display_counts:
+            running_total = 0
+            start_index = len(lines) - 1
+            for idx in range(len(lines) - 1, -1, -1):
+                running_total += display_counts[idx]
+                start_index = idx
+                if running_total >= desired_display_lines:
+                    break
+        else:
+            start_index = max(len(lines) - desired_display_lines, 0)
+
+        # Compute character position where truncation occurs
+        truncation_pos = sum(len(line) + 1 for line in lines[:start_index])
+        truncated_text = text[truncation_pos:]
+
+        if terminal_width and terminal_width > 0:
+            truncated_text, truncation_pos = self._trim_within_line_if_needed(
+                text=text,
+                truncated_text=truncated_text,
+                truncation_pos=truncation_pos,
+                terminal_width=terminal_width,
+                max_display_lines=desired_display_lines,
+            )
 
         # Parse markdown structures once
         code_blocks = self._find_code_blocks(text)
@@ -350,3 +398,52 @@ class StreamBuffer:
                 yield from self._flatten_tokens(token.children)
             else:
                 yield token
+
+    def _estimate_display_counts(self, lines: List[str], terminal_width: int) -> List[int]:
+        """Estimate how many terminal rows each logical line will occupy."""
+        return [
+            max(1, ceil(len(line) / terminal_width)) if line else 1
+            for line in lines
+        ]
+
+    def _estimate_display_lines(self, text: str, terminal_width: int) -> int:
+        """Estimate how many terminal rows the given text will occupy."""
+        if not text:
+            return 0
+        lines = text.split("\n")
+        return sum(self._estimate_display_counts(lines, terminal_width))
+
+    def _trim_within_line_if_needed(
+        self,
+        text: str,
+        truncated_text: str,
+        truncation_pos: int,
+        terminal_width: int,
+        max_display_lines: int,
+    ) -> tuple[str, int]:
+        """Trim additional characters when a single line exceeds the viewport."""
+        current_pos = truncation_pos
+        current_text = truncated_text
+        estimated_lines = self._estimate_display_lines(current_text, terminal_width)
+
+        while estimated_lines > max_display_lines and current_pos < len(text):
+            excess_display = estimated_lines - max_display_lines
+            chars_to_trim = excess_display * terminal_width
+            if chars_to_trim <= 0:
+                break
+
+            candidate_pos = min(len(text), current_pos + chars_to_trim)
+
+            # Prefer trimming at the next newline to keep markdown structures intact
+            newline_pos = text.find("\n", current_pos, candidate_pos)
+            if newline_pos != -1:
+                candidate_pos = newline_pos + 1
+
+            if candidate_pos <= current_pos:
+                break
+
+            current_pos = candidate_pos
+            current_text = text[current_pos:]
+            estimated_lines = self._estimate_display_lines(current_text, terminal_width)
+
+        return current_text, current_pos

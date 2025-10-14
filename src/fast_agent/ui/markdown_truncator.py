@@ -584,10 +584,9 @@ class MarkdownTruncator:
             return truncated_text
 
         # Find where the truncated text starts in the original
-        truncation_pos = original_text.find(truncated_text)
+        truncation_pos = original_text.rfind(truncated_text)
         if truncation_pos == -1:
-            # Couldn't find truncated text in original (shouldn't happen)
-            return truncated_text
+            truncation_pos = max(0, len(original_text) - len(truncated_text))
 
         # Get code block info using markdown-it parser
         code_blocks = self._get_code_block_info(original_text)
@@ -627,10 +626,9 @@ class MarkdownTruncator:
             return truncated_text
 
         # Find where the truncated text starts in the original
-        truncation_pos = original_text.find(truncated_text)
+        truncation_pos = original_text.rfind(truncated_text)
         if truncation_pos == -1:
-            # Couldn't find truncated text in original (shouldn't happen)
-            return truncated_text
+            truncation_pos = max(0, len(original_text) - len(truncated_text))
 
         # Get table info using markdown-it parser
         tables = self._get_table_info(original_text)
