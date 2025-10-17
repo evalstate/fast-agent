@@ -1598,7 +1598,6 @@ class _StreamingMessageHandle:
         self._progress_display = progress_display
         self._progress_paused = False
         self._buffer: List[str] = []
-        self._final_text: str | None = None
         initial_renderable = Text("") if self._use_plain_text else Markdown("")
         refresh_rate = (
             PLAIN_STREAM_REFRESH_PER_SECOND
@@ -1860,22 +1859,11 @@ class _StreamingMessageHandle:
             prefer_recent=True,  # Streaming mode
         )
 
-    def finalize(self, message: "PromptMessageExtended | str") -> None:
+    def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
 
         self._finalized = True
-
-        if isinstance(message, str):
-            final_text = message
-        else:
-            final_text = message.last_text() or ""
-
-        if not final_text:
-            final_text = self._buffer.get_full_text()
-
-        self._final_text = final_text
-
         self.close()
 
     def close(self) -> None:
@@ -1892,11 +1880,6 @@ class _StreamingMessageHandle:
                 self._progress_paused = False
         self._active = False
         self._max_render_height = 0
-
-    @property
-    def final_text(self) -> str | None:
-        """Return the final text captured during streaming (if any)."""
-        return self._final_text
 
     def _extract_trailing_paragraph(self, text: str) -> str:
         """Return text since the last blank line, used to detect in-progress paragraphs."""
