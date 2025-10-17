@@ -1572,8 +1572,8 @@ class _StreamingMessageHandle:
         self._live: Live | None = Live(
             Markdown(""),
             console=console.console,
-            vertical_overflow="crop",
-            refresh_per_second=16,
+            vertical_overflow="ellipsis",
+            refresh_per_second=4,
             transient=True,
         )
         self._active = True
@@ -1582,7 +1582,7 @@ class _StreamingMessageHandle:
         self._in_table = False
         self._pending_table_row = ""
         # Smart markdown truncator for creating display window (doesn't mutate buffer)
-        self._truncator = MarkdownTruncator(target_height_ratio=0.8)
+        self._truncator = MarkdownTruncator(target_height_ratio=0.7)
         if self._live:
             self._live.__enter__()
 
@@ -1723,7 +1723,7 @@ class _StreamingMessageHandle:
         if not text:
             return text
 
-        terminal_height = console.console.size.height
+        terminal_height = console.console.size.height - 1
 
         # Use the optimized streaming truncator (16x faster!)
         return self._truncator.truncate(
