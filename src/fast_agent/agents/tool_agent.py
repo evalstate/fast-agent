@@ -99,6 +99,7 @@ class ToolAgent(LlmAgent):
                 self._tool_loop_error = None
                 tool_message = await self.run_tools(result)
                 if self._tool_loop_error:
+                    result.content.extend([r for s in tool_message.tool_results.values() for r in s.content])
                     result.stop_reason = LlmStopReason.ERROR
                     break
                 if self.config.use_history:
