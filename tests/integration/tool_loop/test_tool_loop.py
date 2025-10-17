@@ -40,8 +40,9 @@ async def test_tool_loop(fast_agent):
     async def agent_function():
         async with fast_agent.run() as agent:
             tool_llm = ToolGeneratingLlm()
-            agent.default._llm = tool_llm
-            assert "Another turn" == await agent.default.send(
+            tool_agent: ToolAgent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
+            tool_agent._llm = tool_llm
+            assert "Another turn" == await tool_agent.send(
                 "New implementation", RequestParams(max_iterations=0)
             )
 
@@ -86,10 +87,9 @@ async def test_tool_loop_unknown_tool():
     channel_content = tool_response.channels[FAST_AGENT_ERROR_CHANNEL][0]
     assert getattr(channel_content, "text", None) == "Tool 'tool_function' is not available"
 
-    result = await tool_agent.generate("test")
-
-    assert result.stop_reason == LlmStopReason.ERROR
-    assert result.last_text() == "Another turn"
+    # make sure that the error content is also visible to the LLM via this "User" message
+    assert "user" == tool_response.role
+    assert "Tool 'tool_function' is not available" in tool_response.first_text()
 
 
 class PersistentToolGeneratingLlm(PassthroughLLM):

@@ -608,7 +608,7 @@ class McpAgent(ABC, ToolAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        self._tool_loop_error = None
+        tool_loop_error: str | None = None
 
         # Cache available tool names (original, not namespaced) for display
         available_tools = [
@@ -639,7 +639,7 @@ class McpAgent(ABC, ToolAgent):
             if not tool_available:
                 error_message = f"Tool '{display_tool_name}' is not available"
                 self.logger.error(error_message)
-                self._mark_tool_loop_error(
+                tool_loop_error = self._mark_tool_loop_error(
                     correlation_id=correlation_id,
                     error_message=error_message,
                     tool_results=tool_results,
@@ -694,7 +694,7 @@ class McpAgent(ABC, ToolAgent):
                 # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
-        return self._finalize_tool_results(tool_results)
+        return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
 
     async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
         """

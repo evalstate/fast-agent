@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional, Sequence
 
 from mcp.types import (
     CallToolRequest,
@@ -27,7 +27,7 @@ class PromptMessageExtended(BaseModel):
     content: List[ContentBlock] = []
     tool_calls: Dict[str, CallToolRequest] | None = None
     tool_results: Dict[str, CallToolResult] | None = None
-    channels: Dict[str, List[ContentBlock]] | None = None
+    channels: Mapping[str, Sequence[ContentBlock]] | None = None
     stop_reason: LlmStopReason | None = None
 
     @classmethod
