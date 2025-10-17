@@ -8,7 +8,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 try:
     from a2a.types import AgentCapabilities  # type: ignore
@@ -218,6 +218,13 @@ class LlmAgent(LlmDecorator):
         chat_turn = self._llm.chat_turn()
         self.display.show_user_message(message.last_text() or "", model, chat_turn, name=self.name)
 
+    def _should_stream(self) -> bool:
+        """Determine whether streaming display should be used."""
+        if getattr(self, "display", None):
+            enabled, _ = self.display.resolve_streaming_preferences()
+            return enabled
+        return True
+
     async def generate_impl(
         self,
         messages: List[PromptMessageExtended],
@@ -232,11 +239,45 @@ class LlmAgent(LlmDecorator):
             self.show_user_message(message=messages[-1])
 
         # TODO - manage error catch, recovery, pause
-        result, summary = await self._generate_with_summary(messages, request_params, tools)
+        summary_text: Text | None = None
 
-        summary_text = Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+        if self._should_stream():
+            display_name = self.name
+            display_model = self.llm.model_name if self._llm else None
 
-        await self.show_assistant_message(result, additional_message=summary_text)
+            remove_listener: Callable[[], None] | None = None
+
+            with self.display.streaming_assistant_message(
+                name=display_name,
+                model=display_model,
+            ) as stream_handle:
+                try:
+                    remove_listener = self.llm.add_stream_listener(stream_handle.update)
+                except Exception:
+                    remove_listener = None
+
+                try:
+                    result, summary = await self._generate_with_summary(
+                        messages, request_params, tools
+                    )
+                finally:
+                    if remove_listener:
+                        remove_listener()
+
+                if summary:
+                    summary_text = Text(f"\n\n{summary.message}", style="dim red italic")
+
+                stream_handle.finalize(result)
+
+            await self.show_assistant_message(result, additional_message=summary_text)
+        else:
+            result, summary = await self._generate_with_summary(messages, request_params, tools)
+
+            summary_text = (
+                Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+            )
+            await self.show_assistant_message(result, additional_message=summary_text)
+
         return result
 
     async def structured_impl(

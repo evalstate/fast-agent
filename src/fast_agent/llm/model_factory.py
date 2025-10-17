@@ -86,6 +86,7 @@ class ModelFactory:
         "claude-sonnet-4-0": Provider.ANTHROPIC,
         "claude-sonnet-4-5-20250929": Provider.ANTHROPIC,
         "claude-sonnet-4-5": Provider.ANTHROPIC,
+        "claude-haiku-4-5": Provider.ANTHROPIC,
         "deepseek-chat": Provider.DEEPSEEK,
         "gemini-2.0-flash": Provider.GOOGLE,
         "gemini-2.5-flash-preview-05-20": Provider.GOOGLE,
@@ -109,9 +110,10 @@ class ModelFactory:
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
         "claude": "claude-sonnet-4-0",
-        "haiku": "claude-3-5-haiku-latest",
+        "haiku": "claude-haiku-4-5",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
+        "hauku45": "claude-haiku-4-5",
         "opus": "claude-opus-4-1",
         "opus4": "claude-opus-4-1",
         "opus3": "claude-3-opus-latest",
@@ -319,6 +321,7 @@ class ModelFactory:
                 return GroqLLM
             if provider == Provider.RESPONSES:
                 from fast_agent.llm.provider.openai.responses import ResponsesLLM
+
                 return ResponsesLLM
 
         except Exception as e:

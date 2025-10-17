@@ -8,7 +8,6 @@ from fast_agent.llm.provider.openai.llm_azure import AzureOpenAILLM
 
 class DummyLogger:
     enable_markup = True
-    use_legacy_display = False
 
 
 class DummyAzureConfig:

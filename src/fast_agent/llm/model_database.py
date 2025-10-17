@@ -130,11 +130,9 @@ class ModelDatabase:
         context_window=400000, max_output_tokens=128000, tokenizes=OPENAI_MULTIMODAL
     )
 
-    # TODO update to 32000
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
         context_window=200000, max_output_tokens=32000, tokenizes=ANTHROPIC_MULTIMODAL
     )
-    # TODO update to 64000
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000, max_output_tokens=64000, tokenizes=ANTHROPIC_MULTIMODAL
     )
@@ -237,6 +235,8 @@ class ModelDatabase:
         "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
         # DeepSeek Models
         "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
         # Google Gemini Models (vanilla aliases and versioned)

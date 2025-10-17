@@ -3,6 +3,7 @@ from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     Generic,
     List,
@@ -157,6 +158,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
+        self._stream_listeners: set[Callable[[str], None]] = set()
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -483,6 +485,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Updated estimated token count
         """
+        self._notify_stream_listeners(content)
+
         # Rough estimate: 1 token per 4 characters (OpenAI's typical ratio)
         text_length = len(content)
         additional_tokens = max(1, text_length // 4)
@@ -502,6 +506,33 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.logger.info("Streaming progress", data=data)
 
         return new_total
+
+    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
+        """
+        Register a callback invoked with streaming text chunks.
+
+        Args:
+            listener: Callable receiving the text chunk emitted by the provider.
+
+        Returns:
+            A function that removes the listener when called.
+        """
+        self._stream_listeners.add(listener)
+
+        def remove() -> None:
+            self._stream_listeners.discard(listener)
+
+        return remove
+
+    def _notify_stream_listeners(self, chunk: str) -> None:
+        """Notify registered listeners with a streaming text chunk."""
+        if not chunk:
+            return
+        for listener in list(self._stream_listeners):
+            try:
+                listener(chunk)
+            except Exception:
+                self.logger.exception("Stream listener raised an exception")
 
     def _log_chat_finished(self, model: Optional[str] = None) -> None:
         """Log a chat finished event"""

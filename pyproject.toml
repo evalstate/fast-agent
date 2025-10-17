@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.13.5,<3.14"
 dependencies = [
     "fastapi>=0.115.6",
-    "mcp==1.17.0",
+    "mcp==1.18.0",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
@@ -24,7 +24,7 @@ dependencies = [
     "rich>=14.1.0",
     "typer>=0.15.1",
     "anthropic>=0.69.0",
-    "openai>=2.1.0",
+    "openai>=2.3.0",
     "azure-identity>=1.14.0",
     "boto3>=1.35.0",
     "prompt-toolkit>=3.0.52",
@@ -40,6 +40,7 @@ dependencies = [
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
+    "textual>=6.2.1",
 ]
 
 # For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]

@@ -8,6 +8,7 @@ without pulling in MCP-specific code, helping to avoid circular imports.
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     List,
     Mapping,
@@ -83,7 +84,9 @@ class FastAgentLLMProtocol(Protocol):
         self,
         request_params: RequestParams | None = None,
     ) -> RequestParams: ...
-        
+
+    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
+
     @property
     def message_history(self) -> List[PromptMessageExtended]: ...
 

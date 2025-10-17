@@ -1,13 +1,19 @@
+import math
+from contextlib import contextmanager
 from enum import Enum
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Dict, List, Mapping, Optional, Set, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Mapping, Optional, Set, Tuple, Union
 
 from mcp.types import CallToolResult
+from rich.live import Live
+from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from fast_agent.config import Settings
 from fast_agent.constants import REASONING
 from fast_agent.ui import console
+from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.mcp_ui_utils import UILink
 from fast_agent.ui.mermaid_utils import (
     MermaidDiagram,
@@ -15,12 +21,20 @@ from fast_agent.ui.mermaid_utils import (
     detect_diagram_type,
     extract_mermaid_diagrams,
 )
+from fast_agent.ui.plain_text_truncator import PlainTextTruncator
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
 
 CODE_STYLE = "native"
+
+MARKDOWN_STREAM_TARGET_RATIO = 0.7
+MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
+MARKDOWN_STREAM_HEIGHT_FUDGE = 1
+PLAIN_STREAM_TARGET_RATIO = 0.9
+PLAIN_STREAM_REFRESH_PER_SECOND = 20
+PLAIN_STREAM_HEIGHT_FUDGE = 1
 
 
 class MessageType(Enum):
@@ -83,33 +97,104 @@ def _prepare_markdown_content(content: str, escape_xml: bool = True) -> str:
     This ensures XML/HTML tags are displayed as visible text rather than
     being interpreted as markup by the markdown renderer.
 
-    Note: This method does not handle overlapping code blocks (e.g., if inline
-    code appears within a fenced code block range). In practice, this is not
-    an issue since markdown syntax doesn't support such overlapping.
+    Uses markdown-it parser to properly identify code regions, avoiding
+    the issues with regex-based approaches (e.g., backticks inside fenced
+    code blocks being misidentified as inline code).
     """
     if not escape_xml or not isinstance(content, str):
         return content
 
+    # Import markdown-it for proper parsing
+    from markdown_it import MarkdownIt
+
+    # Parse the markdown to identify code regions
+    parser = MarkdownIt()
+    try:
+        tokens = parser.parse(content)
+    except Exception:
+        # If parsing fails, fall back to escaping everything
+        # (better safe than corrupting content)
+        result = content
+        for char, replacement in HTML_ESCAPE_CHARS.items():
+            result = result.replace(char, replacement)
+        return result
+
+    # Collect protected ranges from tokens
     protected_ranges = []
+    lines = content.split("\n")
+
+    def _flatten_tokens(tokens):
+        """Recursively flatten token tree."""
+        for token in tokens:
+            yield token
+            if token.children:
+                yield from _flatten_tokens(token.children)
+
+    # Process all tokens to find code blocks and inline code
+    for token in _flatten_tokens(tokens):
+        if token.map is not None:
+            # Block-level tokens with line mapping (fence, code_block)
+            if token.type in ("fence", "code_block"):
+                start_line = token.map[0]
+                end_line = token.map[1]
+                start_pos = sum(len(line) + 1 for line in lines[:start_line])
+                end_pos = sum(len(line) + 1 for line in lines[:end_line])
+                protected_ranges.append((start_pos, end_pos))
+
+        # Inline code tokens don't have map, but have content
+        if token.type == "code_inline":
+            # For inline code, we need to find its position in the source
+            # The token has the content, but we need to search for it
+            # We'll look for the pattern `content` in the content string
+            code_content = token.content
+            if code_content:
+                # Search for this inline code in the content
+                # We need to account for the backticks: `content`
+                pattern = f"`{code_content}`"
+                start = 0
+                while True:
+                    pos = content.find(pattern, start)
+                    if pos == -1:
+                        break
+                    # Check if this position is already in a protected range
+                    in_protected = any(s <= pos < e for s, e in protected_ranges)
+                    if not in_protected:
+                        protected_ranges.append((pos, pos + len(pattern)))
+                    start = pos + len(pattern)
+
+    # Check for incomplete code blocks (streaming scenario)
+    # Count opening vs closing fences
     import re
 
-    # Protect fenced code blocks (don't escape anything inside these)
-    code_block_pattern = r"```[\s\S]*?```"
-    for match in re.finditer(code_block_pattern, content):
-        protected_ranges.append((match.start(), match.end()))
+    fence_pattern = r"^```"
+    fences = list(re.finditer(fence_pattern, content, re.MULTILINE))
 
-    # Protect inline code (don't escape anything inside these)
-    inline_code_pattern = r"(?<!`)`(?!``)[^`\n]+`(?!`)"
-    for match in re.finditer(inline_code_pattern, content):
-        protected_ranges.append((match.start(), match.end()))
+    # If we have an odd number of fences, the last one is incomplete
+    if len(fences) % 2 == 1:
+        # Protect from the last fence to the end
+        last_fence_pos = fences[-1].start()
+        # Only add if not already protected
+        in_protected = any(s <= last_fence_pos < e for s, e in protected_ranges)
+        if not in_protected:
+            protected_ranges.append((last_fence_pos, len(content)))
 
+    # Sort and merge overlapping ranges
     protected_ranges.sort(key=lambda x: x[0])
+
+    # Merge overlapping ranges
+    merged_ranges = []
+    for start, end in protected_ranges:
+        if merged_ranges and start <= merged_ranges[-1][1]:
+            # Overlapping or adjacent - merge
+            merged_ranges[-1] = (merged_ranges[-1][0], max(end, merged_ranges[-1][1]))
+        else:
+            merged_ranges.append((start, end))
 
     # Build the escaped content
     result = []
     last_end = 0
 
-    for start, end in protected_ranges:
+    for start, end in merged_ranges:
         # Escape everything outside protected ranges
         unprotected_text = content[last_end:start]
         for char, replacement in HTML_ESCAPE_CHARS.items():
@@ -135,7 +220,7 @@ class ConsoleDisplay:
     This centralizes the UI display logic used by LLM implementations.
     """
 
-    def __init__(self, config=None) -> None:
+    def __init__(self, config: Settings | None = None) -> None:
         """
         Initialize the console display handler.
 
@@ -145,6 +230,29 @@ class ConsoleDisplay:
         self.config = config
         self._markup = config.logger.enable_markup if config else True
         self._escape_xml = True
+
+    def resolve_streaming_preferences(self) -> tuple[bool, str]:
+        """Return whether streaming is enabled plus the active mode."""
+        if not self.config:
+            return True, "markdown"
+
+        logger_settings = getattr(self.config, "logger", None)
+        if not logger_settings:
+            return True, "markdown"
+
+        streaming_mode = getattr(logger_settings, "streaming", "markdown")
+        if streaming_mode not in {"markdown", "plain", "none"}:
+            streaming_mode = "markdown"
+
+        # Legacy compatibility: allow streaming_plain_text override
+        if streaming_mode == "markdown" and getattr(logger_settings, "streaming_plain_text", False):
+            streaming_mode = "plain"
+
+        show_chat = bool(getattr(logger_settings, "show_chat", True))
+        streaming_display = bool(getattr(logger_settings, "streaming_display", True))
+
+        enabled = show_chat and streaming_display and streaming_mode != "none"
+        return enabled, streaming_mode
 
     @staticmethod
     def _format_elapsed(elapsed: float) -> str:
@@ -224,44 +332,12 @@ class ConsoleDisplay:
             console.console.print(additional_message, markup=self._markup)
 
         # Handle bottom separator with optional metadata
-        console.console.print()
-
-        if bottom_metadata:
-            # Apply shortening if requested
-            display_items = bottom_metadata
-            if max_item_length:
-                display_items = self._shorten_items(bottom_metadata, max_item_length)
-
-            # Format the metadata with highlighting, clipped to available width
-            # Compute available width for the metadata segment (excluding the fixed prefix/suffix)
-            total_width = console.console.size.width
-            prefix = Text("─| ")
-            prefix.stylize("dim")
-            suffix = Text(" |")
-            suffix.stylize("dim")
-            available = max(0, total_width - prefix.cell_len - suffix.cell_len)
-
-            metadata_text = self._format_bottom_metadata(
-                display_items,
-                highlight_index,
-                config["highlight_color"],
-                max_width=available,
-            )
-
-            # Create the separator line with metadata
-            line = Text()
-            line.append_text(prefix)
-            line.append_text(metadata_text)
-            line.append_text(suffix)
-            remaining = total_width - line.cell_len
-            if remaining > 0:
-                line.append("─" * remaining, style="dim")
-            console.console.print(line, markup=self._markup)
-        else:
-            # No metadata - continuous bar
-            console.console.print("─" * console.console.size.width, style="dim")
-
-        console.console.print()
+        self._render_bottom_metadata(
+            message_type=message_type,
+            bottom_metadata=bottom_metadata,
+            highlight_index=highlight_index,
+            max_item_length=max_item_length,
+        )
 
     def _display_content(
         self,
@@ -484,6 +560,58 @@ class ConsoleDisplay:
         """
         return [item[: max_length - 1] + "…" if len(item) > max_length else item for item in items]
 
+    def _render_bottom_metadata(
+        self,
+        *,
+        message_type: MessageType,
+        bottom_metadata: List[str] | None,
+        highlight_index: int | None,
+        max_item_length: int | None,
+    ) -> None:
+        """
+        Render the bottom separator line with optional metadata.
+
+        Args:
+            message_type: The type of message being displayed
+            bottom_metadata: Optional list of items to show in the separator
+            highlight_index: Optional index of the item to highlight
+            max_item_length: Optional maximum length for individual items
+        """
+        console.console.print()
+
+        if bottom_metadata:
+            display_items = bottom_metadata
+            if max_item_length:
+                display_items = self._shorten_items(bottom_metadata, max_item_length)
+
+            total_width = console.console.size.width
+            prefix = Text("─| ")
+            prefix.stylize("dim")
+            suffix = Text(" |")
+            suffix.stylize("dim")
+            available = max(0, total_width - prefix.cell_len - suffix.cell_len)
+
+            highlight_color = MESSAGE_CONFIGS[message_type]["highlight_color"]
+            metadata_text = self._format_bottom_metadata(
+                display_items,
+                highlight_index,
+                highlight_color,
+                max_width=available,
+            )
+
+            line = Text()
+            line.append_text(prefix)
+            line.append_text(metadata_text)
+            line.append_text(suffix)
+            remaining = total_width - line.cell_len
+            if remaining > 0:
+                line.append("─" * remaining, style="dim")
+            console.console.print(line, markup=self._markup)
+        else:
+            console.console.print("─" * console.console.size.width, style="dim")
+
+        console.console.print()
+
     def _format_bottom_metadata(
         self,
         items: List[str],
@@ -603,7 +731,7 @@ class ConsoleDisplay:
             if channel == "post-json":
                 transport_info = "HTTP (JSON-RPC)"
             elif channel == "post-sse":
-                transport_info = "Legacy SSE"
+                transport_info = "HTTP (SSE)"
             elif channel == "get":
                 transport_info = "Legacy SSE"
             elif channel == "resumption":
@@ -1004,6 +1132,30 @@ class ConsoleDisplay:
                 markup=self._markup,
             )
 
+    def _extract_reasoning_content(self, message: "PromptMessageExtended") -> Text | None:
+        """Extract reasoning channel content as dim text."""
+        channels = message.channels or {}
+        reasoning_blocks = channels.get(REASONING) or []
+        if not reasoning_blocks:
+            return None
+
+        from fast_agent.mcp.helpers.content_helpers import get_text
+
+        reasoning_segments = []
+        for block in reasoning_blocks:
+            text = get_text(block)
+            if text:
+                reasoning_segments.append(text)
+
+        if not reasoning_segments:
+            return None
+
+        joined = "\n".join(reasoning_segments)
+        if not joined.strip():
+            return None
+
+        return Text(joined, style="dim default")
+
     async def show_assistant_message(
         self,
         message_text: Union[str, Text, "PromptMessageExtended"],
@@ -1036,22 +1188,7 @@ class ConsoleDisplay:
 
         if isinstance(message_text, PromptMessageExtended):
             display_text = message_text.last_text() or ""
-
-            channels = message_text.channels or {}
-            reasoning_blocks = channels.get(REASONING) or []
-            if reasoning_blocks:
-                from fast_agent.mcp.helpers.content_helpers import get_text
-
-                reasoning_segments = []
-                for block in reasoning_blocks:
-                    text = get_text(block)
-                    if text:
-                        reasoning_segments.append(text)
-
-                if reasoning_segments:
-                    joined = "\n".join(reasoning_segments)
-                    if joined.strip():
-                        pre_content = Text(joined, style="dim default")
+            pre_content = self._extract_reasoning_content(message_text)
         else:
             display_text = message_text
 
@@ -1082,6 +1219,54 @@ class ConsoleDisplay:
             diagrams = extract_mermaid_diagrams(plain_text)
             if diagrams:
                 self._display_mermaid_diagrams(diagrams)
+
+    @contextmanager
+    def streaming_assistant_message(
+        self,
+        *,
+        bottom_items: List[str] | None = None,
+        highlight_index: int | None = None,
+        max_item_length: int | None = None,
+        name: str | None = None,
+        model: str | None = None,
+    ) -> Iterator["_StreamingMessageHandle"]:
+        """Create a streaming context for assistant messages."""
+        streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
+
+        if not streaming_enabled:
+            yield _NullStreamingHandle()
+            return
+
+        from fast_agent.ui.progress_display import progress_display
+
+        config = MESSAGE_CONFIGS[MessageType.ASSISTANT]
+        block_color = config["block_color"]
+        arrow = config["arrow"]
+        arrow_style = config["arrow_style"]
+
+        left = f"[{block_color}]▎[/{block_color}][{arrow_style}]{arrow}[/{arrow_style}] "
+        if name:
+            left += f"[{block_color}]{name}[/{block_color}]"
+
+        right_info = f"[dim]{model}[/dim]" if model else ""
+
+        # Determine renderer based on streaming mode
+        use_plain_text = streaming_mode == "plain"
+
+        handle = _StreamingMessageHandle(
+            display=self,
+            bottom_items=bottom_items,
+            highlight_index=highlight_index,
+            max_item_length=max_item_length,
+            use_plain_text=use_plain_text,
+            header_left=left,
+            header_right=right_info,
+            progress_display=progress_display,
+        )
+        try:
+            yield handle
+        finally:
+            handle.close()
 
     def _display_mermaid_diagrams(self, diagrams: List[MermaidDiagram]) -> None:
         """Display mermaid diagram links."""
@@ -1373,3 +1558,420 @@ class ConsoleDisplay:
         summary_text = " • ".join(summary_parts)
         console.console.print(f"[dim]{summary_text}[/dim]")
         console.console.print()
+
+
+class _NullStreamingHandle:
+    """No-op streaming handle used when streaming is disabled."""
+
+    def update(self, _chunk: str) -> None:
+        return
+
+    def finalize(self, _message: "PromptMessageExtended | str") -> None:
+        return
+
+    def close(self) -> None:
+        return
+
+
+class _StreamingMessageHandle:
+    """Helper that manages live rendering for streaming assistant responses."""
+
+    def __init__(
+        self,
+        *,
+        display: ConsoleDisplay,
+        bottom_items: List[str] | None,
+        highlight_index: int | None,
+        max_item_length: int | None,
+        use_plain_text: bool = False,
+        header_left: str = "",
+        header_right: str = "",
+        progress_display=None,
+    ) -> None:
+        self._display = display
+        self._bottom_items = bottom_items
+        self._highlight_index = highlight_index
+        self._max_item_length = max_item_length
+        self._use_plain_text = use_plain_text
+        self._header_left = header_left
+        self._header_right = header_right
+        self._progress_display = progress_display
+        self._progress_paused = False
+        self._buffer: List[str] = []
+        self._final_text: str | None = None
+        initial_renderable = Text("") if self._use_plain_text else Markdown("")
+        refresh_rate = (
+            PLAIN_STREAM_REFRESH_PER_SECOND
+            if self._use_plain_text
+            else MARKDOWN_STREAM_REFRESH_PER_SECOND
+        )
+        self._live: Live | None = Live(
+            initial_renderable,
+            console=console.console,
+            vertical_overflow="ellipsis",
+            refresh_per_second=refresh_rate,
+            transient=True,
+        )
+        self._live_started = False
+        self._active = True
+        self._finalized = False
+        # Track whether we're in a table to batch updates
+        self._in_table = False
+        self._pending_table_row = ""
+        # Smart markdown truncator for creating display window (doesn't mutate buffer)
+        self._truncator = MarkdownTruncator(target_height_ratio=MARKDOWN_STREAM_TARGET_RATIO)
+        self._plain_truncator = (
+            PlainTextTruncator(target_height_ratio=PLAIN_STREAM_TARGET_RATIO)
+            if self._use_plain_text
+            else None
+        )
+        self._max_render_height = 0
+
+    def update(self, chunk: str) -> None:
+        if not self._active or not chunk:
+            return
+
+        self._ensure_started()
+
+        if self._use_plain_text:
+            chunk = self._wrap_plain_chunk(chunk)
+            if self._pending_table_row:
+                self._buffer.append(self._pending_table_row)
+                self._pending_table_row = ""
+        else:
+            # Detect if we're streaming table content
+            # Tables have rows starting with '|' and we want to batch updates until we get a complete row
+            text_so_far = "".join(self._buffer)
+
+            # Check if we're currently in a table (last non-empty line starts with |)
+            lines = text_so_far.strip().split("\n")
+            last_line = lines[-1] if lines else ""
+            currently_in_table = last_line.strip().startswith("|")
+
+            # If we're in a table and the chunk doesn't contain a newline, accumulate it
+            if currently_in_table and "\n" not in chunk:
+                self._pending_table_row += chunk
+                # Don't update display yet - wait for complete row
+                return
+
+            # If we have a pending table row, flush it now
+            if self._pending_table_row:
+                self._buffer.append(self._pending_table_row)
+                self._pending_table_row = ""
+
+        self._buffer.append(chunk)
+
+        text = "".join(self._buffer)
+
+        if self._use_plain_text:
+            trimmed = self._trim_to_displayable(text)
+            if trimmed != text:
+                text = trimmed
+                self._buffer = [trimmed]
+
+        # Guard against single logical paragraphs that would expand far wider than expected.
+        trailing_paragraph = self._extract_trailing_paragraph(text)
+        if trailing_paragraph and "\n" not in trailing_paragraph:
+            width = max(1, console.console.size.width)
+            target_ratio = (
+                PLAIN_STREAM_TARGET_RATIO if self._use_plain_text else MARKDOWN_STREAM_TARGET_RATIO
+            )
+            target_rows = max(
+                1,
+                int(console.console.size.height * target_ratio) - 1,
+            )
+            estimated_rows = math.ceil(len(trailing_paragraph.expandtabs()) / width)
+            if estimated_rows > target_rows:
+                trimmed_text = self._trim_to_displayable(text)
+                if trimmed_text != text:
+                    text = trimmed_text
+                    self._buffer = [trimmed_text]
+
+        # Trim buffer periodically to avoid unbounded growth
+        # Keep only what can fit in ~1.5x terminal height
+        if len(self._buffer) > 10:
+            text = self._trim_to_displayable(text)
+            self._buffer = [text]
+
+        if self._live:
+            # Build the header bar
+            header = self._build_header()
+
+            # Build the content renderable
+            max_allowed_height = max(1, console.console.size.height - 2)
+            self._max_render_height = min(self._max_render_height, max_allowed_height)
+
+            if self._use_plain_text:
+                # Plain text rendering - no markdown processing
+                content_height = self._estimate_plain_render_height(text)
+                budget_height = min(content_height + PLAIN_STREAM_HEIGHT_FUDGE, max_allowed_height)
+
+                if budget_height > self._max_render_height:
+                    self._max_render_height = budget_height
+
+                padding_lines = max(0, self._max_render_height - content_height)
+                display_text = text + ("\n" * padding_lines if padding_lines else "")
+                content = Text(display_text)
+            else:
+                # Markdown rendering with XML escaping
+                prepared = _prepare_markdown_content(text, self._display._escape_xml)
+                prepared_for_display = self._close_incomplete_code_blocks(prepared)
+
+                content_height = self._truncator.measure_rendered_height(
+                    prepared_for_display, console.console, CODE_STYLE
+                )
+                budget_height = min(
+                    content_height + MARKDOWN_STREAM_HEIGHT_FUDGE, max_allowed_height
+                )
+
+                if budget_height > self._max_render_height:
+                    self._max_render_height = budget_height
+
+                padding_lines = max(0, self._max_render_height - content_height)
+                if padding_lines:
+                    prepared_for_display = prepared_for_display + ("\n" * padding_lines)
+
+                content = Markdown(prepared_for_display, code_theme=CODE_STYLE)
+
+            # Combine header and content using Group
+            from rich.console import Group
+
+            header_with_spacing = header.copy()
+            header_with_spacing.append("\n", style="default")
+
+            combined = Group(header_with_spacing, content)
+            self._live.update(combined)
+
+    def _build_header(self) -> Text:
+        """Build the header bar as a Text renderable.
+
+        Returns:
+            Text object representing the header bar.
+        """
+        width = console.console.size.width
+
+        # Create left text
+        left_text = Text.from_markup(self._header_left)
+
+        # Create right text if we have info
+        if self._header_right and self._header_right.strip():
+            # Add dim brackets around the right info
+            right_text = Text()
+            right_text.append("[", style="dim")
+            right_text.append_text(Text.from_markup(self._header_right))
+            right_text.append("]", style="dim")
+            # Calculate separator count
+            separator_count = width - left_text.cell_len - right_text.cell_len
+            if separator_count < 1:
+                separator_count = 1  # Always at least 1 separator
+        else:
+            right_text = Text("")
+            separator_count = width - left_text.cell_len
+
+        # Build the combined line
+        combined = Text()
+        combined.append_text(left_text)
+        combined.append(" ", style="default")
+        combined.append("─" * (separator_count - 1), style="dim")
+        combined.append_text(right_text)
+
+        return combined
+
+    def _ensure_started(self) -> None:
+        """Start live rendering and pause progress display if needed."""
+        if self._live_started:
+            return
+
+        if self._progress_display and not self._progress_paused:
+            try:
+                self._progress_display.pause()
+                self._progress_paused = True
+            except Exception:
+                self._progress_paused = False
+
+        if self._live and not self._live_started:
+            self._live.__enter__()
+            self._live_started = True
+
+    def _close_incomplete_code_blocks(self, text: str) -> str:
+        """Add temporary closing fence to incomplete code blocks for display.
+
+        During streaming, incomplete code blocks (opening fence without closing)
+        are rendered as literal text by Rich's Markdown renderer. This method
+        adds a temporary closing fence so the code can be syntax-highlighted
+        during streaming display.
+
+        When the real closing fence arrives in a subsequent chunk, this method
+        will detect the now-complete block and stop adding the temporary fence.
+
+        Args:
+            text: The markdown text that may contain incomplete code blocks.
+
+        Returns:
+            Text with temporary closing fences added for incomplete code blocks.
+        """
+        import re
+
+        # Count opening and closing fences
+        opening_fences = len(re.findall(r"^```", text, re.MULTILINE))
+        closing_fences = len(re.findall(r"^```\s*$", text, re.MULTILINE))
+
+        # If we have more opening fences than closing fences, and the text
+        # doesn't end with a closing fence, we have an incomplete code block
+        if opening_fences > closing_fences:
+            # Check if text ends with a closing fence (might be partial line)
+            if not re.search(r"```\s*$", text):
+                # Add temporary closing fence for display only
+                return text + "\n```\n"
+
+        return text
+
+    def _trim_to_displayable(self, text: str) -> str:
+        """Trim text to keep only displayable content plus small buffer.
+
+        Keeps ~1.5x terminal height worth of recent content.
+        Uses the optimized streaming truncator for better performance.
+
+        Args:
+            text: Full text to trim
+
+        Returns:
+            Trimmed text (most recent content)
+        """
+        if not text:
+            return text
+
+        terminal_height = console.console.size.height - 1
+
+        if self._use_plain_text and self._plain_truncator:
+            terminal_width = console.console.size.width
+            return self._plain_truncator.truncate(
+                text,
+                terminal_height=terminal_height,
+                terminal_width=terminal_width,
+            )
+
+        # Use the optimized streaming truncator (16x faster!) for markdown
+        return self._truncator.truncate(
+            text,
+            terminal_height=terminal_height,
+            console=console.console,
+            code_theme=CODE_STYLE,
+            prefer_recent=True,  # Streaming mode
+        )
+
+    def finalize(self, message: "PromptMessageExtended | str") -> None:
+        if not self._active or self._finalized:
+            return
+
+        self._finalized = True
+
+        if isinstance(message, str):
+            final_text = message
+        else:
+            final_text = message.last_text() or ""
+
+        if not final_text:
+            final_text = self._buffer.get_full_text()
+
+        self._final_text = final_text
+
+        self.close()
+
+    def close(self) -> None:
+        if self._live and self._live_started:
+            self._live.__exit__(None, None, None)
+            self._live = None
+            self._live_started = False
+        if self._progress_display and self._progress_paused:
+            try:
+                self._progress_display.resume()
+            except Exception:
+                pass
+            finally:
+                self._progress_paused = False
+        self._active = False
+        self._max_render_height = 0
+
+    @property
+    def final_text(self) -> str | None:
+        """Return the final text captured during streaming (if any)."""
+        return self._final_text
+
+    def _extract_trailing_paragraph(self, text: str) -> str:
+        """Return text since the last blank line, used to detect in-progress paragraphs."""
+        if not text:
+            return ""
+        double_break = text.rfind("\n\n")
+        if double_break != -1:
+            candidate = text[double_break + 2 :]
+        else:
+            candidate = text
+        if "\n" in candidate:
+            candidate = candidate.split("\n")[-1]
+        return candidate
+
+    def _wrap_plain_chunk(self, chunk: str) -> str:
+        """Insert soft line breaks into long plain text segments."""
+        width = max(1, console.console.size.width)
+        if not chunk or width <= 1:
+            return chunk
+
+        result_segments: List[str] = []
+        start = 0
+        length = len(chunk)
+
+        while start < length:
+            newline_pos = chunk.find("\n", start)
+            if newline_pos == -1:
+                line = chunk[start:]
+                delimiter = ""
+                start = length
+            else:
+                line = chunk[start:newline_pos]
+                delimiter = "\n"
+                start = newline_pos + 1
+
+            if len(line.expandtabs()) > width:
+                wrapped = self._wrap_plain_line(line, width)
+                result_segments.append("\n".join(wrapped))
+            else:
+                result_segments.append(line)
+
+            result_segments.append(delimiter)
+
+        return "".join(result_segments)
+
+    @staticmethod
+    def _wrap_plain_line(line: str, width: int) -> List[str]:
+        """Wrap a single line to the terminal width."""
+        if not line:
+            return [""]
+
+        segments: List[str] = []
+        remaining = line
+
+        while len(remaining) > width:
+            break_at = remaining.rfind(" ", 0, width)
+            if break_at == -1 or break_at < width // 2:
+                break_at = width
+                segments.append(remaining[:break_at])
+                remaining = remaining[break_at:]
+            else:
+                segments.append(remaining[:break_at])
+                remaining = remaining[break_at + 1 :]
+        segments.append(remaining)
+        return segments
+
+    def _estimate_plain_render_height(self, text: str) -> int:
+        """Estimate rendered height for plain text taking terminal width into account."""
+        if not text:
+            return 0
+
+        width = max(1, console.console.size.width)
+        lines = text.split("\n")
+        total = 0
+        for line in lines:
+            expanded_len = len(line.expandtabs())
+            total += max(1, math.ceil(expanded_len / width)) if expanded_len else 1
+        return total

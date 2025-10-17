@@ -156,6 +156,7 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
         "logger": {
             "level": default_settings.logger.level,
             "type": default_settings.logger.type,
+            "streaming": default_settings.logger.streaming,
             "progress_display": default_settings.logger.progress_display,
             "show_chat": default_settings.logger.show_chat,
             "show_tools": default_settings.logger.show_tools,
@@ -198,6 +199,7 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
             result["logger"] = {
                 "level": logger_config.get("level", default_settings.logger.level),
                 "type": logger_config.get("type", default_settings.logger.type),
+                "streaming": logger_config.get("streaming", default_settings.logger.streaming),
                 "progress_display": logger_config.get(
                     "progress_display", default_settings.logger.progress_display
                 ),
@@ -221,8 +223,7 @@ def get_config_summary(config_path: Optional[Path]) -> dict:
                 timeline_override = MCPTimelineSettings(**(config.get("mcp_timeline") or {}))
             except Exception as exc:  # pragma: no cover - defensive
                 console.print(
-                    "[yellow]Warning:[/yellow] Invalid mcp_timeline configuration; "
-                    "using defaults."
+                    "[yellow]Warning:[/yellow] Invalid mcp_timeline configuration; using defaults."
                 )
                 console.print(f"[yellow]Details:[/yellow] {exc}")
             else:
@@ -432,6 +433,8 @@ def show_check_summary() -> None:
         ("Log Level", logger.get("level", "warning (default)")),
         ("Log Type", logger.get("type", "file (default)")),
         ("MCP-UI", mcp_ui_display),
+        ("Streaming Mode", f"[green]{logger.get('streaming', 'markdown')}[/green]"),
+        ("Streaming Display", bool_to_symbol(logger.get("streaming_display", True))),
         ("Progress Display", bool_to_symbol(logger.get("progress_display", True))),
         ("Show Chat", bool_to_symbol(logger.get("show_chat", True))),
         ("Show Tools", bool_to_symbol(logger.get("show_tools", True))),

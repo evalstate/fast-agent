@@ -31,6 +31,8 @@ logger:
   # Truncate long tool responses on the console
   truncate_tools: true
 
+  streaming: markdown
+
 # MCP Servers
 mcp:
   servers:
