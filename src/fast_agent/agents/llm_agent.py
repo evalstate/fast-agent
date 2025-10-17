@@ -220,14 +220,9 @@ class LlmAgent(LlmDecorator):
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""
-        if not self._context or not self._context.config:
-            return True
-
-        logger_settings = self._context.config.logger
-        if not logger_settings.show_chat:
-            return False
-        if "none" == logger_settings.streaming:
-            return False
+        if getattr(self, "display", None):
+            enabled, _ = self.display.resolve_streaming_preferences()
+            return enabled
         return True
 
     async def generate_impl(

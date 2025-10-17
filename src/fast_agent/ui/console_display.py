@@ -10,7 +10,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
-from fast_agent.config import LoggerSettings, Settings
+from fast_agent.config import Settings
 from fast_agent.constants import REASONING
 from fast_agent.ui import console
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
@@ -31,8 +31,10 @@ CODE_STYLE = "native"
 
 MARKDOWN_STREAM_TARGET_RATIO = 0.7
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
+MARKDOWN_STREAM_HEIGHT_FUDGE = 1
 PLAIN_STREAM_TARGET_RATIO = 0.9
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
+PLAIN_STREAM_HEIGHT_FUDGE = 1
 
 
 class MessageType(Enum):
@@ -228,6 +230,32 @@ class ConsoleDisplay:
         self.config = config
         self._markup = config.logger.enable_markup if config else True
         self._escape_xml = True
+
+    def resolve_streaming_preferences(self) -> tuple[bool, str]:
+        """Return whether streaming is enabled plus the active mode."""
+        if not self.config:
+            return True, "markdown"
+
+        logger_settings = getattr(self.config, "logger", None)
+        if not logger_settings:
+            return True, "markdown"
+
+        streaming_mode = getattr(logger_settings, "streaming", "markdown")
+        if streaming_mode not in {"markdown", "plain", "none"}:
+            streaming_mode = "markdown"
+
+        # Legacy compatibility: allow streaming_plain_text override
+        if (
+            streaming_mode == "markdown"
+            and getattr(logger_settings, "streaming_plain_text", False)
+        ):
+            streaming_mode = "plain"
+
+        show_chat = bool(getattr(logger_settings, "show_chat", True))
+        streaming_display = bool(getattr(logger_settings, "streaming_display", True))
+
+        enabled = show_chat and streaming_display and streaming_mode != "none"
+        return enabled, streaming_mode
 
     @staticmethod
     def _format_elapsed(elapsed: float) -> str:
@@ -1206,14 +1234,9 @@ class ConsoleDisplay:
         model: str | None = None,
     ) -> Iterator["_StreamingMessageHandle"]:
         """Create a streaming context for assistant messages."""
-        logger_settings = self.config.logger if self.config else LoggerSettings()
-        streaming_mode = logger_settings.streaming
+        streaming_enabled, streaming_mode = self.resolve_streaming_preferences()
 
-        if streaming_mode not in {"markdown", "plain", "none"}:
-            streaming_mode = "markdown"
-
-        streaming_enabled = not "none" == streaming_mode
-        if not streaming_enabled or not logger_settings.show_chat:
+        if not streaming_enabled:
             yield _NullStreamingHandle()
             return
 
@@ -1601,6 +1624,7 @@ class _StreamingMessageHandle:
             if self._use_plain_text
             else None
         )
+        self._max_render_height = 0
         if self._live:
             self._live.__enter__()
 
@@ -1673,13 +1697,41 @@ class _StreamingMessageHandle:
             header = self._build_header()
 
             # Build the content renderable
+            max_allowed_height = max(1, console.console.size.height - 2)
+            self._max_render_height = min(self._max_render_height, max_allowed_height)
+
             if self._use_plain_text:
                 # Plain text rendering - no markdown processing
-                content = Text(text)
+                content_height = self._estimate_plain_render_height(text)
+                budget_height = min(
+                    content_height + PLAIN_STREAM_HEIGHT_FUDGE, max_allowed_height
+                )
+
+                if budget_height > self._max_render_height:
+                    self._max_render_height = budget_height
+
+                padding_lines = max(0, self._max_render_height - content_height)
+                display_text = text + ("\n" * padding_lines if padding_lines else "")
+                content = Text(display_text)
             else:
                 # Markdown rendering with XML escaping
                 prepared = _prepare_markdown_content(text, self._display._escape_xml)
                 prepared_for_display = self._close_incomplete_code_blocks(prepared)
+
+                content_height = self._truncator.measure_rendered_height(
+                    prepared_for_display, console.console, CODE_STYLE
+                )
+                budget_height = min(
+                    content_height + MARKDOWN_STREAM_HEIGHT_FUDGE, max_allowed_height
+                )
+
+                if budget_height > self._max_render_height:
+                    self._max_render_height = budget_height
+
+                padding_lines = max(0, self._max_render_height - content_height)
+                if padding_lines:
+                    prepared_for_display = prepared_for_display + ("\n" * padding_lines)
+
                 content = Markdown(prepared_for_display, code_theme=CODE_STYLE)
 
             # Combine header and content using Group
@@ -1883,3 +1935,16 @@ class _StreamingMessageHandle:
                 remaining = remaining[break_at + 1 :]
         segments.append(remaining)
         return segments
+
+    def _estimate_plain_render_height(self, text: str) -> int:
+        """Estimate rendered height for plain text taking terminal width into account."""
+        if not text:
+            return 0
+
+        width = max(1, console.console.size.width)
+        lines = text.split("\n")
+        total = 0
+        for line in lines:
+            expanded_len = len(line.expandtabs())
+            total += max(1, math.ceil(expanded_len / width)) if expanded_len else 1
+        return total

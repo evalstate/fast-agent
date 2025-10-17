@@ -541,6 +541,12 @@ class MarkdownTruncator:
 
         return text[best_pos:]
 
+    def measure_rendered_height(
+        self, text: str, console: Console, code_theme: str = "monokai"
+    ) -> int:
+        """Public helper that measures rendered height for markdown content."""
+        return self._measure_rendered_height(text, console, code_theme)
+
     def _handle_code_block_truncation(
         self, code_block: CodeBlockInfo, truncation_point: TruncationPoint, truncated_text: str
     ) -> str:
