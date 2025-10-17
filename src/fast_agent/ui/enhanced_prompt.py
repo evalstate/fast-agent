@@ -915,9 +915,12 @@ async def get_enhanced_input(
                         else:
                             # Check if streaming is enabled
                             streaming_enabled = getattr(logger_settings, "streaming_display", True)
-                            if streaming_enabled:
+                            streaming_mode = getattr(logger_settings, "streaming", "markdown")
+                            if streaming_enabled and streaming_mode != "none":
                                 # Streaming is enabled - notify users since it's experimental
-                                rich_print("[dim]Markdown Streaming enabled (experimental).[/dim] ")
+                                rich_print(
+                                    f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]"
+                                )
 
         rich_print()
         help_message_shown = True

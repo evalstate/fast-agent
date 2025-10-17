@@ -1256,20 +1256,20 @@ class ConsoleDisplay:
         # Determine renderer based on streaming mode
         use_plain_text = streaming_mode == "plain"
 
-        with progress_display.paused():
-            handle = _StreamingMessageHandle(
-                display=self,
-                bottom_items=bottom_items,
-                highlight_index=highlight_index,
-                max_item_length=max_item_length,
-                use_plain_text=use_plain_text,
-                header_left=left,
-                header_right=right_info,
-            )
-            try:
-                yield handle
-            finally:
-                handle.close()
+        handle = _StreamingMessageHandle(
+            display=self,
+            bottom_items=bottom_items,
+            highlight_index=highlight_index,
+            max_item_length=max_item_length,
+            use_plain_text=use_plain_text,
+            header_left=left,
+            header_right=right_info,
+            progress_display=progress_display,
+        )
+        try:
+            yield handle
+        finally:
+            handle.close()
 
     def _display_mermaid_diagrams(self, diagrams: List[MermaidDiagram]) -> None:
         """Display mermaid diagram links."""
@@ -1589,6 +1589,7 @@ class _StreamingMessageHandle:
         use_plain_text: bool = False,
         header_left: str = "",
         header_right: str = "",
+        progress_display=None,
     ) -> None:
         self._display = display
         self._bottom_items = bottom_items
@@ -1597,6 +1598,8 @@ class _StreamingMessageHandle:
         self._use_plain_text = use_plain_text
         self._header_left = header_left
         self._header_right = header_right
+        self._progress_display = progress_display
+        self._progress_paused = False
         self._buffer: List[str] = []
         self._final_text: str | None = None
         initial_renderable = Text("") if self._use_plain_text else Markdown("")
@@ -1612,6 +1615,7 @@ class _StreamingMessageHandle:
             refresh_per_second=refresh_rate,
             transient=True,
         )
+        self._live_started = False
         self._active = True
         self._finalized = False
         # Track whether we're in a table to batch updates
@@ -1625,12 +1629,12 @@ class _StreamingMessageHandle:
             else None
         )
         self._max_render_height = 0
-        if self._live:
-            self._live.__enter__()
 
     def update(self, chunk: str) -> None:
         if not self._active or not chunk:
             return
+
+        self._ensure_started()
 
         if self._use_plain_text:
             chunk = self._wrap_plain_chunk(chunk)
@@ -1737,7 +1741,10 @@ class _StreamingMessageHandle:
             # Combine header and content using Group
             from rich.console import Group
 
-            combined = Group(header, content)
+            header_with_spacing = header.copy()
+            header_with_spacing.append("\n", style="default")
+
+            combined = Group(header_with_spacing, content)
             self._live.update(combined)
 
     def _build_header(self) -> Text:
@@ -1774,6 +1781,22 @@ class _StreamingMessageHandle:
         combined.append_text(right_text)
 
         return combined
+
+    def _ensure_started(self) -> None:
+        """Start live rendering and pause progress display if needed."""
+        if self._live_started:
+            return
+
+        if self._progress_display and not self._progress_paused:
+            try:
+                self._progress_display.pause()
+                self._progress_paused = True
+            except Exception:
+                self._progress_paused = False
+
+        if self._live and not self._live_started:
+            self._live.__enter__()
+            self._live_started = True
 
     def _close_incomplete_code_blocks(self, text: str) -> str:
         """Add temporary closing fence to incomplete code blocks for display.
@@ -1861,10 +1884,19 @@ class _StreamingMessageHandle:
         self.close()
 
     def close(self) -> None:
-        if self._live:
+        if self._live and self._live_started:
             self._live.__exit__(None, None, None)
             self._live = None
+            self._live_started = False
+        if self._progress_display and self._progress_paused:
+            try:
+                self._progress_display.resume()
+            except Exception:
+                pass
+            finally:
+                self._progress_paused = False
         self._active = False
+        self._max_render_height = 0
 
     @property
     def final_text(self) -> str | None:
