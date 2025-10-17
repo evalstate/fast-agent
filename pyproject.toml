@@ -41,6 +41,7 @@ dependencies = [
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
     "textual>=6.2.1",
+    "python-frontmatter>=1.1.0",
 ]
 
 # For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
