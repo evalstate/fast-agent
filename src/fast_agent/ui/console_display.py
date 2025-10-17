@@ -245,10 +245,7 @@ class ConsoleDisplay:
             streaming_mode = "markdown"
 
         # Legacy compatibility: allow streaming_plain_text override
-        if (
-            streaming_mode == "markdown"
-            and getattr(logger_settings, "streaming_plain_text", False)
-        ):
+        if streaming_mode == "markdown" and getattr(logger_settings, "streaming_plain_text", False):
             streaming_mode = "plain"
 
         show_chat = bool(getattr(logger_settings, "show_chat", True))
@@ -1707,9 +1704,7 @@ class _StreamingMessageHandle:
             if self._use_plain_text:
                 # Plain text rendering - no markdown processing
                 content_height = self._estimate_plain_render_height(text)
-                budget_height = min(
-                    content_height + PLAIN_STREAM_HEIGHT_FUDGE, max_allowed_height
-                )
+                budget_height = min(content_height + PLAIN_STREAM_HEIGHT_FUDGE, max_allowed_height)
 
                 if budget_height > self._max_render_height:
                     self._max_render_height = budget_height
@@ -1877,7 +1872,7 @@ class _StreamingMessageHandle:
             final_text = message.last_text() or ""
 
         if not final_text:
-            final_text = "".join(self._buffer)
+            final_text = self._buffer.get_full_text()
 
         self._final_text = final_text
 

@@ -225,7 +225,7 @@ def _format_capability_shorthand(
     elif instructions_enabled is False:
         entries.append(("In", "red", False))
     elif instructions_enabled is None and not template_expected:
-        entries.append(("In", "blue", False))
+        entries.append(("In", "warn", False))
     elif instructions_enabled is None:
         entries.append(("In", True, False))
     elif template_expected:
@@ -793,7 +793,7 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         if instr_available and status.instructions_enabled is False:
             state_segments.append(Text("instructions disabled", style=Colours.TEXT_ERROR))
         elif instr_available and not template_expected:
-            state_segments.append(Text("template missing", style=Colours.TEXT_WARNING))
+            state_segments.append(Text("instr. not in sysprompt", style=Colours.TEXT_WARNING))
 
         if status.spoofing_enabled:
             state_segments.append(Text("client spoof", style=Colours.TEXT_WARNING))
