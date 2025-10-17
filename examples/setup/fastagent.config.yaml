@@ -16,9 +16,9 @@ default_model: gpt-5-mini.low
 # mcp_ui_mode: enabled
 
 # MCP timeline display (adjust activity window/intervals in MCP UI + fast-agent check)
-#mcp_timeline:
-#  steps: 20         # number of timeline buckets to render
-#  step_seconds: 30  # seconds per bucket (accepts values like "45s", "2m")
+mcp_timeline:
+  steps: 20 # number of timeline buckets to render
+  step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
 
 # Logging and Console Configuration:
 logger:
@@ -28,13 +28,14 @@ logger:
 
   # Switch the progress display on or off
   progress_display: true
-
   # Show chat User/Assistant messages on the console
   show_chat: true
   # Show tool calls on the console
   show_tools: true
   # Truncate long tool responses on the console
   truncate_tools: true
+  # Streaming renderer for assistant responses: "markdown", "plain", or "none"
+  streaming: markdown
 
 # MCP Servers
 mcp:
