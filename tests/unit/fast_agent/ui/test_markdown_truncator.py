@@ -34,15 +34,17 @@ class TestMarkdownTruncator:
 
     def test_truncate_after_paragraph(self, truncator, console):
         """Test truncation between paragraphs preserves markdown structure."""
-        text = "\n".join([
-            "# Title",
-            "",
-            "First paragraph that is quite long and takes up space.",
-            "",
-            "Second paragraph with more content.",
-            "",
-            "Third paragraph that we might not see.",
-        ])
+        text = "\n".join(
+            [
+                "# Title",
+                "",
+                "First paragraph that is quite long and takes up space.",
+                "",
+                "Second paragraph with more content.",
+                "",
+                "Third paragraph that we might not see.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=5, console=console)
 
@@ -54,16 +56,18 @@ class TestMarkdownTruncator:
 
     def test_truncate_after_code_block(self, truncator, console):
         """Test truncation after complete code blocks."""
-        text = "\n".join([
-            "# Code Example",
-            "",
-            "```python",
-            "def hello():",
-            "    print('world')",
-            "```",
-            "",
-            "More content after code block.",
-        ])
+        text = "\n".join(
+            [
+                "# Code Example",
+                "",
+                "```python",
+                "def hello():",
+                "    print('world')",
+                "```",
+                "",
+                "More content after code block.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=8, console=console)
 
@@ -75,22 +79,24 @@ class TestMarkdownTruncator:
 
     def test_truncate_within_code_block_preserves_fence(self, truncator, console):
         """Test that truncating within a code block preserves the opening fence."""
-        text = "\n".join([
-            "Start content.",
-            "",
-            "```python",
-            "def function1():",
-            "    pass",
-            "",
-            "def function2():",
-            "    pass",
-            "",
-            "def function3():",
-            "    pass",
-            "```",
-            "",
-            "End content.",
-        ])
+        text = "\n".join(
+            [
+                "Start content.",
+                "",
+                "```python",
+                "def function1():",
+                "    pass",
+                "",
+                "def function2():",
+                "    pass",
+                "",
+                "def function3():",
+                "    pass",
+                "```",
+                "",
+                "End content.",
+            ]
+        )
 
         # Use a very small height to force truncation within the code block
         result = truncator.truncate(text, terminal_height=5, console=console)
@@ -101,15 +107,17 @@ class TestMarkdownTruncator:
 
     def test_truncate_after_list_items(self, truncator, console):
         """Test truncation preserves list structure."""
-        text = "\n".join([
-            "# List Example",
-            "",
-            "- Item 1",
-            "- Item 2",
-            "- Item 3",
-            "- Item 4",
-            "- Item 5",
-        ])
+        text = "\n".join(
+            [
+                "# List Example",
+                "",
+                "- Item 1",
+                "- Item 2",
+                "- Item 3",
+                "- Item 4",
+                "- Item 5",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=6, console=console)
 
@@ -118,14 +126,16 @@ class TestMarkdownTruncator:
 
     def test_truncate_ordered_list(self, truncator, console):
         """Test truncation with ordered lists."""
-        text = "\n".join([
-            "# Steps",
-            "",
-            "1. First step",
-            "2. Second step",
-            "3. Third step",
-            "4. Fourth step",
-        ])
+        text = "\n".join(
+            [
+                "# Steps",
+                "",
+                "1. First step",
+                "2. Second step",
+                "3. Third step",
+                "4. Fourth step",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=6, console=console)
 
@@ -134,15 +144,17 @@ class TestMarkdownTruncator:
 
     def test_truncate_blockquote(self, truncator, console):
         """Test truncation with blockquotes."""
-        text = "\n".join([
-            "# Quote",
-            "",
-            "> This is a quote",
-            "> that spans multiple lines",
-            "> and has more content.",
-            "",
-            "After quote.",
-        ])
+        text = "\n".join(
+            [
+                "# Quote",
+                "",
+                "> This is a quote",
+                "> that spans multiple lines",
+                "> and has more content.",
+                "",
+                "After quote.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=6, console=console)
 
@@ -164,22 +176,24 @@ class TestMarkdownTruncator:
 
     def test_mixed_content(self, truncator, console):
         """Test truncation with mixed markdown content."""
-        text = "\n".join([
-            "# Title",
-            "",
-            "Paragraph text.",
-            "",
-            "```python",
-            "code here",
-            "```",
-            "",
-            "- List item 1",
-            "- List item 2",
-            "",
-            "> Quote",
-            "",
-            "Final paragraph.",
-        ])
+        text = "\n".join(
+            [
+                "# Title",
+                "",
+                "Paragraph text.",
+                "",
+                "```python",
+                "code here",
+                "```",
+                "",
+                "- List item 1",
+                "- List item 2",
+                "",
+                "> Quote",
+                "",
+                "Final paragraph.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=10, console=console)
 
@@ -188,17 +202,19 @@ class TestMarkdownTruncator:
 
     def test_find_safe_truncation_points(self, truncator):
         """Test that safe truncation points are identified correctly."""
-        text = "\n".join([
-            "# Title",
-            "",
-            "Paragraph 1.",
-            "",
-            "```python",
-            "code",
-            "```",
-            "",
-            "Paragraph 2.",
-        ])
+        text = "\n".join(
+            [
+                "# Title",
+                "",
+                "Paragraph 1.",
+                "",
+                "```python",
+                "code",
+                "```",
+                "",
+                "Paragraph 2.",
+            ]
+        )
 
         safe_points = truncator._find_safe_truncation_points(text)
 
@@ -230,13 +246,15 @@ class TestMarkdownTruncator:
 
     def test_nested_lists(self, truncator, console):
         """Test truncation with nested list structures."""
-        text = "\n".join([
-            "- Item 1",
-            "  - Nested 1.1",
-            "  - Nested 1.2",
-            "- Item 2",
-            "  - Nested 2.1",
-        ])
+        text = "\n".join(
+            [
+                "- Item 1",
+                "  - Nested 1.1",
+                "  - Nested 1.2",
+                "- Item 2",
+                "  - Nested 2.1",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=5, console=console)
 
@@ -245,17 +263,19 @@ class TestMarkdownTruncator:
 
     def test_code_block_with_language(self, truncator, console):
         """Test that code block language specifier is preserved."""
-        text = "\n".join([
-            "Intro text.",
-            "",
-            "```javascript",
-            "const x = 1;",
-            "const y = 2;",
-            "const z = 3;",
-            "```",
-            "",
-            "More text after.",
-        ])
+        text = "\n".join(
+            [
+                "Intro text.",
+                "",
+                "```javascript",
+                "const x = 1;",
+                "const y = 2;",
+                "const z = 3;",
+                "```",
+                "",
+                "More text after.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=5, console=console)
 
@@ -266,19 +286,21 @@ class TestMarkdownTruncator:
 
     def test_multiple_code_blocks(self, truncator, console):
         """Test handling of multiple code blocks."""
-        text = "\n".join([
-            "```python",
-            "def foo():",
-            "    pass",
-            "```",
-            "",
-            "Some text.",
-            "",
-            "```python",
-            "def bar():",
-            "    pass",
-            "```",
-        ])
+        text = "\n".join(
+            [
+                "```python",
+                "def foo():",
+                "    pass",
+                "```",
+                "",
+                "Some text.",
+                "",
+                "```python",
+                "def bar():",
+                "    pass",
+                "```",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=8, console=console)
 
@@ -309,15 +331,17 @@ class TestMarkdownTruncator:
 
     def test_special_markdown_characters(self, truncator, console):
         """Test handling of special markdown characters."""
-        text = "\n".join([
-            "# Title with **bold** and *italic*",
-            "",
-            "Paragraph with `inline code` and [link](url).",
-            "",
-            "---",
-            "",
-            "More content.",
-        ])
+        text = "\n".join(
+            [
+                "# Title with **bold** and *italic*",
+                "",
+                "Paragraph with `inline code` and [link](url).",
+                "",
+                "---",
+                "",
+                "More content.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=6, console=console)
 
@@ -326,18 +350,20 @@ class TestMarkdownTruncator:
 
     def test_table_truncation_preserves_header(self, truncator, console):
         """Test that truncating within a table body preserves the header."""
-        text = "\n".join([
-            "Some intro text",
-            "",
-            "| Header 1 | Header 2 | Header 3 |",
-            "|----------|----------|----------|",
-            "| Row 1 A  | Row 1 B  | Row 1 C  |",
-            "| Row 2 A  | Row 2 B  | Row 2 C  |",
-            "| Row 3 A  | Row 3 B  | Row 3 C  |",
-            "| Row 4 A  | Row 4 B  | Row 4 C  |",
-            "",
-            "Text after table",
-        ])
+        text = "\n".join(
+            [
+                "Some intro text",
+                "",
+                "| Header 1 | Header 2 | Header 3 |",
+                "|----------|----------|----------|",
+                "| Row 1 A  | Row 1 B  | Row 1 C  |",
+                "| Row 2 A  | Row 2 B  | Row 2 C  |",
+                "| Row 3 A  | Row 3 B  | Row 3 C  |",
+                "| Row 4 A  | Row 4 B  | Row 4 C  |",
+                "",
+                "Text after table",
+            ]
+        )
 
         # Force truncation in middle of table body
         result = truncator.truncate(text, terminal_height=8, console=console)
@@ -352,16 +378,18 @@ class TestMarkdownTruncator:
 
     def test_table_truncation_before_table(self, truncator, console):
         """Test that truncating before a table doesn't affect the table."""
-        text = "\n".join([
-            "Lots of intro text here.",
-            "More intro text.",
-            "Even more intro.",
-            "",
-            "| Header 1 | Header 2 |",
-            "|----------|----------|",
-            "| Row 1 A  | Row 1 B  |",
-            "| Row 2 A  | Row 2 B  |",
-        ])
+        text = "\n".join(
+            [
+                "Lots of intro text here.",
+                "More intro text.",
+                "Even more intro.",
+                "",
+                "| Header 1 | Header 2 |",
+                "|----------|----------|",
+                "| Row 1 A  | Row 1 B  |",
+                "| Row 2 A  | Row 2 B  |",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=10, console=console)
 
@@ -371,34 +399,38 @@ class TestMarkdownTruncator:
 
     def test_table_no_truncation_needed(self, truncator, console):
         """Test that short tables don't get truncated."""
-        text = "\n".join([
-            "| Header 1 | Header 2 |",
-            "|----------|----------|",
-            "| Row 1 A  | Row 1 B  |",
-            "| Row 2 A  | Row 2 B  |",
-        ])
+        text = "\n".join(
+            [
+                "| Header 1 | Header 2 |",
+                "|----------|----------|",
+                "| Row 1 A  | Row 1 B  |",
+                "| Row 2 A  | Row 2 B  |",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=24, console=console)
         assert result == text
 
     def test_multiple_tables_truncation(self, truncator, console):
         """Test truncation with multiple tables."""
-        text = "\n".join([
-            "# Table 1",
-            "",
-            "| Header A | Header B |",
-            "|----------|----------|",
-            "| Data 1   | Data 2   |",
-            "| Data 3   | Data 4   |",
-            "",
-            "# Table 2",
-            "",
-            "| Header X | Header Y |",
-            "|----------|----------|",
-            "| Data 5   | Data 6   |",
-            "| Data 7   | Data 8   |",
-            "| Data 9   | Data 10  |",
-        ])
+        text = "\n".join(
+            [
+                "# Table 1",
+                "",
+                "| Header A | Header B |",
+                "|----------|----------|",
+                "| Data 1   | Data 2   |",
+                "| Data 3   | Data 4   |",
+                "",
+                "# Table 2",
+                "",
+                "| Header X | Header Y |",
+                "|----------|----------|",
+                "| Data 5   | Data 6   |",
+                "| Data 7   | Data 8   |",
+                "| Data 9   | Data 10  |",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=10, console=console)
 
@@ -412,22 +444,24 @@ class TestMarkdownTruncator:
 
     def test_table_with_code_block_truncation(self, truncator, console):
         """Test mixed table and code block content."""
-        text = "\n".join([
-            "| Header 1 | Header 2 |",
-            "|----------|----------|",
-            "| Row 1 A  | Row 1 B  |",
-            "| Row 2 A  | Row 2 B  |",
-            "",
-            "```python",
-            "def foo():",
-            "    pass",
-            "```",
-            "",
-            "| Header 3 | Header 4 |",
-            "|----------|----------|",
-            "| Row 3 A  | Row 3 B  |",
-            "| Row 4 A  | Row 4 B  |",
-        ])
+        text = "\n".join(
+            [
+                "| Header 1 | Header 2 |",
+                "|----------|----------|",
+                "| Row 1 A  | Row 1 B  |",
+                "| Row 2 A  | Row 2 B  |",
+                "",
+                "```python",
+                "def foo():",
+                "    pass",
+                "```",
+                "",
+                "| Header 3 | Header 4 |",
+                "|----------|----------|",
+                "| Row 3 A  | Row 3 B  |",
+                "| Row 4 A  | Row 4 B  |",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=12, console=console)
 
@@ -438,30 +472,35 @@ class TestMarkdownTruncator:
         """Test table header preservation with character-based truncation fallback."""
         # Create a very long table that requires character truncation
         rows = [f"| Row {i} A  | Row {i} B  | Row {i} C  |" for i in range(50)]
-        text = "\n".join([
-            "| Header 1 | Header 2 | Header 3 |",
-            "|----------|----------|----------|",
-        ] + rows)
+        text = "\n".join(
+            [
+                "| Header 1 | Header 2 | Header 3 |",
+                "|----------|----------|----------|",
+            ]
+            + rows
+        )
 
         result = truncator.truncate(text, terminal_height=10, console=console)
 
         # If we have any row data, should have headers
-        if "Row" in result and "Row" in result[result.find("Row") + 1:]:
+        if "Row" in result and "Row" in result[result.find("Row") + 1 :]:
             # Has at least one row - should have headers
             assert "Header 1" in result
             assert "----------" in result
 
     def test_table_header_only_no_duplication(self, truncator, console):
         """Test that truncating right after thead doesn't duplicate header."""
-        text = "\n".join([
-            "Long intro paragraph that takes space.",
-            "More intro text here.",
-            "",
-            "| Header 1 | Header 2 |",
-            "|----------|----------|",
-            "| Row 1 A  | Row 1 B  |",
-            "| Row 2 A  | Row 2 B  |",
-        ])
+        text = "\n".join(
+            [
+                "Long intro paragraph that takes space.",
+                "More intro text here.",
+                "",
+                "| Header 1 | Header 2 |",
+                "|----------|----------|",
+                "| Row 1 A  | Row 1 B  |",
+                "| Row 2 A  | Row 2 B  |",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=10, console=console)
 
@@ -473,10 +512,13 @@ class TestMarkdownTruncator:
         """Test that table-dominant documents show first page (beginning), not last page."""
         # Create a "top 30 objects" scenario - document is primarily a table
         rows = [f"| Object {i:02d} | Value {i:02d} | Status {i:02d} |" for i in range(1, 31)]
-        text = "\n".join([
-            "| Object | Value | Status |",
-            "|--------|-------|--------|",
-        ] + rows)
+        text = "\n".join(
+            [
+                "| Object | Value | Status |",
+                "|--------|-------|--------|",
+            ]
+            + rows
+        )
 
         # Force truncation to show only part of the table
         result = truncator.truncate(text, terminal_height=10, console=console)
@@ -489,12 +531,15 @@ class TestMarkdownTruncator:
     def test_table_dominant_with_intro_shows_table_start(self, truncator, console):
         """Test table-dominant doc with intro text still shows table from beginning."""
         rows = [f"| Row {i} | Data {i} |" for i in range(1, 26)]
-        text = "\n".join([
-            "# Top 25 Results",
-            "",
-            "| Row | Data |",
-            "|-----|------|",
-        ] + rows)
+        text = "\n".join(
+            [
+                "# Top 25 Results",
+                "",
+                "| Row | Data |",
+                "|-----|------|",
+            ]
+            + rows
+        )
 
         result = truncator.truncate(text, terminal_height=15, console=console)
 
@@ -532,30 +577,30 @@ class TestMarkdownTruncator:
 
     def test_mixed_table_text_below_threshold(self, truncator, console):
         """Test mixed content where table is <50% uses streaming behavior."""
-        text = "\n".join([
-            "# Analysis Report",
-            "",
-            "Here is a long introduction with multiple paragraphs.",
-            "This section provides context for the data below.",
-            "We have several points to make before showing the table.",
-            "",
-            "| Metric | Value |",
-            "|--------|-------|",
-            "| Row 1  | Val 1 |",
-            "| Row 2  | Val 2 |",
-            "",
-            "And here is a conclusion with more text.",
-            "This provides analysis of the results.",
-            "We wrap up with final thoughts here.",
-        ])
+        text = "\n".join(
+            [
+                "# Analysis Report",
+                "",
+                "Here is a long introduction with multiple paragraphs.",
+                "This section provides context for the data below.",
+                "We have several points to make before showing the table.",
+                "",
+                "| Metric | Value |",
+                "|--------|-------|",
+                "| Row 1  | Val 1 |",
+                "| Row 2  | Val 2 |",
+                "",
+                "And here is a conclusion with more text.",
+                "This provides analysis of the results.",
+                "We wrap up with final thoughts here.",
+            ]
+        )
 
         result = truncator.truncate(text, terminal_height=8, console=console)
 
         # This is NOT table-dominant (<50% table), so should use streaming behavior
         # (show end/most recent content)
         # Should be more likely to see conclusion than intro
-        has_intro = "introduction" in result
-        has_conclusion = "conclusion" in result or "analysis" in result or "final" in result
 
         # Not a strict test since it depends on height measurement,
         # but we should see some content
@@ -564,39 +609,45 @@ class TestMarkdownTruncator:
     def test_is_primary_content_table_detection(self, truncator):
         """Test the table detection heuristic directly."""
         # Table-dominant content (>50% table lines)
-        table_text = "\n".join([
-            "| Col A | Col B |",
-            "|-------|-------|",
-            "| R1 A  | R1 B  |",
-            "| R2 A  | R2 B  |",
-            "| R3 A  | R3 B  |",
-        ])
+        table_text = "\n".join(
+            [
+                "| Col A | Col B |",
+                "|-------|-------|",
+                "| R1 A  | R1 B  |",
+                "| R2 A  | R2 B  |",
+                "| R3 A  | R3 B  |",
+            ]
+        )
         assert truncator._is_primary_content_table(table_text) is True
 
         # Non-table content
-        non_table_text = "\n".join([
-            "# Title",
-            "",
-            "Paragraph 1",
-            "",
-            "Paragraph 2",
-            "",
-            "Paragraph 3",
-        ])
+        non_table_text = "\n".join(
+            [
+                "# Title",
+                "",
+                "Paragraph 1",
+                "",
+                "Paragraph 2",
+                "",
+                "Paragraph 3",
+            ]
+        )
         assert truncator._is_primary_content_table(non_table_text) is False
 
         # Mixed content - more text than table
-        mixed_text = "\n".join([
-            "# Title",
-            "",
-            "Long paragraph here.",
-            "Another paragraph.",
-            "More content.",
-            "",
-            "| Col A | Col B |",
-            "|-------|-------|",
-            "| Data  | Data  |",
-        ])
+        mixed_text = "\n".join(
+            [
+                "# Title",
+                "",
+                "Long paragraph here.",
+                "Another paragraph.",
+                "More content.",
+                "",
+                "| Col A | Col B |",
+                "|-------|-------|",
+                "| Data  | Data  |",
+            ]
+        )
         # This should be False since table is <50% of lines
         result = truncator._is_primary_content_table(mixed_text)
         # Mixed case - depends on exact line count

@@ -526,7 +526,9 @@ class MarkdownLLMApp(App[None]):
             def on_chunk(chunk: str) -> None:
                 queue.put_nowait(chunk)
 
-            remove_listener = lambda: None
+            def remove_listener():
+                return None
+
             try:
                 remove_listener = agent.llm.add_stream_listener(on_chunk)
                 self._ensure_assistant_message()
