@@ -1,3 +1,4 @@
+import math
 from contextlib import contextmanager
 from enum import Enum
 from json import JSONDecodeError
@@ -9,6 +10,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
+from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.ui import console
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
@@ -19,12 +21,18 @@ from fast_agent.ui.mermaid_utils import (
     detect_diagram_type,
     extract_mermaid_diagrams,
 )
+from fast_agent.ui.plain_text_truncator import PlainTextTruncator
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
 
 CODE_STYLE = "native"
+
+MARKDOWN_STREAM_TARGET_RATIO = 0.7
+MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
+PLAIN_STREAM_TARGET_RATIO = 0.9
+PLAIN_STREAM_REFRESH_PER_SECOND = 20
 
 
 class MessageType(Enum):
@@ -210,7 +218,7 @@ class ConsoleDisplay:
     This centralizes the UI display logic used by LLM implementations.
     """
 
-    def __init__(self, config=None) -> None:
+    def __init__(self, config: Settings | None = None) -> None:
         """
         Initialize the console display handler.
 
@@ -1198,13 +1206,14 @@ class ConsoleDisplay:
         model: str | None = None,
     ) -> Iterator["_StreamingMessageHandle"]:
         """Create a streaming context for assistant messages."""
-        logger_settings = getattr(self.config, "logger", None)
-        streaming_enabled = (
-            getattr(logger_settings, "streaming_display", True) if logger_settings else True
-        )
-        show_chat = getattr(logger_settings, "show_chat", True) if logger_settings else True
+        logger_settings = self.config.logger if self.config else LoggerSettings()
+        streaming_mode = logger_settings.streaming
 
-        if not streaming_enabled or not show_chat:
+        if streaming_mode not in {"markdown", "plain", "none"}:
+            streaming_mode = "markdown"
+
+        streaming_enabled = not "none" == streaming_mode
+        if not streaming_enabled or not logger_settings.show_chat:
             yield _NullStreamingHandle()
             return
 
@@ -1221,10 +1230,8 @@ class ConsoleDisplay:
 
         right_info = f"[dim]{model}[/dim]" if model else ""
 
-        # Check for plain text streaming config option
-        use_plain_text = (
-            getattr(logger_settings, "streaming_plain_text", False) if logger_settings else False
-        )
+        # Determine renderer based on streaming mode
+        use_plain_text = streaming_mode == "plain"
 
         with progress_display.paused():
             handle = _StreamingMessageHandle(
@@ -1569,11 +1576,17 @@ class _StreamingMessageHandle:
         self._header_right = header_right
         self._buffer: List[str] = []
         self._final_text: str | None = None
+        initial_renderable = Text("") if self._use_plain_text else Markdown("")
+        refresh_rate = (
+            PLAIN_STREAM_REFRESH_PER_SECOND
+            if self._use_plain_text
+            else MARKDOWN_STREAM_REFRESH_PER_SECOND
+        )
         self._live: Live | None = Live(
-            Markdown(""),
+            initial_renderable,
             console=console.console,
             vertical_overflow="ellipsis",
-            refresh_per_second=4,
+            refresh_per_second=refresh_rate,
             transient=True,
         )
         self._active = True
@@ -1582,7 +1595,12 @@ class _StreamingMessageHandle:
         self._in_table = False
         self._pending_table_row = ""
         # Smart markdown truncator for creating display window (doesn't mutate buffer)
-        self._truncator = MarkdownTruncator(target_height_ratio=0.7)
+        self._truncator = MarkdownTruncator(target_height_ratio=MARKDOWN_STREAM_TARGET_RATIO)
+        self._plain_truncator = (
+            PlainTextTruncator(target_height_ratio=PLAIN_STREAM_TARGET_RATIO)
+            if self._use_plain_text
+            else None
+        )
         if self._live:
             self._live.__enter__()
 
@@ -1590,29 +1608,59 @@ class _StreamingMessageHandle:
         if not self._active or not chunk:
             return
 
-        # Detect if we're streaming table content
-        # Tables have rows starting with '|' and we want to batch updates until we get a complete row
-        text_so_far = "".join(self._buffer)
+        if self._use_plain_text:
+            chunk = self._wrap_plain_chunk(chunk)
+            if self._pending_table_row:
+                self._buffer.append(self._pending_table_row)
+                self._pending_table_row = ""
+        else:
+            # Detect if we're streaming table content
+            # Tables have rows starting with '|' and we want to batch updates until we get a complete row
+            text_so_far = "".join(self._buffer)
 
-        # Check if we're currently in a table (last non-empty line starts with |)
-        lines = text_so_far.strip().split("\n")
-        last_line = lines[-1] if lines else ""
-        currently_in_table = last_line.strip().startswith("|")
+            # Check if we're currently in a table (last non-empty line starts with |)
+            lines = text_so_far.strip().split("\n")
+            last_line = lines[-1] if lines else ""
+            currently_in_table = last_line.strip().startswith("|")
 
-        # If we're in a table and the chunk doesn't contain a newline, accumulate it
-        if currently_in_table and "\n" not in chunk:
-            self._pending_table_row += chunk
-            # Don't update display yet - wait for complete row
-            return
+            # If we're in a table and the chunk doesn't contain a newline, accumulate it
+            if currently_in_table and "\n" not in chunk:
+                self._pending_table_row += chunk
+                # Don't update display yet - wait for complete row
+                return
 
-        # If we have a pending table row, flush it now
-        if self._pending_table_row:
-            self._buffer.append(self._pending_table_row)
-            self._pending_table_row = ""
+            # If we have a pending table row, flush it now
+            if self._pending_table_row:
+                self._buffer.append(self._pending_table_row)
+                self._pending_table_row = ""
 
         self._buffer.append(chunk)
 
         text = "".join(self._buffer)
+
+        if self._use_plain_text:
+            trimmed = self._trim_to_displayable(text)
+            if trimmed != text:
+                text = trimmed
+                self._buffer = [trimmed]
+
+        # Guard against single logical paragraphs that would expand far wider than expected.
+        trailing_paragraph = self._extract_trailing_paragraph(text)
+        if trailing_paragraph and "\n" not in trailing_paragraph:
+            width = max(1, console.console.size.width)
+            target_ratio = (
+                PLAIN_STREAM_TARGET_RATIO if self._use_plain_text else MARKDOWN_STREAM_TARGET_RATIO
+            )
+            target_rows = max(
+                1,
+                int(console.console.size.height * target_ratio) - 1,
+            )
+            estimated_rows = math.ceil(len(trailing_paragraph.expandtabs()) / width)
+            if estimated_rows > target_rows:
+                trimmed_text = self._trim_to_displayable(text)
+                if trimmed_text != text:
+                    text = trimmed_text
+                    self._buffer = [trimmed_text]
 
         # Trim buffer periodically to avoid unbounded growth
         # Keep only what can fit in ~1.5x terminal height
@@ -1637,7 +1685,7 @@ class _StreamingMessageHandle:
             # Combine header and content using Group
             from rich.console import Group
 
-            combined = Group(header, Text(""), content)
+            combined = Group(header, content)
             self._live.update(combined)
 
     def _build_header(self) -> Text:
@@ -1725,7 +1773,15 @@ class _StreamingMessageHandle:
 
         terminal_height = console.console.size.height - 1
 
-        # Use the optimized streaming truncator (16x faster!)
+        if self._use_plain_text and self._plain_truncator:
+            terminal_width = console.console.size.width
+            return self._plain_truncator.truncate(
+                text,
+                terminal_height=terminal_height,
+                terminal_width=terminal_width,
+            )
+
+        # Use the optimized streaming truncator (16x faster!) for markdown
         return self._truncator.truncate(
             text,
             terminal_height=terminal_height,
@@ -1762,3 +1818,68 @@ class _StreamingMessageHandle:
     def final_text(self) -> str | None:
         """Return the final text captured during streaming (if any)."""
         return self._final_text
+
+    def _extract_trailing_paragraph(self, text: str) -> str:
+        """Return text since the last blank line, used to detect in-progress paragraphs."""
+        if not text:
+            return ""
+        double_break = text.rfind("\n\n")
+        if double_break != -1:
+            candidate = text[double_break + 2 :]
+        else:
+            candidate = text
+        if "\n" in candidate:
+            candidate = candidate.split("\n")[-1]
+        return candidate
+
+    def _wrap_plain_chunk(self, chunk: str) -> str:
+        """Insert soft line breaks into long plain text segments."""
+        width = max(1, console.console.size.width)
+        if not chunk or width <= 1:
+            return chunk
+
+        result_segments: List[str] = []
+        start = 0
+        length = len(chunk)
+
+        while start < length:
+            newline_pos = chunk.find("\n", start)
+            if newline_pos == -1:
+                line = chunk[start:]
+                delimiter = ""
+                start = length
+            else:
+                line = chunk[start:newline_pos]
+                delimiter = "\n"
+                start = newline_pos + 1
+
+            if len(line.expandtabs()) > width:
+                wrapped = self._wrap_plain_line(line, width)
+                result_segments.append("\n".join(wrapped))
+            else:
+                result_segments.append(line)
+
+            result_segments.append(delimiter)
+
+        return "".join(result_segments)
+
+    @staticmethod
+    def _wrap_plain_line(line: str, width: int) -> List[str]:
+        """Wrap a single line to the terminal width."""
+        if not line:
+            return [""]
+
+        segments: List[str] = []
+        remaining = line
+
+        while len(remaining) > width:
+            break_at = remaining.rfind(" ", 0, width)
+            if break_at == -1 or break_at < width // 2:
+                break_at = width
+                segments.append(remaining[:break_at])
+                remaining = remaining[break_at:]
+            else:
+                segments.append(remaining[:break_at])
+                remaining = remaining[break_at + 1 :]
+        segments.append(remaining)
+        return segments

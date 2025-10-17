@@ -293,7 +293,9 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: Optional[ElicitationFnT] = None,
             api_key: str | None = None,
-        ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def custom(
             self,
@@ -483,7 +485,7 @@ class FastAgent:
                     if has_parallel:
                         cfg = self.app.context.config
                         if cfg is not None and cfg.logger is not None:
-                            cfg.logger.streaming_display = False
+                            cfg.logger.streaming = "none"
 
                     # Handle command line options that should be processed after agent initialization
 

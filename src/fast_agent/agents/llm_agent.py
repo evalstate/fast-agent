@@ -223,14 +223,12 @@ class LlmAgent(LlmDecorator):
         if not self._context or not self._context.config:
             return True
 
-        logger_settings = getattr(self._context.config, "logger", None)
-        if not logger_settings:
-            return True
-
-        if not getattr(logger_settings, "show_chat", True):
+        logger_settings = self._context.config.logger
+        if not logger_settings.show_chat:
             return False
-
-        return bool(getattr(logger_settings, "streaming_display", True))
+        if "none" == logger_settings.streaming:
+            return False
+        return True
 
     async def generate_impl(
         self,
@@ -264,7 +262,9 @@ class LlmAgent(LlmDecorator):
                     remove_listener = None
 
                 try:
-                    result, summary = await self._generate_with_summary(messages, request_params, tools)
+                    result, summary = await self._generate_with_summary(
+                        messages, request_params, tools
+                    )
                 finally:
                     if remove_listener:
                         remove_listener()
@@ -278,7 +278,9 @@ class LlmAgent(LlmDecorator):
         else:
             result, summary = await self._generate_with_summary(messages, request_params, tools)
 
-            summary_text = Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+            summary_text = (
+                Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
+            )
             await self.show_assistant_message(result, additional_message=summary_text)
 
         return result
