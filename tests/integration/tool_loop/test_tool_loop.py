@@ -38,7 +38,7 @@ class ToolGeneratingLlm(PassthroughLLM):
 async def test_tool_loop(fast_agent):
     @fast_agent.agent(instruction="You are a helpful AI Agent")
     async def agent_function():
-        async with fast_agent.run() as agent:
+        async with fast_agent.run():
             tool_llm = ToolGeneratingLlm()
             tool_agent: ToolAgent = ToolAgent(AgentConfig("tool_calling"), [tool_function])
             tool_agent._llm = tool_llm
