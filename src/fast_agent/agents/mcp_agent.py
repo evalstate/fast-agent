@@ -666,6 +666,15 @@ class McpAgent(ABC, ToolAgent):
             try:
                 # Use our aggregator to call the MCP tool
                 result = await self.call_tool(tool_name, tool_args)
+
+                if result.isError:
+                    tool_loop_error = self._mark_tool_loop_error(
+                        correlation_id=correlation_id,
+                        error_message='\n'.join([str(r.text) for r in result.content]),
+                        tool_results=tool_results,
+                    )
+                    self.logger.error(tool_loop_error)
+                    break
                 tool_results[correlation_id] = result
 
                 # Show tool result (like ToolAgent does)
