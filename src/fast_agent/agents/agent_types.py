@@ -39,7 +39,8 @@ class AgentConfig:
     tools: Optional[Dict[str, List[str]]] = None
     resources: Optional[Dict[str, List[str]]] = None
     prompts: Optional[Dict[str, List[str]]] = None
-    skills: Optional[List[SkillManifest | Path | None]] = None
+    skills: SkillManifest | Path | str | None = None
+    skill_manifests: List[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
     use_history: bool = True
     default_request_params: RequestParams | None = None

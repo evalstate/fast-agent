@@ -26,7 +26,8 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
     manifests = SkillRegistry.load_directory(skills_root)
     context = Context()
 
-    config = AgentConfig(name="test", instruction="Instruction", servers=[], skills=manifests)
+    config = AgentConfig(name="test", instruction="Instruction", servers=[], skills=skills_root)
+    config.skill_manifests = manifests
 
     agent = McpAgent(config=config, context=context)
 

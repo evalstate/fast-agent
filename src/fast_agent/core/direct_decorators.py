@@ -183,7 +183,7 @@ def _decorator_impl(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
-    skills: Optional[List[SkillManifest | Path | None]] = None,
+    skills: SkillManifest | Path | str | List[SkillManifest | Path | str | None] | None = None,
     **extra_kwargs,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -259,7 +259,7 @@ def agent(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
-    skills: Optional[List[SkillManifest | Path | None]] = None,
+    skills: SkillManifest | Path | str | None = None,
     model: Optional[str] = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -326,7 +326,7 @@ def custom(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
-    skills: Optional[List[SkillManifest | Path | None]] = None,
+    skills: SkillManifest | Path | str | None = None,
     model: Optional[str] = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,

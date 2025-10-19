@@ -68,3 +68,15 @@ def test_no_default_directory(tmp_path: Path) -> None:
     registry = SkillRegistry(base_dir=tmp_path)
     assert registry.directory is None
     assert registry.load_manifests() == []
+
+
+def test_registry_reports_errors(tmp_path: Path) -> None:
+    invalid_dir = tmp_path / ".fast-agent" / "skills" / "invalid"
+    invalid_dir.mkdir(parents=True)
+    (invalid_dir / "SKILLS.md").write_text("invalid front matter", encoding="utf-8")
+
+    registry = SkillRegistry(base_dir=tmp_path)
+    manifests, errors = registry.load_manifests_with_errors()
+    assert manifests == []
+    assert errors
+    assert "invalid" in errors[0]["path"]

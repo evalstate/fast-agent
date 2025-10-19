@@ -30,7 +30,9 @@ class SkillRegistry:
         self, *, base_dir: Path | None = None, override_directory: Path | None = None
     ) -> None:
         self._base_dir = base_dir or Path.cwd()
-        self._directory = None
+        self._directory: Path | None = None
+        self._override_failed: bool = False
+        self._errors: List[dict[str, str]] = []
         if override_directory:
             resolved = self._resolve_directory(override_directory)
             if resolved and resolved.exists() and resolved.is_dir():
@@ -40,17 +42,31 @@ class SkillRegistry:
                     "Skills directory override not found",
                     data={"directory": str(resolved)},
                 )
-        if self._directory is None:
+                self._override_failed = True
+        if self._directory is None and not self._override_failed:
             self._directory = self._find_default_directory()
 
     @property
     def directory(self) -> Path | None:
         return self._directory
 
+    @property
+    def override_failed(self) -> bool:
+        return self._override_failed
+
     def load_manifests(self) -> List[SkillManifest]:
+        self._errors = []
         if not self._directory:
             return []
-        return self._load_directory(self._directory)
+        return self._load_directory(self._directory, self._errors)
+
+    def load_manifests_with_errors(self) -> tuple[List[SkillManifest], List[dict[str, str]]]:
+        manifests = self.load_manifests()
+        return manifests, list(self._errors)
+
+    @property
+    def errors(self) -> List[dict[str, str]]:
+        return list(self._errors)
 
     def _find_default_directory(self) -> Path | None:
         for candidate in self.DEFAULT_CANDIDATES:
@@ -75,7 +91,17 @@ class SkillRegistry:
         return cls._load_directory(directory)
 
     @classmethod
-    def _load_directory(cls, directory: Path) -> List[SkillManifest]:
+    def load_directory_with_errors(
+        cls, directory: Path
+    ) -> tuple[List[SkillManifest], List[dict[str, str]]]:
+        errors: List[dict[str, str]] = []
+        manifests = cls._load_directory(directory, errors)
+        return manifests, errors
+
+    @classmethod
+    def _load_directory(
+        cls, directory: Path, errors: List[dict[str, str]] | None = None
+    ) -> List[SkillManifest]:
         manifests: List[SkillManifest] = []
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
@@ -83,13 +109,20 @@ class SkillRegistry:
             manifest_path = entry / "SKILLS.md"
             if not manifest_path.exists():
                 continue
-            manifest = cls._parse_manifest(manifest_path)
+            manifest, error = cls._parse_manifest(manifest_path)
             if manifest:
                 manifests.append(manifest)
+            elif errors is not None:
+                errors.append(
+                    {
+                        "path": str(manifest_path),
+                        "error": error or "Failed to parse skill manifest",
+                    }
+                )
         return manifests
 
     @classmethod
-    def _parse_manifest(cls, manifest_path: Path) -> SkillManifest | None:
+    def _parse_manifest(cls, manifest_path: Path) -> tuple[SkillManifest | None, str | None]:
         try:
             post = frontmatter.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception as exc:  # noqa: BLE001
@@ -97,7 +130,7 @@ class SkillRegistry:
                 "Failed to parse skill manifest",
                 data={"path": str(manifest_path), "error": str(exc)},
             )
-            return None
+            return None, str(exc)
 
         metadata = post.metadata or {}
         name = metadata.get("name")
@@ -105,10 +138,10 @@ class SkillRegistry:
 
         if not isinstance(name, str) or not name.strip():
             logger.warning("Skill manifest missing name", data={"path": str(manifest_path)})
-            return None
+            return None, "Missing 'name' field"
         if not isinstance(description, str) or not description.strip():
             logger.warning("Skill manifest missing description", data={"path": str(manifest_path)})
-            return None
+            return None, "Missing 'description' field"
 
         body_text = (post.content or "").strip()
 
@@ -117,4 +150,4 @@ class SkillRegistry:
             description=description.strip(),
             body=body_text,
             path=manifest_path,
-        )
+        ), None

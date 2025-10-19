@@ -97,9 +97,16 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
-        self._skill_manifests: List[SkillManifest] = list(self.config.skills or [])
+        manifests: List[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
+        if not manifests and context and getattr(context, "skill_registry", None):
+            try:
+                manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
+            except Exception:
+                manifests = []
+
+        self._skill_manifests = list(manifests)
         self._skill_map: Dict[str, SkillManifest] = {
-            manifest.name: manifest for manifest in self._skill_manifests
+            manifest.name: manifest for manifest in manifests
         }
         self._skill_tools: List[Tool] = [
             Tool(
@@ -112,9 +119,8 @@ class McpAgent(ABC, ToolAgent):
                 },
                 _meta={"fast-agent/skillPath": str(manifest.path)},
             )
-            for manifest in self._skill_manifests
+            for manifest in manifests
         ]
-        print(self._skill_tools)
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params

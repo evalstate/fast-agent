@@ -647,7 +647,6 @@ class FastAgent:
                             pass
 
     def _apply_skills_to_agent_configs(self, default_skills: List[SkillManifest]) -> None:
-        registry = getattr(self.context, "skill_registry", None)
         self._default_skill_manifests = list(default_skills)
 
         for agent_data in self.agents.values():
@@ -661,31 +660,30 @@ class FastAgent:
             else:
                 resolved = self._deduplicate_skills(resolved)
 
-            config_obj.skills = resolved
+            config_obj.skill_manifests = resolved
 
     def _resolve_skills(
-        self, entries: Optional[List[SkillManifest | Path | None]]
+        self, entry: SkillManifest | Path | str | List[SkillManifest | Path | str | None] | None
     ) -> List[SkillManifest]:
-        if not entries:
+        if entry is None:
             return []
+        if isinstance(entry, list):
+            manifests: List[SkillManifest] = []
+            for item in entry:
+                manifests.extend(self._resolve_skills(item))
+            return manifests
+        if isinstance(entry, SkillManifest):
+            return [entry]
+        if isinstance(entry, Path):
+            return SkillRegistry.load_directory(entry.expanduser().resolve())
+        if isinstance(entry, str):
+            return SkillRegistry.load_directory(Path(entry).expanduser().resolve())
 
-        manifests: List[SkillManifest] = []
-        for entry in entries:
-            if entry is None:
-                continue
-            if isinstance(entry, SkillManifest):
-                manifests.append(entry)
-            elif isinstance(entry, Path):
-                manifests.extend(SkillRegistry.load_directory(entry.expanduser().resolve()))
-            elif isinstance(entry, str):
-                path = Path(entry).expanduser().resolve()
-                manifests.extend(SkillRegistry.load_directory(path))
-            else:
-                logger.debug(
-                    "Unsupported skill entry type",
-                    data={"type": type(entry).__name__},
-                )
-        return manifests
+        logger.debug(
+            "Unsupported skill entry type",
+            data={"type": type(entry).__name__},
+        )
+        return []
 
     @staticmethod
     def _deduplicate_skills(manifests: List[SkillManifest]) -> List[SkillManifest]:
