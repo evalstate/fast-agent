@@ -26,6 +26,7 @@ from fast_agent.core.logging.events import EventFilter, StreamingExclusionFilter
 from fast_agent.core.logging.logger import LoggingConfig, get_logger
 from fast_agent.core.logging.transport import create_transport
 from fast_agent.mcp_server_registry import ServerRegistry
+from fast_agent.skills import SkillRegistry
 
 if TYPE_CHECKING:
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
@@ -56,6 +57,7 @@ class Context(BaseModel):
     # Registries
     server_registry: Optional[ServerRegistry] = None
     task_registry: Optional[ActivityRegistry] = None
+    skill_registry: Optional[SkillRegistry] = None
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None
@@ -205,6 +207,15 @@ async def initialize_context(
     context = Context()
     context.config = config
     context.server_registry = ServerRegistry(config=config)
+
+    skills_settings = getattr(config, "skills", None)
+    override_directory = None
+    if skills_settings and getattr(skills_settings, "directory", None):
+        override_directory = Path(skills_settings.directory).expanduser()
+    context.skill_registry = SkillRegistry(
+        base_dir=Path.cwd(),
+        override_directory=override_directory,
+    )
 
     # Configure logging and telemetry
     await configure_otel(config)

@@ -6,6 +6,7 @@ directly creates Agent instances without proxies.
 
 import argparse
 import asyncio
+import pathlib
 import sys
 from contextlib import asynccontextmanager
 from importlib.metadata import version as get_version
@@ -76,6 +77,7 @@ from fast_agent.core.validation import (
     validate_workflow_references,
 )
 from fast_agent.mcp.prompts.prompt_load import load_prompt
+from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
@@ -102,6 +104,7 @@ class FastAgent:
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
+        skills_directory: str | pathlib.Path | None = None,
         **kwargs,
     ) -> None:
         """
@@ -119,6 +122,10 @@ class FastAgent:
         """
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
+        self._skills_directory_override = (
+            Path(skills_directory).expanduser() if skills_directory else None
+        )
+        self._default_skill_manifests: List[SkillManifest] = []
 
         # --- Wrap argument parsing logic ---
         if parse_cli_args:
@@ -271,6 +278,7 @@ class FastAgent:
         from collections.abc import Coroutine
         from pathlib import Path
 
+        from fast_agent.skills import SkillManifest
         from fast_agent.types import RequestParams
 
         P = ParamSpec("P")
@@ -286,6 +294,7 @@ class FastAgent:
             tools: Optional[Dict[str, List[str]]] = None,
             resources: Optional[Dict[str, List[str]]] = None,
             prompts: Optional[Dict[str, List[str]]] = None,
+            skills: Optional[List[SkillManifest | Path | None]] = None,
             model: Optional[str] = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -308,6 +317,7 @@ class FastAgent:
             tools: Optional[Dict[str, List[str]]] = None,
             resources: Optional[Dict[str, List[str]]] = None,
             prompts: Optional[Dict[str, List[str]]] = None,
+            skills: Optional[List[SkillManifest | Path | None]] = None,
             model: Optional[str] = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -430,6 +440,21 @@ class FastAgent:
         with tracer.start_as_current_span(self.name):
             try:
                 async with self.app.run():
+                    registry = getattr(self.context, "skill_registry", None)
+                    if self._skills_directory_override is not None:
+                        override_registry = SkillRegistry(
+                            base_dir=Path.cwd(),
+                            override_directory=self._skills_directory_override,
+                        )
+                        self.context.skill_registry = override_registry
+                        registry = override_registry
+
+                    default_skills: List[SkillManifest] = []
+                    if registry:
+                        default_skills = registry.load_manifests()
+
+                    self._apply_skills_to_agent_configs(default_skills)
+
                     # Apply quiet mode if requested
                     if quiet_mode:
                         cfg = self.app.context.config
@@ -620,6 +645,56 @@ class FastAgent:
                             await agent.shutdown()
                         except Exception:
                             pass
+
+    def _apply_skills_to_agent_configs(self, default_skills: List[SkillManifest]) -> None:
+        registry = getattr(self.context, "skill_registry", None)
+        self._default_skill_manifests = list(default_skills)
+
+        for agent_data in self.agents.values():
+            config_obj = agent_data.get("config")
+            if not config_obj:
+                continue
+
+            resolved = self._resolve_skills(config_obj.skills)
+            if not resolved:
+                resolved = list(default_skills)
+            else:
+                resolved = self._deduplicate_skills(resolved)
+
+            config_obj.skills = resolved
+
+    def _resolve_skills(
+        self, entries: Optional[List[SkillManifest | Path | None]]
+    ) -> List[SkillManifest]:
+        if not entries:
+            return []
+
+        manifests: List[SkillManifest] = []
+        for entry in entries:
+            if entry is None:
+                continue
+            if isinstance(entry, SkillManifest):
+                manifests.append(entry)
+            elif isinstance(entry, Path):
+                manifests.extend(SkillRegistry.load_directory(entry.expanduser().resolve()))
+            elif isinstance(entry, str):
+                path = Path(entry).expanduser().resolve()
+                manifests.extend(SkillRegistry.load_directory(path))
+            else:
+                logger.debug(
+                    "Unsupported skill entry type",
+                    data={"type": type(entry).__name__},
+                )
+        return manifests
+
+    @staticmethod
+    def _deduplicate_skills(manifests: List[SkillManifest]) -> List[SkillManifest]:
+        unique: Dict[str, SkillManifest] = {}
+        for manifest in manifests:
+            key = manifest.name.lower()
+            if key not in unique:
+                unique[key] = manifest
+        return list(unique.values())
 
     def _handle_error(self, e: Exception, error_type: Optional[str] = None) -> None:
         """

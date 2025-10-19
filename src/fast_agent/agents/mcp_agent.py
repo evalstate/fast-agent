@@ -59,6 +59,7 @@ if TYPE_CHECKING:
 
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.skills import SkillManifest
 
 
 class McpAgent(ABC, ToolAgent):
@@ -96,6 +97,24 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
+        self._skill_manifests: List[SkillManifest] = list(self.config.skills or [])
+        self._skill_map: Dict[str, SkillManifest] = {
+            manifest.name: manifest for manifest in self._skill_manifests
+        }
+        self._skill_tools: List[Tool] = [
+            Tool(
+                name=manifest.name,
+                description=manifest.description,
+                inputSchema={
+                    "type": "object",
+                    "properties": {},
+                    "additionalProperties": False,
+                },
+                _meta={"fast-agent/skillPath": str(manifest.path)},
+            )
+            for manifest in self._skill_manifests
+        ]
+        print(self._skill_tools)
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -315,11 +334,12 @@ class McpAgent(ABC, ToolAgent):
         """
         # Get all tools from the aggregator
         result = await self._aggregator.list_tools()
+        aggregator_tools = list(result.tools)
 
         # Apply filtering if tools are specified in config
         if self.config.tools is not None:
             filtered_tools = []
-            for tool in result.tools:
+            for tool in aggregator_tools:
                 # Extract server name from tool name, handling server names with hyphens
                 server_name = None
                 for configured_server in self.config.tools.keys():
@@ -334,7 +354,12 @@ class McpAgent(ABC, ToolAgent):
                         if self._matches_pattern(tool.name, pattern, server_name):
                             filtered_tools.append(tool)
                             break
-            result.tools = filtered_tools
+            aggregator_tools = filtered_tools
+
+        result.tools = aggregator_tools
+
+        if self._skill_tools:
+            result.tools.extend(self._skill_tools)
 
         # Append human input tool if enabled and available
         if self.config.human_input and getattr(self, "_human_input_tool", None):
@@ -353,6 +378,14 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
+        if name in self._skill_map:
+            manifest = self._skill_map[name]
+            response_text = manifest.body or manifest.description
+            return CallToolResult(
+                isError=False,
+                content=[TextContent(type="text", text=response_text)],
+            )
+
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
             return await self._call_human_input_tool(arguments)
@@ -984,6 +1017,18 @@ class McpAgent(ABC, ToolAgent):
         """
         Convert a Tool to an AgentSkill.
         """
+
+        if tool.name in self._skill_map:
+            manifest = self._skill_map[tool.name]
+            return AgentSkill(
+                id=f"skill:{manifest.name}",
+                name=manifest.name,
+                description=manifest.description or "",
+                tags=["skill"],
+                examples=None,
+                input_modes=None,
+                output_modes=None,
+            )
 
         _, tool_without_namespace = await self._parse_resource_name(tool.name, "tool")
         return AgentSkill(

@@ -351,7 +351,8 @@ class AgentCompleter(Completer):
         self.commands = {
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
-            "tools": "List available MCP tools",
+            "tools": "List available MCP Tools",
+            "skills": "List available Agent Skills",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "agents": "List available agents",
@@ -984,6 +985,8 @@ async def get_enhanced_input(
             elif cmd == "tools":
                 # Return a dictionary with list_tools action
                 return {"list_tools": True}
+            elif cmd == "skills":
+                return {"list_skills": True}
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":
@@ -1147,6 +1150,7 @@ async def handle_special_commands(
         rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
+        rich_print("  /skills        - List local skills for the active agent")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")

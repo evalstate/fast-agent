@@ -27,6 +27,7 @@ from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_P
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
+from fast_agent.skills import SkillManifest
 from fast_agent.types import RequestParams
 
 # Type variables for the decorated function
@@ -182,6 +183,7 @@ def _decorator_impl(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
+    skills: Optional[List[SkillManifest | Path | None]] = None,
     **extra_kwargs,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -209,6 +211,7 @@ def _decorator_impl(
             tools=tools,
             resources=resources,
             prompts=prompts,
+            skills=skills,
             model=model,
             use_history=use_history,
             human_input=human_input,
@@ -256,6 +259,7 @@ def agent(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
+    skills: Optional[List[SkillManifest | Path | None]] = None,
     model: Optional[str] = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -306,6 +310,7 @@ def agent(
         tools=tools,
         resources=resources,
         prompts=prompts,
+        skills=skills,
         api_key=api_key,
     )
 
@@ -321,6 +326,7 @@ def custom(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
+    skills: Optional[List[SkillManifest | Path | None]] = None,
     model: Optional[str] = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -368,6 +374,7 @@ def custom(
         tools=tools,
         resources=resources,
         prompts=prompts,
+        skills=skills,
     )
 
 

@@ -14,6 +14,7 @@ Usage:
     )
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
 
 if TYPE_CHECKING:
@@ -168,6 +169,9 @@ class InteractivePrompt:
                     elif "list_tools" in command_dict:
                         # Handle tools list display
                         await self._list_tools(prompt_provider, agent)
+                        continue
+                    elif "list_skills" in command_dict:
+                        await self._list_skills(prompt_provider, agent)
                         continue
                     elif "show_usage" in command_dict:
                         # Handle usage display
@@ -857,19 +861,24 @@ class InteractivePrompt:
             rich_print()
 
             # Display tools using clean compact format
-            for i, tool in enumerate(tools_result.tools, 1):
+            index = 1
+            for tool in tools_result.tools:
                 # Main line: [ 1] tool_name Title
                 from rich.text import Text
 
+                meta = getattr(tool, "meta", {}) or {}
+                if meta.get("fast-agent/skillPath"):
+                    # Skip skill-backed entries; these are shown via /skills
+                    continue
+
                 tool_line = Text()
-                tool_line.append(f"[{i:2}] ", style="dim cyan")
+                tool_line.append(f"[{index:2}] ", style="dim cyan")
                 tool_line.append(tool.name, style="bright_blue bold")
 
                 # Add title if available
                 if tool.title and tool.title.strip():
                     tool_line.append(f" {tool.title}", style="default")
 
-                meta = getattr(tool, "meta", {}) or {}
                 if meta.get("openai/skybridgeEnabled"):
                     tool_line.append(" (skybridge)", style="cyan")
 
@@ -932,11 +941,88 @@ class InteractivePrompt:
                         rich_print(f"     [dim magenta]template:[/dim magenta] {template}")
 
                 rich_print()  # Space between tools
+                index += 1
 
+            if index == 1:
+                rich_print("[yellow]No MCP tools available for this agent[/yellow]")
         except Exception as e:
             import traceback
 
             rich_print(f"[red]Error listing tools: {e}[/red]")
+            rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    async def _list_skills(self, prompt_provider: "AgentApp", agent_name: str) -> None:
+        """List available local skills for an agent."""
+
+        try:
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
+
+            rich_print(f"\n[bold]Skills for agent [cyan]{agent_name}[/cyan]:[/bold]")
+
+            skill_manifests = getattr(agent, "_skill_manifests", None)
+            if skill_manifests:
+                manifests = list(skill_manifests)
+            else:
+                tools_result = await agent.list_tools()
+                manifests = []
+                if tools_result and hasattr(tools_result, "tools"):
+                    for tool in tools_result.tools:
+                        meta = getattr(tool, "meta", None) or getattr(tool, "_meta", None) or {}
+                        skill_path = meta.get("fast-agent/skillPath")
+                        if not skill_path:
+                            continue
+                        manifests.append(
+                            type("SkillToolProxy", (), {"name": tool.name, "description": tool.description or "", "path": Path(skill_path)})()
+                        )
+
+            if not manifests:
+                rich_print("[yellow]No skills available for this agent[/yellow]")
+                return
+
+            rich_print()
+
+            for index, manifest in enumerate(manifests, 1):
+                from rich.text import Text
+
+                name = getattr(manifest, "name", "")
+                description = getattr(manifest, "description", "")
+                path = Path(getattr(manifest, "path", Path()))
+
+                tool_line = Text()
+                tool_line.append(f"[{index:2}] ", style="dim cyan")
+                tool_line.append(name, style="bright_blue bold")
+                rich_print(tool_line)
+
+                if description:
+                    import textwrap
+
+                    wrapped_lines = textwrap.wrap(description.strip(), width=72, subsequent_indent="     ")
+                    for line in wrapped_lines:
+                        if line.startswith("     "):
+                            rich_print(f"     [white]{line[5:]}[/white]")
+                        else:
+                            rich_print(f"     [white]{line}[/white]")
+
+                source_path = path if path else Path(".")
+                if source_path.is_file():
+                    source_path = source_path.parent
+                try:
+                    display_path = source_path.relative_to(Path.cwd())
+                except ValueError:
+                    display_path = source_path
+
+                rich_print(f"     [dim green]source:[/dim green] {display_path}")
+                if getattr(manifest, "body", None):
+                    rich_print("     [dim]Use the skill tool to read the full content.[/dim]")
+                rich_print()
+
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+
+            rich_print(f"[red]Error listing skills: {exc}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 
     async def _show_usage(self, prompt_provider: "AgentApp", agent_name: str) -> None:

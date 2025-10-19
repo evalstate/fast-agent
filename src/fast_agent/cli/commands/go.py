@@ -3,7 +3,7 @@
 import asyncio
 import shlex
 import sys
-from typing import Dict, List, Optional
+from pathlib import Path
 
 import typer
 
@@ -28,18 +28,17 @@ The current date is {{currentDate}}."""
 async def _run_agent(
     name: str = "fast-agent cli",
     instruction: str = default_instruction,
-    config_path: Optional[str] = None,
-    server_list: Optional[List[str]] = None,
-    model: Optional[str] = None,
-    message: Optional[str] = None,
-    prompt_file: Optional[str] = None,
-    url_servers: Optional[Dict[str, Dict[str, str]]] = None,
-    stdio_servers: Optional[Dict[str, Dict[str, str]]] = None,
-    agent_name: Optional[str] = "agent",
+    config_path: str | None = None,
+    server_list: list[str] | None = None,
+    model: str | None = None,
+    message: str | None = None,
+    prompt_file: str | None = None,
+    url_servers: dict[str, dict[str, str]] | None = None,
+    stdio_servers: dict[str, dict[str, str]] | None = None,
+    agent_name: str | None = "agent",
+    skills_directory: Path | None = None,
 ) -> None:
     """Async implementation to run an interactive agent."""
-    from pathlib import Path
-
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
     # Create the FastAgent instance
@@ -50,6 +49,8 @@ async def _run_agent(
         "ignore_unknown_args": True,
         "parse_cli_args": False,  # Don't parse CLI args, we're handling it ourselves
     }
+    if skills_directory is not None:
+        fast_kwargs["skills_directory"] = skills_directory
 
     fast = FastAgent(**fast_kwargs)
 
@@ -149,15 +150,16 @@ async def _run_agent(
 def run_async_agent(
     name: str,
     instruction: str,
-    config_path: Optional[str] = None,
-    servers: Optional[str] = None,
-    urls: Optional[str] = None,
-    auth: Optional[str] = None,
-    model: Optional[str] = None,
-    message: Optional[str] = None,
-    prompt_file: Optional[str] = None,
-    stdio_commands: Optional[List[str]] = None,
-    agent_name: Optional[str] = None,
+    config_path: str | None = None,
+    servers: str | None = None,
+    urls: str | None = None,
+    auth: str | None = None,
+    model: str | None = None,
+    message: str | None = None,
+    prompt_file: str | None = None,
+    stdio_commands: list[str] | None = None,
+    agent_name: str | None = None,
+    skills_directory: Path | None = None,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -258,6 +260,7 @@ def run_async_agent(
                 url_servers=url_servers,
                 stdio_servers=stdio_servers,
                 agent_name=agent_name,
+                skills_directory=skills_directory,
             )
         )
     finally:
@@ -280,37 +283,42 @@ def run_async_agent(
 def go(
     ctx: typer.Context,
     name: str = typer.Option("fast-agent", "--name", help="Name for the agent"),
-    instruction: Optional[str] = typer.Option(
+    instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
-    config_path: Optional[str] = typer.Option(
+    config_path: str | None = typer.Option(
         None, "--config-path", "-c", help="Path to config file"
     ),
-    servers: Optional[str] = typer.Option(
+    servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
     ),
-    urls: Optional[str] = typer.Option(
+    urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
     ),
-    auth: Optional[str] = typer.Option(
+    auth: str | None = typer.Option(
         None, "--auth", help="Bearer token for authorization with URL-based servers"
     ),
-    model: Optional[str] = typer.Option(
+    model: str | None = typer.Option(
         None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
     ),
-    message: Optional[str] = typer.Option(
+    message: str | None = typer.Option(
         None, "--message", "-m", help="Message to send to the agent (skips interactive mode)"
     ),
-    prompt_file: Optional[str] = typer.Option(
+    prompt_file: str | None = typer.Option(
         None, "--prompt-file", "-p", help="Path to a prompt file to use (either text or JSON)"
     ),
-    npx: Optional[str] = typer.Option(
+    skills_dir: Path | None = typer.Option(
+        None,
+        "--skills-dir",
+        help="Override the default skills directory",
+    ),
+    npx: str | None = typer.Option(
         None, "--npx", help="NPX package and args to run as MCP server (quoted)"
     ),
-    uvx: Optional[str] = typer.Option(
+    uvx: str | None = typer.Option(
         None, "--uvx", help="UVX package and args to run as MCP server (quoted)"
     ),
-    stdio: Optional[str] = typer.Option(
+    stdio: str | None = typer.Option(
         None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
     ),
 ) -> None:
@@ -341,6 +349,7 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
+        --skills-dir          Override the default skills folder
         --npx                 NPX package and args to run as MCP server (quoted)
         --uvx                 UVX package and args to run as MCP server (quoted)
         --stdio               Command to run as STDIO MCP server (quoted)
@@ -396,4 +405,5 @@ def go(
         prompt_file=prompt_file,
         stdio_commands=stdio_commands,
         agent_name=agent_name,
+        skills_directory=skills_dir,
     )

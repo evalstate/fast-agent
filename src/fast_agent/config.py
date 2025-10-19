@@ -95,18 +95,13 @@ class MCPTimelineSettings(BaseModel):
             raise ValueError("Timeline steps must be greater than zero.")
         return value
 
-    @field_validator("step_seconds", mode="before")
-    @classmethod
-    def _coerce_step_seconds(cls, value: Any) -> int:
-        if isinstance(value, str):
-            value = cls._parse_duration(value)
-        elif isinstance(value, (int, float)):
-            value = int(value)
-        else:
-            raise TypeError("Timeline step duration must be a number of seconds.")
-        if value <= 0:
-            raise ValueError("Timeline step duration must be greater than zero.")
-        return value
+
+class SkillsSettings(BaseModel):
+    """Configuration for the skills directory override."""
+
+    directory: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
 
 
 class MCPRootSettings(BaseModel):
@@ -590,6 +585,9 @@ class Settings(BaseSettings):
 
     mcp_timeline: MCPTimelineSettings = MCPTimelineSettings()
     """Display settings for MCP activity timelines."""
+
+    skills: SkillsSettings = SkillsSettings()
+    """Local skills discovery and selection settings."""
 
     @classmethod
     def find_config(cls) -> Path | None:
