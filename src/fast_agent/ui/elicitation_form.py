@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
 from prompt_toolkit.buffer import Buffer
+from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.bindings.focus import focus_next, focus_previous
@@ -24,6 +25,8 @@ from pydantic import AnyUrl, EmailStr
 from pydantic import ValidationError as PydanticValidationError
 
 from fast_agent.ui.elicitation_style import ELICITATION_STYLE
+
+text_navigation_mode = False
 
 
 class SimpleNumberValidator(Validator):
@@ -325,31 +328,38 @@ class ElicitationForm:
         def focus_previous_with_refresh(event):
             focus_previous(event)
 
+        # Toggle between text navigation mode and field navigation mode
+        @kb.add("c-t")
+        def toggle_text_navigation_mode(event):
+            global text_navigation_mode
+            text_navigation_mode = not text_navigation_mode
+            event.app.invalidate()  # Force redraw the app to update toolbar
+
         # Arrow key navigation - let radio lists handle up/down first
-        @kb.add("down")
+        @kb.add("down", filter=Condition(lambda: not text_navigation_mode))
         def focus_next_arrow(event):
             focus_next(event)
 
-        @kb.add("up")
+        @kb.add("up", filter=Condition(lambda: not text_navigation_mode))
         def focus_previous_arrow(event):
             focus_previous(event)
 
-        @kb.add("right", eager=True)
+        @kb.add("right", eager=True, filter=Condition(lambda: not text_navigation_mode))
         def focus_next_right(event):
             focus_next(event)
 
-        @kb.add("left", eager=True)
+        @kb.add("left", eager=True, filter=Condition(lambda: not text_navigation_mode))
         def focus_previous_left(event):
             focus_previous(event)
 
-        # Enter always submits
-        @kb.add("c-m")
-        def submit(event):
+        # Enter submits in field navigation mode
+        @kb.add("c-m", filter=Condition(lambda: not text_navigation_mode))
+        def submit_enter(event):
             self._accept()
 
-        # Ctrl+J inserts newlines
-        @kb.add("c-j")
-        def insert_newline(event):
+        # Ctrl+J inserts newlines in field navigation mode
+        @kb.add("c-j", filter=Condition(lambda: not text_navigation_mode))
+        def insert_newline_cj(event):
             # Insert a newline at the cursor position
             event.current_buffer.insert_text("\n")
             # Mark this field as multiline when user adds a newline
@@ -357,6 +367,22 @@ class ElicitationForm:
                 if isinstance(widget, Buffer) and widget == event.current_buffer:
                     self.multiline_fields.add(field_name)
                     break
+
+        # Enter inserts new lines in text navigation mode
+        @kb.add("c-m", filter=Condition(lambda: text_navigation_mode))
+        def insert_newline_enter(event):
+            # Insert a newline at the cursor position
+            event.current_buffer.insert_text("\n")
+            # Mark this field as multiline when user adds a newline
+            for field_name, widget in self.field_widgets.items():
+                if isinstance(widget, Buffer) and widget == event.current_buffer:
+                    self.multiline_fields.add(field_name)
+                    break
+
+        # Ctrl+J submits in text navigation mode (equivalent to enter in field navigation mode)
+        @kb.add("c-j", filter=Condition(lambda: text_navigation_mode))
+        def submit_cj(event):
+            self._accept()
 
         # ESC should ALWAYS cancel immediately, no matter what
         @kb.add("escape", eager=True, is_global=True)
@@ -369,18 +395,40 @@ class ElicitationForm:
             if hasattr(self, "_toolbar_hidden") and self._toolbar_hidden:
                 return FormattedText([])
 
-            return FormattedText(
-                [
-                    (
-                        "class:bottom-toolbar.text",
-                        " <TAB>/↑↓→← navigate. <ENTER> submit. <Ctrl+J> insert new line. <ESC> cancel. ",
-                    ),
-                    (
-                        "class:bottom-toolbar.text",
-                        "<Cancel All> Auto-Cancel further elicitations from this Server.",
-                    ),
-                ]
-            )
+            if text_navigation_mode:
+                return FormattedText(
+                    [
+                        (
+                            "class:bottom-toolbar.text",
+                            "<TAB> navigate. <ENTER> insert new line. <CTRL+J> submit. <ESC> cancel. ",
+                        ),
+                        (
+                            "class:bottom-toolbar.text",
+                            "<CTRL+T> toggle text navigation mode (active). ",
+                        ),
+                        (
+                            "class:bottom-toolbar.text",
+                            "<Cancel All> Auto-Cancel further elicitations from this Server.",
+                        ),
+                    ]
+                )
+            else:
+                return FormattedText(
+                    [
+                        (
+                            "class:bottom-toolbar.text",
+                            " <TAB>/↑↓→← navigate. <ENTER> submit. <Ctrl+J> insert new line. <ESC> cancel. ",
+                        ),
+                        (
+                            "class:bottom-toolbar.text",
+                            "<CTRL+T> toggle text navigation mode. ",
+                        ),
+                        (
+                            "class:bottom-toolbar.text",
+                            "<Cancel All> Auto-Cancel further elicitations from this Server.",
+                        ),
+                    ]
+                )
 
         # Store toolbar function reference for later control
         self._get_toolbar = get_toolbar
