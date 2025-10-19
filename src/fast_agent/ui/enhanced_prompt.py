@@ -108,13 +108,10 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
             server_names = agent.aggregator.server_names
             server_count = len(server_names) if server_names else 0
 
-        tool_count = 0
-        if hasattr(agent, "_mcp_provider"):
-            try:
-                mcp_tools = await agent._mcp_provider.list_tools()
-                tool_count = len(mcp_tools)
-            except Exception:
-                tool_count = 0
+        tools_result = await agent.list_tools()
+        tool_count = (
+            len(tools_result.tools) if tools_result and hasattr(tools_result, "tools") else 0
+        )
 
         resources_dict = await agent.list_resources()
         resource_count = (
@@ -125,16 +122,12 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
 
         skill_count = 0
-        skill_provider = getattr(agent, "_skill_provider", None)
-        if skill_provider and hasattr(skill_provider, "skill_count"):
-            skill_count = skill_provider.skill_count  # type: ignore[attr-defined]
-        else:
-            skill_manifests = getattr(agent, "_skill_manifests", None)
-            if skill_manifests:
-                try:
-                    skill_count = len(list(skill_manifests))
-                except TypeError:
-                    skill_count = 0
+        skill_manifests = getattr(agent, "_skill_manifests", None)
+        if skill_manifests:
+            try:
+                skill_count = len(list(skill_manifests))
+            except TypeError:
+                skill_count = 0
 
         # Handle different agent types
         if agent.agent_type == AgentType.PARALLEL:
@@ -165,6 +158,8 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                 )
         else:
             # For regular agents, display available MCP integrations and skills
+            display_parts = []
+
             content_parts = []
 
             if server_count > 0:

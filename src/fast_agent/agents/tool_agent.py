@@ -14,7 +14,6 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.tools.providers.base import ToolProvider
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -40,8 +39,6 @@ class ToolAgent(LlmAgent):
 
         self._execution_tools: dict[str, FastMCPTool] = {}
         self._tool_schemas: list[Tool] = []
-        self._tool_providers: List[ToolProvider] = []
-        self._provider_tool_map: Dict[str, ToolProvider] = {}
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FastMCPTool | Callable] = list(tools) if tools else []
@@ -145,9 +142,7 @@ class ToolAgent(LlmAgent):
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
 
-            provider = self._provider_tool_map.get(tool_name)
-
-            if tool_name not in self._execution_tools and provider is None:
+            if tool_name not in self._execution_tools:
                 error_message = f"Tool '{tool_name}' is not available"
                 logger.error(error_message)
                 tool_loop_error = self._mark_tool_loop_error(
@@ -218,38 +213,12 @@ class ToolAgent(LlmAgent):
 
     async def list_tools(self) -> ListToolsResult:
         """Return available tools for this agent. Overridable by subclasses."""
-        tools: List[Tool] = list(self._tool_schemas)
-        self._provider_tool_map = {}
-
-        for provider in self._tool_providers:
-            try:
-                provider_tools = await provider.list_tools()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning(
-                    "Tool provider failed to list tools",
-                    data={"provider": getattr(provider, "name", ""), "error": str(exc)},
-                )
-                continue
-
-            for tool in provider_tools:
-                tools.append(tool)
-                self._provider_tool_map[tool.name] = provider
-
-        return ListToolsResult(tools=tools)
+        return ListToolsResult(tools=list(self._tool_schemas))
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """Execute a tool by name using local FastMCP tools. Overridable by subclasses."""
         fast_tool = self._execution_tools.get(name)
         if not fast_tool:
-            provider = self._provider_tool_map.get(name)
-            if not provider:
-                for candidate in self._tool_providers:
-                    if candidate.can_handle_tool(name):
-                        provider = candidate
-                        break
-            if provider:
-                return await provider.call_tool(name, arguments or {})
-
             logger.warning(f"Unknown tool: {name}")
             return CallToolResult(
                 content=[text_content(f"Unknown tool: {name}")],
@@ -268,7 +237,3 @@ class ToolAgent(LlmAgent):
                 content=[text_content(f"Error: {str(e)}")],
                 isError=True,
             )
-
-    def register_tool_provider(self, provider: ToolProvider) -> None:
-        """Register a ToolProvider that contributes tools for this agent."""
-        self._tool_providers.append(provider)
