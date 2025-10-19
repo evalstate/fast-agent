@@ -849,20 +849,31 @@ class InteractivePrompt:
             )
             agent = prompt_provider._agent(agent_name)
 
-            rich_print(f"\n[bold]Tools for agent [cyan]{agent_name}[/cyan]:[/bold]")
+            rich_print(f"\n[bold]MCP Tools for agent [cyan]{agent_name}[/cyan]:[/bold]")
 
-            # Get tools using list_tools
-            tools_result = await agent.list_tools()
+            if hasattr(agent, "_mcp_provider"):
+                try:
+                    tools = await agent._mcp_provider.list_tools()  # type: ignore[attr-defined]
+                except Exception as exc:  # noqa: BLE001
+                    rich_print(f"[red]Error listing MCP tools: {exc}[/red]")
+                    return
+            else:
+                tools_result = await agent.list_tools()
+                tools = (
+                    list(tools_result.tools)
+                    if tools_result and hasattr(tools_result, "tools")
+                    else []
+                )
 
-            if not tools_result or not hasattr(tools_result, "tools") or not tools_result.tools:
-                rich_print("[yellow]No tools available for this agent[/yellow]")
+            if not tools:
+                rich_print("[yellow]No MCP tools available for this agent[/yellow]")
                 return
 
             rich_print()
 
             # Display tools using clean compact format
             index = 1
-            for tool in tools_result.tools:
+            for tool in tools:
                 # Main line: [ 1] tool_name Title
                 from rich.text import Text
 
