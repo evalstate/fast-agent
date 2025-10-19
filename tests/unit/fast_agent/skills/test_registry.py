@@ -80,3 +80,12 @@ def test_registry_reports_errors(tmp_path: Path) -> None:
     assert manifests == []
     assert errors
     assert "invalid" in errors[0]["path"]
+
+
+def test_override_missing_directory(tmp_path: Path) -> None:
+    override_dir = tmp_path / "missing" / "skills"
+    registry = SkillRegistry(base_dir=tmp_path, override_directory=override_dir)
+    manifests = registry.load_manifests()
+    assert manifests == []
+    assert registry.override_failed is True
+    assert registry.directory is None

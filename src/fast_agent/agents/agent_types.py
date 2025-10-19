@@ -9,7 +9,7 @@ from typing import Dict, List, Optional
 
 from mcp.client.session import ElicitationFnT
 
-from fast_agent.skills import SkillManifest
+from fast_agent.skills import SkillManifest, SkillRegistry
 
 # Forward imports to avoid circular dependencies
 from fast_agent.types import RequestParams
@@ -39,7 +39,7 @@ class AgentConfig:
     tools: Optional[Dict[str, List[str]]] = None
     resources: Optional[Dict[str, List[str]]] = None
     prompts: Optional[Dict[str, List[str]]] = None
-    skills: SkillManifest | Path | str | None = None
+    skills: SkillManifest | SkillRegistry | Path | str | None = None
     skill_manifests: List[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
     use_history: bool = True

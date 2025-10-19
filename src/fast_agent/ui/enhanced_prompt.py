@@ -121,6 +121,14 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
         prompts_dict = await agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
 
+        skill_count = 0
+        skill_manifests = getattr(agent, "_skill_manifests", None)
+        if skill_manifests:
+            try:
+                skill_count = len(list(skill_manifests))
+            except TypeError:
+                skill_count = 0
+
         # Handle different agent types
         if agent.agent_type == AgentType.PARALLEL:
             # Count child agents for parallel agents
@@ -149,36 +157,41 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                     f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {child_count:,}[dim] {child_word}[/dim]"
                 )
         else:
-            # For regular agents, only display if they have MCP servers attached
-            if server_count > 0:
-                # Build display parts in order: tools, prompts, resources (omit if count is 0)
-                display_parts = []
+            # For regular agents, display available MCP integrations and skills
+            display_parts = []
 
+            content_parts = []
+
+            if server_count > 0:
+                sub_parts = []
                 if tool_count > 0:
                     tool_word = "tool" if tool_count == 1 else "tools"
-                    display_parts.append(f"{tool_count:,}[dim] {tool_word}[/dim]")
-
+                    sub_parts.append(f"{tool_count:,}[dim] {tool_word}[/dim]")
                 if prompt_count > 0:
                     prompt_word = "prompt" if prompt_count == 1 else "prompts"
-                    display_parts.append(f"{prompt_count:,}[dim] {prompt_word}[/dim]")
-
+                    sub_parts.append(f"{prompt_count:,}[dim] {prompt_word}[/dim]")
                 if resource_count > 0:
                     resource_word = "resource" if resource_count == 1 else "resources"
-                    display_parts.append(f"{resource_count:,}[dim] {resource_word}[/dim]")
+                    sub_parts.append(f"{resource_count:,}[dim] {resource_word}[/dim]")
 
-                # Always show server count
                 server_word = "Server" if server_count == 1 else "Servers"
                 server_text = f"{server_count:,}[dim] MCP {server_word}[/dim]"
-
-                if display_parts:
-                    content = (
-                        f"{server_text}[dim], [/dim]"
-                        + "[dim], [/dim]".join(display_parts)
-                        + "[dim] available[/dim]"
+                if sub_parts:
+                    server_text = (
+                        f"{server_text}[dim] ([/dim]"
+                        + "[dim], [/dim]".join(sub_parts)
+                        + "[dim])[/dim]"
                     )
-                else:
-                    content = f"{server_text}[dim] available[/dim]"
+                content_parts.append(server_text)
 
+            if skill_count > 0:
+                skill_word = "skill" if skill_count == 1 else "skills"
+                content_parts.append(
+                    f"{skill_count:,}[dim] {skill_word}[/dim][dim] available[/dim]"
+                )
+
+            if content_parts:
+                content = "[dim]. [/dim]".join(content_parts)
                 rich_print(f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {content}")
         #               await _render_mcp_status(agent)
 

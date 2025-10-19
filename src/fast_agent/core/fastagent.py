@@ -278,7 +278,7 @@ class FastAgent:
         from collections.abc import Coroutine
         from pathlib import Path
 
-        from fast_agent.skills import SkillManifest
+        from fast_agent.skills import SkillManifest, SkillRegistry
         from fast_agent.types import RequestParams
 
         P = ParamSpec("P")
@@ -294,7 +294,7 @@ class FastAgent:
             tools: Optional[Dict[str, List[str]]] = None,
             resources: Optional[Dict[str, List[str]]] = None,
             prompts: Optional[Dict[str, List[str]]] = None,
-            skills: Optional[List[SkillManifest | Path | None]] = None,
+            skills: Optional[List[SkillManifest | SkillRegistry | Path | str | None]] = None,
             model: Optional[str] = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -317,7 +317,7 @@ class FastAgent:
             tools: Optional[Dict[str, List[str]]] = None,
             resources: Optional[Dict[str, List[str]]] = None,
             prompts: Optional[Dict[str, List[str]]] = None,
-            skills: Optional[List[SkillManifest | Path | None]] = None,
+            skills: Optional[List[SkillManifest | SkillRegistry | Path | str | None]] = None,
             model: Optional[str] = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -663,7 +663,13 @@ class FastAgent:
             config_obj.skill_manifests = resolved
 
     def _resolve_skills(
-        self, entry: SkillManifest | Path | str | List[SkillManifest | Path | str | None] | None
+        self,
+        entry: SkillManifest
+        | SkillRegistry
+        | Path
+        | str
+        | List[SkillManifest | SkillRegistry | Path | str | None]
+        | None,
     ) -> List[SkillManifest]:
         if entry is None:
             return []
@@ -674,6 +680,15 @@ class FastAgent:
             return manifests
         if isinstance(entry, SkillManifest):
             return [entry]
+        if isinstance(entry, SkillRegistry):
+            try:
+                return entry.load_manifests()
+            except Exception:
+                logger.debug(
+                    "Failed to load skills from registry",
+                    data={"registry": type(entry).__name__},
+                )
+                return []
         if isinstance(entry, Path):
             return SkillRegistry.load_directory(entry.expanduser().resolve())
         if isinstance(entry, str):

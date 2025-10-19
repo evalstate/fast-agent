@@ -686,13 +686,17 @@ def show_check_summary() -> None:
         else:
             console.print("[yellow]No skills found in the directory[/yellow]")
     else:
-        if override_directory:
+        if skills_registry.override_failed and override_directory:
             console.print(
                 f"[red]Override directory not found:[/red] {_relative_path(override_directory)}"
             )
-        console.print(
-            "[dim]Agent Skills not configured. Go to https://fast-agent.ai/agents/skills/[/dim]"
-        )
+            console.print(
+                "[yellow]Default folders were not loaded because the override failed[/yellow]"
+            )
+        else:
+            console.print(
+                "[dim]Agent Skills not configured. Go to https://fast-agent.ai/agents/skills/[/dim]"
+            )
 
     # Show help tips
     if config_status == "not_found" or secrets_status == "not_found":
