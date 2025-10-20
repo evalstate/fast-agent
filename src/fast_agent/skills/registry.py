@@ -24,7 +24,7 @@ class SkillManifest:
 class SkillRegistry:
     """Simple registry that resolves a single skills directory and parses manifests."""
 
-    DEFAULT_CANDIDATES = (Path(".fast-agent/skills"), Path("claude/skills"))
+    DEFAULT_CANDIDATES = (Path(".fast-agent/skills"), Path(".claude/skills"))
 
     def __init__(
         self, *, base_dir: Path | None = None, override_directory: Path | None = None
@@ -106,7 +106,7 @@ class SkillRegistry:
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue
-            manifest_path = entry / "SKILLS.md"
+            manifest_path = entry / "SKILL.md"
             if not manifest_path.exists():
                 continue
             manifest, error = cls._parse_manifest(manifest_path)

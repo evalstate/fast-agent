@@ -38,7 +38,6 @@ PLAIN_STREAM_TARGET_RATIO = 0.9
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 1
 
-
 class MessageType(Enum):
     """Types of messages that can be displayed."""
 
@@ -890,6 +889,7 @@ class ConsoleDisplay:
         highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
+        metadata: Dict[str, Any] | None = None,
     ) -> None:
         """Display a tool call in the new visual style.
 
@@ -900,23 +900,86 @@ class ConsoleDisplay:
             highlight_index: Index of item to highlight in the bottom separator (0-based), or None
             max_item_length: Optional max length for bottom items (with ellipsis)
             name: Optional agent name
+            metadata: Optional dictionary of metadata about the tool call
         """
         if not self.config or not self.config.logger.show_tools:
             return
 
-        # Build right info
+        tool_args = tool_args or {}
+        metadata = metadata or {}
+
+        # Build right info and specialised content for known variants
         right_info = f"[dim]tool request - {tool_name}[/dim]"
+        content: Any = tool_args
+        additional_message: Text | None = None
+        truncate_content = True
+
+        if metadata.get("variant") == "shell":
+            command = metadata.get("command") or tool_args.get("command")
+            command_lines = command.splitlines() if isinstance(command, str) else []
+
+            command_text = Text()
+            if command_lines:
+                for idx, line in enumerate(command_lines):
+                    if idx > 0:
+                        command_text.append("\n")
+                    command_text.append("$ ", style="magenta")
+                    command_text.append(line, style="white")
+            else:
+                command_text.append("$ ", style="magenta")
+                command_text.append("(no shell command provided)", style="dim")
+
+            content = command_text
+            right_info = "[dim]shell command[/dim]"
+            truncate_content = False
+
+            # Build metadata summary
+            metadata_text = Text()
+            shell_name = metadata.get("shell_name")
+            shell_path = metadata.get("shell_path")
+            if shell_name or shell_path:
+                metadata_text.append("shell: ", style="dim")
+                if shell_path and shell_name and shell_path != shell_name:
+                    metadata_text.append(f"{shell_name} ({shell_path})", style="default")
+                elif shell_path:
+                    metadata_text.append(shell_path, style="default")
+                elif shell_name:
+                    metadata_text.append(shell_name, style="default")
+                else:  # pragma: no cover - safety
+                    metadata_text.append("system shell", style="default")
+
+            working_dir_display = metadata.get("working_dir_display") or metadata.get("working_dir")
+            if working_dir_display:
+                if metadata_text.plain:
+                    metadata_text.append("\n")
+                metadata_text.append("cwd: ", style="dim")
+                metadata_text.append(str(working_dir_display), style="default")
+
+            capability_flags: List[str] = []
+            if metadata.get("streams_output"):
+                capability_flags.append("streams stdout/stderr")
+            if metadata.get("returns_exit_code"):
+                capability_flags.append("reports exit code")
+
+            if capability_flags:
+                if metadata_text.plain:
+                    metadata_text.append("\n")
+                metadata_text.append("; ".join(capability_flags), style="dim")
+
+            if metadata_text.plain:
+                additional_message = metadata_text
 
         # Display using unified method
         self.display_message(
-            content=tool_args,
+            content=content,
             message_type=MessageType.TOOL_CALL,
             name=name,
             right_info=right_info,
             bottom_metadata=bottom_items,
             highlight_index=highlight_index,
             max_item_length=max_item_length,
-            truncate_content=True,
+            truncate_content=truncate_content,
+            additional_message=additional_message,
         )
 
     async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None:
@@ -1637,6 +1700,7 @@ class _StreamingMessageHandle:
             else None
         )
         self._max_render_height = 0
+
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
 
@@ -2090,6 +2154,9 @@ class _StreamingMessageHandle:
             return
 
         if event_type == "start":
-            self._shutdown_live_resources()
+            self.close()
+            return
         elif event_type == "text":
             self._pause_progress_display()
+        elif event_type == "stop":
+            self._resume_progress_display()

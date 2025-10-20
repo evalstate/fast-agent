@@ -1,6 +1,7 @@
 """Run an interactive agent directly from the command line."""
 
 import asyncio
+import logging
 import shlex
 import sys
 from pathlib import Path
@@ -22,7 +23,54 @@ default_instruction = """You are a helpful AI Agent.
 
 {{serverInstructions}}
 
+If you are asked to use the skill-creator skill, read it from .claude/skills/skill-creator/SKILL.md
+
+If you are asked to use the hf-cli skill, read it from .claude/skills/hf-cli/SKILL.md. This skill:
+
+Guide users on using the Hugging Face command-line tool (`hf`). This
+     skill should be used when users ask about downloading
+     models/datasets from Hugging Face, uploading files to the Hub,
+     managing authentication, working with the local cache,
+     creating/managing repositories, or running compute jobs on HF
+     infrastructure using the CLI.
+
 The current date is {{currentDate}}."""
+
+
+def _set_asyncio_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
+    """Attach a detailed exception handler to the provided event loop."""
+
+    logger = logging.getLogger("fast_agent.asyncio")
+
+    def _handler(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+        message = context.get("message", "(no message)")
+        task = context.get("task")
+        future = context.get("future")
+        handle = context.get("handle")
+        source_traceback = context.get("source_traceback")
+        exception = context.get("exception")
+
+        details = {
+            "message": message,
+            "task": repr(task) if task else None,
+            "future": repr(future) if future else None,
+            "handle": repr(handle) if handle else None,
+            "source_traceback": [str(frame) for frame in source_traceback]
+            if source_traceback
+            else None,
+        }
+
+        logger.error("Unhandled asyncio error: %s", message)
+        logger.error("Asyncio context: %s", details)
+
+        if exception:
+            logger.exception("Asyncio exception", exc_info=exception)
+
+    try:
+        loop.set_exception_handler(_handler)
+    except Exception:
+        logger = logging.getLogger("fast_agent.asyncio")
+        logger.exception("Failed to set asyncio exception handler")
 
 
 async def _run_agent(
@@ -248,10 +296,12 @@ def run_async_agent(
             # Instead, create a new loop
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+        _set_asyncio_exception_handler(loop)
     except RuntimeError:
         # No event loop exists, so we'll create one
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        _set_asyncio_exception_handler(loop)
 
     try:
         loop.run_until_complete(
@@ -293,9 +343,7 @@ def go(
     instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
-    config_path: str | None = typer.Option(
-        None, "--config-path", "-c", help="Path to config file"
-    ),
+    config_path: str | None = typer.Option(None, "--config-path", "-c", help="Path to config file"),
     servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
     ),

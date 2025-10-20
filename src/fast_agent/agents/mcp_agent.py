@@ -7,6 +7,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
+import os
 from abc import ABC
 from pathlib import Path
 from typing import (
@@ -469,6 +470,24 @@ class McpAgent(ABC, ToolAgent):
                 content=[TextContent(type="text", text=f"Error requesting human input: {str(e)}")],
             )
 
+    def _get_shell_working_directory(self) -> Path:
+        """Return the working directory used for shell execution."""
+        skills_cwd = Path.cwd() / "fast-agent" / "skills"
+        return skills_cwd if skills_cwd.exists() else Path.cwd()
+
+    def _get_shell_runtime_info(self) -> dict[str, str | None]:
+        """Best-effort detection of the shell runtime used for local execution."""
+        shell_path = os.environ.get("SHELL")
+        if not shell_path and os.name == "nt":
+            shell_path = os.environ.get("COMSPEC")
+
+        if shell_path:
+            shell_name: str | None = Path(shell_path).name
+        else:
+            shell_name = "cmd.exe" if os.name == "nt" else "sh"
+
+        return {"name": shell_name, "path": shell_path}
+
     async def _call_execute_tool(self, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """Execute a shell command and stream output to the console."""
         command_value = (arguments or {}).get("command") if arguments else None
@@ -497,8 +516,7 @@ class McpAgent(ABC, ToolAgent):
             else:
                 console.console.print(f"$ {command}", style="magenta", markup=False)
 
-            skills_cwd = Path.cwd() / "fast-agent" / "skills"
-            working_dir = skills_cwd if skills_cwd.exists() else Path.cwd()
+            working_dir = self._get_shell_working_directory()
 
             process = await asyncio.create_subprocess_shell(
                 command,
@@ -807,6 +825,30 @@ class McpAgent(ABC, ToolAgent):
                 # Tool not found in list, no highlighting
                 pass
 
+            metadata: dict[str, Any] | None = None
+            if (
+                self._shell_runtime_enabled
+                and self._bash_tool
+                and display_tool_name == self._bash_tool.name
+            ):
+                shell_info = self._get_shell_runtime_info()
+                working_dir = self._get_shell_working_directory()
+                try:
+                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
+                except ValueError:
+                    working_dir_display = str(working_dir)
+
+                metadata = {
+                    "variant": "shell",
+                    "command": tool_args.get("command"),
+                    "shell_name": shell_info.get("name"),
+                    "shell_path": shell_info.get("path"),
+                    "working_dir": str(working_dir),
+                    "working_dir_display": working_dir_display,
+                    "streams_output": True,
+                    "returns_exit_code": True,
+                }
+
             self.display.show_tool_call(
                 name=self._name,
                 tool_args=tool_args,
@@ -814,6 +856,7 @@ class McpAgent(ABC, ToolAgent):
                 tool_name=display_tool_name,
                 highlight_index=highlight_index,
                 max_item_length=12,
+                metadata=metadata,
             )
 
             try:
