@@ -362,6 +362,7 @@ class TextualDisplay(ConsoleDisplay):
         name: str | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
+        metadata: dict | None = None,
     ) -> None:
         self._app.handle_display_tool_call(
             agent_name=name,
@@ -370,6 +371,7 @@ class TextualDisplay(ConsoleDisplay):
             bottom_items=bottom_items,
             highlight_index=highlight_index,
             max_item_length=max_item_length,
+            metadata=metadata,
         )
 
     def show_tool_result(
@@ -680,23 +682,63 @@ class MarkdownLLMApp(App[None]):
         bottom_items: list[str] | None,
         highlight_index: int | None,
         max_item_length: int | None,
+        metadata: dict | None,
     ) -> None:
-        if tool_args:
-            try:
-                args_text = json.dumps(tool_args, indent=2, sort_keys=True)
-            except TypeError:  # pragma: no cover - fallback for unserializable args
-                args_text = str(tool_args)
-            content = f"```json\n{args_text}\n```"
+        metadata = metadata or {}
+
+        if metadata.get("variant") == "shell":
+            command = metadata.get("command") or tool_args.get("command")
+            command_display = command if isinstance(command, str) and command.strip() else None
+            if command_display:
+                content = f"```shell\n$ {command_display}\n```"
+            else:
+                content = "_No shell command provided._"
+
+            details: list[str] = []
+            shell_name = metadata.get("shell_name")
+            shell_path = metadata.get("shell_path")
+            if shell_name or shell_path:
+                if shell_name and shell_path and shell_path != shell_name:
+                    details.append(f"shell: {shell_name} ({shell_path})")
+                elif shell_path:
+                    details.append(f"shell: {shell_path}")
+                elif shell_name:
+                    details.append(f"shell: {shell_name}")
+            working_dir = metadata.get("working_dir_display") or metadata.get("working_dir")
+            if working_dir:
+                details.append(f"cwd: {working_dir}")
+
+            capability_bits: list[str] = []
+            if metadata.get("streams_output"):
+                capability_bits.append("streams stdout/stderr")
+            if metadata.get("returns_exit_code"):
+                capability_bits.append("reports exit code")
+
+            if capability_bits:
+                details.append("; ".join(capability_bits))
+
+            if details:
+                bullet_points = "\n".join(f"- {line}" for line in details)
+                content = f"{content}\n\n{bullet_points}"
         else:
-            content = "_No arguments provided._"
+            if tool_args:
+                try:
+                    args_text = json.dumps(tool_args, indent=2, sort_keys=True)
+                except TypeError:  # pragma: no cover - fallback for unserializable args
+                    args_text = str(tool_args)
+                content = f"```json\n{args_text}\n```"
+            else:
+                content = "_No arguments provided._"
 
         self._active_assistant_message = None
+
+        right_info = "shell command" if metadata.get("variant") == "shell" else f"tool request - {tool_name}"
 
         message = ChatMessage(
             role="tool_call",
             content=content,
             name=agent_name or "Tool",
-            right_info=f"tool request - {tool_name}",
+            right_info=right_info,
             bottom_metadata=bottom_items,
             highlight_index=highlight_index,
             max_item_length=max_item_length,
