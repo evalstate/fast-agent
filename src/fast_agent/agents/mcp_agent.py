@@ -7,7 +7,6 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
-import os
 from abc import ABC
 from pathlib import Path
 from typing import (
@@ -44,11 +43,13 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, ServerStatus
+from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
+from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 
@@ -77,7 +78,6 @@ class McpAgent(ABC, ToolAgent):
         self,
         config: AgentConfig,
         connection_persistence: bool = True,
-        # legacy human_input_callback removed
         context: "Context | None" = None,
         **kwargs,
     ) -> None:
@@ -111,27 +111,25 @@ class McpAgent(ABC, ToolAgent):
         self._skill_map: Dict[str, SkillManifest] = {
             manifest.name: manifest for manifest in manifests
         }
-        self._skill_tools: List[Tool] = []
+        self._agent_skills_warning_shown = False
+        shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
+        skills_configured = bool(self._skill_manifests)
+        self._shell_runtime_activation_reason: str | None = None
 
-        self._shell_runtime_enabled = bool(context and getattr(context, "shell_runtime", False))
-        if self._shell_runtime_enabled:
-            self._bash_tool = Tool(
-                name="execute",
-                description="Run a shell command inside the agent workspace and stream its output.",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "command": {
-                            "type": "string",
-                            "description": "Shell command to execute (e.g. 'cat README.md').",
-                        }
-                    },
-                    "required": ["command"],
-                    "additionalProperties": False,
-                },
+        if shell_flag_requested and skills_configured:
+            self._shell_runtime_activation_reason = (
+                "via --shell flag and agent skills configuration"
             )
-        else:
-            self._bash_tool = None
+        elif shell_flag_requested:
+            self._shell_runtime_activation_reason = "via --shell flag"
+        elif skills_configured:
+            self._shell_runtime_activation_reason = "because agent skills are configured"
+
+        self._shell_runtime = ShellRuntime(self._shell_runtime_activation_reason, self.logger)
+        self._shell_runtime_enabled = self._shell_runtime.enabled
+        self._bash_tool = self._shell_runtime.tool
+        if self._shell_runtime_enabled:
+            self._shell_runtime.announce()
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -242,6 +240,24 @@ class McpAgent(ABC, ToolAgent):
             self.instruction = self.instruction.replace(
                 "{{serverInstructions}}", server_instructions
             )
+
+        skills_placeholder_present = "{{agentSkills}}" in self.instruction
+
+        if skills_placeholder_present:
+            agent_skills = format_skills_for_prompt(self._skill_manifests)
+            self.instruction = self.instruction.replace("{{agentSkills}}", agent_skills)
+            self._agent_skills_warning_shown = True
+        elif self._skill_manifests and not self._agent_skills_warning_shown:
+            warning_message = (
+                "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
+                "Skill descriptions will not be added to the system prompt."
+            )
+            self.logger.warning(warning_message)
+            try:
+                console.console.print(f"[yellow]{warning_message}[/yellow]")
+            except Exception:  # pragma: no cover - console fallback
+                pass
+            self._agent_skills_warning_shown = True
 
         # Update default request params to match
         if self._default_request_params:
@@ -375,9 +391,6 @@ class McpAgent(ABC, ToolAgent):
 
         result.tools = aggregator_tools
 
-        if self._skill_tools:
-            result.tools.extend(self._skill_tools)
-
         if self._bash_tool and all(tool.name != self._bash_tool.name for tool in result.tools):
             result.tools.append(self._bash_tool)
 
@@ -398,16 +411,8 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
-        if name in self._skill_map:
-            manifest = self._skill_map[name]
-            response_text = manifest.body or manifest.description
-            return CallToolResult(
-                isError=False,
-                content=[TextContent(type="text", text=response_text)],
-            )
-
-        if self._bash_tool and name == self._bash_tool.name:
-            return await self._call_execute_tool(arguments)
+        if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
+            return await self._shell_runtime.execute(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
@@ -468,115 +473,6 @@ class McpAgent(ABC, ToolAgent):
             return CallToolResult(
                 isError=True,
                 content=[TextContent(type="text", text=f"Error requesting human input: {str(e)}")],
-            )
-
-    def _get_shell_working_directory(self) -> Path:
-        """Return the working directory used for shell execution."""
-        skills_cwd = Path.cwd() / "fast-agent" / "skills"
-        return skills_cwd if skills_cwd.exists() else Path.cwd()
-
-    def _get_shell_runtime_info(self) -> dict[str, str | None]:
-        """Best-effort detection of the shell runtime used for local execution."""
-        shell_path = os.environ.get("SHELL")
-        if not shell_path and os.name == "nt":
-            shell_path = os.environ.get("COMSPEC")
-
-        if shell_path:
-            shell_name: str | None = Path(shell_path).name
-        else:
-            shell_name = "cmd.exe" if os.name == "nt" else "sh"
-
-        return {"name": shell_name, "path": shell_path}
-
-    async def _call_execute_tool(self, arguments: Dict[str, Any] | None = None) -> CallToolResult:
-        """Execute a shell command and stream output to the console."""
-        command_value = (arguments or {}).get("command") if arguments else None
-        if not isinstance(command_value, str) or not command_value.strip():
-            return CallToolResult(
-                isError=True,
-                content=[
-                    TextContent(
-                        type="text",
-                        text="The execute tool requires a 'command' string argument.",
-                    )
-                ],
-            )
-
-        command = command_value.strip()
-        try:
-            from rich.text import Text
-        except Exception:  # pragma: no cover - fallback if rich is unavailable
-            Text = None  # type: ignore[assignment]
-
-        try:
-            if Text:
-                command_line = Text("$ ", style="magenta")
-                command_line.append(command, style="white")
-                console.console.print(command_line)
-            else:
-                console.console.print(f"$ {command}", style="magenta", markup=False)
-
-            working_dir = self._get_shell_working_directory()
-
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=working_dir,
-            )
-
-            output_segments: List[str] = []
-
-            async def stream_output(stream, style: Optional[str], is_stderr: bool = False) -> None:
-                if not stream:
-                    return
-                while True:
-                    line = await stream.readline()
-                    if not line:
-                        break
-                    text = line.decode(errors="replace")
-                    output_segments.append(text if not is_stderr else f"[stderr] {text}")
-                    console.console.print(
-                        text.rstrip("\n"),
-                        style=style,
-                        markup=False,
-                    )
-
-            stdout_task = asyncio.create_task(stream_output(process.stdout, None))
-            stderr_task = asyncio.create_task(stream_output(process.stderr, "red", True))
-
-            await asyncio.gather(stdout_task, stderr_task)
-            return_code = await process.wait()
-
-            if Text:
-                status_line = Text("exit code ", style="dim")
-                status_line.append(str(return_code), style="dim")
-                console.console.print(status_line)
-            else:
-                console.console.print(f"exit code {return_code}", style="dim")
-
-            combined_output = "".join(output_segments)
-            if combined_output and not combined_output.endswith("\n"):
-                combined_output += "\n"
-            combined_output += f"(exit code: {return_code})"
-
-            result = CallToolResult(
-                isError=return_code != 0,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=combined_output if combined_output else f"(exit code: {return_code})",
-                    )
-                ],
-            )
-            setattr(result, "_suppress_display", True)
-            return result
-
-        except Exception as e:
-            self.logger.error(f"Execute tool failed: {e}")
-            return CallToolResult(
-                isError=True,
-                content=[TextContent(type="text", text=f"Command failed to start: {e}")],
             )
 
     async def get_prompt(
@@ -780,8 +676,8 @@ class McpAgent(ABC, ToolAgent):
             namespaced_tool.tool.name
             for namespaced_tool in self._aggregator._namespaced_tool_map.values()
         ]
-        if self._bash_tool:
-            available_tools.append(self._bash_tool.name)
+        if self._shell_runtime.tool:
+            available_tools.append(self._shell_runtime.tool.name)
 
         available_tools = list(dict.fromkeys(available_tools))
 
@@ -828,26 +724,10 @@ class McpAgent(ABC, ToolAgent):
             metadata: dict[str, Any] | None = None
             if (
                 self._shell_runtime_enabled
-                and self._bash_tool
-                and display_tool_name == self._bash_tool.name
+                and self._shell_runtime.tool
+                and display_tool_name == self._shell_runtime.tool.name
             ):
-                shell_info = self._get_shell_runtime_info()
-                working_dir = self._get_shell_working_directory()
-                try:
-                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
-                except ValueError:
-                    working_dir_display = str(working_dir)
-
-                metadata = {
-                    "variant": "shell",
-                    "command": tool_args.get("command"),
-                    "shell_name": shell_info.get("name"),
-                    "shell_path": shell_info.get("path"),
-                    "working_dir": str(working_dir),
-                    "working_dir_display": working_dir_display,
-                    "streams_output": True,
-                    "returns_exit_code": True,
-                }
+                metadata = self._shell_runtime.metadata(tool_args.get("command"))
 
             self.display.show_tool_call(
                 name=self._name,
@@ -1069,6 +949,9 @@ class McpAgent(ABC, ToolAgent):
                 result[special_server_name] = []
 
             result[special_server_name].append(self._human_input_tool)
+
+        # if self._skill_lookup_tool:
+        #     result.setdefault("__skills__", []).append(self._skill_lookup_tool)
 
         return result
 

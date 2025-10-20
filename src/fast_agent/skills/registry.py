@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List
+from typing import List, Sequence
 
 import frontmatter
 
@@ -19,6 +19,7 @@ class SkillManifest:
     description: str
     body: str
     path: Path
+    relative_path: Path | None = None
 
 
 class SkillRegistry:
@@ -100,9 +101,12 @@ class SkillRegistry:
 
     @classmethod
     def _load_directory(
-        cls, directory: Path, errors: List[dict[str, str]] | None = None
+        cls,
+        directory: Path,
+        errors: List[dict[str, str]] | None = None,
     ) -> List[SkillManifest]:
         manifests: List[SkillManifest] = []
+        cwd = Path.cwd()
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue
@@ -111,6 +115,14 @@ class SkillRegistry:
                 continue
             manifest, error = cls._parse_manifest(manifest_path)
             if manifest:
+                relative_path: Path | None = None
+                for base in (cwd, directory):
+                    try:
+                        relative_path = manifest_path.relative_to(base)
+                        break
+                    except ValueError:
+                        continue
+                manifest = replace(manifest, relative_path=relative_path)
                 manifests.append(manifest)
             elif errors is not None:
                 errors.append(
@@ -151,3 +163,33 @@ class SkillRegistry:
             body=body_text,
             path=manifest_path,
         ), None
+
+
+def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
+    """
+    Format a collection of skill manifests into an XML-style block suitable for system prompts.
+    """
+    if not manifests:
+        return ""
+
+    preamble = (
+        "Skills provide specialized capabilities and domain knowledge. Check if a Skill can help the User "
+        "achieve their task more effectively if they seem at all relevant. To use a Skill you must first "
+        "read the SKILL.md with the 'execute' tool. Only use skills listed below in <available_skills>."
+    )
+    formatted_parts: List[str] = [preamble]
+
+    for manifest in manifests:
+        description = (manifest.description or "").strip()
+        relative_path = manifest.relative_path
+        path_attr = f' path="{relative_path}"' if relative_path is not None else ""
+        if relative_path is None and manifest.path:
+            path_attr = f' path="{manifest.path}"'
+
+        block_lines: List[str] = [f'<agent-skill name="{manifest.name}"{path_attr}>']
+        if description:
+            block_lines.append(f"<description>{description}</description>")
+        block_lines.append("</agent-skill>")
+        formatted_parts.append("\n".join(block_lines))
+
+    return "\n\n".join(formatted_parts)

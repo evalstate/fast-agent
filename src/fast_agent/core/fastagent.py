@@ -84,6 +84,7 @@ if TYPE_CHECKING:
     from mcp.client.session import ElicitationFnT
     from pydantic import AnyUrl
 
+    from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -289,7 +290,7 @@ class FastAgent:
             name: str = "default",
             instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
             *,
-            instruction: str | Path | AnyUrl = "You are a helpful agent.",
+            instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
             servers: List[str] = [],
             tools: Optional[Dict[str, List[str]]] = None,
             resources: Optional[Dict[str, List[str]]] = None,
@@ -317,7 +318,6 @@ class FastAgent:
             tools: Optional[Dict[str, List[str]]] = None,
             resources: Optional[Dict[str, List[str]]] = None,
             prompts: Optional[Dict[str, List[str]]] = None,
-            skills: Optional[List[SkillManifest | SkillRegistry | Path | str | None]] = None,
             model: Optional[str] = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,

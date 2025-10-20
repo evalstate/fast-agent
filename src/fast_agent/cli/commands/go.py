@@ -12,6 +12,7 @@ from fast_agent import FastAgent
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.ui.console_display import ConsoleDisplay
 
 app = typer.Typer(
@@ -19,22 +20,7 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
-default_instruction = """You are a helpful AI Agent.
-
-{{serverInstructions}}
-
-If you are asked to use the skill-creator skill, read it from .claude/skills/skill-creator/SKILL.md
-
-If you are asked to use the hf-cli skill, read it from .claude/skills/hf-cli/SKILL.md. This skill:
-
-Guide users on using the Hugging Face command-line tool (`hf`). This
-     skill should be used when users ask about downloading
-     models/datasets from Hugging Face, uploading files to the Hub,
-     managing authentication, working with the local cache,
-     creating/managing repositories, or running compute jobs on HF
-     infrastructure using the CLI.
-
-The current date is {{currentDate}}."""
+default_instruction = DEFAULT_AGENT_INSTRUCTION
 
 
 def _set_asyncio_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
