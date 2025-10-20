@@ -102,9 +102,6 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
             return
         agent = agent_provider._agent(agent_name)
 
-        if getattr(getattr(agent_provider, "context", None), "shell_runtime", False):
-            rich_print("Shell Access Enabled")
-
         # Get counts TODO -- add this to the type library or adjust the way aggregator/reporting works
         server_count = 0
         if isinstance(agent, McpAgentProtocol):
@@ -205,6 +202,9 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
         except Exception:
             # Ignore Skybridge rendering issues to avoid interfering with startup
             pass
+
+        if getattr(agent, "_shell_runtime_enabled", False):
+            rich_print("[yellow]Shell Access Enabled[/yellow]")
 
         # Mark as shown
         _agent_info_shown.add(agent_name)
