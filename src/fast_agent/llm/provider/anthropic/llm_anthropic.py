@@ -244,10 +244,111 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
+        tool_streams: dict[int, dict[str, Any]] = {}
 
         try:
             # Process the raw event stream to get token counts
             async for event in stream:
+                if (
+                    event.type == "content_block_start"
+                    and hasattr(event, "content_block")
+                    and getattr(event.content_block, "type", None) == "tool_use"
+                ):
+                    content_block = event.content_block
+                    tool_streams[event.index] = {
+                        "name": content_block.name,
+                        "id": content_block.id,
+                        "buffer": [],
+                    }
+                    self._notify_tool_stream_listeners(
+                        "start",
+                        {
+                            "tool_name": content_block.name,
+                            "tool_use_id": content_block.id,
+                            "index": event.index,
+                        },
+                    )
+                    self.logger.info(
+                        "Model started streaming tool input",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": content_block.name,
+                            "tool_use_id": content_block.id,
+                            "tool_event": "start",
+                        },
+                    )
+                    continue
+
+                if (
+                    event.type == "content_block_delta"
+                    and hasattr(event, "delta")
+                    and event.delta.type == "input_json_delta"
+                ):
+                    info = tool_streams.get(event.index)
+                    if info is not None:
+                        chunk = event.delta.partial_json or ""
+                        info["buffer"].append(chunk)
+                        preview = chunk if len(chunk) <= 80 else chunk[:77] + "..."
+                        self._notify_tool_stream_listeners(
+                            "delta",
+                            {
+                                "tool_name": info.get("name"),
+                                "tool_use_id": info.get("id"),
+                                "index": event.index,
+                                "chunk": chunk,
+                            },
+                        )
+                        self.logger.debug(
+                            "Streaming tool input delta",
+                            data={
+                                "tool_name": info.get("name"),
+                                "tool_use_id": info.get("id"),
+                                "chunk": preview,
+                            },
+                        )
+                    continue
+
+                if (
+                    event.type == "content_block_stop"
+                    and event.index in tool_streams
+                ):
+                    info = tool_streams.pop(event.index)
+                    preview_raw = "".join(info.get("buffer", []))
+                    if preview_raw:
+                        preview = (
+                            preview_raw if len(preview_raw) <= 120 else preview_raw[:117] + "..."
+                        )
+                        self.logger.debug(
+                            "Completed tool input stream",
+                            data={
+                                "tool_name": info.get("name"),
+                                "tool_use_id": info.get("id"),
+                                "input_preview": preview,
+                            },
+                        )
+                    self._notify_tool_stream_listeners(
+                        "stop",
+                        {
+                            "tool_name": info.get("name"),
+                            "tool_use_id": info.get("id"),
+                            "index": event.index,
+                        },
+                    )
+                    self.logger.info(
+                        "Model finished streaming tool input",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": info.get("name"),
+                            "tool_use_id": info.get("id"),
+                            "tool_event": "stop",
+                        },
+                    )
+                    continue
+
                 # Count tokens in real-time from content_block_delta events
                 if (
                     event.type == "content_block_delta"
@@ -257,6 +358,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     # Use base class method for token estimation and progress emission
                     estimated_tokens = self._update_streaming_progress(
                         event.delta.text, model, estimated_tokens
+                    )
+                    self._notify_tool_stream_listeners(
+                        "text",
+                        {
+                            "chunk": event.delta.text,
+                            "index": event.index,
+                        },
                     )
 
                 # Also check for final message_delta events with actual usage info

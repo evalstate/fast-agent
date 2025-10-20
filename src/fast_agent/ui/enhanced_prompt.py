@@ -102,6 +102,9 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
             return
         agent = agent_provider._agent(agent_name)
 
+        if getattr(getattr(agent_provider, "context", None), "shell_runtime", False):
+            rich_print("Shell Access Enabled")
+
         # Get counts TODO -- add this to the type library or adjust the way aggregator/reporting works
         server_count = 0
         if isinstance(agent, McpAgentProtocol):
@@ -157,9 +160,6 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                     f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {child_count:,}[dim] {child_word}[/dim]"
                 )
         else:
-            # For regular agents, display available MCP integrations and skills
-            display_parts = []
-
             content_parts = []
 
             if server_count > 0:

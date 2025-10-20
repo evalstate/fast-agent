@@ -8,6 +8,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 import asyncio
 import fnmatch
 from abc import ABC
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -48,6 +49,7 @@ from fast_agent.tools.elicitation import (
     set_elicitation_input_callback,
 )
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.ui import console
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -108,19 +110,27 @@ class McpAgent(ABC, ToolAgent):
         self._skill_map: Dict[str, SkillManifest] = {
             manifest.name: manifest for manifest in manifests
         }
-        self._skill_tools: List[Tool] = [
-            Tool(
-                name=manifest.name,
-                description=manifest.description,
+        self._skill_tools: List[Tool] = []
+
+        self._shell_runtime_enabled = bool(context and getattr(context, "shell_runtime", False))
+        if self._shell_runtime_enabled:
+            self._bash_tool = Tool(
+                name="execute",
+                description="Run a shell command inside the agent workspace and stream its output.",
                 inputSchema={
                     "type": "object",
-                    "properties": {},
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "Shell command to execute (e.g. 'cat README.md').",
+                        }
+                    },
+                    "required": ["command"],
                     "additionalProperties": False,
                 },
-                _meta={"fast-agent/skillPath": str(manifest.path)},
             )
-            for manifest in manifests
-        ]
+        else:
+            self._bash_tool = None
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -367,6 +377,9 @@ class McpAgent(ABC, ToolAgent):
         if self._skill_tools:
             result.tools.extend(self._skill_tools)
 
+        if self._bash_tool and all(tool.name != self._bash_tool.name for tool in result.tools):
+            result.tools.append(self._bash_tool)
+
         # Append human input tool if enabled and available
         if self.config.human_input and getattr(self, "_human_input_tool", None):
             result.tools.append(self._human_input_tool)
@@ -391,6 +404,9 @@ class McpAgent(ABC, ToolAgent):
                 isError=False,
                 content=[TextContent(type="text", text=response_text)],
             )
+
+        if self._bash_tool and name == self._bash_tool.name:
+            return await self._call_execute_tool(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
@@ -451,6 +467,98 @@ class McpAgent(ABC, ToolAgent):
             return CallToolResult(
                 isError=True,
                 content=[TextContent(type="text", text=f"Error requesting human input: {str(e)}")],
+            )
+
+    async def _call_execute_tool(self, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+        """Execute a shell command and stream output to the console."""
+        command_value = (arguments or {}).get("command") if arguments else None
+        if not isinstance(command_value, str) or not command_value.strip():
+            return CallToolResult(
+                isError=True,
+                content=[
+                    TextContent(
+                        type="text",
+                        text="The execute tool requires a 'command' string argument.",
+                    )
+                ],
+            )
+
+        command = command_value.strip()
+        try:
+            from rich.text import Text
+        except Exception:  # pragma: no cover - fallback if rich is unavailable
+            Text = None  # type: ignore[assignment]
+
+        try:
+            if Text:
+                command_line = Text("$ ", style="magenta")
+                command_line.append(command, style="white")
+                console.console.print(command_line)
+            else:
+                console.console.print(f"$ {command}", style="magenta", markup=False)
+
+            skills_cwd = Path.cwd() / "fast-agent" / "skills"
+            working_dir = skills_cwd if skills_cwd.exists() else Path.cwd()
+
+            process = await asyncio.create_subprocess_shell(
+                command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=working_dir,
+            )
+
+            output_segments: List[str] = []
+
+            async def stream_output(stream, style: Optional[str], is_stderr: bool = False) -> None:
+                if not stream:
+                    return
+                while True:
+                    line = await stream.readline()
+                    if not line:
+                        break
+                    text = line.decode(errors="replace")
+                    output_segments.append(text if not is_stderr else f"[stderr] {text}")
+                    console.console.print(
+                        text.rstrip("\n"),
+                        style=style,
+                        markup=False,
+                    )
+
+            stdout_task = asyncio.create_task(stream_output(process.stdout, None))
+            stderr_task = asyncio.create_task(stream_output(process.stderr, "red", True))
+
+            await asyncio.gather(stdout_task, stderr_task)
+            return_code = await process.wait()
+
+            if Text:
+                status_line = Text("exit code ", style="dim")
+                status_line.append(str(return_code), style="dim")
+                console.console.print(status_line)
+            else:
+                console.console.print(f"exit code {return_code}", style="dim")
+
+            combined_output = "".join(output_segments)
+            if combined_output and not combined_output.endswith("\n"):
+                combined_output += "\n"
+            combined_output += f"(exit code: {return_code})"
+
+            result = CallToolResult(
+                isError=return_code != 0,
+                content=[
+                    TextContent(
+                        type="text",
+                        text=combined_output if combined_output else f"(exit code: {return_code})",
+                    )
+                ],
+            )
+            setattr(result, "_suppress_display", True)
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Execute tool failed: {e}")
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=f"Command failed to start: {e}")],
             )
 
     async def get_prompt(
@@ -654,6 +762,10 @@ class McpAgent(ABC, ToolAgent):
             namespaced_tool.tool.name
             for namespaced_tool in self._aggregator._namespaced_tool_map.values()
         ]
+        if self._bash_tool:
+            available_tools.append(self._bash_tool.name)
+
+        available_tools = list(dict.fromkeys(available_tools))
 
         # Process each tool call using our aggregator
         for correlation_id, tool_request in request.tool_calls.items():
@@ -666,6 +778,8 @@ class McpAgent(ABC, ToolAgent):
 
             tool_available = False
             if tool_name == HUMAN_INPUT_TOOL_NAME:
+                tool_available = True
+            elif self._bash_tool and tool_name == self._bash_tool.name:
                 tool_available = True
             elif namespaced_tool:
                 tool_available = True
@@ -703,7 +817,7 @@ class McpAgent(ABC, ToolAgent):
             )
 
             try:
-                # Use our aggregator to call the MCP tool
+                # Use the appropriate handler for this tool
                 result = await self.call_tool(tool_name, tool_args)
                 tool_results[correlation_id] = result
 
@@ -714,12 +828,13 @@ class McpAgent(ABC, ToolAgent):
                         namespaced_tool.server_name
                     )
 
-                self.display.show_tool_result(
-                    name=self._name,
-                    result=result,
-                    tool_name=display_tool_name,
-                    skybridge_config=skybridge_config,
-                )
+                if not getattr(result, "_suppress_display", False):
+                    self.display.show_tool_result(
+                        name=self._name,
+                        result=result,
+                        tool_name=display_tool_name,
+                        skybridge_config=skybridge_config,
+                    )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
             except Exception as e:

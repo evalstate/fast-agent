@@ -1686,6 +1686,23 @@ class _StreamingMessageHandle:
 
         return combined
 
+    def _pause_progress_display(self) -> None:
+        if self._progress_display and not self._progress_paused:
+            try:
+                self._progress_display.pause()
+                self._progress_paused = True
+            except Exception:
+                self._progress_paused = False
+
+    def _resume_progress_display(self) -> None:
+        if self._progress_display and self._progress_paused:
+            try:
+                self._progress_display.resume()
+            except Exception:
+                pass
+            finally:
+                self._progress_paused = False
+
     def _ensure_started(self) -> None:
         """Start live rendering and pause progress display if needed."""
         if not self._live:
@@ -1694,12 +1711,7 @@ class _StreamingMessageHandle:
         if self._live_started:
             return
 
-        if self._progress_display and not self._progress_paused:
-            try:
-                self._progress_display.pause()
-                self._progress_paused = True
-            except Exception:
-                self._progress_paused = False
+        self._pause_progress_display()
 
         if self._live and not self._live_started:
             self._live.__enter__()
@@ -2070,10 +2082,14 @@ class _StreamingMessageHandle:
             self._live = None
             self._live_started = False
 
-        if self._progress_display and self._progress_paused:
-            try:
-                self._progress_display.resume()
-            except Exception:
-                pass
-            finally:
-                self._progress_paused = False
+        self._resume_progress_display()
+        self._active = False
+
+    def handle_tool_event(self, event_type: str, info: Dict[str, Any] | None = None) -> None:
+        if not self._active:
+            return
+
+        if event_type == "start":
+            self._shutdown_live_resources()
+        elif event_type == "text":
+            self._pause_progress_display()

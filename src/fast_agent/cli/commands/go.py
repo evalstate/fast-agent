@@ -37,6 +37,7 @@ async def _run_agent(
     stdio_servers: dict[str, dict[str, str]] | None = None,
     agent_name: str | None = "agent",
     skills_directory: Path | None = None,
+    shell_runtime: bool = False,
 ) -> None:
     """Async implementation to run an interactive agent."""
     from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -53,6 +54,10 @@ async def _run_agent(
         fast_kwargs["skills_directory"] = skills_directory
 
     fast = FastAgent(**fast_kwargs)
+
+    if shell_runtime:
+        await fast.app.initialize()
+        setattr(fast.app.context, "shell_runtime", True)
 
     # Add all dynamic servers to the configuration
     await add_servers_to_config(fast, url_servers)
@@ -160,6 +165,7 @@ def run_async_agent(
     stdio_commands: list[str] | None = None,
     agent_name: str | None = None,
     skills_directory: Path | None = None,
+    shell_enabled: bool = False,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -261,6 +267,7 @@ def run_async_agent(
                 stdio_servers=stdio_servers,
                 agent_name=agent_name,
                 skills_directory=skills_directory,
+                shell_runtime=shell_enabled,
             )
         )
     finally:
@@ -321,6 +328,11 @@ def go(
     stdio: str | None = typer.Option(
         None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
     ),
+    shell: bool = typer.Option(
+        False,
+        "--shell",
+        help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
+    ),
 ) -> None:
     """
     Run an interactive agent directly from the command line.
@@ -356,6 +368,7 @@ def go(
     """
     # Collect all stdio commands from convenience options
     stdio_commands = []
+    shell_enabled = shell
 
     if npx:
         stdio_commands.append(f"npx {npx}")
@@ -365,6 +378,8 @@ def go(
 
     if stdio:
         stdio_commands.append(stdio)
+
+    # When shell is enabled we don't add an MCP stdio server; handled inside the agent
 
     # Resolve instruction from file/URL or use default
     resolved_instruction = default_instruction  # Default
@@ -406,4 +421,5 @@ def go(
         stdio_commands=stdio_commands,
         agent_name=agent_name,
         skills_directory=skills_dir,
+        shell_enabled=shell_enabled,
     )
