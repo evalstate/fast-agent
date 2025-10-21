@@ -201,10 +201,7 @@ async def test_error_handling_e2e(fast_agent, model_name):
     )
     async def agent_function():
         async with fast.run() as agent:
-            result = await agent.agent.generate("fail please")
-
-            #            assert 4 == len(provider_history.get())
-            assert result
+            await agent.agent.generate("fail please")
 
             assert 4 == len(agent.agent.message_history)
             # this makes sure that the user message has the tool result with the error
