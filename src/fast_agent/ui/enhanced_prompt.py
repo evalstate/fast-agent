@@ -203,9 +203,6 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
             # Ignore Skybridge rendering issues to avoid interfering with startup
             pass
 
-        if getattr(agent, "_shell_runtime_enabled", False):
-            rich_print("[yellow]Shell Access Enabled[/yellow]")
-
         # Mark as shown
         _agent_info_shown.add(agent_name)
 
@@ -368,6 +365,7 @@ class AgentCompleter(Completer):
             "skills": "List available Agent Skills",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
+            "clear last": "Remove the most recent message from history",
             "agents": "List available agents",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
@@ -868,8 +866,26 @@ async def get_enhanced_input(
     )
     session.app.key_bindings = bindings
 
+    shell_agent = None
+    shell_enabled = False
+    shell_access_modes: tuple[str, ...] = ()
+    if agent_provider:
+        try:
+            shell_agent = agent_provider._agent(agent_name)
+        except Exception:
+            shell_agent = None
+
+    if shell_agent:
+        shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
+        modes_attr = getattr(shell_agent, "_shell_access_modes", ())
+        if isinstance(modes_attr, (list, tuple)):
+            shell_access_modes = tuple(str(mode) for mode in modes_attr)
+        elif modes_attr:
+            shell_access_modes = (str(modes_attr),)
+
     # Create formatted prompt text
-    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> ❯ "
+    arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
+    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
 
     # Add default value display if requested
     if show_default and default and default != "STOP":
@@ -901,8 +917,10 @@ async def get_enhanced_input(
                 # Get logger settings from the agent's context (not agent_provider)
                 logger_settings = None
                 try:
-                    agent = agent_provider._agent(agent_name)
-                    agent_context = agent._context or agent.context
+                    active_agent = shell_agent
+                    if active_agent is None:
+                        active_agent = agent_provider._agent(agent_name)
+                    agent_context = active_agent._context or active_agent.context
                     logger_settings = agent_context.config.logger
                 except Exception:
                     # If we can't get the agent or its context, logger_settings stays None
@@ -936,6 +954,10 @@ async def get_enhanced_input(
                                     f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]"
                                 )
 
+        if shell_enabled:
+            modes_display = ", ".join(shell_access_modes or ("direct",))
+            rich_print(f"[yellow]Shell Access ({modes_display})[/yellow]")
+
         rich_print()
         help_message_shown = True
 
@@ -967,9 +989,16 @@ async def get_enhanced_input(
             elif cmd == "clear":
                 target_agent = None
                 if len(cmd_parts) > 1:
-                    candidate = cmd_parts[1].strip()
-                    if candidate:
-                        target_agent = candidate
+                    remainder = cmd_parts[1].strip()
+                    if remainder:
+                        tokens = remainder.split(maxsplit=1)
+                        if tokens and tokens[0].lower() == "last":
+                            if len(tokens) > 1:
+                                candidate = tokens[1].strip()
+                                if candidate:
+                                    target_agent = candidate
+                            return {"clear_last": {"agent": target_agent}}
+                        target_agent = remainder
                 return {"clear_history": {"agent": target_agent}}
             elif cmd == "markdown":
                 return "MARKDOWN"
@@ -1166,6 +1195,7 @@ async def handle_special_commands(
         rich_print("  /skills        - List local skills for the active agent")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
+        rich_print("  /clear last [agent_name] - Remove the most recent message from history")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history <filename> - Save current chat history to a file")

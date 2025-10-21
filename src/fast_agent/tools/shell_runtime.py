@@ -47,10 +47,6 @@ class ShellRuntime:
 
         message = f"Local shell execute tool enabled {self._activation_reason}."
         self._logger.info(message)
-        try:
-            console.console.print(f"[dim]{message}[/dim]")
-        except Exception:  # pragma: no cover - console fallback
-            pass
 
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""

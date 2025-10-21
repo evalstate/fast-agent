@@ -668,6 +668,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         return self._message_history
 
+    def pop_last_message(self) -> PromptMessageExtended | None:
+        """Remove and return the most recent message from the conversation history."""
+        if not self._message_history:
+            return None
+
+        removed = self._message_history.pop()
+        try:
+            self.history.pop()
+        except Exception:
+            # If provider-specific memory isn't available, ignore to avoid crashing UX
+            pass
+        return removed
+
     def clear(self, *, clear_prompts: bool = False) -> None:
         """Reset stored message history while optionally retaining prompt templates."""
 

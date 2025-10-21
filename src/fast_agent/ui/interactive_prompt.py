@@ -193,6 +193,41 @@ class InteractivePrompt:
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         display_history_overview(target_agent, history, usage)
                         continue
+                    elif "clear_last" in command_dict:
+                        clear_info = command_dict.get("clear_last")
+                        clear_agent = (
+                            clear_info.get("agent") if isinstance(clear_info, dict) else None
+                        )
+                        target_agent = clear_agent or agent
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        removed_message = None
+                        pop_callable = getattr(agent_obj, "pop_last_message", None)
+                        if callable(pop_callable):
+                            removed_message = pop_callable()
+                        else:
+                            history = getattr(agent_obj, "message_history", [])
+                            if history:
+                                try:
+                                    removed_message = history.pop()
+                                except Exception:
+                                    removed_message = None
+
+                        if removed_message:
+                            role = getattr(removed_message, "role", "message")
+                            role_display = role.capitalize() if isinstance(role, str) else "Message"
+                            rich_print(
+                                f"[green]Removed last {role_display} for agent '{target_agent}'.[/green]"
+                            )
+                        else:
+                            rich_print(
+                                f"[yellow]No messages to remove for agent '{target_agent}'.[/yellow]"
+                            )
+                        continue
                     elif "clear_history" in command_dict:
                         clear_info = command_dict.get("clear_history")
                         clear_agent = (
