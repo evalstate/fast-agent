@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, List
 import pytest
 from pydantic import BaseModel, Field
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
