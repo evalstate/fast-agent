@@ -902,9 +902,6 @@ class InteractivePrompt:
                 from rich.text import Text
 
                 meta = getattr(tool, "meta", {}) or {}
-                if meta.get("fast-agent/skillPath"):
-                    # Skip skill-backed entries; these are shown via /skills
-                    continue
 
                 tool_line = Text()
                 tool_line.append(f"[{index:2}] ", style="dim cyan")
@@ -998,20 +995,7 @@ class InteractivePrompt:
             rich_print(f"\n[bold]Skills for agent [cyan]{agent_name}[/cyan]:[/bold]")
 
             skill_manifests = getattr(agent, "_skill_manifests", None)
-            if skill_manifests:
-                manifests = list(skill_manifests)
-            else:
-                tools_result = await agent.list_tools()
-                manifests = []
-                if tools_result and hasattr(tools_result, "tools"):
-                    for tool in tools_result.tools:
-                        meta = getattr(tool, "meta", None) or getattr(tool, "_meta", None) or {}
-                        skill_path = meta.get("fast-agent/skillPath")
-                        if not skill_path:
-                            continue
-                        manifests.append(
-                            type("SkillToolProxy", (), {"name": tool.name, "description": tool.description or "", "path": Path(skill_path)})()
-                        )
+            manifests = list(skill_manifests) if skill_manifests else []
 
             if not manifests:
                 rich_print("[yellow]No skills available for this agent[/yellow]")
@@ -1034,7 +1018,9 @@ class InteractivePrompt:
                 if description:
                     import textwrap
 
-                    wrapped_lines = textwrap.wrap(description.strip(), width=72, subsequent_indent="     ")
+                    wrapped_lines = textwrap.wrap(
+                        description.strip(), width=72, subsequent_indent="     "
+                    )
                     for line in wrapped_lines:
                         if line.startswith("     "):
                             rich_print(f"     [white]{line[5:]}[/white]")
@@ -1050,8 +1036,6 @@ class InteractivePrompt:
                     display_path = source_path
 
                 rich_print(f"     [dim green]source:[/dim green] {display_path}")
-                if getattr(manifest, "body", None):
-                    rich_print("     [dim]Use the skill tool to read the full content.[/dim]")
                 rich_print()
 
         except Exception as exc:  # noqa: BLE001
