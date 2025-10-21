@@ -147,28 +147,26 @@ async def configure_logger(config: "Settings") -> None:
     python_logger.setLevel(settings.level.upper())
     python_logger.propagate = False
 
-    handler: logging.Handler
+    transport = None
     if settings.type == "console":
+        # Console mode: use the Python logger to emit to stdout and skip additional transport output
         handler = logging.StreamHandler()
-    elif settings.type == "file":
-        log_path = Path(settings.path)
-        if log_path.parent:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-        handler = logging.FileHandler(log_path)
-    elif settings.type == "none":
-        handler = logging.NullHandler()
+        handler.setLevel(settings.level.upper())
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        python_logger.addHandler(handler)
     else:
-        # For transports that handle output elsewhere (e.g., HTTP), suppress console output.
-        handler = logging.NullHandler()
-
-    handler.setLevel(settings.level.upper())
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    python_logger.addHandler(handler)
+        # For all other modes, rely on transports (file/http/none) and keep the Python logger quiet
+        python_logger.addHandler(logging.NullHandler())
 
     # Use StreamingExclusionFilter to prevent streaming events from flooding logs
     event_filter: EventFilter = StreamingExclusionFilter(min_level=settings.level)
     logger.info(f"Configuring logger with level: {settings.level}")
-    transport = create_transport(settings=settings, event_filter=event_filter)
+    if settings.type == "console":
+        from fast_agent.core.logging.transport import NoOpTransport
+
+        transport = NoOpTransport(event_filter=event_filter)
+    else:
+        transport = create_transport(settings=settings, event_filter=event_filter)
     await LoggingConfig.configure(
         event_filter=event_filter,
         transport=transport,
