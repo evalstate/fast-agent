@@ -173,11 +173,14 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
         return ""
 
     preamble = (
-        "Skills provide specialized capabilities and domain knowledge. Check if a Skill can help the User "
-        "achieve their task more effectively if they seem at all relevant. To use a Skill you must first "
-        "read the SKILL.md with the 'execute' tool. Only use skills listed below in <available_skills>."
+        "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
+        "relevant to the Users task, intent or would increase effectiveness. \n"
+        "The 'execute' tool gives you shell access to the current working directory (agent workspace) "
+        "and outputted files are visible to the User.\n"
+        "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
+        "Only use skills listed in <available_skills> below.\n\n"
     )
-    formatted_parts: List[str] = [preamble]
+    formatted_parts: List[str] = []
 
     for manifest in manifests:
         description = (manifest.description or "").strip()
@@ -188,8 +191,10 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
 
         block_lines: List[str] = [f'<agent-skill name="{manifest.name}"{path_attr}>']
         if description:
-            block_lines.append(f"<description>{description}</description>")
+            block_lines.append(f"{description}")
         block_lines.append("</agent-skill>")
         formatted_parts.append("\n".join(block_lines))
 
-    return "\n\n".join(formatted_parts)
+    return "".join(
+        (f"{preamble}<available_skills>\n", "\n".join(formatted_parts), "\n</available_skills>")
+    )

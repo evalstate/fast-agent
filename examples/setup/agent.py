@@ -10,6 +10,8 @@ default_instruction = """You are a helpful AI Agent.
 
 {{serverInstructions}}
 
+{{agentSkills}}
+
 The current date is {{currentDate}}."""
 
 

@@ -22,7 +22,7 @@ class ShellRuntime:
         if self.enabled:
             self._tool = Tool(
                 name="execute",
-                description="Run a shell command inside the agent workspace and stream its output.",
+                description="Run a shell command inside the agent workspace and return its output. ",
                 inputSchema={
                     "type": "object",
                     "properties": {

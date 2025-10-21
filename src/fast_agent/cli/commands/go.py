@@ -351,6 +351,7 @@ def go(
     skills_dir: Path | None = typer.Option(
         None,
         "--skills-dir",
+        "--skills",
         help="Override the default skills directory",
     ),
     npx: str | None = typer.Option(
@@ -365,6 +366,7 @@ def go(
     shell: bool = typer.Option(
         False,
         "--shell",
+        "-x",
         help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
 ) -> None:
@@ -382,6 +384,7 @@ def go(
         fast-agent go --uvx "mcp-server-fetch --verbose"
         fast-agent go --stdio "python my_server.py --debug"
         fast-agent go --stdio "uv run server.py --config=settings.json"
+        fast-agent go --skills /path/to/myskills -x
 
     This will start an interactive session with the agent, using the specified model
     and instruction. It will use the default configuration from fastagent.config.yaml
@@ -395,7 +398,8 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
-        --skills-dir          Override the default skills folder
+        --skills              Override the default skills folder
+        --shell, -x           Enable local shell runtime
         --npx                 NPX package and args to run as MCP server (quoted)
         --uvx                 UVX package and args to run as MCP server (quoted)
         --stdio               Command to run as STDIO MCP server (quoted)

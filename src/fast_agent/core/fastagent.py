@@ -181,6 +181,10 @@ class FastAgent:
                 default="0.0.0.0",
                 help="Host address to bind to when running as a server with SSE transport",
             )
+            parser.add_argument(
+                "--skills",
+                help="Path to skills directory to use instead of default .claude/skills",
+            )
 
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -207,6 +211,14 @@ class FastAgent:
         # Apply programmatic quiet setting (overrides CLI if both are set)
         if self._programmatic_quiet:
             self.args.quiet = True
+
+        # Apply CLI skills directory if not already set programmatically
+        if (
+            self._skills_directory_override is None
+            and hasattr(self.args, "skills")
+            and self.args.skills
+        ):
+            self._skills_directory_override = Path(self.args.skills).expanduser()
 
         self.name = name
         self.config_path = config_path

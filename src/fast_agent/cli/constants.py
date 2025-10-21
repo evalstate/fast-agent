@@ -20,6 +20,7 @@ GO_SPECIFIC_OPTIONS = {
     "--config-path",
     "-c",
     "--shell",
+    "-x",
 }
 
 # Known subcommands that should not trigger auto-routing
