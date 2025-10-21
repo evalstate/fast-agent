@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, List
 import pytest
 from pydantic import BaseModel, Field
 
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
@@ -178,6 +179,38 @@ class WeatherForecast(BaseModel):
     unit: TemperatureUnit = Field(..., description="Temperature unit")
     forecast: List[DailyForecast] = Field(..., description="Daily forecasts")
     summary: str = Field(..., description="Brief summary of the overall forecast")
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "model_name",
+    ["haiku", "kimi"],
+)
+async def test_error_handling_e2e(fast_agent, model_name):
+    """Call a faulty tool and make sure the loop does as we expect."""
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(
+        "agent",
+        instruction="SYSTEM PROMPT",
+        model=model_name,
+        servers=["test_server"],
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            result = await agent.agent.generate("fail please")
+
+            #            assert 4 == len(provider_history.get())
+            assert result
+
+            assert 4 == len(agent.agent.message_history)
+            # this makes sure that the user message has the tool result with the error
+            assert next(iter(agent.agent.message_history[-2].tool_results.values())).isError is True
+
+    await agent_function()
 
 
 @pytest.mark.integration

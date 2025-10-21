@@ -96,7 +96,11 @@ class ToolAgent(LlmAgent):
 
             if LlmStopReason.TOOL_USE == result.stop_reason:
                 tool_message = await self.run_tools(result)
+
+                # the error channel will be populated if the LLM call failed
                 error_channel_messages = (tool_message.channels or {}).get(FAST_AGENT_ERROR_CHANNEL)
+                fatal_tool_error = False
+
                 if error_channel_messages:
                     tool_result_contents = [
                         content
@@ -107,8 +111,16 @@ class ToolAgent(LlmAgent):
                         if result.content is None:
                             result.content = []
                         result.content.extend(tool_result_contents)
-                    result.stop_reason = LlmStopReason.ERROR
+                        result.stop_reason = LlmStopReason.ERROR
+                    else:
+                        fatal_tool_error = not bool(tool_message.tool_results)
+
+                    if fatal_tool_error:
+                        break
+                elif not tool_message.tool_results:
+                    # No tool results returned at all – treat as unrecoverable.
                     break
+
                 if self.config.use_history:
                     messages = [tool_message]
                 else:
