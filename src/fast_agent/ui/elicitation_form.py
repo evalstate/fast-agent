@@ -317,6 +317,10 @@ class ElicitationForm:
             ]
         )
 
+        # Use field navigation mode as default
+        global text_navigation_mode
+        text_navigation_mode = False
+
         # Key bindings
         kb = KeyBindings()
 
@@ -379,11 +383,6 @@ class ElicitationForm:
                     self.multiline_fields.add(field_name)
                     break
 
-        # Ctrl+J submits in text navigation mode (equivalent to enter in field navigation mode)
-        @kb.add("c-j", filter=Condition(lambda: text_navigation_mode))
-        def submit_cj(event):
-            self._accept()
-
         # ESC should ALWAYS cancel immediately, no matter what
         @kb.add("escape", eager=True, is_global=True)
         def cancel(event):
@@ -400,15 +399,11 @@ class ElicitationForm:
                     [
                         (
                             "class:bottom-toolbar.text",
-                            "<TAB> navigate. <ENTER> insert new line. <CTRL+J> submit. <ESC> cancel. ",
+                            " || TEXT MODE || <TAB> navigate. <ENTER> insert new line. <ESC> cancel. <CTRL+T> toggle text mode.\n",
                         ),
                         (
                             "class:bottom-toolbar.text",
-                            "<CTRL+T> toggle text navigation mode (active). ",
-                        ),
-                        (
-                            "class:bottom-toolbar.text",
-                            "<Cancel All> Auto-Cancel further elicitations from this Server.",
+                            "   <Cancel All> Auto-Cancel further elicitations from this Server.",
                         ),
                     ]
                 )
@@ -417,15 +412,11 @@ class ElicitationForm:
                     [
                         (
                             "class:bottom-toolbar.text",
-                            " <TAB>/↑↓→← navigate. <ENTER> submit. <Ctrl+J> insert new line. <ESC> cancel. ",
+                            " || FIELD MODE || <TAB>/↑↓→← navigate. <ENTER> submit. <Ctrl+J> insert new line. <ESC> cancel. \n",
                         ),
                         (
                             "class:bottom-toolbar.text",
-                            "<CTRL+T> toggle text navigation mode. ",
-                        ),
-                        (
-                            "class:bottom-toolbar.text",
-                            "<Cancel All> Auto-Cancel further elicitations from this Server.",
+                            "   <CTRL+T> toggle text mode. <Cancel All> Auto-Cancel further elicitations from this Server.",
                         ),
                     ]
                 )
@@ -436,7 +427,7 @@ class ElicitationForm:
 
         # Create toolbar window that we can reference later
         self._toolbar_window = Window(
-            FormattedTextControl(get_toolbar), height=1, style="class:bottom-toolbar"
+            FormattedTextControl(get_toolbar), height=2, style="class:bottom-toolbar"
         )
 
         # Add toolbar to the layout
