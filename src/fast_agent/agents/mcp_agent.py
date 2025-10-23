@@ -125,7 +125,21 @@ class McpAgent(ABC, ToolAgent):
         elif skills_configured:
             self._shell_runtime_activation_reason = "because agent skills are configured"
 
-        self._shell_runtime = ShellRuntime(self._shell_runtime_activation_reason, self.logger)
+        # Get timeout configuration from context
+        timeout_seconds = 90  # default
+        warning_interval_seconds = 30  # default
+        if context and context.config:
+            shell_config = getattr(context.config, "shell_execution", None)
+            if shell_config:
+                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
+                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
+
+        self._shell_runtime = ShellRuntime(
+            self._shell_runtime_activation_reason,
+            self.logger,
+            timeout_seconds=timeout_seconds,
+            warning_interval_seconds=warning_interval_seconds,
+        )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
         if self._shell_runtime_enabled:

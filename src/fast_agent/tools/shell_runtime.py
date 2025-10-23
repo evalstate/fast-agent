@@ -4,20 +4,32 @@ import asyncio
 import os
 import platform
 import shutil
+import signal
+import subprocess
+import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from mcp.types import CallToolResult, TextContent, Tool
 
 from fast_agent.ui import console
+from fast_agent.ui.progress_display import progress_display
 
 
 class ShellRuntime:
     """Helper for managing the optional local shell execute tool."""
 
-    def __init__(self, activation_reason: str | None, logger) -> None:
+    def __init__(
+        self,
+        activation_reason: str | None,
+        logger,
+        timeout_seconds: int = 90,
+        warning_interval_seconds: int = 30,
+    ) -> None:
         self._activation_reason = activation_reason
         self._logger = logger
+        self._timeout_seconds = timeout_seconds
+        self._warning_interval_seconds = warning_interval_seconds
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
 
@@ -113,7 +125,7 @@ class ShellRuntime:
         }
 
     async def execute(self, arguments: Dict[str, Any] | None = None) -> CallToolResult:
-        """Execute a shell command and stream output to the console."""
+        """Execute a shell command and stream output to the console with timeout detection."""
         command_value = (arguments or {}).get("command") if arguments else None
         if not isinstance(command_value, str) or not command_value.strip():
             return CallToolResult(
@@ -127,78 +139,228 @@ class ShellRuntime:
             )
 
         command = command_value.strip()
-        try:
-            from rich.text import Text
-        except Exception:  # pragma: no cover - fallback if rich is unavailable
-            Text = None  # type: ignore[assignment]
+        self._logger.debug(
+            f"Executing command with timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
+        )
 
-        try:
-            if Text:
-                command_line = Text("$ ", style="magenta")
-                command_line.append(command, style="white")
-                console.console.print(command_line)
-            else:
-                console.console.print(f"$ {command}", style="magenta", markup=False)
+        # Pause progress display during shell execution to avoid overlaying output
+        with progress_display.paused():
+            try:
+                from rich.text import Text
+            except Exception:  # pragma: no cover - fallback if rich is unavailable
+                Text = None  # type: ignore[assignment]
 
-            working_dir = self.working_directory()
-
-            process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                cwd=working_dir,
-            )
-
-            output_segments: list[str] = []
-
-            async def stream_output(stream, style: Optional[str], is_stderr: bool = False) -> None:
-                if not stream:
-                    return
-                while True:
-                    line = await stream.readline()
-                    if not line:
-                        break
-                    text = line.decode(errors="replace")
-                    output_segments.append(text if not is_stderr else f"[stderr] {text}")
+            try:
+                if Text:
+                    command_line = Text("$ ", style="magenta")
+                    command_line.append(command, style="white")
+                    console.console.print(command_line)
+                    # Show timeout configuration
+                    timeout_line = Text("⏱  ", style="dim")
+                    timeout_line.append(
+                        f"timeout: {self._timeout_seconds}s, warnings every {self._warning_interval_seconds}s",
+                        style="dim yellow",
+                    )
+                    console.console.print(timeout_line)
+                else:
+                    console.console.print(f"$ {command}", style="magenta", markup=False)
                     console.console.print(
-                        text.rstrip("\n"),
-                        style=style,
+                        f"  timeout: {self._timeout_seconds}s, warnings every {self._warning_interval_seconds}s",
+                        style="dim yellow",
                         markup=False,
                     )
 
-            stdout_task = asyncio.create_task(stream_output(process.stdout, None))
-            stderr_task = asyncio.create_task(stream_output(process.stderr, "red", True))
+                working_dir = self.working_directory()
 
-            await asyncio.gather(stdout_task, stderr_task)
-            return_code = await process.wait()
+                # Detect platform for process group handling
+                is_windows = platform.system() == "Windows"
 
-            if Text:
-                status_line = Text("exit code ", style="dim")
-                status_line.append(str(return_code), style="dim")
-                console.console.print(status_line)
-            else:
-                console.console.print(f"exit code {return_code}", style="dim")
-
-            combined_output = "".join(output_segments)
-            if combined_output and not combined_output.endswith("\n"):
-                combined_output += "\n"
-            combined_output += f"(exit code: {return_code})"
-
-            result = CallToolResult(
-                isError=return_code != 0,
-                content=[
-                    TextContent(
-                        type="text",
-                        text=combined_output if combined_output else f"(exit code: {return_code})",
+                # Create process with platform-specific flags for process group control
+                if is_windows:
+                    # Windows: CREATE_NEW_PROCESS_GROUP allows killing process tree
+                    process = await asyncio.create_subprocess_shell(
+                        command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=working_dir,
+                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
                     )
-                ],
-            )
-            setattr(result, "_suppress_display", True)
-            return result
+                else:
+                    # Unix: start_new_session creates new process group
+                    process = await asyncio.create_subprocess_shell(
+                        command,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                        cwd=working_dir,
+                        start_new_session=True,
+                    )
 
-        except Exception as exc:
-            self._logger.error(f"Execute tool failed: {exc}")
-            return CallToolResult(
-                isError=True,
-                content=[TextContent(type="text", text=f"Command failed to start: {exc}")],
-            )
+                output_segments: list[str] = []
+                # Track last output time in a mutable container for sharing across coroutines
+                last_output_time = [time.time()]
+                timeout_occurred = [False]
+                watchdog_task = None
+
+                async def stream_output(
+                    stream, style: Optional[str], is_stderr: bool = False
+                ) -> None:
+                    if not stream:
+                        return
+                    while True:
+                        line = await stream.readline()
+                        if not line:
+                            break
+                        text = line.decode(errors="replace")
+                        output_segments.append(text if not is_stderr else f"[stderr] {text}")
+                        console.console.print(
+                            text.rstrip("\n"),
+                            style=style,
+                            markup=False,
+                        )
+                        # Update last output time whenever we receive a line
+                        last_output_time[0] = time.time()
+
+                async def watchdog() -> None:
+                    """Monitor output timeout and emit warnings."""
+                    last_warning_time = 0.0
+                    self._logger.debug(
+                        f"Watchdog started: timeout={self._timeout_seconds}s, warning_interval={self._warning_interval_seconds}s"
+                    )
+
+                    while True:
+                        await asyncio.sleep(1)  # Check every second
+
+                        # Check if process has exited
+                        if process.returncode is not None:
+                            self._logger.debug("Watchdog: process exited normally")
+                            break
+
+                        elapsed = time.time() - last_output_time[0]
+                        remaining = self._timeout_seconds - elapsed
+
+                        # Emit warnings every warning_interval_seconds throughout execution
+                        time_since_warning = elapsed - last_warning_time
+                        if time_since_warning >= self._warning_interval_seconds and remaining > 0:
+                            self._logger.debug(f"Watchdog: warning at {int(remaining)}s remaining")
+                            console.console.print(
+                                f"▶ No output detected - terminating in {int(remaining)}s",
+                                style="black on red",
+                            )
+                            last_warning_time = elapsed
+
+                        # Timeout exceeded
+                        if elapsed >= self._timeout_seconds:
+                            timeout_occurred[0] = True
+                            self._logger.debug(
+                                "Watchdog: timeout exceeded, terminating process group"
+                            )
+                            console.console.print(
+                                "▶ Timeout exceeded - terminating process", style="black on red"
+                            )
+                            try:
+                                if is_windows:
+                                    # Windows: terminate main process (may leave orphans, but control flow returns)
+                                    process.terminate()
+                                    await asyncio.sleep(2)
+                                    if process.returncode is None:
+                                        process.kill()
+                                else:
+                                    # Unix: kill entire process group for clean cleanup
+                                    os.killpg(process.pid, signal.SIGTERM)
+                                    await asyncio.sleep(2)
+                                    if process.returncode is None:
+                                        os.killpg(process.pid, signal.SIGKILL)
+                            except (ProcessLookupError, OSError):
+                                pass  # Process already terminated
+                            except Exception as e:
+                                self._logger.debug(f"Error terminating process: {e}")
+                                # Fallback: kill just the main process
+                                try:
+                                    process.kill()
+                                except Exception:
+                                    pass
+                            break
+
+                stdout_task = asyncio.create_task(stream_output(process.stdout, None))
+                stderr_task = asyncio.create_task(stream_output(process.stderr, "red", True))
+                watchdog_task = asyncio.create_task(watchdog())
+
+                # Wait for streams to complete
+                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+
+                # Cancel watchdog if still running
+                if watchdog_task and not watchdog_task.done():
+                    watchdog_task.cancel()
+                    try:
+                        await watchdog_task
+                    except asyncio.CancelledError:
+                        pass
+
+                # Wait for process to finish
+                try:
+                    return_code = await asyncio.wait_for(process.wait(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    # Process didn't exit, force kill
+                    try:
+                        if is_windows:
+                            # Windows: force kill main process
+                            process.kill()
+                        else:
+                            # Unix: SIGKILL to process group
+                            os.killpg(process.pid, signal.SIGKILL)
+                        return_code = await process.wait()
+                    except Exception:
+                        return_code = -1
+
+                if Text:
+                    status_line = Text("exit code ", style="dim")
+                    status_line.append(str(return_code), style="dim")
+                    console.console.print(status_line)
+                else:
+                    console.console.print(f"exit code {return_code}", style="dim")
+
+                # Build result based on timeout or normal completion
+                if timeout_occurred[0]:
+                    combined_output = "".join(output_segments)
+                    if combined_output and not combined_output.endswith("\n"):
+                        combined_output += "\n"
+                    combined_output += (
+                        f"(timeout after {self._timeout_seconds}s - process terminated)"
+                    )
+
+                    result = CallToolResult(
+                        isError=True,
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=combined_output,
+                            )
+                        ],
+                    )
+                else:
+                    combined_output = "".join(output_segments)
+                    if combined_output and not combined_output.endswith("\n"):
+                        combined_output += "\n"
+                    combined_output += f"(exit code: {return_code})"
+
+                    result = CallToolResult(
+                        isError=return_code != 0,
+                        content=[
+                            TextContent(
+                                type="text",
+                                text=combined_output
+                                if combined_output
+                                else f"(exit code: {return_code})",
+                            )
+                        ],
+                    )
+
+                setattr(result, "_suppress_display", True)
+                return result
+
+            except Exception as exc:
+                self._logger.error(f"Execute tool failed: {exc}")
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=f"Command failed to start: {exc}")],
+                )

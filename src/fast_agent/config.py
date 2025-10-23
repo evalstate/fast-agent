@@ -104,6 +104,34 @@ class SkillsSettings(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class ShellSettings(BaseModel):
+    """Configuration for shell execution behavior."""
+
+    timeout_seconds: int = 90
+    """Maximum seconds to wait for command output before terminating (default: 90s)"""
+
+    warning_interval_seconds: int = 30
+    """Show timeout warnings every N seconds (default: 30s)"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    @field_validator("timeout_seconds", mode="before")
+    @classmethod
+    def _coerce_timeout(cls, value: Any) -> int:
+        """Support duration strings like '90s', '2m', '1h'"""
+        if isinstance(value, str):
+            return MCPTimelineSettings._parse_duration(value)
+        return int(value)
+
+    @field_validator("warning_interval_seconds", mode="before")
+    @classmethod
+    def _coerce_warning_interval(cls, value: Any) -> int:
+        """Support duration strings like '30s', '1m'"""
+        if isinstance(value, str):
+            return MCPTimelineSettings._parse_duration(value)
+        return int(value)
+
+
 class MCPRootSettings(BaseModel):
     """Represents a root directory configuration for an MCP server."""
 
@@ -588,6 +616,9 @@ class Settings(BaseSettings):
 
     skills: SkillsSettings = SkillsSettings()
     """Local skills discovery and selection settings."""
+
+    shell_execution: ShellSettings = ShellSettings()
+    """Shell execution timeout and warning settings."""
 
     @classmethod
     def find_config(cls) -> Path | None:
