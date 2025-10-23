@@ -156,7 +156,7 @@ class ShellRuntime:
                     command_line.append(command, style="white")
                     console.console.print(command_line)
                     # Show timeout configuration
-                    timeout_line = Text("⏱  ", style="dim")
+                    timeout_line = Text("  ", style="dim")
                     timeout_line.append(
                         f"timeout: {self._timeout_seconds}s, warnings every {self._warning_interval_seconds}s",
                         style="dim yellow",
@@ -171,28 +171,51 @@ class ShellRuntime:
                     )
 
                 working_dir = self.working_directory()
+                runtime_details = self.runtime_info()
+                shell_name = (runtime_details.get("name") or "").lower()
+                shell_path = runtime_details.get("path")
 
                 # Detect platform for process group handling
                 is_windows = platform.system() == "Windows"
 
-                # Create process with platform-specific flags for process group control
+                # Shared process kwargs
+                process_kwargs: dict[str, Any] = {
+                    "stdout": asyncio.subprocess.PIPE,
+                    "stderr": asyncio.subprocess.PIPE,
+                    "cwd": working_dir,
+                }
+
                 if is_windows:
                     # Windows: CREATE_NEW_PROCESS_GROUP allows killing process tree
-                    process = await asyncio.create_subprocess_shell(
-                        command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=working_dir,
-                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP,
-                    )
+                    process_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
                 else:
                     # Unix: start_new_session creates new process group
+                    process_kwargs["start_new_session"] = True
+
+                # Create the subprocess, preferring PowerShell on Windows when available
+                if is_windows and shell_path and shell_name in {"pwsh", "powershell"}:
+                    process = await asyncio.create_subprocess_exec(
+                        shell_path,
+                        "-NoLogo",
+                        "-NoProfile",
+                        "-Command",
+                        command,
+                        **process_kwargs,
+                    )
+                elif is_windows and shell_path:
+                    process = await asyncio.create_subprocess_exec(
+                        shell_path,
+                        "/c",
+                        command,
+                        **process_kwargs,
+                    )
+                else:
+                    if (not is_windows) and shell_path:
+                        process_kwargs["executable"] = shell_path
+
                     process = await asyncio.create_subprocess_shell(
                         command,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        cwd=working_dir,
-                        start_new_session=True,
+                        **process_kwargs,
                     )
 
                 output_segments: list[str] = []
