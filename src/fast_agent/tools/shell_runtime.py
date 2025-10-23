@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
+import shutil
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -20,9 +22,13 @@ class ShellRuntime:
         self._tool: Tool | None = None
 
         if self.enabled:
+            # Detect the shell early so we can include it in the tool description
+            runtime_info = self.runtime_info()
+            shell_name = runtime_info.get("name", "shell")
+
             self._tool = Tool(
                 name="execute",
-                description="Run a shell command inside the agent workspace and return its output. ",
+                description=f"Run a shell command ({shell_name}) inside the agent workspace and return its output.",
                 inputSchema={
                     "type": "object",
                     "properties": {
@@ -54,17 +60,37 @@ class ShellRuntime:
         return skills_cwd if skills_cwd.exists() else Path.cwd()
 
     def runtime_info(self) -> Dict[str, str | None]:
-        """Best-effort detection of the shell runtime used for local execution."""
-        shell_path = os.environ.get("SHELL")
-        if not shell_path and os.name == "nt":
-            shell_path = os.environ.get("COMSPEC")
+        """Best-effort detection of the shell runtime used for local execution.
 
-        if shell_path:
-            shell_name = Path(shell_path).name
+        Uses modern Python APIs (platform.system(), shutil.which()) to detect
+        and prefer modern shells like pwsh (PowerShell 7+) and bash.
+        """
+        system = platform.system()
+
+        if system == "Windows":
+            # Preference order: pwsh > powershell > cmd
+            for shell_name in ["pwsh", "powershell", "cmd"]:
+                shell_path = shutil.which(shell_name)
+                if shell_path:
+                    return {"name": shell_name, "path": shell_path}
+
+            # Fallback to COMSPEC if nothing found in PATH
+            comspec = os.environ.get("COMSPEC", "cmd.exe")
+            return {"name": Path(comspec).name, "path": comspec}
         else:
-            shell_name = "cmd.exe" if os.name == "nt" else "sh"
+            # Unix-like: check SHELL env, then search for common shells
+            shell_env = os.environ.get("SHELL")
+            if shell_env and Path(shell_env).exists():
+                return {"name": Path(shell_env).name, "path": shell_env}
 
-        return {"name": shell_name, "path": shell_path}
+            # Preference order: bash > zsh > sh
+            for shell_name in ["bash", "zsh", "sh"]:
+                shell_path = shutil.which(shell_name)
+                if shell_path:
+                    return {"name": shell_name, "path": shell_path}
+
+            # Fallback to generic sh
+            return {"name": "sh", "path": None}
 
     def metadata(self, command: Optional[str]) -> Dict[str, Any]:
         """Build metadata for display when the shell tool is invoked."""

@@ -129,11 +129,11 @@ class McpAgent(ABC, ToolAgent):
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
         if self._shell_runtime_enabled:
-            modes: list[str] = ["direct"]
+            modes: list[str] = ["[red]direct[/red]"]
             if skills_configured:
                 modes.append("skills")
             if shell_flag_requested:
-                modes.append("command line")
+                modes.append("command switch")
             self._shell_access_modes = tuple(modes)
         self._bash_tool = self._shell_runtime.tool
         if self._shell_runtime_enabled:

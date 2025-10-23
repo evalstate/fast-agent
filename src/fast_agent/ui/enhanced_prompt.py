@@ -869,6 +869,7 @@ async def get_enhanced_input(
     shell_agent = None
     shell_enabled = False
     shell_access_modes: tuple[str, ...] = ()
+    shell_name: str | None = None
     if agent_provider:
         try:
             shell_agent = agent_provider._agent(agent_name)
@@ -882,6 +883,13 @@ async def get_enhanced_input(
             shell_access_modes = tuple(str(mode) for mode in modes_attr)
         elif modes_attr:
             shell_access_modes = (str(modes_attr),)
+
+        # Get the detected shell name from the runtime
+        if shell_enabled:
+            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
+            if shell_runtime:
+                runtime_info = shell_runtime.runtime_info()
+                shell_name = runtime_info.get("name")
 
     # Create formatted prompt text
     arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
@@ -956,7 +964,8 @@ async def get_enhanced_input(
 
         if shell_enabled:
             modes_display = ", ".join(shell_access_modes or ("direct",))
-            rich_print(f"[yellow]Shell Access ({modes_display})[/yellow]")
+            shell_display = f"{shell_name}, {modes_display}" if shell_name else modes_display
+            rich_print(f"[yellow]Shell Access ({shell_display})[/yellow]")
 
         rich_print()
         help_message_shown = True

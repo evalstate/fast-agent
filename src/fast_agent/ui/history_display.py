@@ -35,6 +35,7 @@ class Colours:
     USER = "blue"
     ASSISTANT = "green"
     TOOL = "magenta"
+    TOOL_ERROR = "red"
     HEADER = USER
     TIMELINE_EMPTY = "dim default"
     CONTEXT_SAFE = "green"
@@ -249,6 +250,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         result_rows: list[dict] = []
         tool_result_total_chars = 0
         tool_result_has_non_text = False
+        tool_result_has_error = False
 
         if tool_calls:
             names: list[str] = []
@@ -273,6 +275,8 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 tool_result_total_chars += result_chars
                 tool_result_has_non_text = tool_result_has_non_text or result_non_text
                 detail = _format_tool_detail("result→", [tool_name])
+                is_error = getattr(result, "isError", False)
+                tool_result_has_error = tool_result_has_error or is_error
                 result_rows.append(
                     {
                         "role": "tool",
@@ -284,6 +288,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                         "has_tool_request": False,
                         "hide_summary": False,
                         "include_in_timeline": False,
+                        "is_error": is_error,
                     }
                 )
             if role == "user":
@@ -308,6 +313,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         if timeline_role == "tool" and tool_result_total_chars > 0:
             row_chars = tool_result_total_chars
         row_non_text = row_non_text or tool_result_has_non_text
+        row_is_error = tool_result_has_error
 
         rows.append(
             {
@@ -320,6 +326,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 "has_tool_request": has_tool_request,
                 "hide_summary": hide_in_summary,
                 "include_in_timeline": include_in_timeline,
+                "is_error": row_is_error,
             }
         )
         rows.extend(result_rows)
@@ -333,10 +340,21 @@ def _aggregate_timeline_entries(rows: Sequence[dict]) -> list[dict]:
             "role": row.get("timeline_role", row["role"]),
             "chars": row["chars"],
             "non_text": row["non_text"],
+            "is_error": row.get("is_error", False),
         }
         for row in rows
         if row.get("include_in_timeline", True)
     ]
+
+
+def _get_role_color(role: str, *, is_error: bool = False) -> str:
+    """Get the display color for a role, accounting for error states."""
+    color_map = {"user": Colours.USER, "assistant": Colours.ASSISTANT, "tool": Colours.TOOL}
+
+    if role == "tool" and is_error:
+        return Colours.TOOL_ERROR
+
+    return color_map.get(role, "white")
 
 
 def _shade_block(chars: int, *, non_text: bool, color: str) -> Text:
@@ -356,12 +374,10 @@ def _shade_block(chars: int, *, non_text: bool, color: str) -> Text:
 
 
 def _build_history_bar(entries: Sequence[dict], width: int = TIMELINE_WIDTH) -> tuple[Text, Text]:
-    color_map = {"user": Colours.USER, "assistant": Colours.ASSISTANT, "tool": Colours.TOOL}
-
     recent = list(entries[-width:])
     bar = Text(" history |", style="dim")
     for entry in recent:
-        color = color_map.get(entry["role"], "ansiwhite")
+        color = _get_role_color(entry["role"], is_error=entry.get("is_error", False))
         bar.append_text(
             _shade_block(entry["chars"], non_text=entry.get("non_text", False), color=color)
         )
@@ -507,7 +523,6 @@ def display_history_overview(
     start_index = len(summary_candidates) - len(summary_rows) + 1
 
     role_arrows = {"user": "▶", "assistant": "◀", "tool": "▶"}
-    role_styles = {"user": Colours.USER, "assistant": Colours.ASSISTANT, "tool": Colours.TOOL}
     role_labels = {"user": "user", "assistant": "assistant", "tool": "tool result"}
 
     try:
@@ -517,7 +532,7 @@ def display_history_overview(
 
     for offset, row in enumerate(summary_rows):
         role = row["role"]
-        color = role_styles.get(role, "white")
+        color = _get_role_color(role, is_error=row.get("is_error", False))
         arrow = role_arrows.get(role, "▶")
         label = role_labels.get(role, role)
         if role == "assistant" and row.get("has_tool_request"):

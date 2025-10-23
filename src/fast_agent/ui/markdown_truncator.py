@@ -876,7 +876,7 @@ class MarkdownTruncator:
             return truncated_text
 
         # Find where the truncated text starts in the original
-        truncation_pos = original_text.find(truncated_text)
+        truncation_pos = original_text.rfind(truncated_text)
         if truncation_pos == -1:
             # Can't find it, return as-is
             return truncated_text
