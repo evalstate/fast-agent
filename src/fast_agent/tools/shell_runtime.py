@@ -259,9 +259,26 @@ class ShellRuntime:
                             )
                             try:
                                 if is_windows:
-                                    # Windows: terminate main process (may leave orphans, but control flow returns)
-                                    process.terminate()
-                                    await asyncio.sleep(2)
+                                    # Windows: try to signal the entire process group before terminating
+                                    try:
+                                        process.send_signal(signal.CTRL_BREAK_EVENT)
+                                        await asyncio.sleep(2)
+                                    except AttributeError:
+                                        # Older Python/asyncio may not support send_signal on Windows
+                                        self._logger.debug(
+                                            "Watchdog: CTRL_BREAK_EVENT unsupported, skipping"
+                                        )
+                                    except ValueError:
+                                        # Raised when no console is attached; fall back to terminate
+                                        self._logger.debug(
+                                            "Watchdog: no console attached for CTRL_BREAK_EVENT"
+                                        )
+                                    except ProcessLookupError:
+                                        pass  # Process already exited
+
+                                    if process.returncode is None:
+                                        process.terminate()
+                                        await asyncio.sleep(2)
                                     if process.returncode is None:
                                         process.kill()
                                 else:
