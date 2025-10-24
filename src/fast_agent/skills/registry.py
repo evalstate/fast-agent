@@ -13,7 +13,7 @@ logger = get_logger(__name__)
 
 @dataclass(frozen=True)
 class SkillManifest:
-    """Represents a single skill description loaded from SKILLS.md."""
+    """Represents a single skill description loaded from SKILL.md."""
 
     name: str
     description: str

@@ -7,7 +7,7 @@ from mcp.types import (
     ContentBlock,
     TextContent,
 )
-from openai import APIError, AsyncOpenAI, AuthenticationError
+from openai import APIError, AsyncOpenAI, AuthenticationError, DefaultAioHttpClient
 from openai.lib.streaming.chat import ChatCompletionStreamState
 
 # from openai.types.beta.chat import
@@ -96,7 +96,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     def _openai_client(self) -> AsyncOpenAI:
         try:
-            return AsyncOpenAI(api_key=self._api_key(), base_url=self._base_url())
+            return AsyncOpenAI(
+                api_key=self._api_key(),
+                base_url=self._base_url(),
+                http_client=DefaultAioHttpClient(),
+            )
 
         except AuthenticationError as e:
             raise ProviderKeyError(

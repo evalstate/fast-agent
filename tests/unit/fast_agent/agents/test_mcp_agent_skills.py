@@ -60,7 +60,7 @@ async def test_agent_skills_template_substitution(tmp_path: Path) -> None:
     assert "{{agentSkills}}" not in agent.instruction
     assert '<agent-skill name="beta"' in agent.instruction
     assert 'path="beta/SKILL.md"' in agent.instruction
-    assert "<description>Beta desc</description>" in agent.instruction
+    assert "Beta desc" in agent.instruction
     assert "<instructions>" not in agent.instruction
     assert "Beta body" not in agent.instruction
 

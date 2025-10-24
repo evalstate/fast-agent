@@ -6,7 +6,7 @@ from fast_agent.skills.registry import SkillRegistry
 def write_skill(directory: Path, name: str, description: str = "desc", body: str = "Body") -> Path:
     skill_dir = directory / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    manifest = skill_dir / "SKILLS.md"
+    manifest = skill_dir / "SKILL.md"
     manifest.write_text(
         f"""---
 name: {name}
@@ -33,7 +33,7 @@ def test_default_directory_prefers_fast_agent(tmp_path: Path) -> None:
 
 
 def test_default_directory_falls_back_to_claude(tmp_path: Path) -> None:
-    claude_dir = tmp_path / "claude" / "skills"
+    claude_dir = tmp_path / ".claude" / "skills"
     write_skill(claude_dir, "alpha", body="Alpha body")
 
     registry = SkillRegistry(base_dir=tmp_path)
@@ -73,7 +73,7 @@ def test_no_default_directory(tmp_path: Path) -> None:
 def test_registry_reports_errors(tmp_path: Path) -> None:
     invalid_dir = tmp_path / ".fast-agent" / "skills" / "invalid"
     invalid_dir.mkdir(parents=True)
-    (invalid_dir / "SKILLS.md").write_text("invalid front matter", encoding="utf-8")
+    (invalid_dir / "SKILL.md").write_text("invalid front matter", encoding="utf-8")
 
     registry = SkillRegistry(base_dir=tmp_path)
     manifests, errors = registry.load_manifests_with_errors()
