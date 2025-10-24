@@ -20,6 +20,12 @@ mcp_timeline:
   steps: 20 # number of timeline buckets to render
   step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
 
+#shell_execution:
+# length of time before terminating subprocess
+#  timeout_seconds: 20
+# warning interval if no output seen
+#  warning_seconds: 5
+
 # Logging and Console Configuration:
 logger:
   # level: "debug" | "info" | "warning" | "error"

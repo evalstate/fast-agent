@@ -14,6 +14,7 @@ Usage:
     )
 """
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
 
 if TYPE_CHECKING:
@@ -169,6 +170,9 @@ class InteractivePrompt:
                         # Handle tools list display
                         await self._list_tools(prompt_provider, agent)
                         continue
+                    elif "list_skills" in command_dict:
+                        await self._list_skills(prompt_provider, agent)
+                        continue
                     elif "show_usage" in command_dict:
                         # Handle usage display
                         await self._show_usage(prompt_provider, agent)
@@ -188,6 +192,41 @@ class InteractivePrompt:
                         history = getattr(agent_obj, "message_history", [])
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         display_history_overview(target_agent, history, usage)
+                        continue
+                    elif "clear_last" in command_dict:
+                        clear_info = command_dict.get("clear_last")
+                        clear_agent = (
+                            clear_info.get("agent") if isinstance(clear_info, dict) else None
+                        )
+                        target_agent = clear_agent or agent
+                        try:
+                            agent_obj = prompt_provider._agent(target_agent)
+                        except Exception:
+                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                            continue
+
+                        removed_message = None
+                        pop_callable = getattr(agent_obj, "pop_last_message", None)
+                        if callable(pop_callable):
+                            removed_message = pop_callable()
+                        else:
+                            history = getattr(agent_obj, "message_history", [])
+                            if history:
+                                try:
+                                    removed_message = history.pop()
+                                except Exception:
+                                    removed_message = None
+
+                        if removed_message:
+                            role = getattr(removed_message, "role", "message")
+                            role_display = role.capitalize() if isinstance(role, str) else "Message"
+                            rich_print(
+                                f"[green]Removed last {role_display} for agent '{target_agent}'.[/green]"
+                            )
+                        else:
+                            rich_print(
+                                f"[yellow]No messages to remove for agent '{target_agent}'.[/yellow]"
+                            )
                         continue
                     elif "clear_history" in command_dict:
                         clear_info = command_dict.get("clear_history")
@@ -857,19 +896,21 @@ class InteractivePrompt:
             rich_print()
 
             # Display tools using clean compact format
-            for i, tool in enumerate(tools_result.tools, 1):
+            index = 1
+            for tool in tools_result.tools:
                 # Main line: [ 1] tool_name Title
                 from rich.text import Text
 
+                meta = getattr(tool, "meta", {}) or {}
+
                 tool_line = Text()
-                tool_line.append(f"[{i:2}] ", style="dim cyan")
+                tool_line.append(f"[{index:2}] ", style="dim cyan")
                 tool_line.append(tool.name, style="bright_blue bold")
 
                 # Add title if available
                 if tool.title and tool.title.strip():
                     tool_line.append(f" {tool.title}", style="default")
 
-                meta = getattr(tool, "meta", {}) or {}
                 if meta.get("openai/skybridgeEnabled"):
                     tool_line.append(" (skybridge)", style="cyan")
 
@@ -932,11 +973,75 @@ class InteractivePrompt:
                         rich_print(f"     [dim magenta]template:[/dim magenta] {template}")
 
                 rich_print()  # Space between tools
+                index += 1
 
+            if index == 1:
+                rich_print("[yellow]No MCP tools available for this agent[/yellow]")
         except Exception as e:
             import traceback
 
             rich_print(f"[red]Error listing tools: {e}[/red]")
+            rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    async def _list_skills(self, prompt_provider: "AgentApp", agent_name: str) -> None:
+        """List available local skills for an agent."""
+
+        try:
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
+
+            rich_print(f"\n[bold]Skills for agent [cyan]{agent_name}[/cyan]:[/bold]")
+
+            skill_manifests = getattr(agent, "_skill_manifests", None)
+            manifests = list(skill_manifests) if skill_manifests else []
+
+            if not manifests:
+                rich_print("[yellow]No skills available for this agent[/yellow]")
+                return
+
+            rich_print()
+
+            for index, manifest in enumerate(manifests, 1):
+                from rich.text import Text
+
+                name = getattr(manifest, "name", "")
+                description = getattr(manifest, "description", "")
+                path = Path(getattr(manifest, "path", Path()))
+
+                tool_line = Text()
+                tool_line.append(f"[{index:2}] ", style="dim cyan")
+                tool_line.append(name, style="bright_blue bold")
+                rich_print(tool_line)
+
+                if description:
+                    import textwrap
+
+                    wrapped_lines = textwrap.wrap(
+                        description.strip(), width=72, subsequent_indent="     "
+                    )
+                    for line in wrapped_lines:
+                        if line.startswith("     "):
+                            rich_print(f"     [white]{line[5:]}[/white]")
+                        else:
+                            rich_print(f"     [white]{line}[/white]")
+
+                source_path = path if path else Path(".")
+                if source_path.is_file():
+                    source_path = source_path.parent
+                try:
+                    display_path = source_path.relative_to(Path.cwd())
+                except ValueError:
+                    display_path = source_path
+
+                rich_print(f"     [dim green]source:[/dim green] {display_path}")
+                rich_print()
+
+        except Exception as exc:  # noqa: BLE001
+            import traceback
+
+            rich_print(f"[red]Error listing skills: {exc}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
 
     async def _show_usage(self, prompt_provider: "AgentApp", agent_name: str) -> None:

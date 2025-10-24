@@ -1,4 +1,4 @@
-from typing import Generic, List, Protocol, TypeVar
+from typing import Generic, List, Optional, Protocol, TypeVar
 
 # Define our own type variable for implementation use
 MessageParamT = TypeVar("MessageParamT")
@@ -22,6 +22,8 @@ class Memory(Protocol, Generic[MessageParamT]):
     def get(self, include_completion_history: bool = True) -> List[MessageParamT]: ...
 
     def clear(self, clear_prompts: bool = False) -> None: ...
+
+    def pop(self, *, from_prompts: bool = False) -> Optional[MessageParamT]: ...
 
 
 class SimpleMemory(Memory, Generic[MessageParamT]):
@@ -107,6 +109,29 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         self.conversation_cache_positions = []  # Reset cache positions
         if clear_prompts:
             self.prompt_messages = []
+
+    def pop(self, *, from_prompts: bool = False) -> Optional[MessageParamT]:
+        """
+        Remove and return the most recent message from history or prompt messages.
+
+        Args:
+            from_prompts: If True, pop from prompt_messages instead of history
+
+        Returns:
+            The removed message if available, otherwise None
+        """
+        if from_prompts:
+            if not self.prompt_messages:
+                return None
+            return self.prompt_messages.pop()
+
+        if not self.history:
+            return None
+
+        removed = self.history.pop()
+        # Recalculate cache positions now that the history shrank
+        self.conversation_cache_positions = self._calculate_cache_positions(len(self.history))
+        return removed
 
     def should_apply_conversation_cache(self) -> bool:
         """

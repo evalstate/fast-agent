@@ -62,6 +62,7 @@ def show_welcome() -> None:
     table.add_column("Description", header_style="bold bright_white")
 
     table.add_row("[bold]go[/bold]", "Start an interactive session")
+    table.add_row("go --shell", "Start an interactive session with a local shell tool")
     table.add_row("check", "Show current configuration")
     table.add_row("auth", "Manage OAuth tokens and keyring")
     table.add_row("setup", "Create agent template and configuration")

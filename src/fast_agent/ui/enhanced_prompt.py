@@ -121,6 +121,14 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
         prompts_dict = await agent.list_prompts()
         prompt_count = sum(len(prompts) for prompts in prompts_dict.values()) if prompts_dict else 0
 
+        skill_count = 0
+        skill_manifests = getattr(agent, "_skill_manifests", None)
+        if skill_manifests:
+            try:
+                skill_count = len(list(skill_manifests))
+            except TypeError:
+                skill_count = 0
+
         # Handle different agent types
         if agent.agent_type == AgentType.PARALLEL:
             # Count child agents for parallel agents
@@ -149,36 +157,38 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                     f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {child_count:,}[dim] {child_word}[/dim]"
                 )
         else:
-            # For regular agents, only display if they have MCP servers attached
-            if server_count > 0:
-                # Build display parts in order: tools, prompts, resources (omit if count is 0)
-                display_parts = []
+            content_parts = []
 
+            if server_count > 0:
+                sub_parts = []
                 if tool_count > 0:
                     tool_word = "tool" if tool_count == 1 else "tools"
-                    display_parts.append(f"{tool_count:,}[dim] {tool_word}[/dim]")
-
+                    sub_parts.append(f"{tool_count:,}[dim] {tool_word}[/dim]")
                 if prompt_count > 0:
                     prompt_word = "prompt" if prompt_count == 1 else "prompts"
-                    display_parts.append(f"{prompt_count:,}[dim] {prompt_word}[/dim]")
-
+                    sub_parts.append(f"{prompt_count:,}[dim] {prompt_word}[/dim]")
                 if resource_count > 0:
                     resource_word = "resource" if resource_count == 1 else "resources"
-                    display_parts.append(f"{resource_count:,}[dim] {resource_word}[/dim]")
+                    sub_parts.append(f"{resource_count:,}[dim] {resource_word}[/dim]")
 
-                # Always show server count
                 server_word = "Server" if server_count == 1 else "Servers"
                 server_text = f"{server_count:,}[dim] MCP {server_word}[/dim]"
-
-                if display_parts:
-                    content = (
-                        f"{server_text}[dim], [/dim]"
-                        + "[dim], [/dim]".join(display_parts)
-                        + "[dim] available[/dim]"
+                if sub_parts:
+                    server_text = (
+                        f"{server_text}[dim] ([/dim]"
+                        + "[dim], [/dim]".join(sub_parts)
+                        + "[dim])[/dim]"
                     )
-                else:
-                    content = f"{server_text}[dim] available[/dim]"
+                content_parts.append(server_text)
 
+            if skill_count > 0:
+                skill_word = "skill" if skill_count == 1 else "skills"
+                content_parts.append(
+                    f"{skill_count:,}[dim] {skill_word}[/dim][dim] available[/dim]"
+                )
+
+            if content_parts:
+                content = "[dim]. [/dim]".join(content_parts)
                 rich_print(f"[dim]Agent [/dim][blue]{agent_name}[/blue][dim]:[/dim] {content}")
         #               await _render_mcp_status(agent)
 
@@ -351,9 +361,11 @@ class AgentCompleter(Completer):
         self.commands = {
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
-            "tools": "List available MCP tools",
+            "tools": "List available MCP Tools",
+            "skills": "List available Agent Skills",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
+            "clear last": "Remove the most recent message from history",
             "agents": "List available agents",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
@@ -854,8 +866,34 @@ async def get_enhanced_input(
     )
     session.app.key_bindings = bindings
 
+    shell_agent = None
+    shell_enabled = False
+    shell_access_modes: tuple[str, ...] = ()
+    shell_name: str | None = None
+    if agent_provider:
+        try:
+            shell_agent = agent_provider._agent(agent_name)
+        except Exception:
+            shell_agent = None
+
+    if shell_agent:
+        shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
+        modes_attr = getattr(shell_agent, "_shell_access_modes", ())
+        if isinstance(modes_attr, (list, tuple)):
+            shell_access_modes = tuple(str(mode) for mode in modes_attr)
+        elif modes_attr:
+            shell_access_modes = (str(modes_attr),)
+
+        # Get the detected shell name from the runtime
+        if shell_enabled:
+            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
+            if shell_runtime:
+                runtime_info = shell_runtime.runtime_info()
+                shell_name = runtime_info.get("name")
+
     # Create formatted prompt text
-    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> ❯ "
+    arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
+    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
 
     # Add default value display if requested
     if show_default and default and default != "STOP":
@@ -887,8 +925,10 @@ async def get_enhanced_input(
                 # Get logger settings from the agent's context (not agent_provider)
                 logger_settings = None
                 try:
-                    agent = agent_provider._agent(agent_name)
-                    agent_context = agent._context or agent.context
+                    active_agent = shell_agent
+                    if active_agent is None:
+                        active_agent = agent_provider._agent(agent_name)
+                    agent_context = active_agent._context or active_agent.context
                     logger_settings = agent_context.config.logger
                 except Exception:
                     # If we can't get the agent or its context, logger_settings stays None
@@ -922,6 +962,11 @@ async def get_enhanced_input(
                                     f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]"
                                 )
 
+        if shell_enabled:
+            modes_display = ", ".join(shell_access_modes or ("direct",))
+            shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
+            rich_print(f"[yellow]Shell Access ({shell_display})[/yellow]")
+
         rich_print()
         help_message_shown = True
 
@@ -953,9 +998,16 @@ async def get_enhanced_input(
             elif cmd == "clear":
                 target_agent = None
                 if len(cmd_parts) > 1:
-                    candidate = cmd_parts[1].strip()
-                    if candidate:
-                        target_agent = candidate
+                    remainder = cmd_parts[1].strip()
+                    if remainder:
+                        tokens = remainder.split(maxsplit=1)
+                        if tokens and tokens[0].lower() == "last":
+                            if len(tokens) > 1:
+                                candidate = tokens[1].strip()
+                                if candidate:
+                                    target_agent = candidate
+                            return {"clear_last": {"agent": target_agent}}
+                        target_agent = remainder
                 return {"clear_history": {"agent": target_agent}}
             elif cmd == "markdown":
                 return "MARKDOWN"
@@ -984,6 +1036,8 @@ async def get_enhanced_input(
             elif cmd == "tools":
                 # Return a dictionary with list_tools action
                 return {"list_tools": True}
+            elif cmd == "skills":
+                return {"list_skills": True}
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":
@@ -1147,8 +1201,10 @@ async def handle_special_commands(
         rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
+        rich_print("  /skills        - List local skills for the active agent")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
+        rich_print("  /clear last [agent_name] - Remove the most recent message from history")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history <filename> - Save current chat history to a file")

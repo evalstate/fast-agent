@@ -42,12 +42,15 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, ServerStatus
+from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
+from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.ui import console
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -59,6 +62,7 @@ if TYPE_CHECKING:
 
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
+    from fast_agent.skills import SkillManifest
 
 
 class McpAgent(ABC, ToolAgent):
@@ -73,7 +77,6 @@ class McpAgent(ABC, ToolAgent):
         self,
         config: AgentConfig,
         connection_persistence: bool = True,
-        # legacy human_input_callback removed
         context: "Context | None" = None,
         **kwargs,
     ) -> None:
@@ -96,6 +99,69 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
+        manifests: List[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
+        if not manifests and context and getattr(context, "skill_registry", None):
+            try:
+                manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
+            except Exception:
+                manifests = []
+
+        self._skill_manifests = list(manifests)
+        self._skill_map: Dict[str, SkillManifest] = {
+            manifest.name: manifest for manifest in manifests
+        }
+        self._agent_skills_warning_shown = False
+        shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
+        skills_configured = bool(self._skill_manifests)
+        self._shell_runtime_activation_reason: str | None = None
+
+        if shell_flag_requested and skills_configured:
+            self._shell_runtime_activation_reason = (
+                "via --shell flag and agent skills configuration"
+            )
+        elif shell_flag_requested:
+            self._shell_runtime_activation_reason = "via --shell flag"
+        elif skills_configured:
+            self._shell_runtime_activation_reason = "because agent skills are configured"
+
+        # Get timeout configuration from context
+        timeout_seconds = 90  # default
+        warning_interval_seconds = 30  # default
+        if context and context.config:
+            shell_config = getattr(context.config, "shell_execution", None)
+            if shell_config:
+                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
+                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
+
+        # Derive skills directory from this agent's manifests (respects per-agent config)
+        skills_directory = None
+        if self._skill_manifests:
+            # Get the skills directory from the first manifest's path
+            # Path structure: .fast-agent/skills/skill-name/SKILL.md
+            # So we need parent.parent of the manifest path
+            first_manifest = self._skill_manifests[0]
+            if first_manifest.path:
+                skills_directory = first_manifest.path.parent.parent
+
+        self._shell_runtime = ShellRuntime(
+            self._shell_runtime_activation_reason,
+            self.logger,
+            timeout_seconds=timeout_seconds,
+            warning_interval_seconds=warning_interval_seconds,
+            skills_directory=skills_directory,
+        )
+        self._shell_runtime_enabled = self._shell_runtime.enabled
+        self._shell_access_modes: tuple[str, ...] = ()
+        if self._shell_runtime_enabled:
+            modes: list[str] = ["[red]direct[/red]"]
+            if skills_configured:
+                modes.append("skills")
+            if shell_flag_requested:
+                modes.append("command switch")
+            self._shell_access_modes = tuple(modes)
+        self._bash_tool = self._shell_runtime.tool
+        if self._shell_runtime_enabled:
+            self._shell_runtime.announce()
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -207,6 +273,24 @@ class McpAgent(ABC, ToolAgent):
                 "{{serverInstructions}}", server_instructions
             )
 
+        skills_placeholder_present = "{{agentSkills}}" in self.instruction
+
+        if skills_placeholder_present:
+            agent_skills = format_skills_for_prompt(self._skill_manifests)
+            self.instruction = self.instruction.replace("{{agentSkills}}", agent_skills)
+            self._agent_skills_warning_shown = True
+        elif self._skill_manifests and not self._agent_skills_warning_shown:
+            warning_message = (
+                "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
+                "Skill descriptions will not be added to the system prompt."
+            )
+            self.logger.warning(warning_message)
+            try:
+                console.console.print(f"[yellow]{warning_message}[/yellow]")
+            except Exception:  # pragma: no cover - console fallback
+                pass
+            self._agent_skills_warning_shown = True
+
         # Update default request params to match
         if self._default_request_params:
             self._default_request_params.systemPrompt = self.instruction
@@ -315,11 +399,12 @@ class McpAgent(ABC, ToolAgent):
         """
         # Get all tools from the aggregator
         result = await self._aggregator.list_tools()
+        aggregator_tools = list(result.tools)
 
         # Apply filtering if tools are specified in config
         if self.config.tools is not None:
             filtered_tools = []
-            for tool in result.tools:
+            for tool in aggregator_tools:
                 # Extract server name from tool name, handling server names with hyphens
                 server_name = None
                 for configured_server in self.config.tools.keys():
@@ -334,7 +419,12 @@ class McpAgent(ABC, ToolAgent):
                         if self._matches_pattern(tool.name, pattern, server_name):
                             filtered_tools.append(tool)
                             break
-            result.tools = filtered_tools
+            aggregator_tools = filtered_tools
+
+        result.tools = aggregator_tools
+
+        if self._bash_tool and all(tool.name != self._bash_tool.name for tool in result.tools):
+            result.tools.append(self._bash_tool)
 
         # Append human input tool if enabled and available
         if self.config.human_input and getattr(self, "_human_input_tool", None):
@@ -353,6 +443,9 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
+        if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
+            return await self._shell_runtime.execute(arguments)
+
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
             return await self._call_human_input_tool(arguments)
@@ -615,6 +708,10 @@ class McpAgent(ABC, ToolAgent):
             namespaced_tool.tool.name
             for namespaced_tool in self._aggregator._namespaced_tool_map.values()
         ]
+        if self._shell_runtime.tool:
+            available_tools.append(self._shell_runtime.tool.name)
+
+        available_tools = list(dict.fromkeys(available_tools))
 
         # Process each tool call using our aggregator
         for correlation_id, tool_request in request.tool_calls.items():
@@ -627,6 +724,8 @@ class McpAgent(ABC, ToolAgent):
 
             tool_available = False
             if tool_name == HUMAN_INPUT_TOOL_NAME:
+                tool_available = True
+            elif self._bash_tool and tool_name == self._bash_tool.name:
                 tool_available = True
             elif namespaced_tool:
                 tool_available = True
@@ -654,6 +753,14 @@ class McpAgent(ABC, ToolAgent):
                 # Tool not found in list, no highlighting
                 pass
 
+            metadata: dict[str, Any] | None = None
+            if (
+                self._shell_runtime_enabled
+                and self._shell_runtime.tool
+                and display_tool_name == self._shell_runtime.tool.name
+            ):
+                metadata = self._shell_runtime.metadata(tool_args.get("command"))
+
             self.display.show_tool_call(
                 name=self._name,
                 tool_args=tool_args,
@@ -661,10 +768,11 @@ class McpAgent(ABC, ToolAgent):
                 tool_name=display_tool_name,
                 highlight_index=highlight_index,
                 max_item_length=12,
+                metadata=metadata,
             )
 
             try:
-                # Use our aggregator to call the MCP tool
+                # Use the appropriate handler for this tool
                 result = await self.call_tool(tool_name, tool_args)
                 tool_results[correlation_id] = result
 
@@ -675,12 +783,13 @@ class McpAgent(ABC, ToolAgent):
                         namespaced_tool.server_name
                     )
 
-                self.display.show_tool_result(
-                    name=self._name,
-                    result=result,
-                    tool_name=display_tool_name,
-                    skybridge_config=skybridge_config,
-                )
+                if not getattr(result, "_suppress_display", False):
+                    self.display.show_tool_result(
+                        name=self._name,
+                        result=result,
+                        tool_name=display_tool_name,
+                        skybridge_config=skybridge_config,
+                    )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
             except Exception as e:
@@ -873,6 +982,9 @@ class McpAgent(ABC, ToolAgent):
 
             result[special_server_name].append(self._human_input_tool)
 
+        # if self._skill_lookup_tool:
+        #     result.setdefault("__skills__", []).append(self._skill_lookup_tool)
+
         return result
 
     @property
@@ -984,6 +1096,18 @@ class McpAgent(ABC, ToolAgent):
         """
         Convert a Tool to an AgentSkill.
         """
+
+        if tool.name in self._skill_map:
+            manifest = self._skill_map[tool.name]
+            return AgentSkill(
+                id=f"skill:{manifest.name}",
+                name=manifest.name,
+                description=manifest.description or "",
+                tags=["skill"],
+                examples=None,
+                input_modes=None,
+                output_modes=None,
+            )
 
         _, tool_without_namespace = await self._parse_resource_name(tool.name, "tool")
         return AgentSkill(

@@ -718,6 +718,12 @@ class LlmDecorator(AgentProtocol):
             return self._llm.message_history
         return []
 
+    def pop_last_message(self) -> PromptMessageExtended | None:
+        """Remove and return the most recent message from the conversation history."""
+        if self._llm:
+            return self._llm.pop_last_message()
+        return None
+
     @property
     def usage_accumulator(self) -> UsageAccumulator | None:
         """

@@ -1,16 +1,13 @@
 import asyncio
 
 from fast_agent import FastAgent
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 
 # Create the application
 fast = FastAgent("fast-agent example")
 
 
-default_instruction = """You are a helpful AI Agent.
-
-{{serverInstructions}}
-
-The current date is {{currentDate}}."""
+default_instruction = DEFAULT_AGENT_INSTRUCTION
 
 
 # Define the agent

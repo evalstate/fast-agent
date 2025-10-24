@@ -159,6 +159,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
         self._stream_listeners: set[Callable[[str], None]] = set()
+        self._tool_stream_listeners: set[Callable[[str, Dict[str, Any] | None], None]] = set()
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -534,6 +535,37 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             except Exception:
                 self.logger.exception("Stream listener raised an exception")
 
+    def add_tool_stream_listener(
+        self, listener: Callable[[str, Dict[str, Any] | None], None]
+    ) -> Callable[[], None]:
+        """Register a callback invoked with tool streaming events.
+
+        Args:
+            listener: Callable receiving event_type (str) and optional info dict.
+
+        Returns:
+            A function that removes the listener when called.
+        """
+
+        self._tool_stream_listeners.add(listener)
+
+        def remove() -> None:
+            self._tool_stream_listeners.discard(listener)
+
+        return remove
+
+    def _notify_tool_stream_listeners(
+        self, event_type: str, payload: Dict[str, Any] | None = None
+    ) -> None:
+        """Notify listeners about tool streaming lifecycle events."""
+
+        data = payload or {}
+        for listener in list(self._tool_stream_listeners):
+            try:
+                listener(event_type, data)
+            except Exception:
+                self.logger.exception("Tool stream listener raised an exception")
+
     def _log_chat_finished(self, model: Optional[str] = None) -> None:
         """Log a chat finished event"""
         data = {
@@ -642,6 +674,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             List of PromptMessageExtended objects representing the conversation history
         """
         return self._message_history
+
+    def pop_last_message(self) -> PromptMessageExtended | None:
+        """Remove and return the most recent message from the conversation history."""
+        if not self._message_history:
+            return None
+
+        removed = self._message_history.pop()
+        try:
+            self.history.pop()
+        except Exception:
+            # If provider-specific memory isn't available, ignore to avoid crashing UX
+            pass
+        return removed
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         """Reset stored message history while optionally retaining prompt templates."""

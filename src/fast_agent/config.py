@@ -95,18 +95,41 @@ class MCPTimelineSettings(BaseModel):
             raise ValueError("Timeline steps must be greater than zero.")
         return value
 
-    @field_validator("step_seconds", mode="before")
+
+class SkillsSettings(BaseModel):
+    """Configuration for the skills directory override."""
+
+    directory: str | None = None
+
+    model_config = ConfigDict(extra="ignore")
+
+
+class ShellSettings(BaseModel):
+    """Configuration for shell execution behavior."""
+
+    timeout_seconds: int = 90
+    """Maximum seconds to wait for command output before terminating (default: 90s)"""
+
+    warning_interval_seconds: int = 30
+    """Show timeout warnings every N seconds (default: 30s)"""
+
+    model_config = ConfigDict(extra="ignore")
+
+    @field_validator("timeout_seconds", mode="before")
     @classmethod
-    def _coerce_step_seconds(cls, value: Any) -> int:
+    def _coerce_timeout(cls, value: Any) -> int:
+        """Support duration strings like '90s', '2m', '1h'"""
         if isinstance(value, str):
-            value = cls._parse_duration(value)
-        elif isinstance(value, (int, float)):
-            value = int(value)
-        else:
-            raise TypeError("Timeline step duration must be a number of seconds.")
-        if value <= 0:
-            raise ValueError("Timeline step duration must be greater than zero.")
-        return value
+            return MCPTimelineSettings._parse_duration(value)
+        return int(value)
+
+    @field_validator("warning_interval_seconds", mode="before")
+    @classmethod
+    def _coerce_warning_interval(cls, value: Any) -> int:
+        """Support duration strings like '30s', '1m'"""
+        if isinstance(value, str):
+            return MCPTimelineSettings._parse_duration(value)
+        return int(value)
 
 
 class MCPRootSettings(BaseModel):
@@ -590,6 +613,12 @@ class Settings(BaseSettings):
 
     mcp_timeline: MCPTimelineSettings = MCPTimelineSettings()
     """Display settings for MCP activity timelines."""
+
+    skills: SkillsSettings = SkillsSettings()
+    """Local skills discovery and selection settings."""
+
+    shell_execution: ShellSettings = ShellSettings()
+    """Shell execution timeout and warning settings."""
 
     @classmethod
     def find_config(cls) -> Path | None:

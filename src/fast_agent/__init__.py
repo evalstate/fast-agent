@@ -23,6 +23,7 @@ from fast_agent.config import (
     OpenRouterSettings,
     OpenTelemetrySettings,
     Settings,
+    SkillsSettings,
     TensorZeroSettings,
     XAISettings,
 )
@@ -126,6 +127,7 @@ __all__ = [
     "BedrockSettings",
     "HuggingFaceSettings",
     "LoggerSettings",
+    "SkillsSettings",
     # Progress and event tracking (lazy loaded)
     "ProgressAction",
     "ProgressEvent",

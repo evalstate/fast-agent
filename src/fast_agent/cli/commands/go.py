@@ -1,9 +1,10 @@
 """Run an interactive agent directly from the command line."""
 
 import asyncio
+import logging
 import shlex
 import sys
-from typing import Dict, List, Optional
+from pathlib import Path
 
 import typer
 
@@ -11,6 +12,7 @@ from fast_agent import FastAgent
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.ui.console_display import ConsoleDisplay
 
 app = typer.Typer(
@@ -18,28 +20,60 @@ app = typer.Typer(
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
-default_instruction = """You are a helpful AI Agent.
+default_instruction = DEFAULT_AGENT_INSTRUCTION
 
-{{serverInstructions}}
 
-The current date is {{currentDate}}."""
+def _set_asyncio_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
+    """Attach a detailed exception handler to the provided event loop."""
+
+    logger = logging.getLogger("fast_agent.asyncio")
+
+    def _handler(_loop: asyncio.AbstractEventLoop, context: dict) -> None:
+        message = context.get("message", "(no message)")
+        task = context.get("task")
+        future = context.get("future")
+        handle = context.get("handle")
+        source_traceback = context.get("source_traceback")
+        exception = context.get("exception")
+
+        details = {
+            "message": message,
+            "task": repr(task) if task else None,
+            "future": repr(future) if future else None,
+            "handle": repr(handle) if handle else None,
+            "source_traceback": [str(frame) for frame in source_traceback]
+            if source_traceback
+            else None,
+        }
+
+        logger.error("Unhandled asyncio error: %s", message)
+        logger.error("Asyncio context: %s", details)
+
+        if exception:
+            logger.exception("Asyncio exception", exc_info=exception)
+
+    try:
+        loop.set_exception_handler(_handler)
+    except Exception:
+        logger = logging.getLogger("fast_agent.asyncio")
+        logger.exception("Failed to set asyncio exception handler")
 
 
 async def _run_agent(
     name: str = "fast-agent cli",
     instruction: str = default_instruction,
-    config_path: Optional[str] = None,
-    server_list: Optional[List[str]] = None,
-    model: Optional[str] = None,
-    message: Optional[str] = None,
-    prompt_file: Optional[str] = None,
-    url_servers: Optional[Dict[str, Dict[str, str]]] = None,
-    stdio_servers: Optional[Dict[str, Dict[str, str]]] = None,
-    agent_name: Optional[str] = "agent",
+    config_path: str | None = None,
+    server_list: list[str] | None = None,
+    model: str | None = None,
+    message: str | None = None,
+    prompt_file: str | None = None,
+    url_servers: dict[str, dict[str, str]] | None = None,
+    stdio_servers: dict[str, dict[str, str]] | None = None,
+    agent_name: str | None = "agent",
+    skills_directory: Path | None = None,
+    shell_runtime: bool = False,
 ) -> None:
     """Async implementation to run an interactive agent."""
-    from pathlib import Path
-
     from fast_agent.mcp.prompts.prompt_load import load_prompt
 
     # Create the FastAgent instance
@@ -50,8 +84,14 @@ async def _run_agent(
         "ignore_unknown_args": True,
         "parse_cli_args": False,  # Don't parse CLI args, we're handling it ourselves
     }
+    if skills_directory is not None:
+        fast_kwargs["skills_directory"] = skills_directory
 
     fast = FastAgent(**fast_kwargs)
+
+    if shell_runtime:
+        await fast.app.initialize()
+        setattr(fast.app.context, "shell_runtime", True)
 
     # Add all dynamic servers to the configuration
     await add_servers_to_config(fast, url_servers)
@@ -149,15 +189,17 @@ async def _run_agent(
 def run_async_agent(
     name: str,
     instruction: str,
-    config_path: Optional[str] = None,
-    servers: Optional[str] = None,
-    urls: Optional[str] = None,
-    auth: Optional[str] = None,
-    model: Optional[str] = None,
-    message: Optional[str] = None,
-    prompt_file: Optional[str] = None,
-    stdio_commands: Optional[List[str]] = None,
-    agent_name: Optional[str] = None,
+    config_path: str | None = None,
+    servers: str | None = None,
+    urls: str | None = None,
+    auth: str | None = None,
+    model: str | None = None,
+    message: str | None = None,
+    prompt_file: str | None = None,
+    stdio_commands: list[str] | None = None,
+    agent_name: str | None = None,
+    skills_directory: Path | None = None,
+    shell_enabled: bool = False,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -240,10 +282,12 @@ def run_async_agent(
             # Instead, create a new loop
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
+        _set_asyncio_exception_handler(loop)
     except RuntimeError:
         # No event loop exists, so we'll create one
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
+        _set_asyncio_exception_handler(loop)
 
     try:
         loop.run_until_complete(
@@ -258,6 +302,8 @@ def run_async_agent(
                 url_servers=url_servers,
                 stdio_servers=stdio_servers,
                 agent_name=agent_name,
+                skills_directory=skills_directory,
+                shell_runtime=shell_enabled,
             )
         )
     finally:
@@ -280,38 +326,48 @@ def run_async_agent(
 def go(
     ctx: typer.Context,
     name: str = typer.Option("fast-agent", "--name", help="Name for the agent"),
-    instruction: Optional[str] = typer.Option(
+    instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
-    config_path: Optional[str] = typer.Option(
-        None, "--config-path", "-c", help="Path to config file"
-    ),
-    servers: Optional[str] = typer.Option(
+    config_path: str | None = typer.Option(None, "--config-path", "-c", help="Path to config file"),
+    servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
     ),
-    urls: Optional[str] = typer.Option(
+    urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
     ),
-    auth: Optional[str] = typer.Option(
+    auth: str | None = typer.Option(
         None, "--auth", help="Bearer token for authorization with URL-based servers"
     ),
-    model: Optional[str] = typer.Option(
+    model: str | None = typer.Option(
         None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
     ),
-    message: Optional[str] = typer.Option(
+    message: str | None = typer.Option(
         None, "--message", "-m", help="Message to send to the agent (skips interactive mode)"
     ),
-    prompt_file: Optional[str] = typer.Option(
+    prompt_file: str | None = typer.Option(
         None, "--prompt-file", "-p", help="Path to a prompt file to use (either text or JSON)"
     ),
-    npx: Optional[str] = typer.Option(
+    skills_dir: Path | None = typer.Option(
+        None,
+        "--skills-dir",
+        "--skills",
+        help="Override the default skills directory",
+    ),
+    npx: str | None = typer.Option(
         None, "--npx", help="NPX package and args to run as MCP server (quoted)"
     ),
-    uvx: Optional[str] = typer.Option(
+    uvx: str | None = typer.Option(
         None, "--uvx", help="UVX package and args to run as MCP server (quoted)"
     ),
-    stdio: Optional[str] = typer.Option(
+    stdio: str | None = typer.Option(
         None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
+    ),
+    shell: bool = typer.Option(
+        False,
+        "--shell",
+        "-x",
+        help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
 ) -> None:
     """
@@ -328,6 +384,7 @@ def go(
         fast-agent go --uvx "mcp-server-fetch --verbose"
         fast-agent go --stdio "python my_server.py --debug"
         fast-agent go --stdio "uv run server.py --config=settings.json"
+        fast-agent go --skills /path/to/myskills -x
 
     This will start an interactive session with the agent, using the specified model
     and instruction. It will use the default configuration from fastagent.config.yaml
@@ -341,12 +398,15 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
+        --skills              Override the default skills folder
+        --shell, -x           Enable local shell runtime
         --npx                 NPX package and args to run as MCP server (quoted)
         --uvx                 UVX package and args to run as MCP server (quoted)
         --stdio               Command to run as STDIO MCP server (quoted)
     """
     # Collect all stdio commands from convenience options
     stdio_commands = []
+    shell_enabled = shell
 
     if npx:
         stdio_commands.append(f"npx {npx}")
@@ -356,6 +416,8 @@ def go(
 
     if stdio:
         stdio_commands.append(stdio)
+
+    # When shell is enabled we don't add an MCP stdio server; handled inside the agent
 
     # Resolve instruction from file/URL or use default
     resolved_instruction = default_instruction  # Default
@@ -396,4 +458,6 @@ def go(
         prompt_file=prompt_file,
         stdio_commands=stdio_commands,
         agent_name=agent_name,
+        skills_directory=skills_dir,
+        shell_enabled=shell_enabled,
     )

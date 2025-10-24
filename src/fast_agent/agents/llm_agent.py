@@ -246,6 +246,7 @@ class LlmAgent(LlmDecorator):
             display_model = self.llm.model_name if self._llm else None
 
             remove_listener: Callable[[], None] | None = None
+            remove_tool_listener: Callable[[], None] | None = None
 
             with self.display.streaming_assistant_message(
                 name=display_name,
@@ -253,8 +254,12 @@ class LlmAgent(LlmDecorator):
             ) as stream_handle:
                 try:
                     remove_listener = self.llm.add_stream_listener(stream_handle.update)
+                    remove_tool_listener = self.llm.add_tool_stream_listener(
+                        stream_handle.handle_tool_event
+                    )
                 except Exception:
                     remove_listener = None
+                    remove_tool_listener = None
 
                 try:
                     result, summary = await self._generate_with_summary(
@@ -263,6 +268,8 @@ class LlmAgent(LlmDecorator):
                 finally:
                     if remove_listener:
                         remove_listener()
+                    if remove_tool_listener:
+                        remove_tool_listener()
 
                 if summary:
                     summary_text = Text(f"\n\n{summary.message}", style="dim red italic")
