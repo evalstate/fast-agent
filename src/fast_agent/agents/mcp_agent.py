@@ -133,11 +133,22 @@ class McpAgent(ABC, ToolAgent):
                 timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
                 warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
 
+        # Derive skills directory from this agent's manifests (respects per-agent config)
+        skills_directory = None
+        if self._skill_manifests:
+            # Get the skills directory from the first manifest's path
+            # Path structure: .fast-agent/skills/skill-name/SKILL.md
+            # So we need parent.parent of the manifest path
+            first_manifest = self._skill_manifests[0]
+            if first_manifest.path:
+                skills_directory = first_manifest.path.parent.parent
+
         self._shell_runtime = ShellRuntime(
             self._shell_runtime_activation_reason,
             self.logger,
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
+            skills_directory=skills_directory,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()

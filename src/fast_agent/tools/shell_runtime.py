@@ -25,11 +25,13 @@ class ShellRuntime:
         logger,
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
+        skills_directory: Path | None = None,
     ) -> None:
         self._activation_reason = activation_reason
         self._logger = logger
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
+        self._skills_directory = skills_directory
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
 
@@ -68,8 +70,9 @@ class ShellRuntime:
 
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
-        skills_cwd = Path.cwd() / "fast-agent" / "skills"
-        return skills_cwd if skills_cwd.exists() else Path.cwd()
+        if self._skills_directory and self._skills_directory.exists():
+            return self._skills_directory
+        return Path.cwd()
 
     def runtime_info(self) -> Dict[str, str | None]:
         """Best-effort detection of the shell runtime used for local execution.
@@ -342,13 +345,17 @@ class ShellRuntime:
                     )
                 else:
                     combined_output = "".join(output_segments)
+                    # Add explicit exit code message for the LLM
+                    if combined_output and not combined_output.endswith("\n"):
+                        combined_output += "\n"
+                    combined_output += f"process exit code was {return_code}"
 
                     result = CallToolResult(
                         isError=return_code != 0,
                         content=[
                             TextContent(
                                 type="text",
-                                text=combined_output if combined_output else "",
+                                text=combined_output,
                             )
                         ],
                     )
@@ -379,8 +386,8 @@ class ShellRuntime:
                     if remaining > 0:
                         separator.append("─" * remaining, style="dim")
 
-                    console.console.print(separator)
                     console.console.print()
+                    console.console.print(separator)
                 else:
                     console.console.print(f"exit code {return_code}", style="dim")
 
