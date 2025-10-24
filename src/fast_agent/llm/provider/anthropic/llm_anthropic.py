@@ -266,6 +266,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             "tool_name": content_block.name,
                             "tool_use_id": content_block.id,
                             "index": event.index,
+                            "streams_arguments": False,  # Anthropic doesn't stream arguments
                         },
                     )
                     self.logger.info(
@@ -298,6 +299,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "tool_use_id": info.get("id"),
                                 "index": event.index,
                                 "chunk": chunk,
+                                "streams_arguments": False,
                             },
                         )
                         self.logger.debug(
@@ -334,6 +336,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             "tool_name": info.get("name"),
                             "tool_use_id": info.get("id"),
                             "index": event.index,
+                            "streams_arguments": False,
                         },
                     )
                     self.logger.info(
@@ -364,6 +367,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         {
                             "chunk": event.delta.text,
                             "index": event.index,
+                            "streams_arguments": False,
                         },
                     )
 

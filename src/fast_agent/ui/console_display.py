@@ -14,6 +14,7 @@ from rich.text import Text
 
 from fast_agent.config import Settings
 from fast_agent.constants import REASONING
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.mcp_ui_utils import UILink
@@ -28,6 +29,8 @@ from fast_agent.ui.plain_text_truncator import PlainTextTruncator
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.mcp.skybridge import SkybridgeServerConfig
+
+logger = get_logger(__name__)
 
 CODE_STYLE = "native"
 
@@ -1840,6 +1843,16 @@ class _StreamingMessageHandle:
             prefer_recent=True,  # Streaming mode
         )
 
+    def _switch_to_plain_text(self) -> None:
+        """Switch from markdown to plain text rendering for tool arguments."""
+        if not self._use_plain_text:
+            self._use_plain_text = True
+            # Initialize plain truncator if needed
+            if not self._plain_truncator:
+                self._plain_truncator = PlainTextTruncator(
+                    target_height_ratio=PLAIN_STREAM_TARGET_RATIO
+                )
+
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
@@ -1858,15 +1871,27 @@ class _StreamingMessageHandle:
                     current_loop = asyncio.get_running_loop()
                 except RuntimeError:
                     current_loop = None
-                enqueue = (
-                    self._queue.put_nowait
-                    if current_loop is self._loop
-                    else lambda item: self._loop.call_soon_threadsafe(self._queue.put_nowait, item)
-                )
+
+                # Send stop sentinel to queue
                 try:
-                    enqueue(self._stop_sentinel)
-                except RuntimeError:
-                    pass
+                    if current_loop is self._loop:
+                        self._queue.put_nowait(self._stop_sentinel)
+                    else:
+                        # Use call_soon_threadsafe from different thread/loop
+                        self._loop.call_soon_threadsafe(self._queue.put_nowait, self._stop_sentinel)
+                except RuntimeError as e:
+                    # Expected during event loop shutdown - log at debug level
+                    logger.debug(
+                        "RuntimeError while closing streaming display (expected during shutdown)",
+                        data={"error": str(e)},
+                    )
+                except Exception as e:
+                    # Unexpected exception - log at warning level
+                    logger.warning(
+                        "Unexpected error while closing streaming display",
+                        exc_info=True,
+                        data={"error": str(e)},
+                    )
             if self._worker_task:
                 self._worker_task.cancel()
                 self._worker_task = None
@@ -1967,7 +1992,21 @@ class _StreamingMessageHandle:
                 # Shouldn't happen with default unlimited queue, but fail safe
                 pass
         else:
-            self._loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
+            try:
+                self._loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
+            except RuntimeError as e:
+                # Expected during event loop shutdown - log at debug level
+                logger.debug(
+                    "RuntimeError while enqueuing chunk (expected during shutdown)",
+                    data={"error": str(e), "chunk_length": len(chunk)},
+                )
+            except Exception as e:
+                # Unexpected exception - log at warning level
+                logger.warning(
+                    "Unexpected error while enqueuing chunk",
+                    exc_info=True,
+                    data={"error": str(e), "chunk_length": len(chunk)},
+                )
 
     def _handle_chunk(self, chunk: str) -> bool:
         """
@@ -2140,13 +2179,49 @@ class _StreamingMessageHandle:
         self._active = False
 
     def handle_tool_event(self, event_type: str, info: Dict[str, Any] | None = None) -> None:
-        if not self._active:
-            return
+        """Handle tool streaming events with comprehensive error handling.
 
-        if event_type == "start":
-            self.close()
-            return
-        elif event_type == "text":
-            self._pause_progress_display()
-        elif event_type == "stop":
-            self._resume_progress_display()
+        This is called from listener callbacks during async streaming, so we need
+        to be defensive about any errors to prevent crashes in the event loop.
+        """
+        try:
+            if not self._active:
+                return
+
+            # Check if this provider streams tool arguments
+            streams_arguments = info.get("streams_arguments", False) if info else False
+
+            if event_type == "start":
+                if streams_arguments:
+                    # OpenAI: Switch to plain text and show tool call header
+                    self._switch_to_plain_text()
+                    tool_name = info.get("tool_name", "unknown") if info else "unknown"
+                    self.update(f"\n→ Calling {tool_name}\n")
+                else:
+                    # Anthropic: Close streaming display immediately
+                    self.close()
+                return
+            elif event_type == "delta":
+                if streams_arguments and info and "chunk" in info:
+                    # Stream the tool argument chunks as plain text
+                    self.update(info["chunk"])
+            elif event_type == "text":
+                self._pause_progress_display()
+            elif event_type == "stop":
+                if streams_arguments:
+                    # Close the streaming display
+                    self.update("\n")
+                    self.close()
+                else:
+                    self._resume_progress_display()
+        except Exception as e:
+            # Log but don't crash - streaming display is "nice to have"
+            logger.warning(
+                "Error handling tool event",
+                exc_info=True,
+                data={
+                    "event_type": event_type,
+                    "streams_arguments": info.get("streams_arguments") if info else None,
+                    "error": str(e),
+                },
+            )
