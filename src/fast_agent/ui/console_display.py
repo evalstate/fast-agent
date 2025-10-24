@@ -886,7 +886,7 @@ class ConsoleDisplay:
         self,
         tool_name: str,
         tool_args: Dict[str, Any] | None,
-        bottom_items: List[str] | None = None,
+        bottom_items: list[str] | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
@@ -915,7 +915,8 @@ class ConsoleDisplay:
         truncate_content = True
 
         if metadata.get("variant") == "shell":
-            bottom_items = None
+            bottom_items = list()
+            max_item_length = 50
             command = metadata.get("command") or tool_args.get("command")
 
             command_text = Text()
@@ -932,7 +933,8 @@ class ConsoleDisplay:
             # Include shell name and path in the header, with timeout
             shell_name = metadata.get("shell_name") or "shell"
             shell_path = metadata.get("shell_path")
-
+            if shell_path:
+                bottom_items.append(str(shell_path))
             # Build header right info with shell and timeout
             right_parts = []
             if shell_path and shell_path != shell_name:
@@ -947,14 +949,14 @@ class ConsoleDisplay:
             metadata_text = Text()
             working_dir_display = metadata.get("working_dir_display") or metadata.get("working_dir")
             if working_dir_display:
-                metadata_text.append(f"cwd: {working_dir_display} ", style="dim")
+                bottom_items.append(f"cwd: {working_dir_display}")
 
             timeout_seconds = metadata.get("timeout_seconds")
             warning_interval = metadata.get("warning_interval_seconds")
 
             if timeout_seconds and warning_interval:
-                metadata_text.append(
-                    f"timeout: {timeout_seconds}s, warning every {warning_interval}s\n", style="dim"
+                bottom_items.append(
+                    f"timeout: {timeout_seconds}s, warning every {warning_interval}s"
                 )
 
             pre_content = metadata_text
