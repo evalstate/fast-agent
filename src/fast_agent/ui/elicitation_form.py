@@ -71,7 +71,7 @@ class SimpleStringValidator(Validator):
         self,
         min_length: Optional[int] = None,
         max_length: Optional[int] = None,
-        pattern: Optional[str] = None
+        pattern: Optional[str] = None,
     ):
         self.min_length = min_length
         self.max_length = max_length
@@ -399,32 +399,40 @@ class ElicitationForm:
             if hasattr(self, "_toolbar_hidden") and self._toolbar_hidden:
                 return FormattedText([])
 
+            mode_label = "TEXT MODE" if text_navigation_mode else "FIELD MODE"
+            mode_color = "ansired" if text_navigation_mode else "ansigreen"
+
+            arrow_up = "↑"
+            arrow_down = "↓"
+            arrow_left = "←"
+            arrow_right = "→"
+
             if text_navigation_mode:
-                return FormattedText(
-                    [
-                        (
-                            "class:bottom-toolbar.text",
-                            " || TEXT MODE || <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line.\n",
-                        ),
-                        (
-                            "class:bottom-toolbar.text",
-                            "   <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server.",
-                        ),
-                    ]
+                actions_line = (
+                    "  <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server."
+                )
+                navigation_tail = (
+                    " | <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line."
                 )
             else:
-                return FormattedText(
-                    [
-                        (
-                            "class:bottom-toolbar.text",
-                            " || FIELD MODE ||  <CTRL+T> toggle text mode. <TAB>/↑↓→← navigate. <Ctrl+J> insert new line.\n",
-                        ),
-                        (
-                            "class:bottom-toolbar.text",
-                            "   <ENTER> submit. <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server.",
-                        ),
-                    ]
+                actions_line = (
+                    "  <ENTER> submit. <ESC> cancel. <Cancel All> Auto-Cancel further elicitations "
+                    "from this Server."
                 )
+                navigation_tail = (
+                    " | <CTRL+T> toggle text mode. "
+                    f"<TAB>/{arrow_up}{arrow_down}{arrow_right}{arrow_left} navigate. "
+                    "<Ctrl+J> insert new line."
+                )
+
+            formatted_segments = [
+                ("class:bottom-toolbar.text", actions_line),
+                ("", "\n"),
+                ("class:bottom-toolbar.text", " | "),
+                (f"fg:{mode_color} bg:ansiblack", f" {mode_label} "),
+                ("class:bottom-toolbar.text", navigation_tail),
+            ]
+            return FormattedText(formatted_segments)
 
         # Store toolbar function reference for later control
         self._get_toolbar = get_toolbar
