@@ -964,7 +964,7 @@ async def get_enhanced_input(
 
         if shell_enabled:
             modes_display = ", ".join(shell_access_modes or ("direct",))
-            shell_display = f"{shell_name}, {modes_display}" if shell_name else modes_display
+            shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
             rich_print(f"[yellow]Shell Access ({shell_display})[/yellow]")
 
         rich_print()
