@@ -8,7 +8,6 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 import asyncio
 import fnmatch
 from abc import ABC
-from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,

@@ -202,17 +202,9 @@ class ShellRuntime:
                         command,
                         **process_kwargs,
                     )
-                elif is_windows and shell_path:
-                    process = await asyncio.create_subprocess_exec(
-                        shell_path,
-                        "/c",
-                        command,
-                        **process_kwargs,
-                    )
                 else:
-                    if (not is_windows) and shell_path:
+                    if shell_path:
                         process_kwargs["executable"] = shell_path
-
                     process = await asyncio.create_subprocess_shell(
                         command,
                         **process_kwargs,
