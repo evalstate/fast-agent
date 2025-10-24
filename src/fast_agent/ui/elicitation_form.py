@@ -383,6 +383,11 @@ class ElicitationForm:
                     self.multiline_fields.add(field_name)
                     break
 
+        # deactivate ctrl+j in text navigation mode
+        @kb.add("c-j", filter=Condition(lambda: text_navigation_mode))
+        def _(event):
+            pass
+
         # ESC should ALWAYS cancel immediately, no matter what
         @kb.add("escape", eager=True, is_global=True)
         def cancel(event):
@@ -399,11 +404,11 @@ class ElicitationForm:
                     [
                         (
                             "class:bottom-toolbar.text",
-                            " || TEXT MODE || <TAB> navigate. <ENTER> insert new line. <ESC> cancel. <CTRL+T> toggle text mode.\n",
+                            " || TEXT MODE || <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line.\n",
                         ),
                         (
                             "class:bottom-toolbar.text",
-                            "   <Cancel All> Auto-Cancel further elicitations from this Server.",
+                            "   <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server.",
                         ),
                     ]
                 )
@@ -412,11 +417,11 @@ class ElicitationForm:
                     [
                         (
                             "class:bottom-toolbar.text",
-                            " || FIELD MODE || <TAB>/↑↓→← navigate. <ENTER> submit. <Ctrl+J> insert new line. <ESC> cancel. \n",
+                            " || FIELD MODE ||  <CTRL+T> toggle text mode. <TAB>/↑↓→← navigate. <Ctrl+J> insert new line.\n",
                         ),
                         (
                             "class:bottom-toolbar.text",
-                            "   <CTRL+T> toggle text mode. <Cancel All> Auto-Cancel further elicitations from this Server.",
+                            "   <ENTER> submit. <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server.",
                         ),
                     ]
                 )
