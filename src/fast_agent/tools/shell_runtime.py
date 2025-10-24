@@ -120,6 +120,8 @@ class ShellRuntime:
             "shell_path": info.get("path"),
             "working_dir": str(working_dir),
             "working_dir_display": working_dir_display,
+            "timeout_seconds": self._timeout_seconds,
+            "warning_interval_seconds": self._warning_interval_seconds,
             "streams_output": True,
             "returns_exit_code": True,
         }
@@ -146,30 +148,6 @@ class ShellRuntime:
         # Pause progress display during shell execution to avoid overlaying output
         with progress_display.paused():
             try:
-                from rich.text import Text
-            except Exception:  # pragma: no cover - fallback if rich is unavailable
-                Text = None  # type: ignore[assignment]
-
-            try:
-                if Text:
-                    command_line = Text("$ ", style="magenta")
-                    command_line.append(command, style="white")
-                    console.console.print(command_line)
-                    # Show timeout configuration
-                    timeout_line = Text("  ", style="dim")
-                    timeout_line.append(
-                        f"timeout: {self._timeout_seconds}s, warnings every {self._warning_interval_seconds}s",
-                        style="dim yellow",
-                    )
-                    console.console.print(timeout_line)
-                else:
-                    console.console.print(f"$ {command}", style="magenta", markup=False)
-                    console.console.print(
-                        f"  timeout: {self._timeout_seconds}s, warnings every {self._warning_interval_seconds}s",
-                        style="dim yellow",
-                        markup=False,
-                    )
-
                 working_dir = self.working_directory()
                 runtime_details = self.runtime_info()
                 shell_name = (runtime_details.get("name") or "").lower()
@@ -344,13 +322,6 @@ class ShellRuntime:
                     except Exception:
                         return_code = -1
 
-                if Text:
-                    status_line = Text("exit code ", style="dim")
-                    status_line.append(str(return_code), style="dim")
-                    console.console.print(status_line)
-                else:
-                    console.console.print(f"exit code {return_code}", style="dim")
-
                 # Build result based on timeout or normal completion
                 if timeout_occurred[0]:
                     combined_output = "".join(output_segments)
@@ -371,23 +342,50 @@ class ShellRuntime:
                     )
                 else:
                     combined_output = "".join(output_segments)
-                    if combined_output and not combined_output.endswith("\n"):
-                        combined_output += "\n"
-                    combined_output += f"(exit code: {return_code})"
 
                     result = CallToolResult(
                         isError=return_code != 0,
                         content=[
                             TextContent(
                                 type="text",
-                                text=combined_output
-                                if combined_output
-                                else f"(exit code: {return_code})",
+                                text=combined_output if combined_output else "",
                             )
                         ],
                     )
 
+                # Display bottom separator with exit code
+                try:
+                    from rich.text import Text
+                except Exception:  # pragma: no cover
+                    Text = None  # type: ignore[assignment]
+
+                if Text:
+                    # Build bottom separator matching the style: ─| exit code 0 |─────────
+                    width = console.console.size.width
+                    exit_code_style = "red" if return_code != 0 else "dim"
+                    exit_code_text = f"exit code {return_code}"
+
+                    prefix = Text("─| ")
+                    prefix.stylize("dim")
+                    exit_text = Text(exit_code_text, style=exit_code_style)
+                    suffix = Text(" |")
+                    suffix.stylize("dim")
+
+                    separator = Text()
+                    separator.append_text(prefix)
+                    separator.append_text(exit_text)
+                    separator.append_text(suffix)
+                    remaining = width - separator.cell_len
+                    if remaining > 0:
+                        separator.append("─" * remaining, style="dim")
+
+                    console.console.print(separator)
+                    console.console.print()
+                else:
+                    console.console.print(f"exit code {return_code}", style="dim")
+
                 setattr(result, "_suppress_display", True)
+                setattr(result, "exit_code", return_code)
                 return result
 
             except Exception as exc:

@@ -38,6 +38,7 @@ PLAIN_STREAM_TARGET_RATIO = 0.9
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 1
 
+
 class MessageType(Enum):
     """Types of messages that can be displayed."""
 
@@ -907,79 +908,68 @@ class ConsoleDisplay:
 
         tool_args = tool_args or {}
         metadata = metadata or {}
-
         # Build right info and specialised content for known variants
         right_info = f"[dim]tool request - {tool_name}[/dim]"
         content: Any = tool_args
-        additional_message: Text | None = None
+        pre_content: Text | None = None
         truncate_content = True
 
         if metadata.get("variant") == "shell":
+            bottom_items = None
             command = metadata.get("command") or tool_args.get("command")
-            command_lines = command.splitlines() if isinstance(command, str) else []
 
             command_text = Text()
-            if command_lines:
-                for idx, line in enumerate(command_lines):
-                    if idx > 0:
-                        command_text.append("\n")
-                    command_text.append("$ ", style="magenta")
-                    command_text.append(line, style="white")
+            if command and isinstance(command, str):
+                # Only prepend $ to the first line, not continuation lines
+                command_text.append("$ ", style="magenta")
+                command_text.append(command, style="white")
             else:
                 command_text.append("$ ", style="magenta")
                 command_text.append("(no shell command provided)", style="dim")
 
             content = command_text
-            right_info = "[dim]shell command[/dim]"
+
+            # Include shell name and path in the header, with timeout
+            shell_name = metadata.get("shell_name") or "shell"
+            shell_path = metadata.get("shell_path")
+
+            # Build header right info with shell and timeout
+            right_parts = []
+            if shell_path and shell_path != shell_name:
+                right_parts.append(f"{shell_name} ({shell_path})")
+            elif shell_name:
+                right_parts.append(shell_name)
+
+            right_info = f"[dim]{' | '.join(right_parts)}[/dim]" if right_parts else ""
             truncate_content = False
 
-            # Build metadata summary
+            # Build compact metadata summary - just working directory now
             metadata_text = Text()
-            shell_name = metadata.get("shell_name")
-            shell_path = metadata.get("shell_path")
-            if shell_name or shell_path:
-                metadata_text.append("shell: ", style="dim")
-                if shell_path and shell_name and shell_path != shell_name:
-                    metadata_text.append(f"{shell_name} ({shell_path})", style="default")
-                elif shell_path:
-                    metadata_text.append(shell_path, style="default")
-                elif shell_name:
-                    metadata_text.append(shell_name, style="default")
-                else:  # pragma: no cover - safety
-                    metadata_text.append("system shell", style="default")
-
             working_dir_display = metadata.get("working_dir_display") or metadata.get("working_dir")
             if working_dir_display:
-                if metadata_text.plain:
-                    metadata_text.append("\n")
-                metadata_text.append("cwd: ", style="dim")
-                metadata_text.append(str(working_dir_display), style="default")
+                metadata_text.append(f"cwd: {working_dir_display} ", style="dim")
 
-            capability_flags: List[str] = []
-            if metadata.get("streams_output"):
-                capability_flags.append("streams stdout/stderr")
-            if metadata.get("returns_exit_code"):
-                capability_flags.append("reports exit code")
+            timeout_seconds = metadata.get("timeout_seconds")
+            warning_interval = metadata.get("warning_interval_seconds")
 
-            if capability_flags:
-                if metadata_text.plain:
-                    metadata_text.append("\n")
-                metadata_text.append("; ".join(capability_flags), style="dim")
+            if timeout_seconds and warning_interval:
+                metadata_text.append(
+                    f"timeout: {timeout_seconds}s, warning every {warning_interval}s\n", style="dim"
+                )
 
-            if metadata_text.plain:
-                additional_message = metadata_text
+            pre_content = metadata_text
 
         # Display using unified method
         self.display_message(
             content=content,
             message_type=MessageType.TOOL_CALL,
             name=name,
+            pre_content=pre_content,
             right_info=right_info,
             bottom_metadata=bottom_items,
             highlight_index=highlight_index,
             max_item_length=max_item_length,
             truncate_content=truncate_content,
-            additional_message=additional_message,
         )
 
     async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None:
@@ -1869,9 +1859,7 @@ class _StreamingMessageHandle:
                 enqueue = (
                     self._queue.put_nowait
                     if current_loop is self._loop
-                    else lambda item: self._loop.call_soon_threadsafe(
-                        self._queue.put_nowait, item
-                    )
+                    else lambda item: self._loop.call_soon_threadsafe(self._queue.put_nowait, item)
                 )
                 try:
                     enqueue(self._stop_sentinel)
