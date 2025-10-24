@@ -87,6 +87,10 @@ class FastAgentLLMProtocol(Protocol):
 
     def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
 
+    def add_tool_stream_listener(
+        self, listener: Callable[[str, Dict[str, Any] | None], None]
+    ) -> Callable[[], None]: ...
+
     @property
     def message_history(self) -> List[PromptMessageExtended]: ...
 

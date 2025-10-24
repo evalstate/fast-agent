@@ -159,7 +159,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
         self._stream_listeners: set[Callable[[str], None]] = set()
-        self._tool_stream_listeners: set[Callable[[str, Dict[str, Any]], None]] = set()
+        self._tool_stream_listeners: set[Callable[[str, Dict[str, Any] | None], None]] = set()
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -536,9 +536,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 self.logger.exception("Stream listener raised an exception")
 
     def add_tool_stream_listener(
-        self, listener: Callable[[str, Dict[str, Any]], None]
+        self, listener: Callable[[str, Dict[str, Any] | None], None]
     ) -> Callable[[], None]:
-        """Register a callback invoked with tool streaming events."""
+        """Register a callback invoked with tool streaming events.
+
+        Args:
+            listener: Callable receiving event_type (str) and optional info dict.
+
+        Returns:
+            A function that removes the listener when called.
+        """
 
         self._tool_stream_listeners.add(listener)
 
