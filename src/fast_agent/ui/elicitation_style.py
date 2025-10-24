@@ -53,7 +53,7 @@ ELICITATION_STYLE = Style.from_dict(
         "completion-menu.meta.completion": "bg:ansiblack fg:ansiblue",
         "completion-menu.meta.completion.current": "bg:ansibrightblack fg:ansiblue",
         # Toolbar - matching enhanced_prompt.py exactly
-        "bottom-toolbar": "fg:ansiblack bg:ansigray",
-        "bottom-toolbar.text": "fg:ansiblack bg:ansigray",
+        "bottom-toolbar": "fg:#ansiblack bg:#ansigray",
+        "bottom-toolbar.text": "fg:#ansiblack bg:#ansigray",
     }
 )
