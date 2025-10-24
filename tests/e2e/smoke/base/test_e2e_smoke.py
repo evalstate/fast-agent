@@ -185,6 +185,35 @@ class WeatherForecast(BaseModel):
 @pytest.mark.e2e
 @pytest.mark.parametrize(
     "model_name",
+    ["haiku", "kimi"],
+)
+async def test_error_handling_e2e(fast_agent, model_name):
+    """Call a faulty tool and make sure the loop does as we expect."""
+    fast = fast_agent
+
+    # Define the agent
+    @fast.agent(
+        "agent",
+        instruction="SYSTEM PROMPT",
+        model=model_name,
+        servers=["test_server"],
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            await agent.agent.generate("fail please")
+
+            assert 4 == len(agent.agent.message_history)
+            # this makes sure that the user message has the tool result with the error
+            assert next(iter(agent.agent.message_history[-2].tool_results.values())).isError is True
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+@pytest.mark.parametrize(
+    "model_name",
     [
         "gpt-4o",  # OpenAI model
         "o3-mini.low",  # reasoning
