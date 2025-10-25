@@ -57,6 +57,7 @@ class CodeBlockInfo:
     end_pos: int
     fence_line: int
     language: str
+    fence_text: str | None
     token: Token
 
 
@@ -325,7 +326,7 @@ class MarkdownTruncator:
     def _get_code_block_info(self, text: str) -> List[CodeBlockInfo]:
         """Extract code block positions and metadata using markdown-it.
 
-        Uses same technique as _prepare_markdown_content in console_display.py:
+        Uses same technique as prepare_markdown_content in markdown_helpers.py:
         parse once with markdown-it, extract exact positions from tokens.
 
         Args:
@@ -345,6 +346,9 @@ class MarkdownTruncator:
                 start_pos = sum(len(line) + 1 for line in lines[:start_line])
                 end_pos = sum(len(line) + 1 for line in lines[:end_line])
                 language = token.info or "" if hasattr(token, "info") else ""
+                fence_text: str | None = None
+                if token.type == "fence":
+                    fence_text = lines[start_line] if 0 <= start_line < len(lines) else None
 
                 code_blocks.append(
                     CodeBlockInfo(
@@ -352,11 +356,35 @@ class MarkdownTruncator:
                         end_pos=end_pos,
                         fence_line=start_line,
                         language=language,
+                        fence_text=fence_text,
                         token=token,
                     )
                 )
 
         return code_blocks
+
+    def _build_code_block_prefix(self, block: CodeBlockInfo) -> str | None:
+        """Construct the opening fence text for a code block if applicable."""
+        token = block.token
+
+        if token.type == "fence":
+            if block.fence_text:
+                fence_line = block.fence_text
+            else:
+                markup = getattr(token, "markup", "") or "```"
+                info = (getattr(token, "info", "") or "").strip()
+                fence_line = f"{markup}{info}" if info else markup
+            return fence_line if fence_line.endswith("\n") else fence_line + "\n"
+
+        if token.type == "code_block":
+            info = (getattr(token, "info", "") or "").strip()
+            if info:
+                return f"```{info}\n"
+            if block.language:
+                return f"```{block.language}\n"
+            return "```\n"
+
+        return None
 
     def _get_table_info(self, text: str) -> List[TableInfo]:
         """Extract table positions and metadata using markdown-it.
@@ -571,8 +599,8 @@ class MarkdownTruncator:
         # If truncation happened after the fence line, it scrolled off
         if truncation_point.char_position > code_block.start_pos:
             # Check if fence is already at the beginning (avoid duplicates)
-            fence = f"```{code_block.language}\n"
-            if not truncated_text.startswith(fence):
+            fence = self._build_code_block_prefix(code_block)
+            if fence and not truncated_text.startswith(fence):
                 # Fence scrolled off - prepend it
                 return fence + truncated_text
 
@@ -611,10 +639,8 @@ class MarkdownTruncator:
                 # Truncated within this code block
                 # Simple check: did truncation remove the fence?
                 if truncation_pos > block.start_pos:
-                    # Check if fence is already at the beginning (avoid duplicates)
-                    fence = f"```{block.language}\n"
-                    if not truncated_text.startswith(fence):
-                        # Fence scrolled off - prepend it
+                    fence = self._build_code_block_prefix(block)
+                    if fence and not truncated_text.startswith(fence):
                         return fence + truncated_text
                 # Fence still on screen or already prepended
                 return truncated_text
@@ -875,32 +901,26 @@ class MarkdownTruncator:
         if not truncated_text or truncated_text == original_text:
             return truncated_text
 
+        original_fragment = truncated_text
+
         # Find where the truncated text starts in the original
-        truncation_pos = original_text.rfind(truncated_text)
+        truncation_pos = original_text.rfind(original_fragment)
         if truncation_pos == -1:
-            # Can't find it, return as-is
-            return truncated_text
+            truncation_pos = max(0, len(original_text) - len(original_fragment))
 
-        # Check for incomplete code blocks
-        original_fence_count = original_text[:truncation_pos].count('```')
+        code_blocks = self._get_code_block_info(original_text)
+        active_block = None
+        for block in code_blocks:
+            if block.start_pos <= truncation_pos < block.end_pos:
+                active_block = block
 
-        # If we removed an odd number of fences, we're inside a code block
-        if original_fence_count % 2 == 1:
-            # Find the last opening fence before truncation point
-            import re
-            before_truncation = original_text[:truncation_pos]
-            fences = list(re.finditer(r'^```(\w*)', before_truncation, re.MULTILINE))
-            if fences:
-                last_fence = fences[-1]
-                language = last_fence.group(1) if last_fence.group(1) else ''
-                fence = f'```{language}\n'
-                if not truncated_text.startswith(fence):
-                    truncated_text = fence + truncated_text
+        if active_block:
+            fence = self._build_code_block_prefix(active_block)
+            if fence and not truncated_text.startswith(fence):
+                truncated_text = fence + truncated_text
 
-        # Check for incomplete tables
-        # Only if we're not inside a code block
-        if original_fence_count % 2 == 0 and '|' in truncated_text:
-            # Use the existing table header restoration logic
+        # Check for incomplete tables when not inside a code block
+        if active_block is None and '|' in truncated_text:
             tables = self._get_table_info(original_text)
             for table in tables:
                 if table.thead_end_pos <= truncation_pos < table.tbody_end_pos:

@@ -42,13 +42,13 @@ class ShellRuntime:
 
             self._tool = Tool(
                 name="execute",
-                description=f"Run a command in the shell ({shell_name}) return its output.",
+                description=f"Run a shell command directly in {shell_name}.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Command to execute (e.g. 'cat README.md').",
+                            "description": "Command string only - no shell executable prefix (correct: 'pwd', incorrect: 'bash -c pwd').",
                         }
                     },
                     "required": ["command"],
