@@ -42,13 +42,13 @@ class ShellRuntime:
 
             self._tool = Tool(
                 name="execute",
-                description=f"Run a shell command ({shell_name}) inside the agent workspace and return its output.",
+                description=f"Run a command in the shell ({shell_name}) return its output.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Shell command to execute (e.g. 'cat README.md').",
+                            "description": "Command to execute (e.g. 'cat README.md').",
                         }
                     },
                     "required": ["command"],
