@@ -9,6 +9,7 @@ import shlex
 import subprocess
 import tempfile
 from importlib.metadata import version
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from prompt_toolkit import PromptSession
@@ -23,7 +24,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
-from fast_agent.llm.model_info import get_model_info
+from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.mcp_display import render_mcp_status
 
@@ -723,18 +724,9 @@ async def get_enhanced_input(
             # Build TDV capability segment based on model database
             info = None
             if llm:
-                try:
-                    info = get_model_info(llm)
-                except TypeError:
-                    info = None
+                info = ModelInfo.from_llm(llm)
             if not info and model_name:
-                try:
-                    info = get_model_info(model_name)
-                except TypeError:
-                    info = None
-                except Exception as exc:
-                    print(f"[toolbar debug] get_model_info failed for '{agent_name}': {exc}")
-                    info = None
+                info = ModelInfo.from_name(model_name)
 
             # Default to text-only if info resolution fails for any reason
             t, d, v = (True, False, False)
@@ -965,6 +957,28 @@ async def get_enhanced_input(
         if shell_enabled:
             modes_display = ", ".join(shell_access_modes or ("direct",))
             shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
+
+            # Add working directory info
+            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
+            if shell_runtime:
+                working_dir = shell_runtime.working_directory()
+                try:
+                    # Try to show relative to cwd for cleaner display
+                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
+                    if working_dir_display == ".":
+                        # Show last 2 parts of the path (e.g., "source/fast-agent")
+                        parts = Path.cwd().parts
+                        if len(parts) >= 2:
+                            working_dir_display = "/".join(parts[-2:])
+                        elif len(parts) == 1:
+                            working_dir_display = parts[0]
+                        else:
+                            working_dir_display = str(Path.cwd())
+                except ValueError:
+                    # If not relative to cwd, show absolute path
+                    working_dir_display = str(working_dir)
+                shell_display = f"{shell_display} | cwd: {working_dir_display}"
+
             rich_print(f"[yellow]Shell Access ({shell_display})[/yellow]")
 
         rich_print()

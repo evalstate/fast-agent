@@ -42,13 +42,13 @@ class ShellRuntime:
 
             self._tool = Tool(
                 name="execute",
-                description=f"Run a shell command ({shell_name}) inside the agent workspace and return its output.",
+                description=f"Run a shell command directly in {shell_name}.",
                 inputSchema={
                     "type": "object",
                     "properties": {
                         "command": {
                             "type": "string",
-                            "description": "Shell command to execute (e.g. 'cat README.md').",
+                            "description": "Command string only - no shell executable prefix (correct: 'pwd', incorrect: 'bash -c pwd').",
                         }
                     },
                     "required": ["command"],
@@ -71,8 +71,8 @@ class ShellRuntime:
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
         # TODO -- reinstate when we provide duplication/isolation of skill workspaces
-        # if self._skills_directory and self._skills_directory.exists():
-        #     return self._skills_directory
+        if self._skills_directory and self._skills_directory.exists():
+            return self._skills_directory
         return Path.cwd()
 
     def runtime_info(self) -> Dict[str, str | None]:

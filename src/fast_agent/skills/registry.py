@@ -106,7 +106,6 @@ class SkillRegistry:
         errors: List[dict[str, str]] | None = None,
     ) -> List[SkillManifest]:
         manifests: List[SkillManifest] = []
-        cwd = Path.cwd()
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue
@@ -115,13 +114,22 @@ class SkillRegistry:
                 continue
             manifest, error = cls._parse_manifest(manifest_path)
             if manifest:
-                relative_path: Path | None = None
-                for base in (cwd, directory):
-                    try:
-                        relative_path = manifest_path.relative_to(base)
-                        break
-                    except ValueError:
-                        continue
+                # Compute relative path from skills directory (not cwd)
+                # Old behavior: try both cwd and directory
+                # relative_path: Path | None = None
+                # for base in (cwd, directory):
+                #     try:
+                #         relative_path = manifest_path.relative_to(base)
+                #         break
+                #     except ValueError:
+                #         continue
+
+                # New behavior: always relative to skills directory
+                try:
+                    relative_path = manifest_path.relative_to(directory)
+                except ValueError:
+                    relative_path = None
+
                 manifest = replace(manifest, relative_path=relative_path)
                 manifests.append(manifest)
             elif errors is not None:
@@ -175,7 +183,7 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
         "relevant to the Users task, intent or would increase effectiveness. \n"
-        "The 'execute' tool gives you shell access to the current working directory (agent workspace) "
+        "The 'execute' tool gives you direct shell access to the current working directory (agent workspace) "
         "and outputted files are visible to the User.\n"
         "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
         "Only use skills listed in <available_skills> below.\n\n"

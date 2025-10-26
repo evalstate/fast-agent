@@ -21,6 +21,8 @@ GO_SPECIFIC_OPTIONS = {
     "-c",
     "--shell",
     "-x",
+    "--skills",
+    "--skills-dir",
 }
 
 # Known subcommands that should not trigger auto-routing
