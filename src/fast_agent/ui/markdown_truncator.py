@@ -90,6 +90,13 @@ class MarkdownTruncator:
         self._last_full_text: str | None = None
         self._last_truncated_text: str | None = None
         self._last_terminal_height: int | None = None
+        # Markdown parse cache
+        self._cache_source: str | None = None
+        self._cache_tokens: List[Token] | None = None
+        self._cache_lines: List[str] | None = None
+        self._cache_safe_points: List[TruncationPoint] | None = None
+        self._cache_code_blocks: List[CodeBlockInfo] | None = None
+        self._cache_tables: List[TableInfo] | None = None
 
     def truncate(
         self,
@@ -286,6 +293,18 @@ class MarkdownTruncator:
 
         return truncated_text
 
+    def _ensure_parse_cache(self, text: str) -> None:
+        if self._cache_source == text:
+            return
+
+        tokens = self.parser.parse(text)
+        self._cache_source = text
+        self._cache_tokens = tokens
+        self._cache_lines = text.split("\n")
+        self._cache_safe_points = None
+        self._cache_code_blocks = None
+        self._cache_tables = None
+
     def _find_safe_truncation_points(self, text: str) -> List[TruncationPoint]:
         """Find safe positions to truncate at (block boundaries).
 
@@ -295,11 +314,16 @@ class MarkdownTruncator:
         Returns:
             List of TruncationPoint objects representing safe truncation positions.
         """
-        tokens = self.parser.parse(text)
-        safe_points = []
+        self._ensure_parse_cache(text)
+        if self._cache_safe_points is not None:
+            return list(self._cache_safe_points)
 
-        # Don't flatten - we need to process top-level tokens
-        lines = text.split("\n")
+        assert self._cache_tokens is not None
+        assert self._cache_lines is not None
+
+        safe_points: List[TruncationPoint] = []
+        tokens = self._cache_tokens
+        lines = self._cache_lines
 
         for token in tokens:
             # We're interested in block-level tokens with map information
@@ -320,8 +344,8 @@ class MarkdownTruncator:
                             is_closing=(token.nesting == 0),  # Self-closing or block end
                         )
                     )
-
-        return safe_points
+        self._cache_safe_points = safe_points
+        return list(safe_points)
 
     def _get_code_block_info(self, text: str) -> List[CodeBlockInfo]:
         """Extract code block positions and metadata using markdown-it.
@@ -335,9 +359,16 @@ class MarkdownTruncator:
         Returns:
             List of CodeBlockInfo objects with position and language metadata.
         """
-        tokens = self.parser.parse(text)
-        lines = text.split("\n")
-        code_blocks = []
+        self._ensure_parse_cache(text)
+        if self._cache_code_blocks is not None:
+            return list(self._cache_code_blocks)
+
+        assert self._cache_tokens is not None
+        assert self._cache_lines is not None
+
+        tokens = self._cache_tokens
+        lines = self._cache_lines
+        code_blocks: List[CodeBlockInfo] = []
 
         for token in self._flatten_tokens(tokens):
             if token.type in ("fence", "code_block") and token.map:
@@ -360,8 +391,8 @@ class MarkdownTruncator:
                         token=token,
                     )
                 )
-
-        return code_blocks
+        self._cache_code_blocks = code_blocks
+        return list(code_blocks)
 
     def _build_code_block_prefix(self, block: CodeBlockInfo) -> str | None:
         """Construct the opening fence text for a code block if applicable."""
@@ -398,9 +429,16 @@ class MarkdownTruncator:
         Returns:
             List of TableInfo objects with position and header metadata.
         """
-        tokens = self.parser.parse(text)
-        lines = text.split("\n")
-        tables = []
+        self._ensure_parse_cache(text)
+        if self._cache_tables is not None:
+            return list(self._cache_tables)
+
+        assert self._cache_tokens is not None
+        assert self._cache_lines is not None
+
+        tokens = self._cache_tokens
+        lines = self._cache_lines
+        tables: List[TableInfo] = []
 
         for i, token in enumerate(tokens):
             if token.type == "table_open" and token.map:
@@ -463,8 +501,8 @@ class MarkdownTruncator:
                             header_lines=header_lines,
                         )
                     )
-
-        return tables
+        self._cache_tables = tables
+        return list(tables)
 
     def _find_best_truncation_point(
         self,

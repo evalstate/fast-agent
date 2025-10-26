@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-MARKDOWN_STREAM_TARGET_RATIO = 0.7
+MARKDOWN_STREAM_TARGET_RATIO = 0.75
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
 MARKDOWN_STREAM_HEIGHT_FUDGE = 1
 PLAIN_STREAM_TARGET_RATIO = 0.9
@@ -215,7 +215,9 @@ class StreamingMessageHandle:
         if not self._use_plain_text:
             self._use_plain_text = True
         if not self._plain_truncator:
-            self._plain_truncator = PlainTextTruncator(target_height_ratio=PLAIN_STREAM_TARGET_RATIO)
+            self._plain_truncator = PlainTextTruncator(
+                target_height_ratio=PLAIN_STREAM_TARGET_RATIO
+            )
         self._plain_text_style = "dim"
         self._convert_literal_newlines = True
 
@@ -483,7 +485,11 @@ class StreamingMessageHandle:
 
             padding_lines = max(0, self._max_render_height - content_height)
             display_text = text + ("\n" * padding_lines if padding_lines else "")
-            content = Text(display_text, style=self._plain_text_style) if self._plain_text_style else Text(display_text)
+            content = (
+                Text(display_text, style=self._plain_text_style)
+                if self._plain_text_style
+                else Text(display_text)
+            )
         else:
             prepared = prepare_markdown_content(text, self._display._escape_xml)
             prepared_for_display = self._close_incomplete_code_blocks(prepared)
@@ -617,15 +623,13 @@ __all__ = [
     "PLAIN_STREAM_REFRESH_PER_SECOND",
     "PLAIN_STREAM_HEIGHT_FUDGE",
 ]
+
+
 class StreamingHandle(Protocol):
-    def update(self, chunk: str) -> None:
-        ...
+    def update(self, chunk: str) -> None: ...
 
-    def finalize(self, message: "PromptMessageExtended | str") -> None:
-        ...
+    def finalize(self, message: "PromptMessageExtended | str") -> None: ...
 
-    def close(self) -> None:
-        ...
+    def close(self) -> None: ...
 
-    def handle_tool_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
-        ...
+    def handle_tool_event(self, event_type: str, info: dict[str, Any] | None = None) -> None: ...

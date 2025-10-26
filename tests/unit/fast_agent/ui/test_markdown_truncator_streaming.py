@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import re
 
-from fast_agent.ui import console
+from rich.console import Console
+
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 
 
 def test_streaming_truncation_reinserts_code_fence() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.5)
+    test_console = Console(width=80)
 
     code_body = "\n".join(f"print({i})" for i in range(40))
     text = "intro\n```python\n" + code_body + "\n```\nsummary line"
@@ -15,7 +17,7 @@ def test_streaming_truncation_reinserts_code_fence() -> None:
     truncated = truncator.truncate(
         text,
         terminal_height=10,
-        console=console.console,
+        console=test_console,
         code_theme="native",
         prefer_recent=True,
     )
@@ -26,6 +28,7 @@ def test_streaming_truncation_reinserts_code_fence() -> None:
 
 def test_streaming_truncation_handles_untyped_code_block() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.5)
+    test_console = Console(width=80)
 
     code_body = "\n".join(f"line {i}" for i in range(50))
     text = "preface\n```\n" + code_body + "\n```\npostface"
@@ -33,7 +36,7 @@ def test_streaming_truncation_handles_untyped_code_block() -> None:
     truncated = truncator.truncate(
         text,
         terminal_height=12,
-        console=console.console,
+        console=test_console,
         code_theme="native",
         prefer_recent=True,
     )
@@ -44,6 +47,7 @@ def test_streaming_truncation_handles_untyped_code_block() -> None:
 
 def test_streaming_truncation_tracks_latest_code_block_language() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.5)
+    test_console = Console(width=80)
 
     second_block = "\n".join(f"print({i})" for i in range(80))
     text = (
@@ -53,7 +57,7 @@ def test_streaming_truncation_tracks_latest_code_block_language() -> None:
     truncated = truncator.truncate(
         text,
         terminal_height=10,
-        console=console.console,
+        console=test_console,
         code_theme="native",
         prefer_recent=True,
     )
@@ -66,6 +70,7 @@ def test_streaming_truncation_tracks_latest_code_block_language() -> None:
 
 def test_streaming_truncation_consistency_across_sliding_window() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.6)
+    test_console = Console(width=80)
 
     segments = [
         "intro paragraph",  # plain text
@@ -80,7 +85,7 @@ def test_streaming_truncation_consistency_across_sliding_window() -> None:
         truncated = truncator.truncate(
             full_text,
             terminal_height=height,
-            console=console.console,
+            console=test_console,
             code_theme="native",
             prefer_recent=True,
         )
@@ -106,6 +111,7 @@ def test_streaming_truncation_consistency_across_sliding_window() -> None:
 
 def test_streaming_truncation_many_small_blocks() -> None:
     truncator = MarkdownTruncator(target_height_ratio=0.6)
+    test_console = Console(width=80)
 
     snippets = []
     code_blocks: dict[int, str] = {}
@@ -124,7 +130,7 @@ def test_streaming_truncation_many_small_blocks() -> None:
         truncated = truncator.truncate(
             full_text,
             terminal_height=height,
-            console=console.console,
+            console=test_console,
             code_theme="native",
             prefer_recent=True,
         )
@@ -157,3 +163,99 @@ def test_streaming_truncation_many_small_blocks() -> None:
             fence_count = truncated.count("```")
             if fence_count > 0:
                 assert fence_count >= 2, f"unbalanced fences at height={height}"
+
+
+def test_streaming_truncation_preserves_table_header() -> None:
+    truncator = MarkdownTruncator(target_height_ratio=0.6)
+    test_console = Console(width=80)
+
+    header = "| name | value |"
+    separator = "|------|-------|"
+    rows = [f"| row{i} | {i} |" for i in range(50)]
+
+    table_text = "\n".join([header, separator, *rows])
+    text = "\n\n".join(
+        [
+            "Intro paragraph explaining the table.",
+            table_text,
+            "Closing remarks with summary.",
+        ]
+    )
+
+    for height in range(6, 18):
+        truncated = truncator.truncate(
+            text,
+            terminal_height=height,
+            console=test_console,
+            code_theme="native",
+            prefer_recent=True,
+        )
+
+        assert truncated.strip(), f"no content produced for height={height}"
+
+        lines = [line for line in truncated.splitlines() if line.strip()]
+        data_indices = [i for i, line in enumerate(lines) if line.startswith("| row")]
+        if not data_indices:
+            continue
+
+        first_data_index = data_indices[0]
+        assert first_data_index >= 2, f"missing header before table rows at height={height}"
+        assert lines[first_data_index - 2] == header, (
+            f"expected header at height={height}, got {lines[first_data_index - 2]!r}"
+        )
+        assert lines[first_data_index - 1] == separator, (
+            f"expected separator at height={height}, got {lines[first_data_index - 1]!r}"
+        )
+
+
+def test_streaming_truncation_handles_lists_and_code() -> None:
+    truncator = MarkdownTruncator(target_height_ratio=0.6)
+    test_console = Console(width=80)
+
+    sections = []
+    for idx in range(12):
+        sections.append(f"- item {idx}\n  continuation for item {idx}")
+        sections.append("```bash\n" + "\n".join(f"echo item_{idx}_{n}" for n in range(4)) + "\n```")
+
+    text = "\n\n".join(sections)
+
+    for height in range(6, 16):
+        truncated = truncator.truncate(
+            text,
+            terminal_height=height,
+            console=test_console,
+            code_theme="native",
+            prefer_recent=True,
+        )
+
+        assert truncated.strip(), f"no content produced for height={height}"
+
+        if "```bash" in truncated:
+            fence_index = truncated.rfind("```bash")
+            assert fence_index != -1
+            nearest_echo = truncated.find("echo item_", fence_index)
+            assert nearest_echo != -1, "code block truncated without content"
+
+        bullet_lines = [line for line in truncated.splitlines() if line.startswith("- item")]
+        if bullet_lines:
+            assert bullet_lines[0].startswith("- item"), "bullet prefix lost after truncation"
+
+
+def test_streaming_truncation_indented_code_block() -> None:
+    truncator = MarkdownTruncator(target_height_ratio=0.6)
+    test_console = Console(width=80)
+
+    indented_block = "\n".join(f"    indented line {i}" for i in range(60))
+    text = "lead-in paragraph\n\n" + indented_block + "\n\nclosing text"
+
+    for height in range(6, 14):
+        truncated = truncator.truncate(
+            text,
+            terminal_height=height,
+            console=test_console,
+            code_theme="native",
+            prefer_recent=True,
+        )
+
+        assert truncated.strip(), f"no content produced for height={height}"
+        assert truncated.lstrip().startswith("```"), "expected synthetic fence for indented block"
