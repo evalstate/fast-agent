@@ -8,7 +8,7 @@ from fast_agent.cli.terminal import Application
 from fast_agent.ui.console import console as shared_console
 
 app = typer.Typer(
-    help="fast-agent - Build effective agents using Model Context Protocol",
+    help="Use `fast-agent go --help` for interactive shell arguments and options.",
     add_completion=False,  # We'll add this later when we have more commands
 )
 

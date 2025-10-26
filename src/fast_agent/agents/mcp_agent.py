@@ -157,7 +157,7 @@ class McpAgent(ABC, ToolAgent):
             if skills_configured:
                 modes.append("skills")
             if shell_flag_requested:
-                modes.append("command switch")
+                modes.append("switch")
             self._shell_access_modes = tuple(modes)
         self._bash_tool = self._shell_runtime.tool
         if self._shell_runtime_enabled:
