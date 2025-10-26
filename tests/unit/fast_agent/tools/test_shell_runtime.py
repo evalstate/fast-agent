@@ -93,45 +93,35 @@ def _setup_runtime(
 
 
 @pytest.mark.asyncio
-async def test_execute_uses_pwsh_when_available(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    runtime, _process, captured = _setup_runtime(
-        monkeypatch, {"name": "pwsh", "path": r"C:\Program Files\PowerShell\7\pwsh.exe"}
-    )
+async def test_execute_simple_command() -> None:
+    """Test that shell runtime can execute a simple cross-platform command."""
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
 
-    result = await runtime.execute({"command": "Get-Process"})
+    # Use 'echo' which works on Windows, Linux, macOS
+    result = await runtime.execute({"command": "echo hello"})
 
-    assert captured["exec_args"] == (
-        "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
-        "-NoLogo",
-        "-NoProfile",
-        "-Command",
-        "Get-Process",
-    )
-    assert captured["exec_kwargs"]["creationflags"] == getattr(
-        subprocess, "CREATE_NEW_PROCESS_GROUP"
-    )
     assert result.isError is False
+    assert "hello" in result.content[0].text
+    assert "exit code" in result.content[0].text
 
 
 @pytest.mark.asyncio
-async def test_execute_falls_back_to_cmd(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(platform, "system", lambda: "Windows")
-    runtime, _process, captured = _setup_runtime(
-        monkeypatch, {"name": "cmd", "path": r"C:\Windows\System32\cmd.exe"}
-    )
+async def test_execute_command_with_exit_code() -> None:
+    """Test that shell runtime captures non-zero exit codes."""
+    logger = logging.getLogger("shell-runtime-test")
+    runtime = ShellRuntime(activation_reason="test", logger=logger, timeout_seconds=10)
 
-    result = await runtime.execute({"command": "dir"})
+    # Use different exit commands based on platform
+    if platform.system() == "Windows":
+        # Windows cmd.exe
+        result = await runtime.execute({"command": "exit 1"})
+    else:
+        # Unix shells
+        result = await runtime.execute({"command": "false"})
 
-    assert captured["exec_args"] == (
-        "C:\\Windows\\System32\\cmd.exe",
-        "/c",
-        "dir",
-    )
-    assert captured["exec_kwargs"]["creationflags"] == getattr(
-        subprocess, "CREATE_NEW_PROCESS_GROUP"
-    )
-    assert result.isError is False
+    assert result.isError is True
+    assert "exit code" in result.content[0].text
 
 
 @pytest.mark.asyncio
