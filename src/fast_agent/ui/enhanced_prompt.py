@@ -24,7 +24,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
-from fast_agent.llm.model_info import get_model_info
+from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.mcp_display import render_mcp_status
 
@@ -724,18 +724,9 @@ async def get_enhanced_input(
             # Build TDV capability segment based on model database
             info = None
             if llm:
-                try:
-                    info = get_model_info(llm)
-                except TypeError:
-                    info = None
+                info = ModelInfo.from_llm(llm)
             if not info and model_name:
-                try:
-                    info = get_model_info(model_name)
-                except TypeError:
-                    info = None
-                except Exception as exc:
-                    print(f"[toolbar debug] get_model_info failed for '{agent_name}': {exc}")
-                    info = None
+                info = ModelInfo.from_name(model_name)
 
             # Default to text-only if info resolution fails for any reason
             t, d, v = (True, False, False)

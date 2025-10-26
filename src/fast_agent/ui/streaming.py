@@ -580,14 +580,16 @@ class StreamingMessageHandle:
                 return
 
             streams_arguments = info.get("streams_arguments", False) if info else False
+            tool_name = info.get("tool_name", "unknown") if info else "unknown"
 
             if event_type == "start":
                 if streams_arguments:
                     self._switch_to_plain_text()
-                    tool_name = info.get("tool_name", "unknown") if info else "unknown"
                     self.update(f"\n→ Calling {tool_name}\n")
                 else:
-                    self.close()
+                    self._pause_progress_display()
+                    self._switch_to_plain_text()
+                    self.update(f"\n→ Calling {tool_name}\n")
                 return
             if event_type == "delta":
                 if streams_arguments and info and "chunk" in info:
@@ -599,7 +601,8 @@ class StreamingMessageHandle:
                     self.update("\n")
                     self.close()
                 else:
-                    self._resume_progress_display()
+                    self.update("\n")
+                    self.close()
         except Exception as exc:
             logger.warning(
                 "Error handling tool event",

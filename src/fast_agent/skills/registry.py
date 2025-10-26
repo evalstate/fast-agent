@@ -106,7 +106,6 @@ class SkillRegistry:
         errors: List[dict[str, str]] | None = None,
     ) -> List[SkillManifest]:
         manifests: List[SkillManifest] = []
-        cwd = Path.cwd()
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue

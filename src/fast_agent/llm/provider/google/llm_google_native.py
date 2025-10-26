@@ -1,3 +1,4 @@
+import json
 import secrets
 from typing import Dict, List
 
@@ -49,8 +50,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, provider=Provider.GOOGLE, **kwargs)
-        # Initialize the google.genai client
-        self._google_client = self._initialize_google_client()
         # Initialize the converter
         self._converter = GoogleConverter()
 
@@ -109,6 +108,218 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             # Include other relevant default parameters
         )
 
+    async def _stream_generate_content(
+        self,
+        *,
+        model: str,
+        contents: List[types.Content],
+        config: types.GenerateContentConfig,
+        client: genai.Client,
+    ) -> types.GenerateContentResponse | None:
+        """Stream Gemini responses and return the final aggregated completion."""
+        try:
+            response_stream = await client.aio.models.generate_content_stream(
+                model=model,
+                contents=contents,
+                config=config,
+            )
+        except AttributeError:
+            # Older SDKs might not expose streaming; fall back to non-streaming.
+            return None
+        except errors.APIError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            self.logger.warning(
+                "Google streaming failed during setup; falling back to non-streaming",
+                exc_info=exc,
+            )
+            return None
+
+        return await self._consume_google_stream(response_stream, model=model)
+
+    async def _consume_google_stream(
+        self,
+        response_stream,
+        *,
+        model: str,
+    ) -> types.GenerateContentResponse | None:
+        """Consume the async streaming iterator and aggregate the final response."""
+        estimated_tokens = 0
+        timeline: List[tuple[str, int | None, str]] = []
+        tool_streams: Dict[int, Dict[str, str]] = {}
+        active_tool_index: int | None = None
+        tool_counter = 0
+        usage_metadata = None
+        last_chunk: types.GenerateContentResponse | None = None
+
+        try:
+            async for chunk in response_stream:
+                last_chunk = chunk
+                if getattr(chunk, "usage_metadata", None):
+                    usage_metadata = chunk.usage_metadata
+
+                if not getattr(chunk, "candidates", None):
+                    continue
+
+                candidate = chunk.candidates[0]
+                content = getattr(candidate, "content", None)
+                if content is None or not getattr(content, "parts", None):
+                    continue
+
+                for part in content.parts:
+                    if getattr(part, "text", None):
+                        text = part.text or ""
+                        if text:
+                            if timeline and timeline[-1][0] == "text":
+                                prev_type, prev_index, prev_text = timeline[-1]
+                                timeline[-1] = (prev_type, prev_index, prev_text + text)
+                            else:
+                                timeline.append(("text", None, text))
+                            estimated_tokens = self._update_streaming_progress(
+                                text,
+                                model,
+                                estimated_tokens,
+                            )
+                            self._notify_tool_stream_listeners(
+                                "text",
+                                {
+                                    "chunk": text,
+                                    "streams_arguments": False,
+                                },
+                            )
+
+                    if getattr(part, "function_call", None):
+                        function_call = part.function_call
+                        name = getattr(function_call, "name", None) or "tool"
+                        args = getattr(function_call, "args", None) or {}
+
+                        if active_tool_index is None:
+                            active_tool_index = tool_counter
+                            tool_counter += 1
+                            tool_use_id = f"tool_{self.chat_turn()}_{active_tool_index}"
+                            tool_streams[active_tool_index] = {
+                                "name": name,
+                                "tool_use_id": tool_use_id,
+                                "buffer": "",
+                            }
+                            self._notify_tool_stream_listeners(
+                                "start",
+                                {
+                                    "tool_name": name,
+                                    "tool_use_id": tool_use_id,
+                                    "index": active_tool_index,
+                                    "streams_arguments": False,
+                                },
+                            )
+                            timeline.append(("tool_call", active_tool_index, ""))
+
+                        stream_info = tool_streams.get(active_tool_index)
+                        if not stream_info:
+                            continue
+
+                        try:
+                            serialized_args = json.dumps(args, separators=(",", ":"))
+                        except Exception:
+                            serialized_args = str(args)
+
+                        previous = stream_info.get("buffer", "")
+                        if isinstance(previous, str) and serialized_args.startswith(previous):
+                            delta = serialized_args[len(previous) :]
+                        else:
+                            delta = serialized_args
+                        stream_info["buffer"] = serialized_args
+
+                        if delta:
+                            self._notify_tool_stream_listeners(
+                                "delta",
+                                {
+                                    "tool_name": stream_info["name"],
+                                    "tool_use_id": stream_info["tool_use_id"],
+                                    "index": active_tool_index,
+                                    "chunk": delta,
+                                    "streams_arguments": False,
+                                },
+                            )
+
+                finish_reason = getattr(candidate, "finish_reason", None)
+                if finish_reason:
+                    finish_value = str(finish_reason).split(".")[-1].upper()
+                    if finish_value in {"FUNCTION_CALL", "STOP"} and active_tool_index is not None:
+                        stream_info = tool_streams.get(active_tool_index)
+                        if stream_info:
+                            self._notify_tool_stream_listeners(
+                                "stop",
+                                {
+                                    "tool_name": stream_info["name"],
+                                    "tool_use_id": stream_info["tool_use_id"],
+                                    "index": active_tool_index,
+                                    "streams_arguments": False,
+                                },
+                            )
+                        active_tool_index = None
+        finally:
+            stream_close = getattr(response_stream, "aclose", None)
+            if callable(stream_close):
+                try:
+                    await stream_close()
+                except Exception:
+                    pass
+
+        if active_tool_index is not None:
+            stream_info = tool_streams.get(active_tool_index)
+            if stream_info:
+                self._notify_tool_stream_listeners(
+                    "stop",
+                    {
+                        "tool_name": stream_info["name"],
+                        "tool_use_id": stream_info["tool_use_id"],
+                        "index": active_tool_index,
+                        "streams_arguments": False,
+                    },
+                )
+
+        if not timeline and last_chunk is None:
+            return None
+
+        final_parts: List[types.Part] = []
+        for entry_type, index, payload in timeline:
+            if entry_type == "text":
+                final_parts.append(types.Part.from_text(text=payload))
+            elif entry_type == "tool_call" and index is not None:
+                stream_info = tool_streams.get(index)
+                if not stream_info:
+                    continue
+                buffer = stream_info.get("buffer", "")
+                try:
+                    args_obj = json.loads(buffer) if buffer else {}
+                except json.JSONDecodeError:
+                    args_obj = {"__raw": buffer}
+                final_parts.append(
+                    types.Part.from_function_call(
+                        name=str(stream_info.get("name") or "tool"),
+                        args=args_obj,
+                    )
+                )
+
+        final_content = types.Content(role="model", parts=final_parts)
+
+        if last_chunk is not None:
+            final_response = last_chunk.model_copy(deep=True)
+            if getattr(final_response, "candidates", None):
+                final_candidate = final_response.candidates[0]
+                final_candidate.content = final_content
+            else:
+                final_response.candidates = [types.Candidate(content=final_content)]
+        else:
+            final_response = types.GenerateContentResponse(
+                candidates=[types.Candidate(content=final_content)]
+            )
+
+        if usage_metadata:
+            final_response.usage_metadata = usage_metadata
+
+        return final_response
+
     async def _google_completion(
         self,
         message: List[types.Content] | None,
@@ -163,13 +374,24 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             )
 
         # 3. Call the google.genai API
+        client = self._initialize_google_client()
         try:
             # Use the async client
-            api_response = await self._google_client.aio.models.generate_content(
-                model=request_params.model,
-                contents=conversation_history,  # Full conversational context for this turn
-                config=generate_content_config,
-            )
+            api_response = None
+            streaming_supported = response_schema is None and response_mime_type is None
+            if streaming_supported:
+                api_response = await self._stream_generate_content(
+                    model=request_params.model,
+                    contents=conversation_history,
+                    config=generate_content_config,
+                    client=client,
+                )
+            if api_response is None:
+                api_response = await client.aio.models.generate_content(
+                    model=request_params.model,
+                    contents=conversation_history,  # Full conversational context for this turn
+                    config=generate_content_config,
+                )
             self.logger.debug("Google generate_content response:", data=api_response)
 
             # Track usage if response is valid and has usage data
@@ -195,6 +417,15 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             self.logger.error(f"Error during Google generate_content call: {e}")
             # Decide how to handle other exceptions - potentially re-raise or return an error message
             raise e
+        finally:
+            try:
+                await client.aio.aclose()
+            except Exception:
+                pass
+            try:
+                client.close()
+            except Exception:
+                pass
 
         # 4. Process the API response
         if not api_response.candidates:

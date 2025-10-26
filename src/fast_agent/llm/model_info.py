@@ -8,14 +8,15 @@ capabilities (Text/Document/Vision), backed by the model database.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional, Union
+from typing import TYPE_CHECKING, List, Optional
 
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_types import Provider
 
 if TYPE_CHECKING:
     # Import behind TYPE_CHECKING to avoid import cycles at runtime
-    from fast_agent.interfaces import AgentProtocol, FastAgentLLMProtocol
+    from fast_agent.interfaces import FastAgentLLMProtocol
 
 
 @dataclass(frozen=True)
@@ -32,16 +33,24 @@ class ModelInfo:
 
     @property
     def supports_text(self) -> bool:
+        if "text/plain" in (self.tokenizes or []):
+            return True
         return ModelDatabase.supports_mime(self.name, "text/plain")
 
     @property
     def supports_document(self) -> bool:
         # Document support currently keyed off PDF support
+        if "application/pdf" in (self.tokenizes or []):
+            return True
         return ModelDatabase.supports_mime(self.name, "pdf")
 
     @property
     def supports_vision(self) -> bool:
         # Any common image format indicates vision support
+        tokenizes = self.tokenizes or []
+        if any(mt in tokenizes for mt in ("image/jpeg", "image/png", "image/webp")):
+            return True
+
         return any(
             ModelDatabase.supports_mime(self.name, mt)
             for mt in ("image/jpeg", "image/png", "image/webp")
@@ -62,14 +71,15 @@ class ModelInfo:
 
     @classmethod
     def from_name(cls, name: str, provider: Provider | None = None) -> Optional["ModelInfo"]:
-        params = ModelDatabase.get_model_params(name)
+        canonical_name = ModelFactory.MODEL_ALIASES.get(name, name)
+        params = ModelDatabase.get_model_params(canonical_name)
         if not params:
             # Unknown model: return a conservative default that supports text only.
             # This matches the desired behavior for TDV display fallbacks.
             if provider is None:
                 provider = Provider.GENERIC
             return ModelInfo(
-                name=name,
+                name=canonical_name,
                 provider=provider,
                 context_window=None,
                 max_output_tokens=None,
@@ -78,49 +88,15 @@ class ModelInfo:
                 reasoning=None,
             )
 
+        if provider is None:
+            provider = ModelFactory.DEFAULT_PROVIDERS.get(canonical_name, Provider.GENERIC)
+
         return ModelInfo(
-            name=name,
-            provider=provider or Provider.GENERIC,
+            name=canonical_name,
+            provider=provider,
             context_window=params.context_window,
             max_output_tokens=params.max_output_tokens,
             tokenizes=params.tokenizes,
             json_mode=params.json_mode,
             reasoning=params.reasoning,
         )
-
-
-def get_model_info(
-    subject: Union["AgentProtocol", "FastAgentLLMProtocol", str, None],
-    provider: Provider | None = None,
-) -> Optional[ModelInfo]:
-    """Resolve a ModelInfo from an Agent, LLM, or model name.
-
-    Keeps the public API small while enabling type-safe access to model
-    capabilities across the codebase.
-    """
-    if subject is None:
-        return None
-
-    # Agent → LLM
-    try:
-        from fast_agent.interfaces import AgentProtocol as _AgentProtocol
-    except Exception:
-        _AgentProtocol = None  # type: ignore
-
-    if _AgentProtocol and isinstance(subject, _AgentProtocol):  # type: ignore[arg-type]
-        return ModelInfo.from_llm(subject.llm)
-
-    # LLM → ModelInfo
-    try:
-        from fast_agent.interfaces import FastAgentLLMProtocol as _LLMProtocol
-    except Exception:
-        _LLMProtocol = None  # type: ignore
-
-    if _LLMProtocol and isinstance(subject, _LLMProtocol):  # type: ignore[arg-type]
-        return ModelInfo.from_llm(subject)
-
-    # String model name
-    if isinstance(subject, str):
-        return ModelInfo.from_name(subject, provider)
-
-    return None

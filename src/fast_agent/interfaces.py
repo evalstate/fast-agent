@@ -18,6 +18,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    runtime_checkable,
 )
 
 from a2a.types import AgentCard
@@ -59,6 +60,7 @@ class ModelFactoryFunctionProtocol(Protocol):
     def __call__(self, model: str | None = None) -> LLMFactoryProtocol: ...
 
 
+@runtime_checkable
 class FastAgentLLMProtocol(Protocol):
     """Protocol defining the interface for LLMs"""
 
@@ -111,6 +113,7 @@ class FastAgentLLMProtocol(Protocol):
     def clear(self, *, clear_prompts: bool = False) -> None: ...
 
 
+@runtime_checkable
 class LlmAgentProtocol(Protocol):
     """Protocol defining the minimal interface for LLM agents."""
 
@@ -132,6 +135,7 @@ class LlmAgentProtocol(Protocol):
     def pop_last_message(self) -> PromptMessageExtended | None: ...
 
 
+@runtime_checkable
 class AgentProtocol(LlmAgentProtocol, Protocol):
     """Standard agent interface with flexible input types."""
 
