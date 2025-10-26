@@ -71,8 +71,8 @@ class ShellRuntime:
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
         # TODO -- reinstate when we provide duplication/isolation of skill workspaces
-        # if self._skills_directory and self._skills_directory.exists():
-        #     return self._skills_directory
+        if self._skills_directory and self._skills_directory.exists():
+            return self._skills_directory
         return Path.cwd()
 
     def runtime_info(self) -> Dict[str, str | None]:
