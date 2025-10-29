@@ -20,6 +20,14 @@ The simple declarative syntax lets you concentrate on composing your Prompts and
 
 Model support is comprehensive with native support for Anthropic, OpenAI and Google providers as well as Azure, Ollama, Deepseek and dozens of others via TensorZero. Structured Outputs, PDF and Vision support is simple to use and well tested. Passthrough and Playback LLMs enable rapid development and test of Python glue-code for your applications.
 
+Recent features include:
+ - Agent Skills (SKILL.md)
+ - MCP-UI Support |
+ - OpenAI Apps SDK (Skybridge)
+ - Shell Mode
+ - Advanced MCP Transport Diagnsotics
+ - MCP Elicitations
+
 <img width="800"  alt="MCP Transport Diagnostics" src="https://github.com/user-attachments/assets/e26472de-58d9-4726-8bdd-01eb407414cf" />
 
 
