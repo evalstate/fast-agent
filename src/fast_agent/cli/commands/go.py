@@ -134,6 +134,8 @@ async def _run_agent(
         "ignore_unknown_args": True,
         "parse_cli_args": False,  # Don't parse CLI args, we're handling it ourselves
     }
+    if mode == "serve":
+        fast_kwargs["quiet"] = True
     if skills_directory is not None:
         fast_kwargs["skills_directory"] = skills_directory
 

@@ -5,6 +5,7 @@ Enhanced AgentMCPServer with robust shutdown handling for SSE transport.
 import asyncio
 import os
 import signal
+import time
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Set
 
@@ -82,7 +83,14 @@ class AgentMCPServer:
 
             # Define the function to execute
             async def execute_send():
-                return await agent.send(message)
+                start = time.perf_counter()
+                logger.info("MCP request received for agent '%s'", agent_name)
+                response = await agent.send(message)
+                duration = time.perf_counter() - start
+                logger.info(
+                    "Agent '%s' completed MCP request in %.2f seconds", agent_name, duration
+                )
+                return response
 
             # Execute with bridged context
             if agent_context and ctx:
