@@ -541,9 +541,14 @@ class FastAgent:
                             # Create the MCP server
                             from fast_agent.mcp.server import AgentMCPServer
 
+                            tool_description = getattr(self.args, "tool_description", None)
+                            server_description = getattr(self.args, "server_description", None)
+                            server_name = getattr(self.args, "server_name", None)
                             mcp_server = AgentMCPServer(
                                 agent_app=wrapper,
-                                server_name=f"{self.name}-MCP-Server",
+                                server_name=server_name or f"{self.name}-MCP-Server",
+                                server_description=server_description,
+                                tool_description=tool_description,
                             )
 
                             # Run the server directly (this is a blocking call)
@@ -790,6 +795,7 @@ class FastAgent:
         port: int = 8000,
         server_name: Optional[str] = None,
         server_description: Optional[str] = None,
+        tool_description: Optional[str] = None,
     ) -> None:
         """
         Start the application as an MCP server.
@@ -801,7 +807,9 @@ class FastAgent:
             host: Host address for the server when using SSE
             port: Port for the server when using SSE
             server_name: Optional custom name for the MCP server
-            server_description: Optional description for the MCP server
+            server_description: Optional description/instructions for the MCP server
+            tool_description: Optional description template for the exposed send tool.
+                              Use {agent} to reference the agent name.
         """
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
@@ -819,6 +827,9 @@ class FastAgent:
         self.args.transport = transport
         self.args.host = host
         self.args.port = port
+        self.args.tool_description = tool_description
+        self.args.server_description = server_description
+        self.args.server_name = server_name
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
@@ -842,6 +853,7 @@ class FastAgent:
         port: int = 8000,
         server_name: Optional[str] = None,
         server_description: Optional[str] = None,
+        tool_description: Optional[str] = None,
     ) -> None:
         """
         Run the application and expose agents through an MCP server.
@@ -853,7 +865,8 @@ class FastAgent:
             host: Host address for the server when using SSE
             port: Port for the server when using SSE
             server_name: Optional custom name for the MCP server
-            server_description: Optional description for the MCP server
+            server_description: Optional description/instructions for the MCP server
+            tool_description: Optional description template for the exposed send tool.
         """
         await self.start_server(
             transport=transport,
@@ -861,6 +874,7 @@ class FastAgent:
             port=port,
             server_name=server_name,
             server_description=server_description,
+            tool_description=tool_description,
         )
 
     async def main(self):

@@ -27,6 +27,7 @@ class AgentMCPServer:
         agent_app: AgentApp,
         server_name: str = "FastAgent-MCP-Server",
         server_description: str | None = None,
+        tool_description: str | None = None,
     ) -> None:
         """Initialize the server with the provided agent app."""
         self.agent_app = agent_app
@@ -35,6 +36,7 @@ class AgentMCPServer:
             instructions=server_description
             or f"This server provides access to {len(agent_app._agents)} agents",
         )
+        self._tool_description = tool_description
         # Shutdown coordination
         self._graceful_shutdown_event = asyncio.Event()
         self._force_shutdown_event = asyncio.Event()
@@ -61,9 +63,15 @@ class AgentMCPServer:
         """Register tools for a specific agent."""
 
         # Basic send message tool
+        tool_description = (
+            self._tool_description.format(agent=agent_name)
+            if self._tool_description and "{agent}" in self._tool_description
+            else self._tool_description
+        )
+
         @self.mcp_server.tool(
             name=f"{agent_name}_send",
-            description=f"Send a message to the {agent_name} agent",
+            description=tool_description or f"Send a message to the {agent_name} agent",
             structured_output=False,
             # MCP 1.10.1 turns every tool in to a structured output
         )

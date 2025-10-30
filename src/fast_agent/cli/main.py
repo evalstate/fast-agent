@@ -3,7 +3,7 @@
 import typer
 from rich.table import Table
 
-from fast_agent.cli.commands import auth, check_config, go, quickstart, setup
+from fast_agent.cli.commands import auth, check_config, go, quickstart, serve, setup
 from fast_agent.cli.terminal import Application
 from fast_agent.ui.console import console as shared_console
 
@@ -14,6 +14,7 @@ app = typer.Typer(
 
 # Subcommands
 app.add_typer(go.app, name="go", help="Run an interactive agent directly from the command line")
+app.add_typer(serve.app, name="serve", help="Run FastAgent as an MCP server")
 app.add_typer(setup.app, name="setup", help="Set up a new agent project")
 app.add_typer(check_config.app, name="check", help="Show or diagnose fast-agent configuration")
 app.add_typer(auth.app, name="auth", help="Manage OAuth authentication for MCP servers")
@@ -62,7 +63,8 @@ def show_welcome() -> None:
     table.add_column("Description", header_style="bold bright_white")
 
     table.add_row("[bold]go[/bold]", "Start an interactive session")
-    table.add_row("go --shell", "Start an interactive session with a local shell tool")
+    table.add_row("go -x", "Start an interactive session with a local shell tool")
+    table.add_row("[bold]serve[/bold]", "Expose FastAgent as an MCP server")
     table.add_row("check", "Show current configuration")
     table.add_row("auth", "Manage OAuth tokens and keyring")
     table.add_row("setup", "Create agent template and configuration")

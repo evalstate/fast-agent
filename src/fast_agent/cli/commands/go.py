@@ -5,6 +5,7 @@ import logging
 import shlex
 import sys
 from pathlib import Path
+from typing import Literal
 
 import typer
 
@@ -21,6 +22,50 @@ app = typer.Typer(
 )
 
 default_instruction = DEFAULT_AGENT_INSTRUCTION
+
+
+def resolve_instruction_option(instruction: str | None) -> tuple[str, str]:
+    """
+    Resolve the instruction option (file or URL) to the instruction string and agent name.
+    Returns (resolved_instruction, agent_name).
+    """
+    resolved_instruction = default_instruction
+    agent_name = "agent"
+
+    if instruction:
+        try:
+            from pathlib import Path
+
+            from pydantic import AnyUrl
+
+            from fast_agent.core.direct_decorators import _resolve_instruction
+
+            if instruction.startswith(("http://", "https://")):
+                resolved_instruction = _resolve_instruction(AnyUrl(instruction))
+            else:
+                resolved_instruction = _resolve_instruction(Path(instruction))
+                instruction_path = Path(instruction)
+                if instruction_path.exists() and instruction_path.is_file():
+                    agent_name = instruction_path.stem
+        except Exception as e:
+            typer.echo(f"Error loading instruction from {instruction}: {e}", err=True)
+            raise typer.Exit(1)
+
+    return resolved_instruction, agent_name
+
+
+def collect_stdio_commands(npx: str | None, uvx: str | None, stdio: str | None) -> list[str]:
+    """Collect STDIO command definitions from convenience options."""
+    stdio_commands: list[str] = []
+
+    if npx:
+        stdio_commands.append(f"npx {npx}")
+    if uvx:
+        stdio_commands.append(f"uvx {uvx}")
+    if stdio:
+        stdio_commands.append(stdio)
+
+    return stdio_commands
 
 
 def _set_asyncio_exception_handler(loop: asyncio.AbstractEventLoop) -> None:
@@ -72,6 +117,11 @@ async def _run_agent(
     agent_name: str | None = "agent",
     skills_directory: Path | None = None,
     shell_runtime: bool = False,
+    mode: Literal["interactive", "serve"] = "interactive",
+    transport: str = "http",
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    tool_description: str | None = None,
 ) -> None:
     """Async implementation to run an interactive agent."""
     from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -183,7 +233,15 @@ async def _run_agent(
                     await agent.interactive()
 
     # Run the agent
-    await cli_agent()
+    if mode == "serve":
+        await fast.start_server(
+            transport=transport,
+            host=host,
+            port=port,
+            tool_description=tool_description,
+        )
+    else:
+        await cli_agent()
 
 
 def run_async_agent(
@@ -200,6 +258,11 @@ def run_async_agent(
     agent_name: str | None = None,
     skills_directory: Path | None = None,
     shell_enabled: bool = False,
+    mode: Literal["interactive", "serve"] = "interactive",
+    transport: str = "http",
+    host: str = "0.0.0.0",
+    port: int = 8000,
+    tool_description: str | None = None,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -304,6 +367,11 @@ def run_async_agent(
                 agent_name=agent_name,
                 skills_directory=skills_directory,
                 shell_runtime=shell_enabled,
+                mode=mode,
+                transport=transport,
+                host=host,
+                port=port,
+                tool_description=tool_description,
             )
         )
     finally:
@@ -405,46 +473,13 @@ def go(
         --stdio               Command to run as STDIO MCP server (quoted)
     """
     # Collect all stdio commands from convenience options
-    stdio_commands = []
+    stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
-
-    if npx:
-        stdio_commands.append(f"npx {npx}")
-
-    if uvx:
-        stdio_commands.append(f"uvx {uvx}")
-
-    if stdio:
-        stdio_commands.append(stdio)
 
     # When shell is enabled we don't add an MCP stdio server; handled inside the agent
 
     # Resolve instruction from file/URL or use default
-    resolved_instruction = default_instruction  # Default
-    agent_name = "agent"
-
-    if instruction:
-        try:
-            from pathlib import Path
-
-            from pydantic import AnyUrl
-
-            from fast_agent.core.direct_decorators import _resolve_instruction
-
-            # Check if it's a URL
-            if instruction.startswith(("http://", "https://")):
-                resolved_instruction = _resolve_instruction(AnyUrl(instruction))
-            else:
-                # Treat as file path
-                resolved_instruction = _resolve_instruction(Path(instruction))
-                # Extract filename without extension to use as agent name
-                instruction_path = Path(instruction)
-                if instruction_path.exists() and instruction_path.is_file():
-                    # Get filename without extension
-                    agent_name = instruction_path.stem
-        except Exception as e:
-            typer.echo(f"Error loading instruction from {instruction}: {e}", err=True)
-            raise typer.Exit(1)
+    resolved_instruction, agent_name = resolve_instruction_option(instruction)
 
     run_async_agent(
         name=name,
