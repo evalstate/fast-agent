@@ -155,7 +155,6 @@ async def test_agent_server_option_sse(fast_agent):
     """Test that FastAgent supports --server flag with SSE transport."""
 
     # Start the SSE server in a subprocess
-    import asyncio
     import os
     import subprocess
 
@@ -215,11 +214,9 @@ async def test_agent_server_option_sse(fast_agent):
 async def test_serve_request_scope_disables_session_header():
     """Request-scoped instances should not advertise an MCP session id."""
 
-    import asyncio
     import os
     import subprocess
 
-    import httpx
 
     test_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(test_dir, "fastagent.config.yaml")
@@ -302,7 +299,6 @@ async def test_agent_server_option_http(fast_agent):
     """Test that FastAgent supports --server flag with HTTP transport."""
 
     # Start the SSE server in a subprocess
-    import asyncio
     import os
     import subprocess
 
