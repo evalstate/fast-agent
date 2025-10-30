@@ -66,3 +66,55 @@ The `--auth` parameter provides authentication for URL-based servers:
 - When provided, it creates an `Authorization: Bearer TOKEN` header for all URL-based servers
 - This is commonly used with API endpoints that require authentication
 - Example: `fast-agent go --url=https://api.example.com/mcp --auth=12345abcde`
+
+## Serve Command
+
+The `serve` command starts FastAgent as an MCP server so it can be consumed by MCP clients.
+
+### Usage
+
+```bash
+fast-agent serve [OPTIONS]
+```
+
+### Options
+
+- `--name TEXT`: Name for the MCP server (default: "fast-agent")
+- `--instruction`, `-i TEXT`: Instruction for the agent (defaults to the standard FastAgent instruction)
+- `--config-path`, `-c TEXT`: Path to config file
+- `--servers TEXT`: Comma-separated list of server names to enable from config
+- `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to
+- `--auth TEXT`: Bearer token for authorization with URL-based servers
+- `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
+- `--skills-dir`, `--skills PATH`: Override the default skills directory
+- `--npx TEXT`: NPX package and args to run as an MCP server (quoted)
+- `--uvx TEXT`: UVX package and args to run as an MCP server (quoted)
+- `--stdio TEXT`: Command to run as STDIO MCP server (quoted)
+- `--transport [http|sse|stdio]`: Transport protocol to expose (default: http)
+- `--host TEXT`: Host address when using HTTP or SSE transport (default: 0.0.0.0)
+- `--port INTEGER`: Port when using HTTP or SSE transport (default: 8000)
+- `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
+- `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
+- `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
+
+### Examples
+
+```bash
+# HTTP transport on default port
+fast-agent serve --model=haiku --transport=http
+
+# SSE transport on a custom port
+fast-agent serve --transport=sse --port=8723
+
+# Expose an MCP stdio server alongside the agent
+fast-agent serve --stdio "python my_server.py --debug"
+
+# Combine URL-based servers and an NPX helper
+fast-agent serve --url=https://api.example.com/mcp --npx "@modelcontextprotocol/server-filesystem /data"
+
+# Custom tool description (the {agent} placeholder is replaced with the agent name)
+fast-agent serve --description "Interact with the {agent} workflow via MCP"
+
+# Use per-connection instances to isolate history between clients
+fast-agent serve --instance-scope=connection --transport=http
+```

@@ -6,9 +6,11 @@ directly creates Agent instances without proxies.
 
 import argparse
 import asyncio
+import inspect
 import pathlib
 import sys
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import (
@@ -127,6 +129,9 @@ class FastAgent:
             Path(skills_directory).expanduser() if skills_directory else None
         )
         self._default_skill_manifests: List[SkillManifest] = []
+        self._server_instance_factory = None
+        self._server_instance_dispose = None
+        self._server_managed_instances: List[AgentInstance] = []
 
         # --- Wrap argument parsing logic ---
         if parse_cli_args:
@@ -180,6 +185,12 @@ class FastAgent:
                 "--host",
                 default="0.0.0.0",
                 help="Host address to bind to when running as a server with SSE transport",
+            )
+            parser.add_argument(
+                "--instance-scope",
+                choices=["shared", "connection", "request"],
+                default="shared",
+                help="Control MCP agent instancing behaviour (shared, connection, request)",
             )
             parser.add_argument(
                 "--skills",
@@ -500,18 +511,34 @@ class FastAgent:
                             cli_model=cli_model_override,  # Use the variable defined above
                         )
 
-                    # Create all agents in dependency order
-                    active_agents = await create_agents_in_dependency_order(
-                        self.app,
-                        self.agents,
-                        model_factory_func,
-                    )
+                    managed_instances: list[AgentInstance] = []
+                    instance_lock = asyncio.Lock()
 
-                    # Validate API keys after agent creation
-                    validate_provider_keys_post_creation(active_agents)
+                    async def instantiate_agent_instance() -> AgentInstance:
+                        async with instance_lock:
+                            agents_map = await create_agents_in_dependency_order(
+                                self.app,
+                                self.agents,
+                                model_factory_func,
+                            )
+                            validate_provider_keys_post_creation(agents_map)
+                            instance = AgentInstance(AgentApp(agents_map), agents_map)
+                            managed_instances.append(instance)
+                            return instance
 
-                    # Create a wrapper with all agents for simplified access
-                    wrapper = AgentApp(active_agents)
+                    async def dispose_agent_instance(instance: AgentInstance) -> None:
+                        async with instance_lock:
+                            if instance in managed_instances:
+                                managed_instances.remove(instance)
+                        await instance.shutdown()
+
+                    primary_instance = await instantiate_agent_instance()
+                    wrapper = primary_instance.app
+                    active_agents = primary_instance.agents
+
+                    self._server_instance_factory = instantiate_agent_instance
+                    self._server_instance_dispose = dispose_agent_instance
+                    self._server_managed_instances = managed_instances
 
                     # Disable streaming if parallel agents are present
                     from fast_agent.agents.agent_types import AgentType
@@ -541,9 +568,18 @@ class FastAgent:
                             # Create the MCP server
                             from fast_agent.mcp.server import AgentMCPServer
 
+                            tool_description = getattr(self.args, "tool_description", None)
+                            server_description = getattr(self.args, "server_description", None)
+                            server_name = getattr(self.args, "server_name", None)
+                            instance_scope = getattr(self.args, "instance_scope", "shared")
                             mcp_server = AgentMCPServer(
-                                agent_app=wrapper,
-                                server_name=f"{self.name}-MCP-Server",
+                                primary_instance=primary_instance,
+                                create_instance=self._server_instance_factory,
+                                dispose_instance=self._server_instance_dispose,
+                                instance_scope=instance_scope,
+                                server_name=server_name or f"{self.name}-MCP-Server",
+                                server_description=server_description,
+                                tool_description=tool_description,
                             )
 
                             # Run the server directly (this is a blocking call)
@@ -647,11 +683,32 @@ class FastAgent:
                     pass
 
                 # Print usage report before cleanup (show for user exits too)
-                if active_agents and not had_error and not quiet_mode:
+                if (
+                    getattr(self, "_server_managed_instances", None)
+                    and not had_error
+                    and not quiet_mode
+                    and getattr(self.args, "server", False) is False
+                ):
+                    # Only show usage report for non-server interactive runs
+                    if managed_instances:
+                        instance = managed_instances[0]
+                        self._print_usage_report(instance.agents)
+                elif active_agents and not had_error and not quiet_mode:
                     self._print_usage_report(active_agents)
 
                 # Clean up any active agents (always cleanup, even on errors)
-                if active_agents:
+                if getattr(self, "_server_managed_instances", None) and getattr(
+                    self, "_server_instance_dispose", None
+                ):
+                    # Dispose any remaining instances
+                    remaining_instances = list(self._server_managed_instances)
+                    for instance in remaining_instances:
+                        try:
+                            await self._server_instance_dispose(instance)
+                        except Exception:
+                            pass
+                    self._server_managed_instances.clear()
+                elif active_agents:
                     for agent in active_agents.values():
                         try:
                             await agent.shutdown()
@@ -790,6 +847,8 @@ class FastAgent:
         port: int = 8000,
         server_name: Optional[str] = None,
         server_description: Optional[str] = None,
+        tool_description: Optional[str] = None,
+        instance_scope: str = "shared",
     ) -> None:
         """
         Start the application as an MCP server.
@@ -801,7 +860,9 @@ class FastAgent:
             host: Host address for the server when using SSE
             port: Port for the server when using SSE
             server_name: Optional custom name for the MCP server
-            server_description: Optional description for the MCP server
+            server_description: Optional description/instructions for the MCP server
+            tool_description: Optional description template for the exposed send tool.
+                              Use {agent} to reference the agent name.
         """
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
@@ -819,6 +880,10 @@ class FastAgent:
         self.args.transport = transport
         self.args.host = host
         self.args.port = port
+        self.args.tool_description = tool_description
+        self.args.server_description = server_description
+        self.args.server_name = server_name
+        self.args.instance_scope = instance_scope
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
@@ -842,6 +907,8 @@ class FastAgent:
         port: int = 8000,
         server_name: Optional[str] = None,
         server_description: Optional[str] = None,
+        tool_description: Optional[str] = None,
+        instance_scope: str = "shared",
     ) -> None:
         """
         Run the application and expose agents through an MCP server.
@@ -853,7 +920,8 @@ class FastAgent:
             host: Host address for the server when using SSE
             port: Port for the server when using SSE
             server_name: Optional custom name for the MCP server
-            server_description: Optional description for the MCP server
+            server_description: Optional description/instructions for the MCP server
+            tool_description: Optional description template for the exposed send tool.
         """
         await self.start_server(
             transport=transport,
@@ -861,6 +929,8 @@ class FastAgent:
             port=port,
             server_name=server_name,
             server_description=server_description,
+            tool_description=tool_description,
+            instance_scope=instance_scope,
         )
 
     async def main(self):
@@ -892,3 +962,19 @@ class FastAgent:
         # Just check if the flag is set, no action here
         # The actual server code will be handled by run()
         return hasattr(self, "args") and self.args.server
+@dataclass
+class AgentInstance:
+    app: AgentApp
+    agents: Dict[str, "AgentProtocol"]
+
+    async def shutdown(self) -> None:
+        for agent in self.agents.values():
+            try:
+                shutdown = getattr(agent, "shutdown", None)
+                if shutdown is None:
+                    continue
+                result = shutdown()
+                if inspect.isawaitable(result):
+                    await result
+            except Exception:
+                pass
