@@ -122,6 +122,7 @@ async def _run_agent(
     host: str = "0.0.0.0",
     port: int = 8000,
     tool_description: str | None = None,
+    instance_scope: str = "shared",
 ) -> None:
     """Async implementation to run an interactive agent."""
     from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -241,6 +242,7 @@ async def _run_agent(
             host=host,
             port=port,
             tool_description=tool_description,
+            instance_scope=instance_scope,
         )
     else:
         await cli_agent()
@@ -265,6 +267,7 @@ def run_async_agent(
     host: str = "0.0.0.0",
     port: int = 8000,
     tool_description: str | None = None,
+    instance_scope: str = "shared",
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -374,6 +377,7 @@ def run_async_agent(
                 host=host,
                 port=port,
                 tool_description=tool_description,
+                instance_scope=instance_scope,
             )
         )
     finally:
@@ -497,4 +501,5 @@ def go(
         agent_name=agent_name,
         skills_directory=skills_dir,
         shell_enabled=shell_enabled,
+        instance_scope="shared",
     )

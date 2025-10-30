@@ -95,6 +95,7 @@ fast-agent serve [OPTIONS]
 - `--port INTEGER`: Port when using HTTP or SSE transport (default: 8000)
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
+- `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
 
 ### Examples
 
@@ -113,4 +114,7 @@ fast-agent serve --url=https://api.example.com/mcp --npx "@modelcontextprotocol/
 
 # Custom tool description (the {agent} placeholder is replaced with the agent name)
 fast-agent serve --description "Interact with the {agent} workflow via MCP"
+
+# Use per-connection instances to isolate history between clients
+fast-agent serve --instance-scope=connection --transport=http
 ```

@@ -18,6 +18,12 @@ class ServeTransport(str, Enum):
     STDIO = "stdio"
 
 
+class InstanceScope(str, Enum):
+    SHARED = "shared"
+    CONNECTION = "connection"
+    REQUEST = "request"
+
+
 app = typer.Typer(
     help="Run FastAgent as an MCP server without writing an agent.py file",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
@@ -86,6 +92,11 @@ def serve(
         "-x",
         help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
+    instance_scope: InstanceScope = typer.Option(
+        InstanceScope.SHARED,
+        "--instance-scope",
+        help="Control how MCP clients receive isolated agent instances (shared, connection, request)",
+    ),
 ) -> None:
     """
     Run FastAgent as an MCP server.
@@ -121,4 +132,5 @@ def serve(
         host=host,
         port=port,
         tool_description=description,
+        instance_scope=instance_scope.value,
     )

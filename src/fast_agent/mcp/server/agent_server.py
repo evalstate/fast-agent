@@ -8,14 +8,14 @@ import os
 import signal
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Set
+from typing import Awaitable, Callable, Set
 
 from mcp.server.fastmcp import Context as MCPContext
 from mcp.server.fastmcp import FastMCP
 
 import fast_agent.core
 import fast_agent.core.prompt
-from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,19 +26,29 @@ class AgentMCPServer:
 
     def __init__(
         self,
-        agent_app: AgentApp,
+        primary_instance: AgentInstance,
+        create_instance: Callable[[], Awaitable[AgentInstance]],
+        dispose_instance: Callable[[AgentInstance], Awaitable[None]],
+        instance_scope: str,
         server_name: str = "FastAgent-MCP-Server",
         server_description: str | None = None,
         tool_description: str | None = None,
     ) -> None:
         """Initialize the server with the provided agent app."""
-        self.agent_app = agent_app
+        self.primary_instance = primary_instance
+        self._create_instance_task = create_instance
+        self._dispose_instance_task = dispose_instance
+        self._instance_scope = instance_scope
         self.mcp_server: FastMCP = FastMCP(
             name=server_name,
             instructions=server_description
-            or f"This server provides access to {len(agent_app._agents)} agents",
+            or f"This server provides access to {len(primary_instance.agents)} agents",
         )
+        if self._instance_scope == "request":
+            # Ensure FastMCP does not attempt to maintain sessions for stateless mode
+            self.mcp_server.settings.stateless_http = True
         self._tool_description = tool_description
+        self._shared_instance_active = True
         # Shutdown coordination
         self._graceful_shutdown_event = asyncio.Event()
         self._force_shutdown_event = asyncio.Event()
@@ -54,17 +64,27 @@ class AgentMCPServer:
         # Standard logging channel so we appear alongside Uvicorn/logging output
         self.std_logger = logging.getLogger("fast_agent.server")
 
+        # Connection-scoped instance tracking
+        self._connection_instances: dict[int, AgentInstance] = {}
+        self._connection_cleanup_tasks: dict[int, Callable[[], Awaitable[None]]] = {}
+        self._connection_lock = asyncio.Lock()
+
         # Set up agent tools
         self.setup_tools()
 
-        logger.info(f"AgentMCPServer initialized with {len(agent_app._agents)} agents")
+        logger.info(
+            f"AgentMCPServer initialized with {len(primary_instance.agents)} agents",
+            name="mcp_server_initialized",
+            agent_count=len(primary_instance.agents),
+            instance_scope=instance_scope,
+        )
 
     def setup_tools(self) -> None:
         """Register all agents as MCP tools."""
-        for agent_name, agent in self.agent_app._agents.items():
-            self.register_agent_tools(agent_name, agent)
+        for agent_name in self.primary_instance.agents.keys():
+            self.register_agent_tools(agent_name)
 
-    def register_agent_tools(self, agent_name: str, agent) -> None:
+    def register_agent_tools(self, agent_name: str) -> None:
         """Register tools for a specific agent."""
 
         # Basic send message tool
@@ -82,7 +102,8 @@ class AgentMCPServer:
         )
         async def send_message(message: str, ctx: MCPContext) -> str:
             """Send a message to the agent and return its response."""
-            # Get the agent's context
+            instance = await self._acquire_instance(ctx)
+            agent = instance.app[agent_name]
             agent_context = getattr(agent, "context", None)
 
             # Define the function to execute
@@ -92,8 +113,13 @@ class AgentMCPServer:
                     f"MCP request received for agent '{agent_name}'",
                     name="mcp_request_start",
                     agent=agent_name,
+                    session=self._session_identifier(ctx),
                 )
-                self.std_logger.info("MCP request received for agent '%s'", agent_name)
+                self.std_logger.info(
+                    "MCP request received for agent '%s' (scope=%s)",
+                    agent_name,
+                    self._instance_scope,
+                )
 
                 response = await agent.send(message)
                 duration = time.perf_counter() - start
@@ -103,36 +129,119 @@ class AgentMCPServer:
                     name="mcp_request_complete",
                     agent=agent_name,
                     duration=duration,
+                    session=self._session_identifier(ctx),
                 )
                 self.std_logger.info(
-                    "Agent '%s' completed MCP request in %.2fs", agent_name, duration
+                    "Agent '%s' completed MCP request in %.2fs (scope=%s)",
+                    agent_name,
+                    duration,
+                    self._instance_scope,
                 )
                 return response
 
-            # Execute with bridged context
-            if agent_context and ctx:
-                return await self.with_bridged_context(agent_context, ctx, execute_send)
-            else:
+            try:
+                # Execute with bridged context
+                if agent_context and ctx:
+                    return await self.with_bridged_context(agent_context, ctx, execute_send)
                 return await execute_send()
+            finally:
+                await self._release_instance(ctx, instance)
 
         # Register a history prompt for this agent
         @self.mcp_server.prompt(
             name=f"{agent_name}_history",
             description=f"Conversation history for the {agent_name} agent",
         )
-        async def get_history_prompt() -> list:
+        async def get_history_prompt(ctx: MCPContext) -> list:
             """Return the conversation history as MCP messages."""
-            # Get the conversation history from the agent's LLM
-            if not hasattr(agent, "_llm") or agent._llm is None:
-                return []
+            instance = await self._acquire_instance(ctx)
+            agent = instance.app[agent_name]
+            try:
+                if not hasattr(agent, "_llm") or agent._llm is None:
+                    return []
 
-            # Convert the multipart message history to standard PromptMessages
-            multipart_history = agent._llm.message_history
-            prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
+                # Convert the multipart message history to standard PromptMessages
+                multipart_history = agent._llm.message_history
+                prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
 
-            # In FastMCP, we need to return the raw list of messages
-            # that matches the structure that FastMCP expects (list of dicts with role/content)
-            return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
+                # In FastMCP, we need to return the raw list of messages
+                return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
+            finally:
+                await self._release_instance(ctx, instance, reuse_connection=True)
+
+    async def _acquire_instance(self, ctx: MCPContext | None) -> AgentInstance:
+        if self._instance_scope == "shared":
+            return self.primary_instance
+
+        if self._instance_scope == "request":
+            return await self._create_instance_task()
+
+        # Connection scope
+        assert ctx is not None, "Context is required for connection-scoped instances"
+        session_key = self._connection_key(ctx)
+        async with self._connection_lock:
+            instance = self._connection_instances.get(session_key)
+            if instance is None:
+                instance = await self._create_instance_task()
+                self._connection_instances[session_key] = instance
+                self._register_session_cleanup(ctx, session_key)
+            return instance
+
+    async def _release_instance(
+        self,
+        ctx: MCPContext | None,
+        instance: AgentInstance,
+        *,
+        reuse_connection: bool = False,
+    ) -> None:
+        if self._instance_scope == "request":
+            await self._dispose_instance_task(instance)
+        elif self._instance_scope == "connection" and reuse_connection is False:
+            # Connection-scoped instances persist until session cleanup
+            pass
+
+    def _connection_key(self, ctx: MCPContext) -> int:
+        return id(ctx.session)
+
+    def _register_session_cleanup(self, ctx: MCPContext, session_key: int) -> None:
+        async def cleanup() -> None:
+            instance = self._connection_instances.pop(session_key, None)
+            if instance is not None:
+                await self._dispose_instance_task(instance)
+
+        exit_stack = getattr(ctx.session, "_exit_stack", None)
+        if exit_stack is not None:
+            exit_stack.push_async_callback(cleanup)
+        else:
+            self._connection_cleanup_tasks[session_key] = cleanup
+
+    def _session_identifier(self, ctx: MCPContext | None) -> str | None:
+        if ctx is None:
+            return None
+        request = getattr(ctx.request_context, "request", None)
+        if request is not None:
+            return request.headers.get("mcp-session-id")
+        return None
+
+    async def _dispose_primary_instance(self) -> None:
+        if self._shared_instance_active:
+            try:
+                await self._dispose_instance_task(self.primary_instance)
+            finally:
+                self._shared_instance_active = False
+
+    async def _dispose_all_connection_instances(self) -> None:
+        pending_cleanups = list(self._connection_cleanup_tasks.values())
+        self._connection_cleanup_tasks.clear()
+        for cleanup in pending_cleanups:
+            await cleanup()
+
+        async with self._connection_lock:
+            instances = list(self._connection_instances.values())
+            self._connection_instances.clear()
+
+        for instance in instances:
+            await self._dispose_instance_task(instance)
 
     def _setup_signal_handlers(self):
         """Set up signal handlers for graceful and forced shutdown."""
@@ -447,14 +556,8 @@ class AgentMCPServer:
         """Minimal cleanup for STDIO transport to avoid keeping process alive."""
         logger.info("Performing minimal STDIO cleanup")
 
-        # Just clean up agent resources directly without the full shutdown sequence
-        # This preserves the natural exit process for STDIO
-        for agent_name, agent in self.agent_app._agents.items():
-            try:
-                if hasattr(agent, "shutdown"):
-                    await agent.shutdown()
-            except Exception as e:
-                logger.error(f"Error shutting down agent {agent_name}: {e}")
+        await self._dispose_primary_instance()
+        await self._dispose_all_connection_instances()
 
         logger.info("STDIO cleanup complete")
 
@@ -476,13 +579,11 @@ class AgentMCPServer:
             # Close any resources in the exit stack
             await self._exit_stack.aclose()
 
-            # Shutdown any agent resources
-            for agent_name, agent in self.agent_app._agents.items():
-                try:
-                    if hasattr(agent, "shutdown"):
-                        await agent.shutdown()
-                except Exception as e:
-                    logger.error(f"Error shutting down agent {agent_name}: {e}")
+            # Dispose connection-scoped instances
+            await self._dispose_all_connection_instances()
+
+            # Dispose shared instance if still active
+            await self._dispose_primary_instance()
         except Exception as e:
             # Log any errors but don't let them prevent shutdown
             logger.error(f"Error during shutdown: {e}", exc_info=True)
