@@ -34,6 +34,7 @@ def test_run_async_agent_passes_serve_mode(monkeypatch):
         host="127.0.0.1",
         port=9123,
         tool_description="Send requests to {agent}",
+        instance_scope="shared",
     )
 
     assert captured["mode"] == "serve"
@@ -41,6 +42,7 @@ def test_run_async_agent_passes_serve_mode(monkeypatch):
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 9123
     assert captured["tool_description"] == "Send requests to {agent}"
+    assert captured["instance_scope"] == "shared"
 
 
 def test_serve_command_invokes_run_async_agent(monkeypatch):
@@ -70,6 +72,7 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
         host="127.0.0.1",
         port=7010,
         shell=False,
+        instance_scope=serve_command.InstanceScope.CONNECTION,
     )
 
     assert captured["mode"] == "serve"
@@ -78,3 +81,4 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
     assert captured["port"] == 7010
     assert captured["stdio_commands"] == ["python tool_server.py"]
     assert captured["tool_description"] == "Chat with {agent}"
+    assert captured["instance_scope"] == "connection"
