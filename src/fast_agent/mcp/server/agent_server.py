@@ -3,6 +3,7 @@ Enhanced AgentMCPServer with robust shutdown handling for SSE transport.
 """
 
 import asyncio
+import logging
 import os
 import signal
 import time
@@ -50,6 +51,9 @@ class AgentMCPServer:
         # Server state
         self._server_task = None
 
+        # Standard logging channel so we appear alongside Uvicorn/logging output
+        self.std_logger = logging.getLogger("fast_agent.server")
+
         # Set up agent tools
         self.setup_tools()
 
@@ -84,11 +88,24 @@ class AgentMCPServer:
             # Define the function to execute
             async def execute_send():
                 start = time.perf_counter()
-                logger.info("MCP request received for agent '%s'", agent_name)
+                logger.info(
+                    f"MCP request received for agent '{agent_name}'",
+                    name="mcp_request_start",
+                    agent=agent_name,
+                )
+                self.std_logger.info("MCP request received for agent '%s'", agent_name)
+
                 response = await agent.send(message)
                 duration = time.perf_counter() - start
+
                 logger.info(
-                    "Agent '%s' completed MCP request in %.2f seconds", agent_name, duration
+                    f"Agent '{agent_name}' completed MCP request",
+                    name="mcp_request_complete",
+                    agent=agent_name,
+                    duration=duration,
+                )
+                self.std_logger.info(
+                    "Agent '%s' completed MCP request in %.2fs", agent_name, duration
                 )
                 return response
 
