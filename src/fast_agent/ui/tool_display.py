@@ -36,7 +36,7 @@ class ToolDisplay:
     ) -> None:
         """Display a tool result in the console."""
         config = self._display.config
-        if not config or not config.logger.show_tools:
+        if config and not config.logger.show_tools:
             return
 
         from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content
@@ -200,7 +200,7 @@ class ToolDisplay:
     ) -> None:
         """Display a tool call header and body."""
         config = self._display.config
-        if not config or not config.logger.show_tools:
+        if config and not config.logger.show_tools:
             return
 
         tool_args = tool_args or {}
@@ -267,7 +267,7 @@ class ToolDisplay:
     async def show_tool_update(self, updated_server: str, *, agent_name: str | None = None) -> None:
         """Show a background tool update notification."""
         config = self._display.config
-        if not config or not config.logger.show_tools:
+        if config and not config.logger.show_tools:
             return
 
         try:
