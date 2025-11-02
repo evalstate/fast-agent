@@ -629,7 +629,7 @@ class ConsoleDisplay:
             model: Optional model name for right info
             additional_message: Optional additional styled message to append
         """
-        if not self.config or not self.config.logger.show_chat:
+        if self.config and not self.config.logger.show_chat:
             return
 
         # Extract text from PromptMessageExtended if needed
@@ -749,7 +749,7 @@ class ConsoleDisplay:
 
     async def show_mcp_ui_links(self, links: List[UILink]) -> None:
         """Display MCP-UI links beneath the chat like mermaid links."""
-        if not self.config or not self.config.logger.show_chat:
+        if self.config and not self.config.logger.show_chat:
             return
 
         if not links:
@@ -776,7 +776,7 @@ class ConsoleDisplay:
         name: str | None = None,
     ) -> None:
         """Display a user message in the new visual style."""
-        if not self.config or not self.config.logger.show_chat:
+        if self.config and not self.config.logger.show_chat:
             return
 
         # Build right side with model and turn
@@ -803,7 +803,7 @@ class ConsoleDisplay:
         server_count: int = 0,
     ) -> None:
         """Display the system prompt in a formatted panel."""
-        if not self.config or not self.config.logger.show_chat:
+        if self.config and not self.config.logger.show_chat:
             return
 
         # Build right side info
@@ -844,7 +844,7 @@ class ConsoleDisplay:
             highlight_server: Optional server name to highlight
             arguments: Optional dictionary of arguments passed to the prompt template
         """
-        if not self.config or not self.config.logger.show_tools:
+        if self.config and not self.config.logger.show_tools:
             return
 
         # Build the server list with highlighting

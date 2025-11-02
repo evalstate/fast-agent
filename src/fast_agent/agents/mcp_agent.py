@@ -41,6 +41,7 @@ from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
+from fast_agent.mcp.common import SEP
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, ServerStatus
 from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.tools.elicitation import (
@@ -397,40 +398,51 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             ListToolsResult with available tools
         """
-        # Get all tools from the aggregator
-        result = await self._aggregator.list_tools()
-        aggregator_tools = list(result.tools)
+        aggregator_result = await self._aggregator.list_tools()
+        aggregator_tools = list(aggregator_result.tools or [])
 
         # Apply filtering if tools are specified in config
         if self.config.tools is not None:
-            filtered_tools = []
+            filtered_tools: list[Tool] = []
             for tool in aggregator_tools:
                 # Extract server name from tool name, handling server names with hyphens
                 server_name = None
                 for configured_server in self.config.tools.keys():
-                    if tool.name.startswith(f"{configured_server}-"):
+                    if tool.name.startswith(f"{configured_server}{SEP}"):
                         server_name = configured_server
                         break
 
-                # Check if this server has tool filters
-                if server_name and server_name in self.config.tools:
-                    # Check if tool matches any pattern for this server
-                    for pattern in self.config.tools[server_name]:
-                        if self._matches_pattern(tool.name, pattern, server_name):
-                            filtered_tools.append(tool)
-                            break
+                if not server_name:
+                    continue
+
+                # Check if tool matches any pattern for this server
+                for pattern in self.config.tools[server_name]:
+                    if self._matches_pattern(tool.name, pattern, server_name):
+                        filtered_tools.append(tool)
+                        break
             aggregator_tools = filtered_tools
 
-        result.tools = aggregator_tools
+        # Start with filtered aggregator tools and merge in subclass/local tools
+        merged_tools: list[Tool] = list(aggregator_tools)
+        existing_names = {tool.name for tool in merged_tools}
 
-        if self._bash_tool and all(tool.name != self._bash_tool.name for tool in result.tools):
-            result.tools.append(self._bash_tool)
+        local_tools = (await ToolAgent.list_tools(self)).tools
+        for tool in local_tools:
+            if tool.name not in existing_names:
+                merged_tools.append(tool)
+                existing_names.add(tool.name)
 
-        # Append human input tool if enabled and available
-        if self.config.human_input and getattr(self, "_human_input_tool", None):
-            result.tools.append(self._human_input_tool)
+        if self._bash_tool and self._bash_tool.name not in existing_names:
+            merged_tools.append(self._bash_tool)
+            existing_names.add(self._bash_tool.name)
 
-        return result
+        if self.config.human_input:
+            human_tool = getattr(self, "_human_input_tool", None)
+            if human_tool and human_tool.name not in existing_names:
+                merged_tools.append(human_tool)
+                existing_names.add(human_tool.name)
+
+        return ListToolsResult(tools=merged_tools)
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """
@@ -449,6 +461,9 @@ class McpAgent(ABC, ToolAgent):
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
             return await self._call_human_input_tool(arguments)
+
+        if name in self._execution_tools:
+            return await super().call_tool(name, arguments)
         else:
             return await self._aggregator.call_tool(name, arguments)
 
@@ -703,37 +718,60 @@ class McpAgent(ABC, ToolAgent):
         tool_results: dict[str, CallToolResult] = {}
         tool_loop_error: str | None = None
 
-        # Cache available tool names (original, not namespaced) for display
-        available_tools = [
-            namespaced_tool.tool.name
-            for namespaced_tool in self._aggregator._namespaced_tool_map.values()
-        ]
-        if self._shell_runtime.tool:
-            available_tools.append(self._shell_runtime.tool.name)
+        # Cache available tool names exactly as advertised to the LLM for display/highlighting
+        try:
+            listed_tools = await self.list_tools()
+        except Exception as exc:  # pragma: no cover - defensive guard, should not happen
+            self.logger.warning(f"Failed to list tools before execution: {exc}")
+            listed_tools = ListToolsResult(tools=[])
 
-        available_tools = list(dict.fromkeys(available_tools))
+        available_tools: list[str] = []
+        seen_tool_names: set[str] = set()
+        for tool_schema in listed_tools.tools:
+            if tool_schema.name in seen_tool_names:
+                continue
+            available_tools.append(tool_schema.name)
+            seen_tool_names.add(tool_schema.name)
+
+        # Cache namespaced tools for routing/metadata
+        namespaced_tools = self._aggregator._namespaced_tool_map
 
         # Process each tool call using our aggregator
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
 
-            # Get the original tool name for display (not namespaced)
-            namespaced_tool = self._aggregator._namespaced_tool_map.get(tool_name)
-            display_tool_name = namespaced_tool.tool.name if namespaced_tool else tool_name
-
-            tool_available = False
-            if tool_name == HUMAN_INPUT_TOOL_NAME:
-                tool_available = True
-            elif self._bash_tool and tool_name == self._bash_tool.name:
-                tool_available = True
-            elif namespaced_tool:
-                tool_available = True
-            else:
-                tool_available = any(
-                    candidate.tool.name == tool_name
-                    for candidate in self._aggregator._namespaced_tool_map.values()
+            # Determine which tool we are calling (namespaced MCP, local, etc.)
+            namespaced_tool = namespaced_tools.get(tool_name)
+            local_tool = self._execution_tools.get(tool_name)
+            candidate_namespaced_tool = None
+            if namespaced_tool is None and local_tool is None:
+                candidate_namespaced_tool = next(
+                    (
+                        candidate
+                        for candidate in namespaced_tools.values()
+                        if candidate.tool.name == tool_name
+                    ),
+                    None,
                 )
+
+            # Select display/highlight names
+            display_tool_name = tool_name
+            highlight_name = tool_name
+            if namespaced_tool is not None:
+                display_tool_name = namespaced_tool.namespaced_tool_name
+                highlight_name = namespaced_tool.namespaced_tool_name
+            elif candidate_namespaced_tool is not None:
+                display_tool_name = candidate_namespaced_tool.namespaced_tool_name
+                highlight_name = candidate_namespaced_tool.namespaced_tool_name
+
+            tool_available = (
+                tool_name == HUMAN_INPUT_TOOL_NAME
+                or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or namespaced_tool is not None
+                or local_tool is not None
+                or candidate_namespaced_tool is not None
+            )
 
             if not tool_available:
                 error_message = f"Tool '{display_tool_name}' is not available"
@@ -748,7 +786,7 @@ class McpAgent(ABC, ToolAgent):
             # Find the index of the current tool in available_tools for highlighting
             highlight_index = None
             try:
-                highlight_index = available_tools.index(display_tool_name)
+                highlight_index = available_tools.index(highlight_name)
             except ValueError:
                 # Tool not found in list, no highlighting
                 pass
@@ -757,7 +795,7 @@ class McpAgent(ABC, ToolAgent):
             if (
                 self._shell_runtime_enabled
                 and self._shell_runtime.tool
-                and display_tool_name == self._shell_runtime.tool.name
+                and tool_name == self._shell_runtime.tool.name
             ):
                 metadata = self._shell_runtime.metadata(tool_args.get("command"))
 
@@ -778,9 +816,10 @@ class McpAgent(ABC, ToolAgent):
 
                 # Show tool result (like ToolAgent does)
                 skybridge_config = None
-                if namespaced_tool:
+                skybridge_tool = namespaced_tool or candidate_namespaced_tool
+                if skybridge_tool:
                     skybridge_config = await self._aggregator.get_skybridge_config(
-                        namespaced_tool.server_name
+                        skybridge_tool.server_name
                     )
 
                 if not getattr(result, "_suppress_display", False):

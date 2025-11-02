@@ -17,7 +17,7 @@ class ContextDependent:
 
     def __init__(self, context: "Context | None" = None, **kwargs: dict[str, Any]) -> None:
         self._context = context
-        super().__init__(**kwargs)
+        super().__init__()
 
     @property
     def context(self) -> "Context":

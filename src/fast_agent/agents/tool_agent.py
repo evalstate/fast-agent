@@ -55,6 +55,7 @@ class ToolAgent(LlmAgent):
                     logger.warning(f"Failed to initialize human-input tool: {e}")
 
         for tool in working_tools:
+            (tool)
             if isinstance(tool, FastMCPTool):
                 fast_tool = tool
             elif callable(tool):
@@ -137,12 +138,13 @@ class ToolAgent(LlmAgent):
         tool_results: dict[str, CallToolResult] = {}
         tool_loop_error: str | None = None
         # TODO -- use gather() for parallel results, update display
-        available_tools = [t.name for t in (await self.list_tools()).tools]
+        tool_schemas = (await self.list_tools()).tools
+        available_tools = [t.name for t in tool_schemas]
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
 
-            if tool_name not in self._execution_tools:
+            if tool_name not in available_tools and tool_name not in self._execution_tools:
                 error_message = f"Tool '{tool_name}' is not available"
                 logger.error(error_message)
                 tool_loop_error = self._mark_tool_loop_error(
