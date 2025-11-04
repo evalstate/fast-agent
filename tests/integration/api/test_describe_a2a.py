@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.mcp import SEP
+
 if TYPE_CHECKING:
     from a2a.types import AgentCard, AgentSkill
 
@@ -26,7 +28,7 @@ async def test_get_agent_card_and_tools(fast_agent):
             assert 3 == len(card.skills)
 
             skill: AgentSkill = card.skills[0]
-            assert "card_test-check_weather" == skill.id
+            assert f"card_test{SEP}check_weather" == skill.id
             assert "check_weather" == skill.name
             assert "Returns the weather for a specified location."
             assert skill.tags

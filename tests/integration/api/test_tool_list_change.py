@@ -4,7 +4,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from fast_agent.mcp import SEP
+
 if TYPE_CHECKING:
+    from mcp import ListToolsResult
+
     from fast_agent.mcp.mcp_aggregator import NamespacedTool
 
 # Enable debug logging for the test
@@ -22,11 +26,9 @@ async def test_tool_list_changes(fast_agent):
         print("Initializing agent")
         async with fast.run() as app:
             # Initially there should be one tool (check_weather)
-            tools_dict = await app.test.list_mcp_tools()
-            # Check that we have the dynamic_tool server
-            assert "dynamic_tool" in tools_dict
-            assert 1 == len(tools_dict["dynamic_tool"])
-            assert "check_weather" == tools_dict["dynamic_tool"][0].name
+            tools: ListToolsResult = await app.test.list_tools()
+            assert 1 == len(tools.tools)
+            assert f"dynamic_tool{SEP}check_weather" == tools.tools[0].name
 
             # Calling check_weather will toggle the dynamic_tool and send a notification
             result = await app.test.send('***CALL_TOOL check_weather {"location": "New York"}')
@@ -47,7 +49,6 @@ async def test_tool_list_changes(fast_agent):
                     if tool.name == "dynamic_tool":
                         dynamic_tool_found = True
                         break
-
             # Verify the dynamic tool was added
             assert dynamic_tool_found, (
                 "Dynamic tool was not added to the tool list after notification"

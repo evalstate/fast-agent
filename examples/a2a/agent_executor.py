@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 DEFAULT_AGENT_NAME = "helper"
 
 fast = FastAgent(
-    "A2A FastAgent Demo",
+    "A2A fast-agent Demo",
     parse_cli_args=False,
     quiet=True,
 )
