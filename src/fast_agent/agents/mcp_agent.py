@@ -11,6 +11,7 @@ from abc import ABC
 from typing import (
     TYPE_CHECKING,
     Any,
+    Callable,
     Dict,
     List,
     Mapping,
@@ -55,6 +56,7 @@ from fast_agent.ui import console
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
+ItemT = TypeVar("ItemT")
 
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 
@@ -373,6 +375,38 @@ class McpAgent(ABC, ToolAgent):
             if is_namespaced_name(tool.name) and self._tool_matches_filter(tool.name)
         ]
 
+    def _filter_server_collections(
+        self,
+        items_by_server: Mapping[str, Sequence[ItemT]],
+        filters: Mapping[str, Sequence[str]] | None,
+        value_getter: Callable[[ItemT], str],
+    ) -> dict[str, list[ItemT]]:
+        """
+        Apply server-specific filters to a mapping of collections.
+        """
+        if not items_by_server:
+            return {}
+
+        if not filters:
+            return {server: list(items) for server, items in items_by_server.items()}
+
+        filtered: dict[str, list[ItemT]] = {}
+        for server, items in items_by_server.items():
+            patterns = filters.get(server)
+            if patterns is None:
+                filtered[server] = list(items)
+                continue
+
+            matches = [
+                item
+                for item in items
+                if any(self._matches_pattern(value_getter(item), pattern) for pattern in patterns)
+            ]
+            if matches:
+                filtered[server] = matches
+
+        return filtered
+
     def _filter_server_tools(self, tools: list[Tool] | None, namespace: str) -> list[Tool]:
         """
         Filter items for a Server (not namespaced)
@@ -380,16 +414,15 @@ class McpAgent(ABC, ToolAgent):
         if not tools:
             return []
 
-        filters = self.config.tools or {}
-        if namespace not in filters:
-            return tools
+        filters = self.config.tools
+        if not filters:
+            return list(tools)
 
-        patterns = filters.get(namespace, [])
-        return [
-            tool
-            for tool in tools
-            if any(self._matches_pattern(tool.name, pattern) for pattern in patterns)
-        ]
+        if namespace not in filters:
+            return list(tools)
+
+        filtered = self._filter_server_collections({namespace: tools}, filters, lambda tool: tool.name)
+        return filtered.get(namespace, [])
 
     async def _get_filtered_mcp_tools(self) -> list[Tool]:
         """
@@ -865,24 +898,11 @@ class McpAgent(ABC, ToolAgent):
         target = namespace if namespace is not None else server_name
         result = await self._aggregator.list_prompts(target)
 
-        # Apply filtering if prompts are specified in config
-        if self.config.prompts is not None:
-            filtered_result = {}
-            for server, prompts in result.items():
-                # Check if this server has prompt filters
-                if server in self.config.prompts:
-                    filtered_prompts = []
-                    for prompt in prompts:
-                        # Check if prompt matches any pattern for this server
-                        for pattern in self.config.prompts[server]:
-                            if self._matches_pattern(prompt.name, pattern):
-                                filtered_prompts.append(prompt)
-                                break
-                    if filtered_prompts:
-                        filtered_result[server] = filtered_prompts
-            result = filtered_result
-
-        return result
+        return self._filter_server_collections(
+            result,
+            self.config.prompts,
+            lambda prompt: prompt.name,
+        )
 
     async def list_resources(
         self, namespace: str | None = None, server_name: str | None = None
@@ -900,24 +920,11 @@ class McpAgent(ABC, ToolAgent):
         target = namespace if namespace is not None else server_name
         result = await self._aggregator.list_resources(target)
 
-        # Apply filtering if resources are specified in config
-        if self.config.resources is not None:
-            filtered_result = {}
-            for server, resources in result.items():
-                # Check if this server has resource filters
-                if server in self.config.resources:
-                    filtered_resources = []
-                    for resource in resources:
-                        # Check if resource matches any pattern for this server
-                        for pattern in self.config.resources[server]:
-                            if self._matches_pattern(resource, pattern):
-                                filtered_resources.append(resource)
-                                break
-                    if filtered_resources:
-                        filtered_result[server] = filtered_resources
-            result = filtered_result
-
-        return result
+        return self._filter_server_collections(
+            result,
+            self.config.resources,
+            lambda resource: resource,
+        )
 
     async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
         """
