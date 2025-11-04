@@ -360,7 +360,7 @@ class McpAgent(ABC, ToolAgent):
         # For resources and prompts, match directly against the pattern
         return fnmatch.fnmatch(name, pattern)
 
-    def _filter_tools_by_config(self, tools: Sequence[Tool] | None) -> list[Tool]:
+    def _filter_namespaced_tools(self, tools: Sequence[Tool] | None) -> list[Tool]:
         """
         Apply configuration-based filtering to a collection of tools.
         """
@@ -373,14 +373,48 @@ class McpAgent(ABC, ToolAgent):
             if is_namespaced_name(tool.name) and self._tool_matches_filter(tool.name)
         ]
 
-    def _filter_tools(self, tools: Sequence[Tool] | None) -> list[Tool]:
+    def _filter_server_tools(self, tools: list[Tool] | None, namespace: str) -> list[Tool]:
         """
-        Filter items for a specific server (not namespaced)
+        Filter items for a Server (not namespaced)
         """
         if not tools:
             return []
 
-        return [tool for tool in tools if self._tool_matches_filter(tool.name)]
+        filters = self.config.tools or {}
+        if namespace not in filters:
+            return tools
+
+        patterns = filters.get(namespace, [])
+        return [
+            tool
+            for tool in tools
+            if any(self._matches_pattern(tool.name, pattern) for pattern in patterns)
+        ]
+
+    async def _get_filtered_mcp_tools(self) -> list[Tool]:
+        """
+        Get the list of tools available to this agent, applying configured filters.
+
+        Returns:
+            List of Tool objects
+        """
+        aggregator_result = await self._aggregator.list_tools()
+        return self._filter_namespaced_tools(aggregator_result.tools)
+
+    def _tool_matches_filter(self, packed_name: str) -> bool:
+        """
+        Check if a tool name matches the agent's tool configuration.
+
+        Args:
+            tool_name: The name of the tool to check (namespaced)
+        """
+        server_name = get_server_name(packed_name)
+        config_tools = self.config.tools or {}
+        if server_name not in config_tools:
+            return True
+        resource_name = get_resource_name(packed_name)
+        patterns = config_tools.get(server_name, [])
+        return any(self._matches_pattern(resource_name, pattern) for pattern in patterns)
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """
@@ -900,7 +934,7 @@ class McpAgent(ABC, ToolAgent):
         filtered_result: dict[str, list[Tool]] = {}
 
         for server, server_tools in result.items():
-            filtered_result[server] = self._filter_tools_by_config(server_tools)
+            filtered_result[server] = self._filter_server_tools(server_tools, server)
 
         # Add elicitation-backed human input tool to a special server if enabled and available
         if self.config.human_input and self._human_input_tool:
@@ -917,7 +951,7 @@ class McpAgent(ABC, ToolAgent):
             ListToolsResult with available tools
         """
         # Start with filtered aggregator tools and merge in subclass/local tools
-        merged_tools: list[Tool] = await self._get_filtered_tools()
+        merged_tools: list[Tool] = await self._get_filtered_mcp_tools()
         existing_names = {tool.name for tool in merged_tools}
 
         local_tools = (await super().list_tools()).tools
@@ -937,31 +971,6 @@ class McpAgent(ABC, ToolAgent):
                 existing_names.add(human_tool.name)
 
         return ListToolsResult(tools=merged_tools)
-
-    async def _get_filtered_tools(self) -> list[Tool]:
-        """
-        Get the list of tools available to this agent, filtered by configuration.
-
-        Returns:
-            List of Tool objects
-        """
-        aggregator_result = await self._aggregator.list_tools()
-        return self._filter_tools_by_config(getattr(aggregator_result, "tools", None))
-
-    def _tool_matches_filter(self, tool_name: str) -> bool:
-        """
-        Check if a tool name matches the agent's tool configuration.
-
-        Args:
-            tool_name: The name of the tool to check (namespaced)
-        """
-        server_name = get_server_name(tool_name)
-        config_tools = self.config.tools or {}
-        if server_name not in config_tools:
-            return True
-        resource_name = get_resource_name(tool_name)
-        patterns = config_tools.get(server_name, [])
-        return any(self._matches_pattern(resource_name, pattern) for pattern in patterns)
 
     @property
     def agent_type(self) -> AgentType:
