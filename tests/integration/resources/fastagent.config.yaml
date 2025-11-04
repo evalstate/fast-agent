@@ -37,3 +37,6 @@ mcp:
     resource_server_two:
       command: "prompt-server"
       args: ["prompt2.txt"]
+    linked_resource_server:
+      command: "uv"
+      args: ["run", "mcp_linked_resouce_server.py"]

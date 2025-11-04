@@ -5,9 +5,9 @@ import pytest
 from mcp_agent.mcp.common import SEP
 
 if TYPE_CHECKING:
-    from a2a_types.types import AgentCard, AgentSkill
+    from a2a.types import AgentCard, AgentSkill
 
-    from mcp_agent.agents.agent import Agent
+    from fast_agent.agents import McpAgent
 
 
 @pytest.mark.integration
@@ -19,13 +19,13 @@ async def test_get_agent_card_and_tools(fast_agent):
     async def agent_function():
         async with fast.run() as app:
             # Simulate some agent operations
-            agent: Agent = app["test"]
+            agent: McpAgent = app["test"]
             card: AgentCard = await agent.agent_card()
 
             assert "test" == card.name
             # TODO -- migrate AgentConfig to include "description" - "instruction" is OK for the moment...
             assert "here are you instructions" == card.description
-            assert 2 == len(card.skills)
+            assert 3 == len(card.skills)
 
             skill: AgentSkill = card.skills[0]
             assert f"card_test{SEP}check_weather" == skill.id

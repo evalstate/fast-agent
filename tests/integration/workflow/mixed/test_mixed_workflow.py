@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_agent.core.prompt import Prompt
+from fast_agent.core.prompt import Prompt
 
 
 @pytest.mark.integration
@@ -20,7 +20,7 @@ async def test_chaining_routers(fast_agent):
             await agent.router1._llm.generate(
                 [
                     Prompt.user(
-                        """***FIXED_RESPONSE 
+                        """***FIXED_RESPONSE
                         {"agent": "target2",
                         "confidence": "high",
                         "reasoning": "Test Request"}"""
@@ -51,7 +51,7 @@ async def test_router_selects_parallel(fast_agent):
             await agent.router1._llm.generate(
                 [
                     Prompt.user(
-                        """***FIXED_RESPONSE 
+                        """***FIXED_RESPONSE
                         {"agent": "parallel",
                         "confidence": "high",
                         "reasoning": "Test Request"}"""
@@ -82,7 +82,45 @@ async def test_chain_in_eval_optimizer(fast_agent):
             await agent.check._llm.generate(
                 [
                     Prompt.user(
-                        """***FIXED_RESPONSE 
+                        """***FIXED_RESPONSE
+                        {
+                          "rating": "EXCELLENT",
+                          "feedback": "Perfect response",
+                          "needs_improvement": false,
+                          "focus_areas": []
+                        }"""
+                    )
+                ]
+            )
+            # Test that the chain works as a generator in eval_opt
+            result = await agent.eval_opt.send("Test message")
+            # We should get a response from the eval_opt workflow
+            assert result is not None and len(result) > 0
+
+    await agent_function()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_eval_optimizer_in_iterative_planner(fast_agent):
+    """Check that generator can be a chain"""
+    # Use the FastAgent instance from the test directory fixture
+    fast = fast_agent
+
+    @fast.agent(name="main")
+    @fast.agent(name="generate")
+    @fast.agent(name="check", instruction="You are an evaluator. Rate responses as EXCELLENT.")
+    @fast.evaluator_optimizer(name="eval_opt", generator="generate", evaluator="check")
+    @fast.iterative_planner(
+        name="iterative_planner", agents=["main", "eval_opt"], plan_iterations=1
+    )
+    async def agent_function():
+        async with fast.run() as agent:
+            # Mock the evaluation response to be EXCELLENT to avoid multiple iterations
+            await agent.iterative_planner._llm.generate(
+                [
+                    Prompt.user(
+                        """***FIXED_RESPONSE
                         {
                           "rating": "EXCELLENT",
                           "feedback": "Perfect response",

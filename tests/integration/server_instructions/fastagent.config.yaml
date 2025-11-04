@@ -1,0 +1,32 @@
+# FastAgent Configuration File for Server Instructions Test
+
+default_model: passthrough
+
+# Logging Configuration
+logger:
+  level: "info"
+  progress_display: false
+  show_chat: false
+  show_tools: false
+
+# MCP Server Configuration
+mcp:
+  servers:
+    # Server with instructions - include_instructions defaults to true
+    instructions_enabled:
+      command: "uv"
+      args: ["run", "server_with_instructions.py"]
+      description: "Server with instructions enabled"
+
+    # Same server with instructions but disabled via config
+    instructions_disabled:
+      command: "uv"
+      args: ["run", "server_with_instructions.py"]
+      description: "Server with instructions disabled"
+      include_instructions: false
+
+    # Server without instructions at all
+    no_instructions:
+      command: "uv"
+      args: ["run", "server_without_instructions.py"]
+      description: "Server without any instructions"

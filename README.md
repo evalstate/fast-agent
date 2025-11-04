@@ -10,15 +10,32 @@
 ## Overview
 
 > [!TIP]
-> Documentation site is in production here : https://fast-agent.ai. Feel free to feed back what's helpful and what's not. There is also an LLMs.txt [here](https://fast-agent.ai/llms.txt)
+> Please see : https://fast-agent.ai for latest documentation. There is also an LLMs.txt [here](https://fast-agent.ai/llms.txt)
 
-**`fast-agent`** enables you to create and interact with sophisticated Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling. Model support is comprehensive with native support for Anthropic, OpenAI and Google as well as Azure, Ollama, Deepseek and dozens of others via TensorZero.
+**`fast-agent`** enables you to create and interact with sophisticated multimodal Agents and Workflows in minutes. It is the first framework with complete, end-to-end tested MCP Feature support including Sampling and Elicitations.
 
-![multi_model_trim](https://github.com/user-attachments/assets/c8bf7474-2c41-4ef3-8924-06e29907d7c6)
+<!-- ![multi_model_trim](https://github.com/user-attachments/assets/c8bf7474-2c41-4ef3-8924-06e29907d7c6) -->
 
 The simple declarative syntax lets you concentrate on composing your Prompts and MCP Servers to [build effective agents](https://www.anthropic.com/research/building-effective-agents).
 
-`fast-agent` is multi-modal, supporting Images and PDFs for both Anthropic and OpenAI endpoints via Prompts, Resources and MCP Tool Call results. The inclusion of passthrough and playback LLMs enable rapid development and test of Python glue-code for your applications.
+Model support is comprehensive with native support for Anthropic, OpenAI and Google providers as well as Azure, Ollama, Deepseek and dozens of others via TensorZero. Structured Outputs, PDF and Vision support is simple to use and well tested. Passthrough and Playback LLMs enable rapid development and test of Python glue-code for your applications.
+
+Recent features include:
+ - Agent Skills (SKILL.md)
+ - MCP-UI Support |
+ - OpenAI Apps SDK (Skybridge)
+ - Shell Mode
+ - Advanced MCP Transport Diagnsotics
+ - MCP Elicitations
+
+<img width="800"  alt="MCP Transport Diagnostics" src="https://github.com/user-attachments/assets/e26472de-58d9-4726-8bdd-01eb407414cf" />
+
+
+`fast-agent` is the only tool that allows you to inspect Streamable HTTP Transport usage - a critical feature for ensuring reliable, compliant deployments. OAuth is supported with KeyRing storage for secrets. Use the `fast-agent auth` command to manage.
+
+
+
+
 
 > [!IMPORTANT]
 >
@@ -41,7 +58,7 @@ Start by installing the [uv package manager](https://docs.astral.sh/uv/) for Pyt
 ```bash
 uv pip install fast-agent-mcp          # install fast-agent!
 fast-agent go                          # start an interactive session
-fast-agent go https://hf.co/mcp        # with a remote MCP
+fast-agent go --url https://hf.co/mcp  # with a remote MCP
 fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
 fast-agent setup                       # create an example agent and config files
 uv run agent.py                        # run your first agent
@@ -83,7 +100,7 @@ Here is the complete `sizer.py` Agent application, with boilerplate code:
 
 ```python
 import asyncio
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 # Create the application
 fast = FastAgent("Agent Example")
@@ -141,6 +158,42 @@ uv run workflow/chaining.py --agent post_writer --message "<url>"
 ```
 
 Add the `--quiet` switch to disable progress and message display and return only the final response - useful for simple automations.
+
+## MCP OAuth (v2.1)
+
+For SSE and HTTP MCP servers, OAuth is enabled by default with minimal configuration. A local callback server is used to capture the authorization code, with a paste-URL fallback if the port is unavailable.
+
+- Minimal per-server settings in `fastagent.config.yaml`:
+
+```yaml
+mcp:
+  servers:
+    myserver:
+      transport: http # or sse
+      url: http://localhost:8001/mcp # or /sse for SSE servers
+      auth:
+        oauth: true # default: true
+        redirect_port: 3030 # default: 3030
+        redirect_path: /callback # default: /callback
+        # scope: "user"       # optional; if omitted, server defaults are used
+```
+
+- The OAuth client uses PKCE and in-memory token storage (no tokens written to disk).
+- Token persistence: by default, tokens are stored securely in your OS keychain via `keyring`. If a keychain is unavailable (e.g., headless container), in-memory storage is used for the session.
+- To force in-memory only per server, set:
+
+```yaml
+mcp:
+  servers:
+    myserver:
+      transport: http
+      url: http://localhost:8001/mcp
+      auth:
+        oauth: true
+        persist: memory
+```
+
+- To disable OAuth for a specific server , set `auth.oauth: false` for that server.
 
 ## Workflows
 

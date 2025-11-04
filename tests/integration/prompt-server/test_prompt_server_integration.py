@@ -2,8 +2,8 @@ from typing import TYPE_CHECKING, Dict, List
 
 import pytest
 
-from mcp_agent.mcp.helpers.content_helpers import get_text, is_image_content
-from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+from fast_agent.mcp.helpers.content_helpers import get_text, is_image_content
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
     from mcp.types import GetPromptResult, Prompt
@@ -21,9 +21,7 @@ async def test_no_delimiters(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             x: GetPromptResult = await agent["test"].get_prompt("simple", None)
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
-                x.messages
-            )
+            y: list[PromptMessageExtended] = PromptMessageExtended.to_extended(x.messages)
             assert "simple, no delimiters" == y[0].first_text()
             assert "user" == y[0].role
             assert len(y) == 1
@@ -45,9 +43,7 @@ async def test_no_delimiters_with_variables(fast_agent):
             x: GetPromptResult = await agent["test"].get_prompt(
                 "simple_sub", {"product": "fast-agent", "company": "llmindset"}
             )
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
-                x.messages
-            )
+            y: list[PromptMessageExtended] = PromptMessageExtended.to_extended(x.messages)
             assert "this is fast-agent by llmindset" == y[0].first_text()
             assert "user" == y[0].role
             assert len(y) == 1
@@ -67,9 +63,7 @@ async def test_multiturn(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             x: GetPromptResult = await agent["test"].get_prompt("multi", None)
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
-                x.messages
-            )
+            y: list[PromptMessageExtended] = PromptMessageExtended.to_extended(x.messages)
             assert "good morning" == y[0].first_text()
             assert "user" == y[0].role
             assert "how may i help you?" == y[1].first_text()
@@ -93,9 +87,7 @@ async def test_multiturn_with_subsitition(fast_agent):
             x: GetPromptResult = await agent["test"].get_prompt(
                 "multi_sub", {"user_name": "evalstate", "assistant_name": "HAL9000"}
             )
-            y: list[PromptMessageMultipart] = PromptMessageMultipart.to_multipart(
-                x.messages
-            )
+            y: list[PromptMessageExtended] = PromptMessageExtended.to_extended(x.messages)
             assert "hello, my name is evalstate" == y[0].first_text()
             assert "user" == y[0].role
             assert "nice to meet you. i am HAL9000" == y[1].first_text()
@@ -132,9 +124,7 @@ async def test_get_prompt_with_server_param(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Test with explicit server parameter
-            prompt: GetPromptResult = await agent.test.get_prompt(
-                "simple", server_name="prompts"
-            )
+            prompt: GetPromptResult = await agent.test.get_prompt("simple", server_name="prompts")
             assert "simple, no delimiters" == get_text(prompt.messages[0].content)
 
     await agent_function()
@@ -150,14 +140,14 @@ async def test_apply_prompt_with_server_param(fast_agent):
     async def agent_function():
         async with fast.run() as agent:
             # Test apply_prompt with explicit server parameter
-            response = await agent.test.apply_prompt("simple", server_name="prompts")
+            response = await agent.test.apply_prompt("simple", namespace="prompts")
             assert response is not None
 
             # Test with both arguments and server parameter
             response = await agent.test.apply_prompt(
                 "simple_sub",
                 arguments={"product": "test-product", "company": "test-company"},
-                server_name="prompts",
+                namespace="prompts",
             )
             assert response is not None
             assert "test-product" in response or "test-company" in response

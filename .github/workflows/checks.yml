@@ -21,9 +21,7 @@ jobs:
 
       - name: Install the project
         run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install -e ".[dev]"
+          uv sync --group dev
 
       - name: Run ruff format check
         run: uv run scripts/format.py
@@ -45,9 +43,7 @@ jobs:
 
       - name: Install the project
         run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install -e ".[dev]"
+          uv sync --group dev
 
       - name: Run pyright
         run: uv run scripts/lint.py
@@ -69,15 +65,12 @@ jobs:
 
       - name: Install the project
         run: |
-          uv venv .venv
-          source .venv/bin/activate
-          uv pip install -e ".[dev]"
+          uv sync --group dev
 
       - name: Run pytest
         run: |
-          source .venv/bin/activate
-          python -m pytest tests/unit -v
-          python -m pytest tests/integration -v
+          uv run pytest tests/unit -v
+          uv run pytest tests/integration -v
 
   package-test:
     runs-on: ubuntu-latest

@@ -1,13 +1,12 @@
-# integration_tests/mcp_agent/test_agent_with_image.py
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
 
-from mcp_agent.core.prompt import Prompt
+from fast_agent.core.prompt import Prompt
 
 if TYPE_CHECKING:
-    from mcp_agent.mcp.prompt_message_multipart import PromptMessageMultipart
+    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 @pytest.mark.integration
@@ -20,6 +19,7 @@ if TYPE_CHECKING:
         "sonnet",  # Anthropic model
         "gemini25",  # Not yet turned on as it runs into token limits.
         "azure.gpt-4.1",
+        "gpt-5-mini.low",  # OpenAI model
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -56,6 +56,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
         "azure.gpt-4.1",
         "gemini25",
         "grok-4",
+        "gpt-5-mini.low",
         #    "gemini2",
     ],
 )
@@ -124,6 +125,7 @@ async def test_agent_with_mcp_image_google(fast_agent, model_name):
     [
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
+        "gpt-4o",
         #    "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
     ],
 )
@@ -158,6 +160,7 @@ async def test_agent_with_mcp_pdf(fast_agent, model_name):
         "gpt-4.1-mini",  # OpenAI model
         "haiku35",  # Anthropic model
         "gemini25",  # This currently uses the OpenAI format. Google Gemini cannot process PDFs with the OpenAI format. It can only do so with the native Gemini format.
+        "gpt-5-mini",
     ],
 )
 async def test_agent_with_pdf_prompt(fast_agent, model_name):
@@ -207,7 +210,7 @@ async def test_agent_includes_tool_results_in_multipart_result_anthropic(fast_ag
     )
     async def agent_function():
         async with fast.run() as agent:
-            response: PromptMessageMultipart = await agent.agent.generate(
+            response: PromptMessageExtended = await agent.agent.generate(
                 [
                     Prompt.user(
                         "Use the image fetch tool to get the sample image and tell me the user name contained in this image?"
@@ -245,7 +248,7 @@ async def test_agent_includes_tool_results_in_multipart_result_openai(fast_agent
     )
     async def agent_function():
         async with fast.run() as agent:
-            response: PromptMessageMultipart = await agent.agent.generate(
+            response: PromptMessageExtended = await agent.agent.generate(
                 [
                     Prompt.user(
                         "Use the image fetch tool to get the sample image and tell me the user name contained in this image?"

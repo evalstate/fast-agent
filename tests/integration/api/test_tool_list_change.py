@@ -7,7 +7,7 @@ import pytest
 from mcp_agent.mcp.common import SEP
 
 if TYPE_CHECKING:
-    from mcp import ListToolsResult
+    from fast_agent.mcp.mcp_aggregator import NamespacedTool
 
 # Enable debug logging for the test
 logging.basicConfig(level=logging.DEBUG)
@@ -35,7 +35,11 @@ async def test_tool_list_changes(fast_agent):
             # Wait for the tool list to be refreshed (with retry)
             await asyncio.sleep(0.5)
 
-            tools = await app.test.list_tools()
+            # peek in to the namespace map as list_tools hides issues if the notification fails.
+            tool_map: dict[str, NamespacedTool] = app.test._aggregator._namespaced_tool_map
+            assert len(tool_map) == 2, f"Expected 2 tools in tool map but found {len(tool_map)}"
+
+            tools_dict = await app.test.list_mcp_tools()
             dynamic_tool_found = False
             # Check if dynamic_tool is in the list
             for tool in tools.tools:
@@ -47,7 +51,8 @@ async def test_tool_list_changes(fast_agent):
             assert dynamic_tool_found, (
                 "Dynamic tool was not added to the tool list after notification"
             )
-            assert 2 == len(tools.tools), f"Expected 2 tools but found {len(tools.tools)}"
+            total_tools = sum(len(tool_list) for tool_list in tools_dict.values())
+            assert 2 == total_tools, f"Expected 2 tools but found {total_tools}"
 
             # Call check_weather again to toggle the dynamic_tool off
             result = await app.test.send('***CALL_TOOL check_weather {"location": "Boston"}')
@@ -57,8 +62,9 @@ async def test_tool_list_changes(fast_agent):
             await asyncio.sleep(0.5)
 
             # Get the updated tool list
-            tools = await app.test.list_tools()
+            tools_dict = await app.test.list_mcp_tools()
 
-            assert 1 == len(tools.tools)
+            total_tools = sum(len(tool_list) for tool_list in tools_dict.values())
+            assert 1 == total_tools
 
     await agent_function()

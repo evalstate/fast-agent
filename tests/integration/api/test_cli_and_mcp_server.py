@@ -1,10 +1,12 @@
+import asyncio
 import os
 import subprocess
 from typing import TYPE_CHECKING
 
+import httpx
 import pytest
 
-from mcp_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import get_text
 
 if TYPE_CHECKING:
     from mcp import GetPromptResult
@@ -44,7 +46,7 @@ def test_agent_message_cli():
     # With the passthrough model, the output should contain the input message
     assert test_message in command_output, "Test message not found in agent response"
     # this is from show_user_output
-    assert "[USER]" in command_output, "show chat messages included in output"
+    assert "▎▶ test" in command_output, "show chat messages included in output"
 
 
 @pytest.mark.integration
@@ -71,7 +73,7 @@ def test_agent_message_prompt_file():
         "Test message not found in agent response"
     )
     # this is from show_user_output
-    assert "[USER]" in command_output, "show chat messages included in output"
+    assert "▎▶ test" in command_output, "show chat messages included in output"
 
 
 @pytest.mark.integration
@@ -153,7 +155,6 @@ async def test_agent_server_option_sse(fast_agent):
     """Test that FastAgent supports --server flag with SSE transport."""
 
     # Start the SSE server in a subprocess
-    import asyncio
     import os
     import subprocess
 
@@ -210,11 +211,94 @@ async def test_agent_server_option_sse(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_serve_request_scope_disables_session_header():
+    """Request-scoped instances should not advertise an MCP session id."""
+
+    import os
+    import subprocess
+
+
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(test_dir, "fastagent.config.yaml")
+
+    port = 8731
+
+    server_proc = subprocess.Popen(
+        [
+            "uv",
+            "run",
+            "-m",
+            "fast_agent.cli",
+            "serve",
+            "--config-path",
+            config_path,
+            "--transport",
+            "http",
+            "--port",
+            str(port),
+            "--instance-scope",
+            "request",
+            #            "--quiet",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=test_dir,
+    )
+
+    try:
+        # Wait until the server is listening
+        for _ in range(40):
+            if server_proc.poll() is not None:
+                stdout, stderr = server_proc.communicate(timeout=1)
+                raise AssertionError(f"Server exited early. stdout={stdout} stderr={stderr}")
+            try:
+                reader, writer = await asyncio.open_connection("127.0.0.1", port)
+                writer.close()
+                await writer.wait_closed()
+                break
+            except OSError:
+                await asyncio.sleep(0.25)
+        else:
+            raise AssertionError("Server did not start listening in time")
+
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            init_payload = {
+                "jsonrpc": "2.0",
+                "id": "1",
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test-suite", "version": "0.0.0"},
+                },
+            }
+            async with client.stream(
+                "POST",
+                f"http://127.0.0.1:{port}/mcp",
+                headers={
+                    "content-type": "application/json",
+                    "accept": "application/json, text/event-stream",
+                },
+                json=init_payload,
+            ) as response:
+                assert response.status_code == 200
+                assert "mcp-session-id" not in response.headers
+    finally:
+        if server_proc.poll() is None:
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_agent_server_option_http(fast_agent):
     """Test that FastAgent supports --server flag with HTTP transport."""
 
     # Start the SSE server in a subprocess
-    import asyncio
     import os
     import subprocess
 
