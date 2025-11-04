@@ -1,9 +1,9 @@
 import asyncio
 
-from fast_agent import FastAgent
+from fast_agent.mcp import SEP, FastAgent
 
 # Create the application with specified model
-fast = FastAgent("FastAgent Example")
+fast = FastAgent("fast-agent Example")
 
 
 # Define the agent

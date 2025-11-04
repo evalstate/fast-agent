@@ -10,6 +10,7 @@ Note: Backward compatibility for legacy `PromptMessageMultipart` imports is hand
 via `fast_agent.mcp.prompt_message_multipart`, which subclasses `PromptMessageExtended`.
 """
 
+from .common import SEP
 from .helpers import (
     ensure_multipart_messages,
     get_image_data,
@@ -27,6 +28,8 @@ from .helpers import (
 
 __all__ = [
     "Prompt",
+    # Common
+    "SEP",
     # Helpers
     "get_text",
     "get_image_data",

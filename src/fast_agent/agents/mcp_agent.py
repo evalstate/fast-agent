@@ -41,7 +41,7 @@ from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
-from fast_agent.mcp.common import SEP
+from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, ServerStatus
 from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.tools.elicitation import (
@@ -345,104 +345,42 @@ class McpAgent(ABC, ToolAgent):
     ) -> str:
         return await self.send(message)
 
-    # async def send(
-    #     self,
-    #     message: Union[
-    #         str,
-    #         PromptMessage,
-    #         PromptMessageExtended,
-    #         Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-    #     ],
-    #     request_params: RequestParams | None = None,
-    # ) -> str:
-    #     """
-    #     Send a message to the agent and get a response.
-
-    #     Args:
-    #         message: Message content in various formats:
-    #             - String: Converted to a user PromptMessageExtended
-    #             - PromptMessage: Converted to PromptMessageExtended
-    #             - PromptMessageExtended: Used directly
-    #             - request_params: Optional request parameters
-
-    #     Returns:
-    #         The agent's response as a string
-    #     """
-    #     response = await self.generate(message, request_params)
-    #     return response.last_text() or ""
-
-    def _matches_pattern(self, name: str, pattern: str, server_name: str) -> bool:
+    def _matches_pattern(self, name: str, pattern: str) -> bool:
         """
         Check if a name matches a pattern for a specific server.
 
         Args:
             name: The name to match (could be tool name, resource URI, or prompt name)
             pattern: The pattern to match against (e.g., "add", "math*", "resource://math/*")
-            server_name: The server name (used for tool name prefixing)
 
         Returns:
             True if the name matches the pattern
         """
-        # For tools, build the full pattern with server prefix: server_name-pattern
-        if name.startswith(f"{server_name}-"):
-            full_pattern = f"{server_name}-{pattern}"
-            return fnmatch.fnmatch(name, full_pattern)
 
         # For resources and prompts, match directly against the pattern
         return fnmatch.fnmatch(name, pattern)
 
-    async def list_tools(self) -> ListToolsResult:
+    def _filter_tools_by_config(self, tools: Sequence[Tool] | None) -> list[Tool]:
         """
-        List all tools available to this agent, filtered by configuration.
-
-        Returns:
-            ListToolsResult with available tools
+        Apply configuration-based filtering to a collection of tools.
         """
-        aggregator_result = await self._aggregator.list_tools()
-        aggregator_tools = list(aggregator_result.tools or [])
+        if not tools:
+            return []
 
-        # Apply filtering if tools are specified in config
-        if self.config.tools is not None:
-            filtered_tools: list[Tool] = []
-            for tool in aggregator_tools:
-                # Extract server name from tool name, handling server names with hyphens
-                server_name = None
-                for configured_server in self.config.tools.keys():
-                    if tool.name.startswith(f"{configured_server}{SEP}"):
-                        server_name = configured_server
-                        break
+        return [
+            tool
+            for tool in tools
+            if is_namespaced_name(tool.name) and self._tool_matches_filter(tool.name)
+        ]
 
-                if not server_name:
-                    continue
+    def _filter_tools(self, tools: Sequence[Tool] | None) -> list[Tool]:
+        """
+        Filter items for a specific server (not namespaced)
+        """
+        if not tools:
+            return []
 
-                # Check if tool matches any pattern for this server
-                for pattern in self.config.tools[server_name]:
-                    if self._matches_pattern(tool.name, pattern, server_name):
-                        filtered_tools.append(tool)
-                        break
-            aggregator_tools = filtered_tools
-
-        # Start with filtered aggregator tools and merge in subclass/local tools
-        merged_tools: list[Tool] = list(aggregator_tools)
-        existing_names = {tool.name for tool in merged_tools}
-
-        local_tools = (await ToolAgent.list_tools(self)).tools
-        for tool in local_tools:
-            if tool.name not in existing_names:
-                merged_tools.append(tool)
-                existing_names.add(tool.name)
-
-        if self._bash_tool and self._bash_tool.name not in existing_names:
-            merged_tools.append(self._bash_tool)
-            existing_names.add(self._bash_tool.name)
-
-        if self.config.human_input:
-            human_tool = getattr(self, "_human_input_tool", None)
-            if human_tool and human_tool.name not in existing_names:
-                merged_tools.append(human_tool)
-                existing_names.add(human_tool.name)
-
-        return ListToolsResult(tools=merged_tools)
+        return [tool for tool in tools if self._tool_matches_filter(tool.name)]
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """
@@ -860,37 +798,6 @@ class McpAgent(ABC, ToolAgent):
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' apply_prompt_template"):
             return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
-    # async def structured(
-    #     self,
-    #     messages: Union[
-    #         str,
-    #         PromptMessage,
-    #         PromptMessageExtended,
-    #         Sequence[Union[str, PromptMessage, PromptMessageExtended]],
-    #     ],
-    #     model: Type[ModelT],
-    #     request_params: RequestParams | None = None,
-    # ) -> Tuple[ModelT | None, PromptMessageExtended]:
-    #     """
-    #     Apply the prompt and return the result as a Pydantic model.
-    #     Normalizes input messages and delegates to the attached LLM.
-
-    #     Args:
-    #         messages: Message(s) in various formats:
-    #             - String: Converted to a user PromptMessageExtended
-    #             - PromptMessage: Converted to PromptMessageExtended
-    #             - PromptMessageExtended: Used directly
-    #             - List of any combination of the above
-    #         model: The Pydantic model class to parse the result into
-    #         request_params: Optional parameters to configure the LLM request
-
-    #     Returns:
-    #         An instance of the specified model, or None if coercion fails
-    #     """
-
-    #     with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
-    #         return await super().structured(messages, model, request_params)
-
     async def apply_prompt_messages(
         self, prompts: List[PromptMessageExtended], request_params: RequestParams | None = None
     ) -> str:
@@ -934,7 +841,7 @@ class McpAgent(ABC, ToolAgent):
                     for prompt in prompts:
                         # Check if prompt matches any pattern for this server
                         for pattern in self.config.prompts[server]:
-                            if self._matches_pattern(prompt.name, pattern, server):
+                            if self._matches_pattern(prompt.name, pattern):
                                 filtered_prompts.append(prompt)
                                 break
                     if filtered_prompts:
@@ -969,7 +876,7 @@ class McpAgent(ABC, ToolAgent):
                     for resource in resources:
                         # Check if resource matches any pattern for this server
                         for pattern in self.config.resources[server]:
-                            if self._matches_pattern(resource, pattern, server):
+                            if self._matches_pattern(resource, pattern):
                                 filtered_resources.append(resource)
                                 break
                     if filtered_resources:
@@ -978,9 +885,7 @@ class McpAgent(ABC, ToolAgent):
 
         return result
 
-    async def list_mcp_tools(
-        self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, List[Tool]]:
+    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
         """
         List all tools available to this agent, grouped by server and filtered by configuration.
 
@@ -991,40 +896,72 @@ class McpAgent(ABC, ToolAgent):
             Dictionary mapping server names to lists of Tool objects (with original names, not namespaced)
         """
         # Get all tools from the aggregator
-        target = namespace if namespace is not None else server_name
-        result = await self._aggregator.list_mcp_tools(target)
+        result = await self._aggregator.list_mcp_tools(namespace)
+        filtered_result: dict[str, list[Tool]] = {}
 
-        # Apply filtering if tools are specified in config
-        if self.config.tools is not None:
-            filtered_result = {}
-            for server, tools in result.items():
-                # Check if this server has tool filters
-                if server in self.config.tools:
-                    filtered_tools = []
-                    for tool in tools:
-                        # Check if tool matches any pattern for this server
-                        for pattern in self.config.tools[server]:
-                            if self._matches_pattern(tool.name, pattern, server):
-                                filtered_tools.append(tool)
-                                break
-                    if filtered_tools:
-                        filtered_result[server] = filtered_tools
-            result = filtered_result
+        for server, server_tools in result.items():
+            filtered_result[server] = self._filter_tools_by_config(server_tools)
 
         # Add elicitation-backed human input tool to a special server if enabled and available
-        if self.config.human_input and getattr(self, "_human_input_tool", None):
+        if self.config.human_input and self._human_input_tool:
             special_server_name = "__human_input__"
+            filtered_result.setdefault(special_server_name, []).append(self._human_input_tool)
 
-            # If the special server doesn't exist in result, create it
-            if special_server_name not in result:
-                result[special_server_name] = []
+        return filtered_result
 
-            result[special_server_name].append(self._human_input_tool)
+    async def list_tools(self) -> ListToolsResult:
+        """
+        List all tools available to this agent, filtered by configuration.
 
-        # if self._skill_lookup_tool:
-        #     result.setdefault("__skills__", []).append(self._skill_lookup_tool)
+        Returns:
+            ListToolsResult with available tools
+        """
+        # Start with filtered aggregator tools and merge in subclass/local tools
+        merged_tools: list[Tool] = await self._get_filtered_tools()
+        existing_names = {tool.name for tool in merged_tools}
 
-        return result
+        local_tools = (await super().list_tools()).tools
+        for tool in local_tools:
+            if tool.name not in existing_names:
+                merged_tools.append(tool)
+                existing_names.add(tool.name)
+
+        if self._bash_tool and self._bash_tool.name not in existing_names:
+            merged_tools.append(self._bash_tool)
+            existing_names.add(self._bash_tool.name)
+
+        if self.config.human_input:
+            human_tool = getattr(self, "_human_input_tool", None)
+            if human_tool and human_tool.name not in existing_names:
+                merged_tools.append(human_tool)
+                existing_names.add(human_tool.name)
+
+        return ListToolsResult(tools=merged_tools)
+
+    async def _get_filtered_tools(self) -> list[Tool]:
+        """
+        Get the list of tools available to this agent, filtered by configuration.
+
+        Returns:
+            List of Tool objects
+        """
+        aggregator_result = await self._aggregator.list_tools()
+        return self._filter_tools_by_config(getattr(aggregator_result, "tools", None))
+
+    def _tool_matches_filter(self, tool_name: str) -> bool:
+        """
+        Check if a tool name matches the agent's tool configuration.
+
+        Args:
+            tool_name: The name of the tool to check (namespaced)
+        """
+        server_name = get_server_name(tool_name)
+        config_tools = self.config.tools or {}
+        if server_name not in config_tools:
+            return True
+        resource_name = get_resource_name(tool_name)
+        patterns = config_tools.get(server_name, [])
+        return any(self._matches_pattern(resource_name, pattern) for pattern in patterns)
 
     @property
     def agent_type(self) -> AgentType:

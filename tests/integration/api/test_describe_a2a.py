@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mcp_agent.mcp.common import SEP
+from fast_agent.mcp import SEP
 
 if TYPE_CHECKING:
     from a2a.types import AgentCard, AgentSkill

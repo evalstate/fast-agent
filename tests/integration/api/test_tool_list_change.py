@@ -4,9 +4,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from mcp_agent.mcp.common import SEP
+from fast_agent.mcp import SEP
 
 if TYPE_CHECKING:
+    from mcp import ListToolsResult
+
     from fast_agent.mcp.mcp_aggregator import NamespacedTool
 
 # Enable debug logging for the test
@@ -42,11 +44,11 @@ async def test_tool_list_changes(fast_agent):
             tools_dict = await app.test.list_mcp_tools()
             dynamic_tool_found = False
             # Check if dynamic_tool is in the list
-            for tool in tools.tools:
-                if tool.name == f"dynamic_tool{SEP}dynamic_tool":
-                    dynamic_tool_found = True
-                    break
-
+            if "dynamic_tool" in tools_dict:
+                for tool in tools_dict["dynamic_tool"]:
+                    if tool.name == "dynamic_tool":
+                        dynamic_tool_found = True
+                        break
             # Verify the dynamic tool was added
             assert dynamic_tool_found, (
                 "Dynamic tool was not added to the tool list after notification"

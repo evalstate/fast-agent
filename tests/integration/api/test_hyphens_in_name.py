@@ -1,6 +1,6 @@
 import pytest
 
-from mcp_agent.mcp.common import SEP
+from fast_agent.mcp import SEP
 
 
 @pytest.mark.integration
@@ -16,7 +16,7 @@ async def test_hyphenated_server_name(fast_agent):
                 prompt_name=f"hyphen-test{SEP}check_weather_prompt",
                 arguments={"location": "New York"},
             )
-            assert get_prompt_result.description is None
+            assert get_prompt_result.description
 
             # test tool calling
             result = await app.test.send('***CALL_TOOL check_weather {"location": "New York"}')

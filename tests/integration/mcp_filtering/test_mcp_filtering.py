@@ -7,6 +7,7 @@ Tests tool, resource, and prompt filtering across different agent types.
 import pytest
 
 from fast_agent.agents import McpAgent
+from fast_agent.mcp.common import SEP
 
 
 @pytest.mark.integration
@@ -30,13 +31,13 @@ async def test_tool_filtering_basic_agent(fast_agent):
 
             # Should have all 7 tools
             expected_tools = {
-                "filtering_test_server-math_add",
-                "filtering_test_server-math_subtract",
-                "filtering_test_server-math_multiply",
-                "filtering_test_server-string_upper",
-                "filtering_test_server-string_lower",
-                "filtering_test_server-utility_ping",
-                "filtering_test_server-utility_status",
+                f"filtering_test_server{SEP}math_add",
+                f"filtering_test_server{SEP}math_subtract",
+                f"filtering_test_server{SEP}math_multiply",
+                f"filtering_test_server{SEP}string_upper",
+                f"filtering_test_server{SEP}string_lower",
+                f"filtering_test_server{SEP}utility_ping",
+                f"filtering_test_server{SEP}utility_status",
             }
             actual_tools = set(tool_names)
             assert actual_tools == expected_tools, f"Expected {expected_tools}, got {actual_tools}"
@@ -58,19 +59,19 @@ async def test_tool_filtering_basic_agent(fast_agent):
 
             # Should have only math tools + string_upper
             expected_tools = {
-                "filtering_test_server-math_add",
-                "filtering_test_server-math_subtract",
-                "filtering_test_server-math_multiply",
-                "filtering_test_server-string_upper",
+                f"filtering_test_server{SEP}math_add",
+                f"filtering_test_server{SEP}math_subtract",
+                f"filtering_test_server{SEP}math_multiply",
+                f"filtering_test_server{SEP}string_upper",
             }
             actual_tools = set(tool_names)
             assert actual_tools == expected_tools, f"Expected {expected_tools}, got {actual_tools}"
 
             # Should NOT have these tools
             excluded_tools = {
-                "filtering_test_server-string_lower",
-                "filtering_test_server-utility_ping",
-                "filtering_test_server-utility_status",
+                f"filtering_test_server{SEP}string_lower",
+                f"filtering_test_server{SEP}utility_ping",
+                f"filtering_test_server{SEP}utility_status",
             }
             for tool_name in excluded_tools:
                 assert tool_name not in tool_names, (
@@ -101,9 +102,9 @@ async def test_tool_call_records_elapsed_time(fast_agent):
             )
 
             elapsed = getattr(result, "transport_elapsed", None)
-            assert (
-                elapsed is not None
-            ), "transport_elapsed should be attached to MCP CallToolResult responses"
+            assert elapsed is not None, (
+                "transport_elapsed should be attached to MCP CallToolResult responses"
+            )
             assert elapsed >= 0, "elapsed time should never be negative"
             assert elapsed < 120, "elapsed time should be within a credible bound"
 
@@ -267,19 +268,19 @@ async def test_tool_filtering_custom_agent(fast_agent):
 
             # Should have only string tools
             expected_tools = {
-                "filtering_test_server-string_upper",
-                "filtering_test_server-string_lower",
+                f"filtering_test_server{SEP}string_upper",
+                f"filtering_test_server{SEP}string_lower",
             }
             actual_tools = set(tool_names)
             assert actual_tools == expected_tools, f"Expected {expected_tools}, got {actual_tools}"
 
             # Should NOT have math or utility tools
             excluded_tools = {
-                "filtering_test_server-math_add",
-                "filtering_test_server-math_subtract",
-                "filtering_test_server-math_multiply",
-                "filtering_test_server-utility_ping",
-                "filtering_test_server-utility_status",
+                f"filtering_test_server{SEP}math_add",
+                f"filtering_test_server{SEP}math_subtract",
+                f"filtering_test_server{SEP}math_multiply",
+                f"filtering_test_server{SEP}utility_ping",
+                f"filtering_test_server{SEP}utility_status",
             }
             for tool_name in excluded_tools:
                 assert tool_name not in tool_names, (
@@ -311,9 +312,9 @@ async def test_combined_filtering(fast_agent):
             tools = await agent_app.agent_combined_filter.list_tools()
             tool_names = [tool.name for tool in tools.tools]
             expected_tools = {
-                "filtering_test_server-math_add",
-                "filtering_test_server-math_subtract",
-                "filtering_test_server-math_multiply",
+                f"filtering_test_server{SEP}math_add",
+                f"filtering_test_server{SEP}math_subtract",
+                f"filtering_test_server{SEP}math_multiply",
             }
             actual_tools = set(tool_names)
             assert actual_tools == expected_tools, (

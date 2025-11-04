@@ -14,3 +14,13 @@ def create_namespaced_name(server_name: str, resource_name: str) -> str:
 def is_namespaced_name(name: str) -> bool:
     """Check if a name is already namespaced"""
     return SEP in name
+
+
+def get_server_name(namespaced_name: str) -> str:
+    """Extract the server name from a namespaced resource name"""
+    return namespaced_name.split(SEP)[0] if SEP in namespaced_name else ""
+
+
+def get_resource_name(namespaced_name: str) -> str:
+    """Extract the resource name from a namespaced resource name"""
+    return namespaced_name.split(SEP, 1)[1] if SEP in namespaced_name else namespaced_name
