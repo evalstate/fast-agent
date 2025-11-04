@@ -9,7 +9,7 @@ REASONING = "reasoning"
 FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
 FAST_AGENT_REMOVED_METADATA_CHANNEL = "fast-agent-removed-meta"
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
-DEFAULT_MAX_ITERATIONS = 20
+DEFAULT_MAX_ITERATIONS = 99
 """Maximum number of User/Assistant turns to take"""
 
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
