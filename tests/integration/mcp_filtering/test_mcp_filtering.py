@@ -114,134 +114,159 @@ async def test_tool_call_records_elapsed_time(fast_agent):
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-async def test_resource_filtering_basic_agent(fast_agent):
-    """Test resource filtering with basic agent - no filtering vs with filtering"""
+async def test_resource_filtering_returns_all_without_filters(fast_agent):
+    """Agents with no resource filters should expose every resource."""
     fast = fast_agent
 
-    # Test 1: Agent without filtering - should have all resources
     @fast.agent(
-        name="agent_no_filter",
+        name="resource_no_filter_agent",
         instruction="Agent without resource filtering",
         model="passthrough",
         servers=["filtering_test_server"],
     )
-    async def agent_no_filter():
+    async def resource_no_filter_agent():
         async with fast.run() as agent_app:
-            resources = await agent_app.agent_no_filter.list_resources()
-            resource_uris = resources["filtering_test_server"]  # Already a list of URI strings
-
-            # Should have all 4 resources
-            expected_resources = {
+            resources = await agent_app.resource_no_filter_agent.list_resources()
+            actual = set(resources["filtering_test_server"])
+            expected = {
                 "resource://math/constants",
                 "resource://math/formulas",
                 "resource://string/examples",
                 "resource://utility/info",
             }
-            actual_resources = set(resource_uris)
-            assert actual_resources == expected_resources, (
-                f"Expected {expected_resources}, got {actual_resources}"
-            )
+            assert actual == expected, f"Expected {expected}, got {actual}"
 
-    # Test 2: Agent with filtering - should have only filtered resources
-    @fast.agent(
-        name="agent_with_filter",
-        instruction="Agent with resource filtering",
-        model="passthrough",
-        servers=["filtering_test_server"],
-        resources={"filtering_test_server": ["resource://math/*", "resource://string/examples"]},
-    )
-    async def agent_with_filter():
-        async with fast.run() as agent_app:
-            resources = await agent_app.agent_with_filter.list_resources()
-            resource_uris = resources.get(
-                "filtering_test_server", []
-            )  # Get list or empty list if server not present
-
-            # Should have only math resources + string examples
-            expected_resources = {
-                "resource://math/constants",
-                "resource://math/formulas",
-                "resource://string/examples",
-            }
-            actual_resources = set(resource_uris)
-            assert actual_resources == expected_resources, (
-                f"Expected {expected_resources}, got {actual_resources}"
-            )
-
-            # Should NOT have utility resource
-            excluded_resources = {"resource://utility/info"}
-            for resource_uri in excluded_resources:
-                assert resource_uri not in resource_uris, (
-                    f"Resource {resource_uri} should have been filtered out"
-                )
-
-    await agent_no_filter()
-    await agent_with_filter()
+    await resource_no_filter_agent()
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 @pytest.mark.e2e
-async def test_prompt_filtering_basic_agent(fast_agent):
-    """Test prompt filtering with basic agent - no filtering vs with filtering"""
+async def test_resource_filtering_applies_patterns(fast_agent):
+    """Agents honour configured resource filters for a server."""
     fast = fast_agent
 
-    # Test 1: Agent without filtering - should have all prompts
     @fast.agent(
-        name="agent_no_filter",
+        name="resource_filtered_agent",
+        instruction="Agent with resource filtering",
+        model="passthrough",
+        servers=["filtering_test_server"],
+        resources={"filtering_test_server": ["resource://math/*", "resource://string/examples"]},
+    )
+    async def resource_filtered_agent():
+        async with fast.run() as agent_app:
+            resources = await agent_app.resource_filtered_agent.list_resources()
+            actual = set(resources.get("filtering_test_server", []))
+            expected = {
+                "resource://math/constants",
+                "resource://math/formulas",
+                "resource://string/examples",
+            }
+            assert actual == expected, f"Expected {expected}, got {actual}"
+            assert "resource://utility/info" not in actual
+
+    await resource_filtered_agent()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_resource_filtering_ignores_irrelevant_filters(fast_agent):
+    """Filters on other namespaces must not affect the target server."""
+    fast = fast_agent
+
+    @fast.agent(
+        name="resource_irrelevant_filter_agent",
+        instruction="Agent with irrelevant resource filters",
+        model="passthrough",
+        servers=["filtering_test_server"],
+        resources={"other_server": ["resource://*"]},
+    )
+    async def resource_irrelevant_filter_agent():
+        async with fast.run() as agent_app:
+            resources = await agent_app.resource_irrelevant_filter_agent.list_resources()
+            actual = set(resources["filtering_test_server"])
+            expected = {
+                "resource://math/constants",
+                "resource://math/formulas",
+                "resource://string/examples",
+                "resource://utility/info",
+            }
+            assert actual == expected, f"Expected {expected}, got {actual}"
+
+    await resource_irrelevant_filter_agent()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_prompt_filtering_returns_all_without_filters(fast_agent):
+    """Agents with no prompt filters should expose every prompt."""
+    fast = fast_agent
+
+    @fast.agent(
+        name="prompt_no_filter_agent",
         instruction="Agent without prompt filtering",
         model="passthrough",
         servers=["filtering_test_server"],
     )
-    async def agent_no_filter():
+    async def prompt_no_filter_agent():
         async with fast.run() as agent_app:
-            prompts = await agent_app.agent_no_filter.list_prompts()
-            prompt_names = [prompt.name for prompt in prompts["filtering_test_server"]]
+            prompts = await agent_app.prompt_no_filter_agent.list_prompts()
+            actual = {prompt.name for prompt in prompts["filtering_test_server"]}
+            expected = {"math_helper", "math_teacher", "string_processor", "utility_assistant"}
+            assert actual == expected, f"Expected {expected}, got {actual}"
 
-            # Should have all 4 prompts
-            expected_prompts = {
-                "math_helper",
-                "math_teacher",
-                "string_processor",
-                "utility_assistant",
-            }
-            actual_prompts = set(prompt_names)
-            assert actual_prompts == expected_prompts, (
-                f"Expected {expected_prompts}, got {actual_prompts}"
-            )
+    await prompt_no_filter_agent()
 
-    # Test 2: Agent with filtering - should have only filtered prompts
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_prompt_filtering_applies_patterns(fast_agent):
+    """Agents honour configured prompt filters for a server."""
+    fast = fast_agent
+
     @fast.agent(
-        name="agent_with_filter",
+        name="prompt_filtered_agent",
         instruction="Agent with prompt filtering",
         model="passthrough",
         servers=["filtering_test_server"],
         prompts={"filtering_test_server": ["math_*", "utility_assistant"]},
     )
-    async def agent_with_filter():
+    async def prompt_filtered_agent():
         async with fast.run() as agent_app:
-            prompts = await agent_app.agent_with_filter.list_prompts()
-            prompt_list = prompts.get(
-                "filtering_test_server", []
-            )  # Get list or empty list if server not present
-            prompt_names = [prompt.name for prompt in prompt_list]
+            prompts = await agent_app.prompt_filtered_agent.list_prompts()
+            actual = {prompt.name for prompt in prompts.get("filtering_test_server", [])}
+            expected = {"math_helper", "math_teacher", "utility_assistant"}
+            assert actual == expected, f"Expected {expected}, got {actual}"
+            assert "string_processor" not in actual
 
-            # Should have only math prompts + utility_assistant
-            expected_prompts = {"math_helper", "math_teacher", "utility_assistant"}
-            actual_prompts = set(prompt_names)
-            assert actual_prompts == expected_prompts, (
-                f"Expected {expected_prompts}, got {actual_prompts}"
-            )
+    await prompt_filtered_agent()
 
-            # Should NOT have string_processor
-            excluded_prompts = {"string_processor"}
-            for prompt_name in excluded_prompts:
-                assert prompt_name not in prompt_names, (
-                    f"Prompt {prompt_name} should have been filtered out"
-                )
 
-    await agent_no_filter()
-    await agent_with_filter()
+@pytest.mark.integration
+@pytest.mark.asyncio
+@pytest.mark.e2e
+async def test_prompt_filtering_ignores_irrelevant_filters(fast_agent):
+    """Filters on other namespaces must not affect prompts for the target server."""
+    fast = fast_agent
+
+    @fast.agent(
+        name="prompt_irrelevant_filter_agent",
+        instruction="Agent with irrelevant prompt filters",
+        model="passthrough",
+        servers=["filtering_test_server"],
+        prompts={"some_other_server": ["*"]},
+    )
+    async def prompt_irrelevant_filter_agent():
+        async with fast.run() as agent_app:
+            prompts = await agent_app.prompt_irrelevant_filter_agent.list_prompts()
+            actual = {prompt.name for prompt in prompts["filtering_test_server"]}
+            expected = {"math_helper", "math_teacher", "string_processor", "utility_assistant"}
+            assert actual == expected, f"Expected {expected}, got {actual}"
+
+    await prompt_irrelevant_filter_agent()
 
 
 @pytest.mark.integration
