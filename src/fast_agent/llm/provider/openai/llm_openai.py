@@ -66,6 +66,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             ):
                 self._reasoning_effort = self.context.config.openai.reasoning_effort
 
+        # Use default if still None
+        if self._reasoning_effort is None:
+            self._reasoning_effort = DEFAULT_REASONING_EFFORT
+
         # Determine if we're using a reasoning model
         # TODO -- move this to model capabilities database.
         chosen_model = self.default_request_params.model if self.default_request_params else None
