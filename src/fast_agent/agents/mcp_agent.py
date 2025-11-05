@@ -43,7 +43,12 @@ from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
-from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
+from fast_agent.mcp.common import (
+    create_namespaced_name,
+    get_resource_name,
+    get_server_name,
+    is_namespaced_name,
+)
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool, ServerStatus
 from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.tools.elicitation import (
@@ -322,8 +327,8 @@ class McpAgent(ABC, ToolAgent):
             if instructions is None:
                 continue
 
-            # Format tool names with server prefix
-            prefixed_tools = [f"{server_name}-{tool}" for tool in tool_names]
+            # Format tool names with server prefix using the new namespacing convention
+            prefixed_tools = [create_namespaced_name(server_name, tool) for tool in tool_names]
             tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
 
             formatted_parts.append(

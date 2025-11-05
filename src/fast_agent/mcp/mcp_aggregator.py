@@ -1201,7 +1201,7 @@ class MCPAggregator(ContextDependent):
 
     async def call_tool(self, name: str, arguments: dict | None = None) -> CallToolResult:
         """
-        Call a namespaced tool, e.g., 'server_name-tool_name'.
+        Call a namespaced tool, e.g., 'server_name__tool_name'.
         """
         if not self.initialized:
             await self.load_servers()
