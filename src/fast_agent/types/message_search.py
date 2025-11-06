@@ -3,6 +3,16 @@ Utilities for searching and extracting content from message histories.
 
 This module provides functions to search through PromptMessageExtended lists
 for content matching patterns, with filtering by message role and content type.
+
+Search Scopes:
+--------------
+- "user": Searches in user message content blocks (text content only)
+- "assistant": Searches in assistant message content blocks (text content only)
+- "tool_calls": Searches in tool call names AND stringified arguments
+- "tool_results": Searches in tool result content blocks (text content)
+- "all": Searches all of the above (default)
+
+Note: The search looks at text content extracted with get_text(), not raw ContentBlock objects.
 """
 
 import re
@@ -128,6 +138,46 @@ def extract_first(
         return None
 
     _, match = matches[0]
+    return match.group(group)
+
+
+def extract_last(
+    messages: List[PromptMessageExtended],
+    pattern: str | re.Pattern,
+    scope: SearchScope = "all",
+    group: int = 0,
+) -> str | None:
+    """
+    Extract the last match from messages.
+
+    This is useful when you want the most recent occurrence of a pattern,
+    such as the final status update or most recent job ID.
+
+    Args:
+        messages: List of messages to search
+        pattern: String or compiled regex pattern to search for
+        scope: Where to search - "user", "assistant", "tool_calls", "tool_results", or "all"
+        group: Regex group to extract (0 = whole match, 1+ = capture groups)
+
+    Returns:
+        Extracted string or None if no match found
+
+    Example:
+        ```python
+        # Extract the most recent status update
+        final_status = extract_last(
+            agent.message_history,
+            r"Status: (\\w+)",
+            scope="tool_results",
+            group=1
+        )
+        ```
+    """
+    matches = find_matches(messages, pattern, scope)
+    if not matches:
+        return None
+
+    _, match = matches[-1]
     return match.group(group)
 
 

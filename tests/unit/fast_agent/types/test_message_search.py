@@ -4,7 +4,13 @@ import re
 
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
-from fast_agent.types import PromptMessageExtended, extract_first, find_matches, search_messages
+from fast_agent.types import (
+    PromptMessageExtended,
+    extract_first,
+    extract_last,
+    find_matches,
+    search_messages,
+)
 
 
 def test_search_messages_user_scope():
@@ -330,6 +336,141 @@ def test_extract_first_multiple_messages():
     assert result == "first123"  # Returns first match
 
 
+def test_extract_last_basic():
+    """Test extract_last with basic pattern"""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="Status: pending")],
+                    isError=False,
+                ),
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_2": CallToolResult(
+                    content=[TextContent(type="text", text="Status: running")],
+                    isError=False,
+                ),
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_3": CallToolResult(
+                    content=[TextContent(type="text", text="Status: completed")],
+                    isError=False,
+                ),
+            },
+        ),
+    ]
+
+    # Extract last status (whole match)
+    result = extract_last(messages, r"Status: \w+", scope="tool_results")
+    assert result == "Status: completed"
+
+
+def test_extract_last_with_capture_group():
+    """Test extract_last with capture groups"""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="Job started: abc123")],
+                    isError=False,
+                ),
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_2": CallToolResult(
+                    content=[TextContent(type="text", text="Job started: xyz789")],
+                    isError=False,
+                ),
+            },
+        ),
+    ]
+
+    # Extract last job ID (capture group 1)
+    result = extract_last(messages, r"Job started: ([a-z0-9]+)", scope="tool_results", group=1)
+    assert result == "xyz789"  # Returns last match
+
+
+def test_extract_last_no_match():
+    """Test extract_last when no match is found"""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Hello world")],
+        ),
+    ]
+
+    result = extract_last(messages, r"Job started:", scope="user")
+    assert result is None
+
+
+def test_extract_last_single_match():
+    """Test extract_last with only one match"""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="Job started: single123")],
+                    isError=False,
+                ),
+            },
+        ),
+    ]
+
+    result = extract_last(messages, r"Job started: ([a-z0-9]+)", scope="tool_results", group=1)
+    assert result == "single123"
+
+
+def test_extract_first_vs_extract_last():
+    """Test that extract_first and extract_last return different values when appropriate"""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_1": CallToolResult(
+                    content=[TextContent(type="text", text="Version: 1.0")],
+                    isError=False,
+                ),
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_2": CallToolResult(
+                    content=[TextContent(type="text", text="Version: 2.0")],
+                    isError=False,
+                ),
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            tool_results={
+                "call_3": CallToolResult(
+                    content=[TextContent(type="text", text="Version: 3.0")],
+                    isError=False,
+                ),
+            },
+        ),
+    ]
+
+    first = extract_first(messages, r"Version: ([\d.]+)", scope="tool_results", group=1)
+    last = extract_last(messages, r"Version: ([\d.]+)", scope="tool_results", group=1)
+
+    assert first == "1.0"
+    assert last == "3.0"
+
+
 def test_empty_messages_list():
     """Test search functions with empty message list"""
     messages = []
@@ -337,6 +478,7 @@ def test_empty_messages_list():
     assert search_messages(messages, "test") == []
     assert find_matches(messages, "test") == []
     assert extract_first(messages, "test") is None
+    assert extract_last(messages, "test") is None
 
 
 def test_search_messages_no_matches():

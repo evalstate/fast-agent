@@ -26,7 +26,7 @@ from .conversation_summary import ConversationSummary
 from .llm_stop_reason import LlmStopReason
 
 # Message search utilities
-from .message_search import extract_first, find_matches, search_messages
+from .message_search import extract_first, extract_last, find_matches, search_messages
 
 __all__ = [
     # Enums / types
@@ -43,4 +43,5 @@ __all__ = [
     "search_messages",
     "find_matches",
     "extract_first",
+    "extract_last",
 ]
