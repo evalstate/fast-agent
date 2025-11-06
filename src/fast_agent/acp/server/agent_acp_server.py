@@ -91,42 +91,47 @@ class AgentACPServer(ACPAgent):
 
         Negotiates protocol version and advertises capabilities.
         """
-        logger.info(
-            "ACP initialize request",
-            name="acp_initialize",
-            client_protocol=params.protocolVersion,
-            client_info=params.clientInfo,
-        )
+        try:
+            logger.info(
+                "ACP initialize request",
+                name="acp_initialize",
+                client_protocol=params.protocolVersion,
+                client_info=params.clientInfo,
+            )
 
-        # Build our capabilities
-        agent_capabilities = AgentCapabilities(
-            prompts=PromptCapabilities(
-                supportedTypes=["text"],  # Start with text only
-            ),
-            # We don't support loadSession yet
-            loadSession=False,
-        )
+            # Build our capabilities
+            agent_capabilities = AgentCapabilities(
+                prompts=PromptCapabilities(
+                    supportedTypes=["text"],  # Start with text only
+                ),
+                # We don't support loadSession yet
+                loadSession=False,
+            )
 
-        # Build agent info using Implementation type
-        agent_info = Implementation(
-            name=self.server_name,
-            version=self.server_version,
-        )
+            # Build agent info using Implementation type
+            agent_info = Implementation(
+                name=self.server_name,
+                version=self.server_version,
+            )
 
-        response = InitializeResponse(
-            protocolVersion=params.protocolVersion,  # Echo back the client's version
-            agentCapabilities=agent_capabilities,
-            agentInfo=agent_info,
-            authMethods=[],  # No authentication for now
-        )
+            response = InitializeResponse(
+                protocolVersion=params.protocolVersion,  # Echo back the client's version
+                agentCapabilities=agent_capabilities,
+                agentInfo=agent_info,
+                authMethods=[],  # No authentication for now
+            )
 
-        logger.info(
-            "ACP initialize response sent",
-            name="acp_initialize_response",
-            protocol_version=response.protocolVersion,
-        )
+            logger.info(
+                "ACP initialize response sent",
+                name="acp_initialize_response",
+                protocol_version=response.protocolVersion,
+            )
 
-        return response
+            return response
+        except Exception as e:
+            logger.error(f"Error in initialize: {e}", name="acp_initialize_error", exc_info=True)
+            print(f"ERROR in initialize: {e}", file=__import__('sys').stderr)
+            raise
 
     async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
         """
