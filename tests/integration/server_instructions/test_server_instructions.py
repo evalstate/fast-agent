@@ -49,7 +49,7 @@ Please follow the server-specific instructions above.""",
             # Check that tools are listed
             assert "<tools>" in agent.instruction, \
                 "Tools section not found in XML"
-            assert "instructions_enabled-calculate_sum" in agent.instruction, \
+            assert "instructions_enabled__calculate_sum" in agent.instruction, \
                 "Tool names not properly prefixed in instructions"
 
 
@@ -197,12 +197,12 @@ async def test_tools_list_in_instructions(fast_agent):
 
             # Check that all expected tools are listed
             expected_tools = [
-                "instructions_enabled-calculate_sum",
-                "instructions_enabled-calculate_product",
-                "instructions_enabled-calculate_divide",
-                "instructions_enabled-text_reverse",
-                "instructions_enabled-text_uppercase",
-                "instructions_enabled-text_count"
+                "instructions_enabled__calculate_sum",
+                "instructions_enabled__calculate_product",
+                "instructions_enabled__calculate_divide",
+                "instructions_enabled__text_reverse",
+                "instructions_enabled__text_uppercase",
+                "instructions_enabled__text_count"
             ]
 
             for tool in expected_tools:
