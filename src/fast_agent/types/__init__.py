@@ -22,6 +22,9 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 # Stop reason enum - imported directly to avoid circular dependency
 from .llm_stop_reason import LlmStopReason
 
+# Conversation analysis utilities
+from .conversation_summary import ConversationSummary
+
 __all__ = [
     # Enums / types
     "LlmStopReason",
@@ -31,4 +34,6 @@ __all__ = [
     "text_content",
     "ensure_multipart_messages",
     "normalize_to_extended_list",
+    # Analysis utilities
+    "ConversationSummary",
 ]

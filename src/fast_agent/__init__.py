@@ -32,7 +32,12 @@ from fast_agent.config import (
 from fast_agent.mcp.prompt import Prompt
 
 # Type definitions and enums (safe - no dependencies)
-from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
+from fast_agent.types import (
+    ConversationSummary,
+    LlmStopReason,
+    PromptMessageExtended,
+    RequestParams,
+)
 
 
 def __getattr__(name: str):
@@ -96,6 +101,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing aid only
     # Provide a concrete import path for type checkers/IDEs
     from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
     from fast_agent.mcp.prompt import Prompt as Prompt  # noqa: F401
+    from fast_agent.types import ConversationSummary as ConversationSummary  # noqa: F401
     from fast_agent.types import PromptMessageExtended as PromptMessageExtended  # noqa: F401
 
 
@@ -135,6 +141,7 @@ __all__ = [
     "LlmStopReason",
     "RequestParams",
     "PromptMessageExtended",
+    "ConversationSummary",
     # Prompt helpers (eagerly loaded)
     "Prompt",
     # Agents (lazy loaded)
