@@ -20,7 +20,7 @@ from acp.schema import (
     PromptCapabilities,
     StopReason,
 )
-from acp.helpers import text_block
+from acp.helpers import text_block, session_notification, update_agent_message_text
 from acp.stdio import stdio_streams
 
 from fast_agent.core.fastagent import AgentInstance
@@ -72,6 +72,9 @@ class AgentACPServer(ACPAgent):
         # Session management
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
+
+        # Connection reference (set during run_async)
+        self._connection: AgentSideConnection | None = None
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
@@ -175,14 +178,8 @@ class AgentACPServer(ACPAgent):
         """
         Handle prompt request.
 
-        Extracts the prompt text, sends it to the fast-agent agent, and returns the response.
-
-        Note: This method is called by the ACP router, but we don't have direct access
-        to the connection object here. For now, we'll just return the stop reason.
-        In a full implementation, we would:
-        1. Stream responses via connection.sessionUpdate()
-        2. Include usage statistics
-        3. Handle tool calls
+        Extracts the prompt text, sends it to the fast-agent agent, and sends the response
+        back to the client via sessionUpdate notifications.
         """
         session_id = params.sessionId
 
@@ -233,14 +230,35 @@ class AgentACPServer(ACPAgent):
                 response_length=len(response_text),
             )
 
-            # Log the response for debugging
-            # In a full implementation, we would send this via sessionUpdate notifications
-            logger.info(f"Agent response: {response_text[:200]}...")
+            # Send the response back to the client via sessionUpdate
+            if self._connection:
+                try:
+                    # Create an agent message chunk with the response text
+                    message_chunk = update_agent_message_text(response_text)
+
+                    # Wrap it in a session notification
+                    notification = session_notification(session_id, message_chunk)
+
+                    # Send to the client
+                    await self._connection.sessionUpdate(notification)
+
+                    logger.info(
+                        "Sent response to client via sessionUpdate",
+                        name="acp_session_update",
+                        session_id=session_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        f"Error sending sessionUpdate: {e}",
+                        name="acp_session_update_error",
+                        exc_info=True,
+                    )
+            else:
+                logger.warning("No connection available to send response")
         else:
             logger.error("No primary agent available")
 
         # Return success
-        # The response text would be sent via sessionUpdate notifications in a full implementation
         return PromptResponse(
             stopReason=StopReason.END_TURN,
         )
@@ -269,6 +287,9 @@ class AgentACPServer(ACPAgent):
                 writer,  # input_stream = StreamWriter for agent output
                 reader,  # output_stream = StreamReader for agent input
             )
+
+            # Store the connection reference so we can send sessionUpdate notifications
+            self._connection = connection
 
             logger.info("ACP connection established, waiting for messages")
 
