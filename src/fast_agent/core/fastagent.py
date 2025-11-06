@@ -558,12 +558,16 @@ class FastAgent:
                     if hasattr(self.args, "server") and self.args.server:
                         try:
                             # Print info message if not in quiet mode
+                            # For stdio/acp transports, use stderr to avoid interfering with JSON-RPC
+                            import sys
+                            output_stream = sys.stderr if self.args.transport in ["stdio", "acp"] else sys.stdout
+
                             if not quiet_mode:
-                                print(f"Starting FastAgent '{self.name}' in server mode")
-                                print(f"Transport: {self.args.transport}")
+                                print(f"Starting FastAgent '{self.name}' in server mode", file=output_stream)
+                                print(f"Transport: {self.args.transport}", file=output_stream)
                                 if self.args.transport == "sse":
-                                    print(f"Listening on {self.args.host}:{self.args.port}")
-                                print("Press Ctrl+C to stop")
+                                    print(f"Listening on {self.args.host}:{self.args.port}", file=output_stream)
+                                print("Press Ctrl+C to stop", file=output_stream)
 
                             # Check if using ACP transport
                             if self.args.transport == "acp":
