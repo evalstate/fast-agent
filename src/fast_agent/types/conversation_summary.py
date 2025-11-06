@@ -5,11 +5,14 @@ This module provides ConversationSummary for analyzing message history
 and extracting useful statistics like tool call counts, error rates, etc.
 """
 
+import json
 from collections import Counter
 from typing import Dict, List
 
 from pydantic import BaseModel, computed_field
 
+from fast_agent.constants import FAST_AGENT_TIMING
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
@@ -19,7 +22,7 @@ class ConversationSummary(BaseModel):
 
     This class takes a list of PromptMessageExtended messages and provides
     convenient computed properties for common statistics like tool call counts,
-    error rates, and per-tool breakdowns.
+    error rates, per-tool breakdowns, and timing information.
 
     Example:
         ```python
@@ -33,6 +36,10 @@ class ConversationSummary(BaseModel):
         print(f"Tool errors: {summary.tool_errors}")
         print(f"Error rate: {summary.tool_error_rate:.1%}")
         print(f"Tool breakdown: {summary.tool_call_map}")
+
+        # Timing statistics
+        print(f"Total time: {summary.total_elapsed_time_ms}ms")
+        print(f"Avg response time: {summary.average_assistant_response_time_ms}ms")
 
         # Export to dict for CSV/JSON
         data = summary.model_dump()
@@ -156,3 +163,76 @@ class ConversationSummary(BaseModel):
     def has_tool_errors(self) -> bool:
         """Whether any tool errors occurred in this conversation."""
         return self.tool_errors > 0
+
+    @computed_field
+    @property
+    def total_elapsed_time_ms(self) -> float:
+        """
+        Total elapsed time in milliseconds across all assistant message generations.
+
+        This sums the duration_ms from timing data stored in message channels.
+        Only messages with FAST_AGENT_TIMING channel data are included.
+
+        Returns:
+            Total time in milliseconds, or 0.0 if no timing data is available.
+        """
+        total = 0.0
+        for msg in self.messages:
+            if msg.role == "assistant" and msg.channels:
+                timing_blocks = msg.channels.get(FAST_AGENT_TIMING, [])
+                if timing_blocks:
+                    try:
+                        # Parse timing data from first block
+                        timing_text = get_text(timing_blocks[0])
+                        if timing_text:
+                            timing_data = json.loads(timing_text)
+                            total += timing_data.get("duration_ms", 0)
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        # Skip messages with invalid timing data
+                        continue
+        return total
+
+    @computed_field
+    @property
+    def assistant_message_timings(self) -> List[Dict[str, float]]:
+        """
+        List of timing data for each assistant message.
+
+        Returns a list of dicts containing start_time, end_time, and duration_ms
+        for each assistant message that has timing data.
+
+        Example:
+            [
+                {"start_time": 1234567890.123, "end_time": 1234567892.456, "duration_ms": 2333.0},
+                {"start_time": 1234567893.789, "end_time": 1234567895.012, "duration_ms": 1223.0},
+            ]
+        """
+        timings = []
+        for msg in self.messages:
+            if msg.role == "assistant" and msg.channels:
+                timing_blocks = msg.channels.get(FAST_AGENT_TIMING, [])
+                if timing_blocks:
+                    try:
+                        timing_text = get_text(timing_blocks[0])
+                        if timing_text:
+                            timing_data = json.loads(timing_text)
+                            timings.append(timing_data)
+                    except (json.JSONDecodeError, KeyError, IndexError):
+                        # Skip messages with invalid timing data
+                        continue
+        return timings
+
+    @computed_field
+    @property
+    def average_assistant_response_time_ms(self) -> float:
+        """
+        Average response time in milliseconds for assistant messages.
+
+        Returns:
+            Average time in milliseconds, or 0.0 if no timing data is available.
+        """
+        timings = self.assistant_message_timings
+        if not timings:
+            return 0.0
+        total = sum(t.get("duration_ms", 0) for t in timings)
+        return total / len(timings)

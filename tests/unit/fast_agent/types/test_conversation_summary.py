@@ -1,8 +1,11 @@
 """Tests for ConversationSummary"""
 
+import json
+
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
+from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.types import ConversationSummary, PromptMessageExtended
 
 
@@ -322,3 +325,152 @@ def test_tool_call_without_result():
     assert summary.tool_successes == 0
     assert summary.tool_call_map == {"pending_tool": 1}
     assert summary.tool_error_map == {}
+
+
+def test_timing_data():
+    """Test ConversationSummary with timing data in channels"""
+    timing_data_1 = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}
+    timing_data_2 = {"start_time": 105.0, "end_time": 106.2, "duration_ms": 1200.0}
+
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Hi there!")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data_1))
+                ]
+            },
+        ),
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="How are you?")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="I'm doing well!")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data_2))
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    assert summary.total_elapsed_time_ms == 3700.0  # 2500 + 1200
+    assert len(summary.assistant_message_timings) == 2
+    assert summary.assistant_message_timings[0] == timing_data_1
+    assert summary.assistant_message_timings[1] == timing_data_2
+    assert summary.average_assistant_response_time_ms == pytest.approx(1850.0)  # (2500 + 1200) / 2
+
+
+def test_timing_no_data():
+    """Test ConversationSummary when there's no timing data"""
+    messages = [
+        PromptMessageExtended(
+            role="user",
+            content=[TextContent(type="text", text="Hello")],
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Hi there!")],
+            # No timing channel
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    assert summary.total_elapsed_time_ms == 0.0
+    assert summary.assistant_message_timings == []
+    assert summary.average_assistant_response_time_ms == 0.0
+
+
+def test_timing_partial_data():
+    """Test ConversationSummary with some messages having timing data"""
+    timing_data = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}
+
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="First response")],
+            # No timing
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Second response")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data))
+                ]
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Third response")],
+            # No timing
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    assert summary.total_elapsed_time_ms == 2500.0  # Only the one with timing
+    assert len(summary.assistant_message_timings) == 1
+    assert summary.average_assistant_response_time_ms == 2500.0
+
+
+def test_timing_invalid_json():
+    """Test ConversationSummary handles invalid timing JSON gracefully"""
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Response")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text="invalid json{}")
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    # Should handle gracefully - no errors, just no timing data
+    assert summary.total_elapsed_time_ms == 0.0
+    assert summary.assistant_message_timings == []
+    assert summary.average_assistant_response_time_ms == 0.0
+
+
+def test_timing_in_model_dump():
+    """Test that timing properties are included in model_dump()"""
+    timing_data = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}
+
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Response")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data))
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+    data = summary.model_dump()
+
+    # Check that timing fields are in the dump
+    assert "total_elapsed_time_ms" in data
+    assert "assistant_message_timings" in data
+    assert "average_assistant_response_time_ms" in data
+
+    # Verify values
+    assert data["total_elapsed_time_ms"] == 2500.0
+    assert data["average_assistant_response_time_ms"] == 2500.0
+    assert len(data["assistant_message_timings"]) == 1
