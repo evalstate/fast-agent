@@ -447,14 +447,19 @@ class StreamingMessageHandle:
         if not self._live:
             return
 
+        # Consolidate buffer if it gets too large (preserves all content)
+        if len(self._buffer) > 10:
+            self._buffer = ["".join(self._buffer)]
+
         text = "".join(self._buffer)
 
+        # Truncate for display only - don't modify the buffer with truncated content
+        display_text = text
+
         if self._use_plain_text:
-            trimmed = self._trim_to_displayable(text)
-            if trimmed != text:
-                text = trimmed
-                self._buffer = [trimmed]
-        trailing_paragraph = self._extract_trailing_paragraph(text)
+            display_text = self._trim_to_displayable(display_text)
+
+        trailing_paragraph = self._extract_trailing_paragraph(display_text)
         if trailing_paragraph and "\n" not in trailing_paragraph:
             width = max(1, console.console.size.width)
             target_ratio = (
@@ -463,35 +468,28 @@ class StreamingMessageHandle:
             target_rows = max(1, int(console.console.size.height * target_ratio) - 1)
             estimated_rows = math.ceil(len(trailing_paragraph.expandtabs()) / width)
             if estimated_rows > target_rows:
-                trimmed_text = self._trim_to_displayable(text)
-                if trimmed_text != text:
-                    text = trimmed_text
-                    self._buffer = [trimmed_text]
-
-        if len(self._buffer) > 10:
-            text = self._trim_to_displayable(text)
-            self._buffer = [text]
+                display_text = self._trim_to_displayable(display_text)
 
         header = self._build_header()
         max_allowed_height = max(1, console.console.size.height - 2)
         self._max_render_height = min(self._max_render_height, max_allowed_height)
 
         if self._use_plain_text:
-            content_height = self._estimate_plain_render_height(text)
+            content_height = self._estimate_plain_render_height(display_text)
             budget_height = min(content_height + PLAIN_STREAM_HEIGHT_FUDGE, max_allowed_height)
 
             if budget_height > self._max_render_height:
                 self._max_render_height = budget_height
 
             padding_lines = max(0, self._max_render_height - content_height)
-            display_text = text + ("\n" * padding_lines if padding_lines else "")
+            display_text_padded = display_text + ("\n" * padding_lines if padding_lines else "")
             content = (
-                Text(display_text, style=self._plain_text_style)
+                Text(display_text_padded, style=self._plain_text_style)
                 if self._plain_text_style
-                else Text(display_text)
+                else Text(display_text_padded)
             )
         else:
-            prepared = prepare_markdown_content(text, self._display._escape_xml)
+            prepared = prepare_markdown_content(display_text, self._display._escape_xml)
             prepared_for_display = self._close_incomplete_code_blocks(prepared)
 
             content_height = self._truncator.measure_rendered_height(
@@ -515,8 +513,12 @@ class StreamingMessageHandle:
         try:
             self._live.update(combined)
             self._last_render_time = time.monotonic()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Error updating live display during streaming",
+                exc_info=True,
+                data={"error": str(exc)},
+            )
 
     async def _render_worker(self) -> None:
         assert self._queue is not None
