@@ -19,8 +19,14 @@ from fast_agent.mcp.helpers.content_helpers import (
 # Public message model used across providers and MCP integration
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
+# Conversation analysis utilities
+from .conversation_summary import ConversationSummary
+
 # Stop reason enum - imported directly to avoid circular dependency
 from .llm_stop_reason import LlmStopReason
+
+# Message search utilities
+from .message_search import extract_first, extract_last, find_matches, search_messages
 
 __all__ = [
     # Enums / types
@@ -31,4 +37,11 @@ __all__ = [
     "text_content",
     "ensure_multipart_messages",
     "normalize_to_extended_list",
+    # Analysis utilities
+    "ConversationSummary",
+    # Search utilities
+    "search_messages",
+    "find_matches",
+    "extract_first",
+    "extract_last",
 ]

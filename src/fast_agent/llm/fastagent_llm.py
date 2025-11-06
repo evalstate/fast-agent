@@ -1,3 +1,5 @@
+import json
+import time
 from abc import abstractmethod
 from contextvars import ContextVar
 from typing import (
@@ -18,11 +20,13 @@ from mcp import Tool
 from mcp.types import (
     GetPromptResult,
     PromptMessage,
+    TextContent,
 )
 from openai import NotGiven
 from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
 from pydantic_core import from_json
 
+from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -214,9 +218,25 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
+        # Track timing for this generation
+        start_time = time.perf_counter()
         assistant_response: PromptMessageExtended = await self._apply_prompt_provider_specific(
             messages, request_params, tools
         )
+        end_time = time.perf_counter()
+        duration_ms = round((end_time - start_time) * 1000, 2)
+
+        # Add timing data to channels
+        timing_data = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration_ms": duration_ms,
+        }
+        channels = dict(assistant_response.channels or {})
+        channels[FAST_AGENT_TIMING] = [
+            TextContent(type="text", text=json.dumps(timing_data))
+        ]
+        assistant_response.channels = channels
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
 
@@ -277,9 +297,25 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
+        # Track timing for this structured generation
+        start_time = time.perf_counter()
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
             messages, model, request_params
         )
+        end_time = time.perf_counter()
+        duration_ms = round((end_time - start_time) * 1000, 2)
+
+        # Add timing data to channels
+        timing_data = {
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration_ms": duration_ms,
+        }
+        channels = dict(assistant_response.channels or {})
+        channels[FAST_AGENT_TIMING] = [
+            TextContent(type="text", text=json.dumps(timing_data))
+        ]
+        assistant_response.channels = channels
 
         self._message_history.append(assistant_response)
         return result, assistant_response
