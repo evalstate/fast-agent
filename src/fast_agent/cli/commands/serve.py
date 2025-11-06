@@ -16,6 +16,7 @@ class ServeTransport(str, Enum):
     HTTP = "http"
     SSE = "sse"
     STDIO = "stdio"
+    ACP = "acp"
 
 
 class InstanceScope(str, Enum):
@@ -74,7 +75,7 @@ def serve(
     transport: ServeTransport = typer.Option(
         ServeTransport.HTTP,
         "--transport",
-        help="Transport protocol to expose (http, sse, stdio)",
+        help="Transport protocol to expose (http, sse, stdio, acp)",
     ),
     host: str = typer.Option(
         "0.0.0.0",

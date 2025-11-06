@@ -42,6 +42,7 @@ dependencies = [
     "keyring>=24.3.1",
     "textual>=6.2.1",
     "python-frontmatter>=1.1.0",
+    "agent-client-protocol>=0.6.3",
 ]
 
 # For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]

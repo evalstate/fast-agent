@@ -565,29 +565,47 @@ class FastAgent:
                                     print(f"Listening on {self.args.host}:{self.args.port}")
                                 print("Press Ctrl+C to stop")
 
-                            # Create the MCP server
-                            from fast_agent.mcp.server import AgentMCPServer
+                            # Check if using ACP transport
+                            if self.args.transport == "acp":
+                                # Create the ACP server
+                                from fast_agent.acp.server import AgentACPServer
 
-                            tool_description = getattr(self.args, "tool_description", None)
-                            server_description = getattr(self.args, "server_description", None)
-                            server_name = getattr(self.args, "server_name", None)
-                            instance_scope = getattr(self.args, "instance_scope", "shared")
-                            mcp_server = AgentMCPServer(
-                                primary_instance=primary_instance,
-                                create_instance=self._server_instance_factory,
-                                dispose_instance=self._server_instance_dispose,
-                                instance_scope=instance_scope,
-                                server_name=server_name or f"{self.name}-MCP-Server",
-                                server_description=server_description,
-                                tool_description=tool_description,
-                            )
+                                server_name = getattr(self.args, "server_name", None)
+                                instance_scope = getattr(self.args, "instance_scope", "shared")
+                                acp_server = AgentACPServer(
+                                    primary_instance=primary_instance,
+                                    create_instance=self._server_instance_factory,
+                                    dispose_instance=self._server_instance_dispose,
+                                    instance_scope=instance_scope,
+                                    server_name=server_name or f"{self.name}",
+                                )
 
-                            # Run the server directly (this is a blocking call)
-                            await mcp_server.run_async(
-                                transport=self.args.transport,
-                                host=self.args.host,
-                                port=self.args.port,
-                            )
+                                # Run the ACP server (this is a blocking call)
+                                await acp_server.run_async()
+                            else:
+                                # Create the MCP server
+                                from fast_agent.mcp.server import AgentMCPServer
+
+                                tool_description = getattr(self.args, "tool_description", None)
+                                server_description = getattr(self.args, "server_description", None)
+                                server_name = getattr(self.args, "server_name", None)
+                                instance_scope = getattr(self.args, "instance_scope", "shared")
+                                mcp_server = AgentMCPServer(
+                                    primary_instance=primary_instance,
+                                    create_instance=self._server_instance_factory,
+                                    dispose_instance=self._server_instance_dispose,
+                                    instance_scope=instance_scope,
+                                    server_name=server_name or f"{self.name}-MCP-Server",
+                                    server_description=server_description,
+                                    tool_description=tool_description,
+                                )
+
+                                # Run the server directly (this is a blocking call)
+                                await mcp_server.run_async(
+                                    transport=self.args.transport,
+                                    host=self.args.host,
+                                    port=self.args.port,
+                                )
                         except KeyboardInterrupt:
                             if not quiet_mode:
                                 print("\nServer stopped by user (Ctrl+C)")
