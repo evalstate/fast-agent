@@ -37,6 +37,9 @@ from fast_agent.types import (
     LlmStopReason,
     PromptMessageExtended,
     RequestParams,
+    extract_first,
+    find_matches,
+    search_messages,
 )
 
 
@@ -142,6 +145,10 @@ __all__ = [
     "RequestParams",
     "PromptMessageExtended",
     "ConversationSummary",
+    # Search utilities (eagerly loaded)
+    "search_messages",
+    "find_matches",
+    "extract_first",
     # Prompt helpers (eagerly loaded)
     "Prompt",
     # Agents (lazy loaded)

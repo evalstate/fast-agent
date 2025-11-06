@@ -236,3 +236,60 @@ class ConversationSummary(BaseModel):
             return 0.0
         total = sum(t.get("duration_ms", 0) for t in timings)
         return total / len(timings)
+
+    @computed_field
+    @property
+    def first_llm_start_time(self) -> float | None:
+        """
+        Timestamp when the first LLM call started.
+
+        Returns:
+            Unix timestamp (from perf_counter) or None if no timing data.
+        """
+        timings = self.assistant_message_timings
+        if not timings:
+            return None
+        return timings[0].get("start_time")
+
+    @computed_field
+    @property
+    def last_llm_end_time(self) -> float | None:
+        """
+        Timestamp when the last LLM call ended.
+
+        Returns:
+            Unix timestamp (from perf_counter) or None if no timing data.
+        """
+        timings = self.assistant_message_timings
+        if not timings:
+            return None
+        return timings[-1].get("end_time")
+
+    @computed_field
+    @property
+    def conversation_span_ms(self) -> float:
+        """
+        Wall-clock time from first LLM call start to last LLM call end.
+
+        This represents the active conversation time, including:
+        - All LLM inference time
+        - All tool execution time between LLM calls
+        - Agent orchestration overhead between turns
+
+        This is different from total_elapsed_time_ms which only sums LLM call durations.
+
+        Example:
+            If you have 3 LLM calls (2s, 1.5s, 1s) with tool execution in between:
+            - total_elapsed_time_ms = 4500ms (sum of LLM times only)
+            - conversation_span_ms = 9000ms (first start to last end, includes everything)
+
+        Returns:
+            Time in milliseconds, or 0.0 if no timing data is available.
+        """
+        first_start = self.first_llm_start_time
+        last_end = self.last_llm_end_time
+
+        if first_start is None or last_end is None:
+            return 0.0
+
+        return round((last_end - first_start) * 1000, 2)

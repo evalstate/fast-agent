@@ -474,3 +474,95 @@ def test_timing_in_model_dump():
     assert data["total_elapsed_time_ms"] == 2500.0
     assert data["average_assistant_response_time_ms"] == 2500.0
     assert len(data["assistant_message_timings"]) == 1
+
+
+def test_conversation_span():
+    """Test conversation_span_ms calculation"""
+    timing_data_1 = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}
+    timing_data_2 = {"start_time": 105.0, "end_time": 106.2, "duration_ms": 1200.0}
+    timing_data_3 = {"start_time": 108.0, "end_time": 109.0, "duration_ms": 1000.0}
+
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="First")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data_1))
+                ]
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Second")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data_2))
+                ]
+            },
+        ),
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Third")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data_3))
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    # Conversation span = last end - first start = 109.0 - 100.0 = 9.0 seconds = 9000ms
+    assert summary.conversation_span_ms == 9000.0
+    assert summary.first_llm_start_time == 100.0
+    assert summary.last_llm_end_time == 109.0
+
+    # Total elapsed time = sum of durations = 2500 + 1200 + 1000 = 4700ms
+    assert summary.total_elapsed_time_ms == 4700.0
+
+    # The difference shows time spent in tools/orchestration
+    overhead_ms = summary.conversation_span_ms - summary.total_elapsed_time_ms
+    assert overhead_ms == pytest.approx(4300.0)  # 9000 - 4700
+
+
+def test_conversation_span_no_timing():
+    """Test conversation_span_ms when there's no timing data"""
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Response")],
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    assert summary.conversation_span_ms == 0.0
+    assert summary.first_llm_start_time is None
+    assert summary.last_llm_end_time is None
+
+
+def test_conversation_span_single_message():
+    """Test conversation_span_ms with a single message"""
+    timing_data = {"start_time": 100.0, "end_time": 102.5, "duration_ms": 2500.0}
+
+    messages = [
+        PromptMessageExtended(
+            role="assistant",
+            content=[TextContent(type="text", text="Response")],
+            channels={
+                FAST_AGENT_TIMING: [
+                    TextContent(type="text", text=json.dumps(timing_data))
+                ]
+            },
+        ),
+    ]
+
+    summary = ConversationSummary(messages=messages)
+
+    # With single message, span equals duration
+    assert summary.conversation_span_ms == 2500.0
+    assert summary.total_elapsed_time_ms == 2500.0
+    assert summary.first_llm_start_time == 100.0
+    assert summary.last_llm_end_time == 102.5

@@ -25,6 +25,9 @@ from .conversation_summary import ConversationSummary
 # Stop reason enum - imported directly to avoid circular dependency
 from .llm_stop_reason import LlmStopReason
 
+# Message search utilities
+from .message_search import extract_first, find_matches, search_messages
+
 __all__ = [
     # Enums / types
     "LlmStopReason",
@@ -36,4 +39,8 @@ __all__ = [
     "normalize_to_extended_list",
     # Analysis utilities
     "ConversationSummary",
+    # Search utilities
+    "search_messages",
+    "find_matches",
+    "extract_first",
 ]
