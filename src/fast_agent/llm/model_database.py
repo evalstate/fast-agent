@@ -194,8 +194,9 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="tags",
+        stream_mode="manual",
     )
-    GLM_46_MANUAL_STREAM = GLM_46.model_copy(update={"stream_mode": "manual"})
+
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
     MODELS: Dict[str, ModelParameters] = {
@@ -289,7 +290,6 @@ class ModelDatabase:
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
         "zai-org/glm-4.6": GLM_46,
         "minimaxai/minimax-m2": GLM_46,
-        "minimaxai/minimax-m2:fireworks-ai": GLM_46_MANUAL_STREAM,
     }
 
     @classmethod

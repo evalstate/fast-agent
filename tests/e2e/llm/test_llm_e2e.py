@@ -226,7 +226,7 @@ async def test_tool_const_schema(llm_agent_setup, model_name):
     """Ensure providers accept tool schemas that include const constraints."""
     agent = llm_agent_setup
     # should really refer to model db and extend all reasoning models :)
-    max_tokens = 100 if "minimax" not in model_name else 500
+    max_tokens = 500 if ("minimax" in model_name or "glm" in model_name) else 100
     result = await agent.generate(
         "call the const_mode tool so I can confirm the mode you must use.",
         tools=[_const_tool],
