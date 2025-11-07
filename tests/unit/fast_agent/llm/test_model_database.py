@@ -43,7 +43,9 @@ def test_model_database_supports_mime_basic():
     """Test MIME support lookups with normalization and aliases."""
     # Known multimodal model supports images and pdf
     assert ModelDatabase.supports_mime("claude-sonnet-4-0", "image/png")
-    assert ModelDatabase.supports_mime("claude-sonnet-4-0", "document/pdf")  # alias -> application/pdf
+    assert ModelDatabase.supports_mime(
+        "claude-sonnet-4-0", "document/pdf"
+    )  # alias -> application/pdf
 
     # Text-only models should not support images
     assert not ModelDatabase.supports_mime("deepseek-chat", "image/png")
@@ -115,7 +117,7 @@ def test_openai_provider_preserves_all_settings():
 def test_model_database_stream_modes():
     """Ensure models can opt into manual streaming mode."""
     assert ModelDatabase.get_stream_mode("gpt-4o") == "openai"
-    assert ModelDatabase.get_stream_mode("minimaxai/minimax-m2:fireworks-ai") == "manual"
+    assert ModelDatabase.get_stream_mode("minimaxai/minimax-m2") == "manual"
     assert ModelDatabase.get_stream_mode("unknown-model") == "openai"
 
 
