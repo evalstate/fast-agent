@@ -1,5 +1,4 @@
-from fast_agent.llm.provider.openai.llm_groq import GroqLLM
-from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.llm_openai_compatible import OpenAICompatibleLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
@@ -7,9 +6,9 @@ HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
 DEFAULT_HUGGINGFACE_MODEL = "MiniMaxAI/MiniMax-M2:fireworks-ai"
 
 
-class HuggingFaceLLM(GroqLLM):
+class HuggingFaceLLM(OpenAICompatibleLLM):
     def __init__(self, *args, **kwargs) -> None:
-        OpenAILLM.__init__(self, *args, provider=Provider.HUGGINGFACE, **kwargs)
+        super().__init__(*args, provider=Provider.HUGGINGFACE, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize HuggingFace-specific default parameters"""
