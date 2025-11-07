@@ -127,7 +127,7 @@ class ModelFactory:
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
         "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
-        "minimax": "hf.MiniMaxAI/MiniMax-M2:fireworks-ai",
+        "minimax": "hf.MiniMaxAI/MiniMax-M2",
         "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",
         "gpt-oss": "hf.openai/gpt-oss-120b",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",

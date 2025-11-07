@@ -68,8 +68,26 @@ IMPORTANT RULES:
     def _prepare_structured_text(self, text: str) -> str:
         reasoning_mode = self._structured_reasoning_mode()
         if reasoning_mode == "tags":
-            _, trimmed = split_thinking_content(text)
+            thinking, trimmed = split_thinking_content(text)
+            if thinking is None:
+                closing_tag = "</think>"
+                closing_index = text.find(closing_tag)
+                if closing_index != -1:
+                    trimmed = text[closing_index + len(closing_tag) :].lstrip()
+                else:
+                    trimmed = text
             return trimmed
+
+        if "</think>" in text:
+            logger = getattr(self, "logger", None)
+            if logger:
+                logger.warning(
+                    "Model emitted reasoning tags without 'tags' reasoning mode",
+                    data={
+                        "model": getattr(self.default_request_params, "model", None),
+                        "text_preview": text[:200],
+                    },
+                )
         return text
 
     def _structured_reasoning_mode(self) -> str | None:

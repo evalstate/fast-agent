@@ -3,7 +3,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.types import RequestParams
 
 HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_HUGGINGFACE_MODEL = "MiniMaxAI/MiniMax-M2:fireworks-ai"
+DEFAULT_HUGGINGFACE_MODEL = "moonshotai/Kimi-K2-Instruct-0905"
 
 
 class HuggingFaceLLM(OpenAICompatibleLLM):
