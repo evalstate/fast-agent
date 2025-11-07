@@ -110,3 +110,44 @@ def test_openai_provider_preserves_all_settings():
         params.systemPrompt == "You are a helpful assistant"
     )  # Should come from base (self.instruction)
     assert params.maxTokens == 16384  # Model-aware from ModelDatabase (gpt-4o)
+
+
+def test_model_database_stream_modes():
+    """Ensure models can opt into manual streaming mode."""
+    assert ModelDatabase.get_stream_mode("gpt-4o") == "openai"
+    assert ModelDatabase.get_stream_mode("minimaxai/minimax-m2:fireworks-ai") == "manual"
+    assert ModelDatabase.get_stream_mode("unknown-model") == "openai"
+
+
+def test_model_database_reasoning_modes():
+    """Ensure reasoning types are tracked per model."""
+    assert ModelDatabase.get_reasoning("o1") == "openai"
+    assert ModelDatabase.get_reasoning("o3-mini") == "openai"
+    assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "tags"
+    assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_openai_llm_normalizes_repeated_roles():
+    """Verify role normalization collapses repeated role strings."""
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+    factory = ModelFactory.create_factory("gpt-4o")
+    llm = factory(agent=agent)
+
+    assert llm._normalize_role("assistantassistant") == "assistant"
+    assert llm._normalize_role("assistantASSISTANTassistant") == "assistant"
+    assert llm._normalize_role("user") == "user"
+    assert llm._normalize_role(None) == "assistant"
+
+
+def test_openai_llm_uses_model_database_reasoning_flag():
+    """Ensure reasoning detection honors ModelDatabase capabilities."""
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+
+    reasoning_llm = ModelFactory.create_factory("o1")(agent=agent)
+    assert reasoning_llm._reasoning
+    assert getattr(reasoning_llm, "_reasoning_mode", None) == "openai"
+
+    standard_llm = ModelFactory.create_factory("gpt-4o")(agent=agent)
+    assert not standard_llm._reasoning
+    assert getattr(standard_llm, "_reasoning_mode", None) is None

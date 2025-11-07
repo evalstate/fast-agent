@@ -30,7 +30,7 @@ class ModelConfig(BaseModel):
 
     provider: Provider
     model_name: str
-    reasoning_effort: Optional[ReasoningEffort] = None
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class ModelFactory:
@@ -124,11 +124,14 @@ class ModelFactory:
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-09-2025",
         "gemini25pro": "gemini-2.5-pro",
-        "kimi": "groq.moonshotai/kimi-k2-instruct-0905",
-        "gpt-oss": "groq.openai/gpt-oss-120b",
-        "gpt-oss-20b": "groq.openai/gpt-oss-20b",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
+        "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
+        "minimax": "hf.MiniMaxAI/MiniMax-M2:fireworks-ai",
+        "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",
+        "gpt-oss": "hf.openai/gpt-oss-120b",
+        "gpt-oss-20b": "hf.openai/gpt-oss-20b",
+        "glm": "hf.zai-org/GLM-4.6",
     }
 
     @staticmethod
@@ -293,6 +296,11 @@ class ModelFactory:
                 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 
                 return GoogleNativeLLM
+
+            if provider == Provider.HUGGINGFACE:
+                from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+
+                return HuggingFaceLLM
             if provider == Provider.XAI:
                 from fast_agent.llm.provider.openai.llm_xai import XAILLM
 

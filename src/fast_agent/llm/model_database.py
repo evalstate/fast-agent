@@ -5,7 +5,7 @@ This module provides a centralized lookup for model parameters including
 context windows, max output tokens, and supported tokenization types.
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -27,6 +27,9 @@ class ModelParameters(BaseModel):
 
     reasoning: None | str = None
     """Reasoning output style. 'tags' if enclosed in <thinking> tags, 'none' if not used"""
+
+    stream_mode: Literal["openai", "manual"] = "openai"
+    """Determines how streaming deltas should be processed."""
 
 
 class ModelDatabase:
@@ -66,7 +69,10 @@ class ModelDatabase:
     )
 
     OPENAI_O_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=100000, tokenizes=OPENAI_VISION
+        context_window=200000,
+        max_output_tokens=100000,
+        tokenizes=OPENAI_VISION,
+        reasoning="openai",
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
@@ -117,17 +123,26 @@ class ModelDatabase:
     )
 
     OPENAI_O3_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=100000, tokenizes=OPENAI_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=100000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=100000, tokenizes=TEXT_ONLY
+        context_window=200000,
+        max_output_tokens=100000,
+        tokenizes=TEXT_ONLY,
+        reasoning="openai",
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072, max_output_tokens=32766, tokenizes=TEXT_ONLY, json_mode="object"
     )
     OPENAI_GPT_5 = ModelParameters(
-        context_window=400000, max_output_tokens=128000, tokenizes=OPENAI_MULTIMODAL
+        context_window=400000,
+        max_output_tokens=128000,
+        tokenizes=OPENAI_MULTIMODAL,
+        reasoning="openai",
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -172,7 +187,17 @@ class ModelDatabase:
     # xAI does not document Grok 3 max output tokens, using the above source as a reference.
     GROK_3 = ModelParameters(context_window=131072, max_output_tokens=16385, tokenizes=TEXT_ONLY)
 
+    # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
+    GLM_46 = ModelParameters(
+        context_window=202752,
+        max_output_tokens=2048,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="tags",
+    )
+    GLM_46_MANUAL_STREAM = GLM_46.model_copy(update={"stream_mode": "manual"})
     # Model configuration database
+    # KEEP ALL LOWER CASE KEYS
     MODELS: Dict[str, ModelParameters] = {
         # internal models
         "passthrough": FAST_AGENT_STANDARD,
@@ -262,12 +287,15 @@ class ModelDatabase:
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
+        "zai-org/glm-4.6": GLM_46,
+        "minimaxai/minimax-m2": GLM_46,
+        "minimaxai/minimax-m2:fireworks-ai": GLM_46_MANUAL_STREAM,
     }
 
     @classmethod
     def get_model_params(cls, model: str) -> Optional[ModelParameters]:
         """Get model parameters for a given model name"""
-        return cls.MODELS.get(model)
+        return cls.MODELS.get(model.lower())
 
     @classmethod
     def get_context_window(cls, model: str) -> Optional[int]:
@@ -330,6 +358,15 @@ class ModelDatabase:
         """Get supported reasoning output style for a model"""
         params = cls.get_model_params(model)
         return params.reasoning if params else None
+
+    @classmethod
+    def get_stream_mode(cls, model: str | None) -> Literal["openai", "manual"]:
+        """Return preferred streaming accumulation strategy for a model."""
+        if not model:
+            return "openai"
+
+        params = cls.get_model_params(model)
+        return params.stream_mode if params else "openai"
 
     @classmethod
     def get_default_max_tokens(cls, model: str) -> int:

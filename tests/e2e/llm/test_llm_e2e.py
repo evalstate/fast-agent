@@ -15,7 +15,7 @@ from mcp.types import (
     TextContent,
     Tool,
 )
-from pydantic import BaseModel, Field
+from pydantic import AnyUrl, BaseModel, Field
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -39,25 +39,32 @@ class FormattedResponse(BaseModel):
 def get_test_models():
     """Get models to test from environment variables."""
     # Check for TEST_MODELS (multiple models)
-    if os.environ.get("TEST_MODELS"):
-        return os.environ.get("TEST_MODELS").split(",")
-    # Check for TEST_MODEL (single model)
-    elif os.environ.get("TEST_MODEL"):
-        return [os.environ.get("TEST_MODEL")]
-    # Default models
+    if test_models := os.environ.get("TEST_MODELS"):
+        return test_models.split(",")
+    if test_model := os.environ.get("TEST_MODEL"):
+        return [test_model]
     else:
         return [
             "gpt-4.1-mini",
             #            "sonnet",
             "haiku",
-            "kimi",
             "o4-mini.low",
             "gpt-5-mini.low",
             "gemini25",
             "gpt-oss",
+            "minimax",
+            "kimigroq",
+            "kimi",
+            "glm",
             #            "responses.gpt-5-mini",
             #     "generic.qwen3:8b",
         ]
+
+        # "minimax": "hf.MiniMaxAI/MiniMax-M2",
+        # "kimik2": "hf.moonshotai/Kimi-K2-Instruct-0905",
+        # "gpt-oss": "hf.openai/gpt-oss-120b",
+        # "gpt-oss-20b": "hf.openai/gpt-oss-20b",
+        # "glm": "hf.zai-org/GLM-4.6",
 
 
 # Create the list of models to test
@@ -218,10 +225,12 @@ async def test_tool_user_continuation(llm_agent_setup, model_name):
 async def test_tool_const_schema(llm_agent_setup, model_name):
     """Ensure providers accept tool schemas that include const constraints."""
     agent = llm_agent_setup
+    # should really refer to model db and extend all reasoning models :)
+    max_tokens = 100 if "minimax" not in model_name else 500
     result = await agent.generate(
         "call the const_mode tool so I can confirm the mode you must use.",
         tools=[_const_tool],
-        request_params=RequestParams(maxTokens=400),
+        request_params=RequestParams(maxTokens=max_tokens),
     )
 
     assert result.stop_reason is LlmStopReason.TOOL_USE
@@ -241,7 +250,7 @@ async def test_tool_calling_agent(llm_agent_setup, model_name):
     result = await agent.generate(
         "check the weather in new york",
         tools=[_tool],
-        request_params=RequestParams(maxTokens=100),
+        request_params=RequestParams(maxTokens=300),
     )
     assert LlmStopReason.TOOL_USE is result.stop_reason
     assert result.tool_calls
@@ -281,9 +290,7 @@ async def test_vision_model_reads_name(llm_agent_setup, model_name):
     result: PromptMessageExtended = await agent.generate(user_msg)
     assert result.stop_reason is LlmStopReason.END_TURN
     all_text = (result.all_text() or "").lower()
-    assert "evalstate" in all_text or (
-        result.last_text() and "evalstate" in result.last_text().lower()
-    )
+    assert "evalstate" in all_text
 
 
 @pytest.mark.e2e
@@ -402,7 +409,7 @@ async def test_mcp_tool_result_pdf_summarizes_name(llm_agent_setup, model_name):
     embedded_pdf = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=f"file://{pdf_path}", blob=pdf_b64, mimeType="application/pdf"
+            uri=AnyUrl(f"file://{pdf_path}"), blob=pdf_b64, mimeType="application/pdf"
         ),
     )
     tool_result = CallToolResult(
