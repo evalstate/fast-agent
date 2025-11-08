@@ -125,8 +125,21 @@ class AgentsAsToolsAgent(ToolAgent):
         child_request = Prompt.user(input_text)
         try:
             # Suppress child agent display when invoked as a tool
-            child_params = RequestParams(show_chat=False, show_tools=False)
-            response: PromptMessageExtended = await child.generate([child_request], child_params)
+            # Save original config, temporarily disable display
+            original_config = None
+            if hasattr(child, 'display') and child.display and child.display.config:
+                original_config = child.display.config
+                # Create a modified config with display disabled
+                from copy import copy
+                temp_config = copy(original_config)
+                if hasattr(temp_config, 'logger'):
+                    temp_logger = copy(temp_config.logger)
+                    temp_logger.show_chat = False
+                    temp_logger.show_tools = False
+                    temp_config.logger = temp_logger
+                    child.display.config = temp_config
+            
+            response: PromptMessageExtended = await child.generate([child_request], None)
             # Prefer preserving original content blocks for better UI fidelity
             content_blocks = list(response.content or [])
 
@@ -147,6 +160,10 @@ class AgentsAsToolsAgent(ToolAgent):
         except Exception as e:
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
+        finally:
+            # Restore original config
+            if original_config and hasattr(child, 'display') and child.display:
+                child.display.config = original_config
 
     def _show_parallel_tool_calls(self, descriptors: List[Dict[str, Any]]) -> None:
         if not descriptors:
