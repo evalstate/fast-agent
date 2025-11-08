@@ -385,6 +385,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """Parse the content of a PromptMessage and return the structured model and message itself"""
         try:
             text = get_text(message.content[-1]) or ""
+            text = self._prepare_structured_text(text)
             json_data = from_json(text, allow_partial=True)
             validated_model = model.model_validate(json_data)
             return cast("ModelT", validated_model), message
@@ -392,6 +393,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             logger = get_logger(__name__)
             logger.warning(f"Failed to parse structured response: {str(e)}")
             return None, message
+
+    def _prepare_structured_text(self, text: str) -> str:
+        """Hook for subclasses to adjust structured output text before parsing."""
+        return text
 
     def _precall(self, multipart_messages: List[PromptMessageExtended]) -> None:
         """Pre-call hook to modify the message before sending it to the provider."""

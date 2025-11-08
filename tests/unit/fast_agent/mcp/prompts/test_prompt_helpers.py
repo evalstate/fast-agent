@@ -256,3 +256,9 @@ def test_split_thinking_content():
     thinking, content = split_thinking_content(middle_thinking)
     assert thinking is None
     assert content == middle_thinking
+
+    # Test with consecutive thinking blocks
+    chained_thinking = "<think>first</think><think>second</think>Main content"
+    thinking, content = split_thinking_content(chained_thinking)
+    assert thinking == "first\nsecond"
+    assert content == "Main content"

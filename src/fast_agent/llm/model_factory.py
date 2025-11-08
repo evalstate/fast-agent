@@ -30,7 +30,7 @@ class ModelConfig(BaseModel):
 
     provider: Provider
     model_name: str
-    reasoning_effort: Optional[ReasoningEffort] = None
+    reasoning_effort: ReasoningEffort | None = None
 
 
 class ModelFactory:
@@ -124,11 +124,16 @@ class ModelFactory:
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-09-2025",
         "gemini25pro": "gemini-2.5-pro",
-        "kimi": "groq.moonshotai/kimi-k2-instruct-0905",
-        "gpt-oss": "groq.openai/gpt-oss-120b",
-        "gpt-oss-20b": "groq.openai/gpt-oss-20b",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
+        "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
+        "minimax": "hf.MiniMaxAI/MiniMax-M2",
+        "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",
+        "gpt-oss": "hf.openai/gpt-oss-120b",
+        "gpt-oss-20b": "hf.openai/gpt-oss-20b",
+        "glm": "hf.zai-org/GLM-4.6",
+        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
     }
 
     @staticmethod
@@ -158,6 +163,12 @@ class ModelFactory:
     @classmethod
     def parse_model_string(cls, model_string: str) -> ModelConfig:
         """Parse a model string into a ModelConfig object"""
+        suffix: str | None = None
+        if ":" in model_string:
+            base, suffix = model_string.rsplit(":", 1)
+            if base:
+                model_string = base
+
         model_string = cls.MODEL_ALIASES.get(model_string, model_string)
         parts = model_string.split(".")
 
@@ -215,6 +226,9 @@ class ModelFactory:
                 f"(e.g., tensorzero.my-function), got: {model_string}"
             )
 
+        if suffix:
+            model_name_str = f"{model_name_str}:{suffix}"
+
         return ModelConfig(
             provider=provider, model_name=model_name_str, reasoning_effort=reasoning_effort
         )
@@ -254,8 +268,8 @@ class ModelFactory:
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,
-                "name": agent.name,
-                "instructions": agent.instruction,
+                "name": getattr(agent, "name", "fast-agent"),
+                "instructions": getattr(agent, "instruction", None),
                 **kwargs,
             }
             llm: FastAgentLLMProtocol = llm_class(**llm_args)
@@ -293,6 +307,11 @@ class ModelFactory:
                 from fast_agent.llm.provider.google.llm_google_native import GoogleNativeLLM
 
                 return GoogleNativeLLM
+
+            if provider == Provider.HUGGINGFACE:
+                from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+
+                return HuggingFaceLLM
             if provider == Provider.XAI:
                 from fast_agent.llm.provider.openai.llm_xai import XAILLM
 
