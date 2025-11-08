@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from copy import copy
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -32,13 +32,21 @@ class AgentsAsToolsAgent(ToolAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: List[LlmAgent],
-        context: Optional[Any] = None,
+        agents: list[LlmAgent],
+        context: Any | None = None,
         **kwargs: Any,
     ) -> None:
+        """Initialize AgentsAsToolsAgent.
+        
+        Args:
+            config: Agent configuration
+            agents: List of child agents to expose as tools
+            context: Optional context for agent execution
+            **kwargs: Additional arguments passed to ToolAgent
+        """
         # Initialize as a ToolAgent but without local FastMCP tools; we'll override list_tools
         super().__init__(config=config, tools=[], context=context)
-        self._child_agents: Dict[str, LlmAgent] = {}
+        self._child_agents: dict[str, LlmAgent] = {}
 
         # Build tool name mapping for children
         for child in agents:
@@ -50,19 +58,26 @@ class AgentsAsToolsAgent(ToolAgent):
             self._child_agents[tool_name] = child
 
     def _make_tool_name(self, child_name: str) -> str:
-        # Use a distinct prefix to avoid collisions with MCP tools
+        """Generate a tool name for a child agent.
+        
+        Args:
+            child_name: Name of the child agent
+            
+        Returns:
+            Prefixed tool name to avoid collisions with MCP tools
+        """
         return f"agent__{child_name}"
 
     async def initialize(self) -> None:
+        """Initialize this agent and all child agents."""
         await super().initialize()
-        # Initialize all child agents
         for agent in self._child_agents.values():
             if not getattr(agent, "initialized", False):
                 await agent.initialize()
 
     async def shutdown(self) -> None:
+        """Shutdown this agent and all child agents."""
         await super().shutdown()
-        # Shutdown children, but do not fail the parent if any child errors
         for agent in self._child_agents.values():
             try:
                 await agent.shutdown()
@@ -70,11 +85,14 @@ class AgentsAsToolsAgent(ToolAgent):
                 logger.warning(f"Error shutting down child agent {agent.name}: {e}")
 
     async def list_tools(self) -> ListToolsResult:
-        # Dynamically advertise one tool per child agent
-        tools: List[Tool] = []
+        """List all available tools (one per child agent).
+        
+        Returns:
+            ListToolsResult containing tool schemas for all child agents
+        """
+        tools: list[Tool] = []
         for tool_name, agent in self._child_agents.items():
-            # Minimal permissive schema: accept either plain text or arbitrary JSON
-            input_schema: Dict[str, Any] = {
+            input_schema: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "text": {"type": "string", "description": "Plain text input"},
@@ -91,14 +109,21 @@ class AgentsAsToolsAgent(ToolAgent):
             )
         return ListToolsResult(tools=tools)
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
-        # Route the call to the corresponding child agent
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
+        """Execute a child agent by name.
+        
+        Args:
+            name: Tool name (agent name with prefix)
+            arguments: Optional arguments to pass to the child agent
+            
+        Returns:
+            CallToolResult containing the child agent's response
+        """
         child = self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
         if child is None:
             return CallToolResult(content=[text_content(f"Unknown agent-tool: {name}")], isError=True)
 
         args = arguments or {}
-        # Prefer explicit text; otherwise serialize json; otherwise serialize entire dict
         if isinstance(args.get("text"), str):
             input_text = args["text"]
         elif "json" in args:
@@ -106,7 +131,7 @@ class AgentsAsToolsAgent(ToolAgent):
         else:
             input_text = json.dumps(args, ensure_ascii=False) if args else ""
 
-        # Build a single-user message to the child and execute
+        # Serialize arguments to text input
         child_request = Prompt.user(input_text)
         try:
             # Suppress only child agent chat messages (keep tool calls visible)
@@ -147,7 +172,12 @@ class AgentsAsToolsAgent(ToolAgent):
             if original_config and hasattr(child, 'display') and child.display:
                 child.display.config = original_config
 
-    def _show_parallel_tool_calls(self, descriptors: List[Dict[str, Any]]) -> None:
+    def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
+        """Display tool call headers for parallel agent execution.
+        
+        Args:
+            descriptors: List of tool call descriptors with metadata
+        """
         if not descriptors:
             return
 
@@ -157,7 +187,7 @@ class AgentsAsToolsAgent(ToolAgent):
             "missing": "missing",
         }
 
-        bottom_items: List[str] = []
+        bottom_items: list[str] = []
         for desc in descriptors:
             tool_label = desc.get("tool", "(unknown)")
             status = desc.get("status", "pending")
@@ -201,8 +231,13 @@ class AgentsAsToolsAgent(ToolAgent):
         return ""
 
     def _show_parallel_tool_results(
-        self, records: List[Dict[str, Any]]
+        self, records: list[dict[str, Any]]
     ) -> None:
+        """Display tool result panels for parallel agent execution.
+        
+        Args:
+            records: List of result records with descriptor and result data
+        """
         if not records:
             return
 
@@ -235,7 +270,7 @@ class AgentsAsToolsAgent(ToolAgent):
             logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
-        tool_results: Dict[str, CallToolResult] = {}
+        tool_results: dict[str, CallToolResult] = {}
         tool_loop_error: str | None = None
 
         # Snapshot available tools for validation and UI
@@ -247,10 +282,10 @@ class AgentsAsToolsAgent(ToolAgent):
             available_tools = list(self._child_agents.keys())
 
         # Build aggregated view of all tool calls
-        call_descriptors: List[Dict[str, Any]] = []
-        descriptor_by_id: Dict[str, Dict[str, Any]] = {}
-        tasks: List[asyncio.Task] = []
-        id_list: List[str] = []
+        call_descriptors: list[dict[str, Any]] = []
+        descriptor_by_id: dict[str, dict[str, Any]] = {}
+        tasks: list[asyncio.Task] = []
+        id_list: list[str] = []
         
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
@@ -314,7 +349,7 @@ class AgentsAsToolsAgent(ToolAgent):
                     descriptor_by_id[correlation_id]["status"] = "error" if result.isError else "done"
 
         # Show aggregated result(s)
-        ordered_records: List[Dict[str, Any]] = []
+        ordered_records: list[dict[str, Any]] = []
         for cid in request.tool_calls.keys():
             result = tool_results.get(cid)
             if result is None:
