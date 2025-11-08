@@ -487,18 +487,29 @@ class AgentsAsToolsAgent(ToolAgent):
                         
                         # Only suppress if not already suppressed
                         if child_id not in self._original_display_configs:
-                            if hasattr(child, 'display') and child.display and child.display.config:
-                                # Store original config
-                                self._original_display_configs[child_id] = child.display.config
+                            if hasattr(child, 'display') and child.display:
+                                # Store original display for complete restoration
+                                self._original_display_configs[child_id] = {
+                                    'config': child.display.config,
+                                    'display': child.display
+                                }
+                                
+                                # Create a display wrapper that blocks chat messages
+                                from fast_agent.ui.console_display import ConsoleDisplay
+                                
                                 # Create suppressed config
-                                temp_config = copy(child.display.config)
-                                if hasattr(temp_config, 'logger'):
-                                    temp_logger = copy(temp_config.logger)
-                                    temp_logger.show_chat = False
-                                    temp_logger.show_tools = True
-                                    temp_config.logger = temp_logger
-                                    child.display.config = temp_config
-                                    logger.info(f"Pre-suppressed chat for {child._name} before parallel execution")
+                                if child.display.config:
+                                    temp_config = copy(child.display.config)
+                                    if hasattr(temp_config, 'logger'):
+                                        temp_logger = copy(temp_config.logger)
+                                        temp_logger.show_chat = False
+                                        temp_logger.show_tools = True
+                                        temp_config.logger = temp_logger
+                                    
+                                    # Create new display with suppressed config
+                                    suppressed_display = ConsoleDisplay(config=temp_config)
+                                    child.display = suppressed_display
+                                    logger.info(f"Pre-suppressed chat for {child._name} with new display object")
         
         # Import progress_display at outer scope to ensure same instance
         from fast_agent.event_progress import ProgressAction, ProgressEvent
@@ -598,13 +609,14 @@ class AgentsAsToolsAgent(ToolAgent):
                 if hasattr(child, '_aggregator') and child._aggregator:
                     child._aggregator.agent_name = original_name
                 
-                # Restore display config if it was suppressed
+                # Restore display if it was suppressed
                 child_id = id(child)
                 if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
-                    original_config = self._original_display_configs[child_id]
+                    original_data = self._original_display_configs[child_id]
                     del self._original_display_configs[child_id]
-                    if hasattr(child, 'display') and child.display:
-                        child.display.config = original_config
-                        logger.info(f"Restored display config for {original_name} after all results displayed")
+                    if hasattr(child, 'display'):
+                        # Restore both display object and config
+                        child.display = original_data['display']
+                        logger.info(f"Restored display object for {original_name} after all results displayed")
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
