@@ -149,6 +149,8 @@ class AgentACPServer(ACPAgent):
             name="acp_new_session",
             session_id=session_id,
             instance_scope=self._instance_scope,
+            cwd=params.cwd,
+            mcp_server_count=len(params.mcpServers),
         )
 
         async with self._session_lock:
