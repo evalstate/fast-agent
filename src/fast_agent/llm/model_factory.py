@@ -163,6 +163,12 @@ class ModelFactory:
     @classmethod
     def parse_model_string(cls, model_string: str) -> ModelConfig:
         """Parse a model string into a ModelConfig object"""
+        suffix: str | None = None
+        if ":" in model_string:
+            base, suffix = model_string.rsplit(":", 1)
+            if base:
+                model_string = base
+
         model_string = cls.MODEL_ALIASES.get(model_string, model_string)
         parts = model_string.split(".")
 
@@ -219,6 +225,9 @@ class ModelFactory:
                 f"TensorZero provider requires a function name after the provider "
                 f"(e.g., tensorzero.my-function), got: {model_string}"
             )
+
+        if suffix:
+            model_name_str = f"{model_name_str}:{suffix}"
 
         return ModelConfig(
             provider=provider, model_name=model_name_str, reasoning_effort=reasoning_effort
