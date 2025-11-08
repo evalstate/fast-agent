@@ -142,7 +142,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 if hasattr(temp_config, 'logger'):
                     temp_logger = copy(temp_config.logger)
                     temp_logger.show_chat = False
-                    # Keep show_tools = True to see child's internal tool activity
+                    temp_logger.show_tools = True  # Explicitly keep tools visible
                     temp_config.logger = temp_logger
                     child.display.config = temp_config
             
