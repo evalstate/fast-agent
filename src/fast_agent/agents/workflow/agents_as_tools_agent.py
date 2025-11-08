@@ -213,6 +213,10 @@ class AgentsAsToolsAgent(ToolAgent):
         # Initialize as a ToolAgent but without local FastMCP tools; we'll override list_tools
         super().__init__(config=config, tools=[], context=context)
         self._child_agents: dict[str, LlmAgent] = {}
+        
+        # Lock for protecting instance creation and config modification
+        # Prevents race conditions when multiple run_tools calls happen concurrently
+        self._instance_lock = asyncio.Lock()
 
         # Build tool name mapping for children
         for child in agents:
@@ -489,19 +493,30 @@ class AgentsAsToolsAgent(ToolAgent):
         # ═══════════════════════════════════════════════════════════════════════════════
         # When multiple tool calls invoke the same child agent, we execute them in parallel.
         # 
-        # INSTANCE NUMBERING (NEW APPROACH):
+        # INSTANCE NUMBERING:
         # - First instance: PM-1-DayStatusSummarizer (no index, runs normally)
-        # - Second instance: PM-1-DayStatusSummarizer[2] (indexed, suppressed)
-        # - Third instance: PM-1-DayStatusSummarizer[3] (indexed, suppressed)
-        # - Fourth instance: PM-1-DayStatusSummarizer[4] (indexed, suppressed)
-        # - Progress panel shows: PM-1-DayStatusSummarizer (single entry from first instance)
+        # - Second instance: PM-1-DayStatusSummarizer[2] (indexed, streaming suppressed)
+        # - Third instance: PM-1-DayStatusSummarizer[3] (indexed, streaming suppressed)
+        # - Fourth instance: PM-1-DayStatusSummarizer[4] (indexed, streaming suppressed)
         # 
-        # DISPLAY SUPPRESSION:
-        # - First instance: NOT suppressed - runs with full display (progress panel visible)
-        # - Instances 2+: display.config modified (show_chat=False, show_tools=False)
-        # - This prevents duplicate progress panel rows for parallel instances
-        # - Orchestrator displays all tool calls/results with instance numbers
+        # PROGRESS PANEL:
+        # - ALL instances visible in panel (no hiding)
+        # - PM-1-DayStatusSummarizer - first instance, full display
+        # - PM-1-DayStatusSummarizer[2] - second instance, no streaming
+        # - PM-1-DayStatusSummarizer[3] - third instance, no streaming
+        # - PM-1-DayStatusSummarizer[4] - fourth instance, no streaming
+        # 
+        # STREAMING SUPPRESSION:
+        # - First instance: Full display with streaming (typing effect visible)
+        # - Instances 2+: streaming_display=False (no typing effect)
+        # - Instances 2+: show_chat=True, show_tools=True (panel visible)
+        # - This prevents visual clutter from multiple streaming outputs
         # - Original configs restored after parallel execution completes
+        # 
+        # THREAD SAFETY:
+        # - Instance creation protected by self._instance_lock (asyncio.Lock)
+        # - Prevents race conditions on concurrent run_tools calls
+        # - Ensures sequential modification of instance_map and suppressed_configs
         # 
         # NO AGENT RENAMING:
         # - We do NOT rename child._name during execution (causes race conditions)
@@ -514,51 +529,56 @@ class AgentsAsToolsAgent(ToolAgent):
         instance_map = {}  # Map correlation_id -> (child, instance_name, instance_number)
         suppressed_configs = {}  # Store original configs to restore later
         
-        # Build instance map and suppress child progress events
+        # Build instance map and suppress streaming for instances 2+
         # NOTE: First instance runs normally (no index, no suppression)
-        #       Only instances 2+ get indexed and suppressed
+        #       Instances 2+ get indexed and streaming suppressed (but shown in panel)
+        # PROTECTED: Use lock to prevent race conditions on concurrent run_tools calls
         if pending_count > 1:
-            for i, cid in enumerate(id_list, 1):
-                tool_name = descriptor_by_id[cid]["tool"]
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child:
-                    # Store original name once
-                    if tool_name not in original_names and hasattr(child, '_name'):
-                        original_names[tool_name] = child._name
-                    
-                    # First instance: no index, runs normally
-                    # Instances 2+: indexed and suppressed
-                    original = original_names.get(tool_name, child._name if hasattr(child, '_name') else tool_name)
-                    if i == 1:
-                        # First instance - no index, no suppression
-                        instance_name = original
-                        instance_map[cid] = (child, instance_name, i)
-                        logger.info(f"Mapped {cid} -> {instance_name} (first instance, not suppressed)")
-                    else:
-                        # Instances 2+ - add index and suppress
-                        instance_name = f"{original}[{i}]"
-                        instance_map[cid] = (child, instance_name, i)
+            async with self._instance_lock:
+                for i, cid in enumerate(id_list, 1):
+                    tool_name = descriptor_by_id[cid]["tool"]
+                    child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+                    if child:
+                        # Store original name once
+                        if tool_name not in original_names and hasattr(child, '_name'):
+                            original_names[tool_name] = child._name
                         
-                        # Suppress child's progress events to prevent duplicate panel rows
-                        child_id = id(child)
-                        if child_id not in suppressed_configs and hasattr(child, 'display') and child.display:
-                            if child.display.config:
-                                # Store original config
-                                suppressed_configs[child_id] = child.display.config
-                                
-                                # Create suppressed config (no chat, no progress events)
-                                temp_config = copy(child.display.config)
-                                if hasattr(temp_config, 'logger'):
-                                    temp_logger = copy(temp_config.logger)
-                                    temp_logger.show_chat = False
-                                    temp_logger.show_tools = False  # Hide child's internal tool calls too
-                                    temp_config.logger = temp_logger
-                                
-                                # Apply suppressed config
-                                child.display.config = temp_config
-                                logger.info(f"Suppressed progress events for {child._name}")
-                        
-                        logger.info(f"Mapped {cid} -> {instance_name} (suppressed)")
+                        # First instance: no index, runs normally
+                        # Instances 2+: indexed, streaming suppressed, panel visible
+                        original = original_names.get(tool_name, child._name if hasattr(child, '_name') else tool_name)
+                        if i == 1:
+                            # First instance - no index, no suppression, full display
+                            instance_name = original
+                            instance_map[cid] = (child, instance_name, i)
+                            logger.info(f"Mapped {cid} -> {instance_name} (first instance, full display)")
+                        else:
+                            # Instances 2+ - add index and suppress streaming only
+                            instance_name = f"{original}[{i}]"
+                            instance_map[cid] = (child, instance_name, i)
+                            
+                            # Suppress only streaming output (typing effect), keep progress panel
+                            child_id = id(child)
+                            if child_id not in suppressed_configs and hasattr(child, 'display') and child.display:
+                                if child.display.config:
+                                    # Store original config
+                                    suppressed_configs[child_id] = child.display.config
+                                    
+                                    # Create config that suppresses streaming but shows progress
+                                    temp_config = copy(child.display.config)
+                                    if hasattr(temp_config, 'logger'):
+                                        temp_logger = copy(temp_config.logger)
+                                        # Suppress streaming/typing output
+                                        temp_logger.streaming_display = False
+                                        # Keep chat and tools visible in panel
+                                        temp_logger.show_chat = True
+                                        temp_logger.show_tools = True
+                                        temp_config.logger = temp_logger
+                                    
+                                    # Apply config with streaming suppressed
+                                    child.display.config = temp_config
+                                    logger.info(f"Suppressed streaming for {child._name}, panel visible")
+                            
+                            logger.info(f"Mapped {cid} -> {instance_name} (streaming suppressed, panel visible)")
         
         # Import progress_display at outer scope to ensure same instance  
         from fast_agent.event_progress import ProgressAction, ProgressEvent
