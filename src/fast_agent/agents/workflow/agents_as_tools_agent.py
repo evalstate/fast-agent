@@ -471,11 +471,12 @@ class AgentsAsToolsAgent(ToolAgent):
                 if child and hasattr(child, '_name') and tool_name not in original_names:
                     original_names[tool_name] = child._name
         
+        # Import progress_display at outer scope to ensure same instance
+        from fast_agent.event_progress import ProgressAction, ProgressEvent
+        from fast_agent.ui.progress_display import progress_display as outer_progress_display
+        
         # Create wrapper coroutine that sets name and emits progress for instance
         async def call_with_instance_name(tool_name: str, tool_args: dict[str, Any], instance: int) -> CallToolResult:
-            from fast_agent.event_progress import ProgressAction, ProgressEvent
-            from fast_agent.ui.progress_display import progress_display
-            
             instance_name = None
             if pending_count > 1:
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
@@ -489,7 +490,7 @@ class AgentsAsToolsAgent(ToolAgent):
                         child._aggregator.agent_name = instance_name
                     
                     # Emit progress event to create separate line in progress panel
-                    progress_display.update(ProgressEvent(
+                    outer_progress_display.update(ProgressEvent(
                         action=ProgressAction.CHATTING,
                         target=instance_name,
                         details="",
@@ -501,26 +502,26 @@ class AgentsAsToolsAgent(ToolAgent):
             finally:
                 # Hide instance line immediately when this task completes
                 if instance_name and pending_count > 1:
-                    if instance_name in progress_display._taskmap:
-                        task_id = progress_display._taskmap[instance_name]
-                        for task in progress_display._progress.tasks:
+                    logger.info(f"Hiding instance line: {instance_name}")
+                    if instance_name in outer_progress_display._taskmap:
+                        task_id = outer_progress_display._taskmap[instance_name]
+                        for task in outer_progress_display._progress.tasks:
                             if task.id == task_id:
                                 task.visible = False
+                                logger.info(f"Set visible=False for {instance_name}")
                                 break
         
-        # Hide parent agent lines while instances run
+        # Set parent agent lines to Ready status while instances run
         if pending_count > 1:
-            from fast_agent.ui.progress_display import progress_display
-            
             for tool_name in original_names.keys():
                 original = original_names[tool_name]
-                # Hide parent line from progress panel
-                if original in progress_display._taskmap:
-                    task_id = progress_display._taskmap[original]
-                    for task in progress_display._progress.tasks:
-                        if task.id == task_id:
-                            task.visible = False
-                            break
+                # Set parent to Ready status
+                outer_progress_display.update(ProgressEvent(
+                    action=ProgressAction.READY,
+                    target=original,
+                    details="",
+                    agent_name=original
+                ))
         
         # Create tasks with instance-specific wrappers
         for i, cid in enumerate(id_list, 1):
