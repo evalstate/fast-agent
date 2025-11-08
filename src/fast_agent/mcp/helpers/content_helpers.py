@@ -109,6 +109,13 @@ def split_thinking_content(message: str) -> tuple[Optional[str], str]:
     if match:
         thinking_content = match.group(1).strip()
         main_content = match.group(2).strip()
+        if main_content.startswith("<think>"):
+            nested_thinking, remaining = split_thinking_content(main_content)
+            if nested_thinking is not None:
+                thinking_content = "\n".join(
+                    part for part in [thinking_content, nested_thinking] if part
+                )
+                main_content = remaining
         return (thinking_content, main_content)
     else:
         return (None, message)

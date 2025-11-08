@@ -41,9 +41,9 @@ def test_check_api_keys_includes_huggingface():
         results = check_api_keys(secrets_summary, config_summary)
 
         # HuggingFace should be in the results
-        assert "huggingface" in results
-        assert results["huggingface"]["env"] == ""
-        assert results["huggingface"]["config"] == ""
+        assert "hf" in results
+        assert results["hf"]["env"] == ""
+        assert results["hf"]["config"] == ""
     finally:
         _restore_hf_token(original)
 
@@ -57,9 +57,9 @@ def test_check_api_keys_detects_hf_token_in_env():
     try:
         results = check_api_keys(secrets_summary, config_summary)
 
-        assert "huggingface" in results
-        assert results["huggingface"]["env"] == "...bcdef"  # Shows last 5 chars
-        assert results["huggingface"]["config"] == ""
+        assert "hf" in results
+        assert results["hf"]["env"] == "...bcdef"  # Shows last 5 chars
+        assert results["hf"]["config"] == ""
     finally:
         _restore_hf_token(original)
 
@@ -69,16 +69,16 @@ def test_check_api_keys_detects_hf_token_in_config():
     config_summary = {}
     secrets_summary = {
         "status": "parsed",
-        "secrets": {"huggingface": {"api_key": "hf_config_token_12345"}},
+        "secrets": {"hf": {"api_key": "hf_config_token_12345"}},
     }
 
     original = _set_hf_token(None)
     try:
         results = check_api_keys(secrets_summary, config_summary)
 
-        assert "huggingface" in results
-        assert results["huggingface"]["env"] == ""
-        assert results["huggingface"]["config"] == "...12345"  # Shows last 5 chars
+        assert "hf" in results
+        assert results["hf"]["env"] == ""
+        assert results["hf"]["config"] == "...12345"  # Shows last 5 chars
     finally:
         _restore_hf_token(original)
 
@@ -88,16 +88,16 @@ def test_check_api_keys_config_takes_precedence_over_env():
     config_summary = {}
     secrets_summary = {
         "status": "parsed",
-        "secrets": {"huggingface": {"api_key": "hf_config_priority"}},
+        "secrets": {"hf": {"api_key": "hf_config_priority"}},
     }
 
     original = _set_hf_token("hf_env_token")
     try:
         results = check_api_keys(secrets_summary, config_summary)
 
-        assert "huggingface" in results
-        assert results["huggingface"]["env"] == "...token"  # Env token detected
-        assert results["huggingface"]["config"] == "...ority"  # Config token takes precedence
+        assert "hf" in results
+        assert results["hf"]["env"] == "...token"  # Env token detected
+        assert results["hf"]["config"] == "...ority"  # Config token takes precedence
     finally:
         _restore_hf_token(original)
 
@@ -107,16 +107,16 @@ def test_check_api_keys_ignores_hint_text():
     config_summary = {}
     secrets_summary = {
         "status": "parsed",
-        "secrets": {"huggingface": {"api_key": API_KEY_HINT_TEXT}},
+        "secrets": {"hf": {"api_key": API_KEY_HINT_TEXT}},
     }
 
     original = _set_hf_token(None)
     try:
         results = check_api_keys(secrets_summary, config_summary)
 
-        assert "huggingface" in results
-        assert results["huggingface"]["env"] == ""
-        assert results["huggingface"]["config"] == ""  # Hint text is ignored
+        assert "hf" in results
+        assert results["hf"]["env"] == ""
+        assert results["hf"]["config"] == ""  # Hint text is ignored
     finally:
         _restore_hf_token(original)
 
@@ -124,14 +124,14 @@ def test_check_api_keys_ignores_hint_text():
 def test_check_api_keys_short_token():
     """Test handling of short tokens (less than 5 characters)."""
     config_summary = {}
-    secrets_summary = {"status": "parsed", "secrets": {"huggingface": {"api_key": "hf"}}}
+    secrets_summary = {"status": "parsed", "secrets": {"hf": {"api_key": "hf"}}}
 
     original = _set_hf_token("env")
     try:
         results = check_api_keys(secrets_summary, config_summary)
 
-        assert "huggingface" in results
-        assert results["huggingface"]["env"] == "...***"  # Short token masked
-        assert results["huggingface"]["config"] == "...***"  # Short token masked
+        assert "hf" in results
+        assert results["hf"]["env"] == "...***"  # Short token masked
+        assert results["hf"]["config"] == "...***"  # Short token masked
     finally:
         _restore_hf_token(original)

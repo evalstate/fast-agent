@@ -424,7 +424,9 @@ class HuggingFaceSettings(BaseModel):
     Settings for HuggingFace authentication (used for MCP connections).
     """
 
+    base_url: str | None = "https://api.huggingface.co/v1"
     api_key: str | None = None
+    default_provider: str | None = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 

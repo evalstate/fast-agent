@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from rich.text import Text
 
 from a2a.types import AgentCard
-from mcp import Tool
+from mcp import ListToolsResult, Tool
 from mcp.types import (
     CallToolResult,
     ContentBlock,
@@ -89,6 +89,8 @@ class LlmDecorator(AgentProtocol):
     This class provides simple delegation to an attached LLM without adding
     any LLM interaction behaviors. Subclasses can add specialized logic
     for stop reason handling, UI display, tool execution, etc.
+
+    Stub implementations of advanced convenience methods are supplied.
     """
 
     def __init__(
@@ -759,6 +761,10 @@ class LlmDecorator(AgentProtocol):
     async def list_resources(self, namespace: str | None = None) -> Mapping[str, List[str]]:
         """Default: no resources; return empty mapping."""
         return {}
+
+    async def list_tools(self) -> ListToolsResult:
+        """Default: no tools; return empty ListToolsResult."""
+        return ListToolsResult(tools=[])
 
     async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
         """Default: no tools; return empty mapping."""

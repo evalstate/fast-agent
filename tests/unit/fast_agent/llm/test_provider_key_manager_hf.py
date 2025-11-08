@@ -32,7 +32,7 @@ def _restore_hf_token(original_value: str | None) -> None:
 
 def test_huggingface_env_var_name():
     """Test that HuggingFace uses HF_TOKEN as the environment variable name."""
-    assert ProviderKeyManager.get_env_key_name("huggingface") == "HF_TOKEN"
+    assert ProviderKeyManager.get_env_key_name("hf") == "HF_TOKEN"
 
 
 def test_get_api_key_from_env():
@@ -40,7 +40,7 @@ def test_get_api_key_from_env():
     original = _set_hf_token("hf_env_token_12345")
     try:
         config = Settings()
-        api_key = ProviderKeyManager.get_api_key("huggingface", config)
+        api_key = ProviderKeyManager.get_api_key("hf", config)
         assert api_key == "hf_env_token_12345"
     finally:
         _restore_hf_token(original)

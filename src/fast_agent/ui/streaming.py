@@ -447,13 +447,21 @@ class StreamingMessageHandle:
         if not self._live:
             return
 
+        # Consolidate buffer if it gets fragmented (>10 items)
+        # Then check if we need to truncate to keep only recent content
+        if len(self._buffer) > 10:
+            text = "".join(self._buffer)
+            trimmed = self._trim_to_displayable(text)
+            # Only update buffer if truncation actually reduced content
+            # This keeps buffer size manageable for continuous scrolling
+            if len(trimmed) < len(text):
+                self._buffer = [trimmed]
+            else:
+                self._buffer = [text]
+
         text = "".join(self._buffer)
 
-        if self._use_plain_text:
-            trimmed = self._trim_to_displayable(text)
-            if trimmed != text:
-                text = trimmed
-                self._buffer = [trimmed]
+        # Check if trailing paragraph is too long and needs trimming
         trailing_paragraph = self._extract_trailing_paragraph(text)
         if trailing_paragraph and "\n" not in trailing_paragraph:
             width = max(1, console.console.size.width)
@@ -463,14 +471,10 @@ class StreamingMessageHandle:
             target_rows = max(1, int(console.console.size.height * target_ratio) - 1)
             estimated_rows = math.ceil(len(trailing_paragraph.expandtabs()) / width)
             if estimated_rows > target_rows:
-                trimmed_text = self._trim_to_displayable(text)
-                if trimmed_text != text:
-                    text = trimmed_text
-                    self._buffer = [trimmed_text]
-
-        if len(self._buffer) > 10:
-            text = self._trim_to_displayable(text)
-            self._buffer = [text]
+                trimmed = self._trim_to_displayable(text)
+                if len(trimmed) < len(text):
+                    text = trimmed
+                    self._buffer = [trimmed]
 
         header = self._build_header()
         max_allowed_height = max(1, console.console.size.height - 2)
@@ -515,8 +519,12 @@ class StreamingMessageHandle:
         try:
             self._live.update(combined)
             self._last_render_time = time.monotonic()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(
+                "Error updating live display during streaming",
+                exc_info=True,
+                data={"error": str(exc)},
+            )
 
     async def _render_worker(self) -> None:
         assert self._queue is not None

@@ -25,6 +25,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -66,18 +67,14 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             ):
                 self._reasoning_effort = self.context.config.openai.reasoning_effort
 
-        # Determine if we're using a reasoning model
-        # TODO -- move this to model capabilities database.
+        # Determine reasoning mode for the selected model
         chosen_model = self.default_request_params.model if self.default_request_params else None
-        self._reasoning = chosen_model and (
-            chosen_model.startswith("o3")
-            or chosen_model.startswith("o1")
-            or chosen_model.startswith("o4")
-            or chosen_model.startswith("gpt-5")
-        )
-        if self._reasoning:
+        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model)
+        self._reasoning = self._reasoning_mode == "openai"
+        if self._reasoning_mode:
             self.logger.info(
-                f"Using reasoning model '{chosen_model}' with '{self._reasoning_effort}' reasoning effort"
+                f"Using reasoning model '{chosen_model}' (mode='{self._reasoning_mode}') with "
+                f"'{self._reasoning_effort}' reasoning effort"
             )
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
@@ -210,14 +207,14 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
 
-        # For non-OpenAI providers (like Ollama), ChatCompletionStreamState might not work correctly
-        # Fall back to manual accumulation if needed
-        # TODO -- consider this and whether to subclass instead
-        if self.provider in [
+        # For providers/models that emit non-OpenAI deltas, fall back to manual accumulation
+        stream_mode = ModelDatabase.get_stream_mode(model)
+        provider_requires_manual = self.provider in [
             Provider.GENERIC,
             Provider.OPENROUTER,
             Provider.GOOGLE_OAI,
-        ]:
+        ]
+        if stream_mode == "manual" or provider_requires_manual:
             return await self._process_stream_manual(stream, model)
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
@@ -392,6 +389,36 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         )
 
         return final_completion
+
+    def _normalize_role(self, role: str | None) -> str:
+        """Ensure the role string matches MCP expectations."""
+        default_role = "assistant"
+        if not role:
+            return default_role
+
+        lowered = role.lower()
+        allowed_roles = {"assistant", "user", "system", "tool"}
+        if lowered in allowed_roles:
+            return lowered
+
+        for candidate in allowed_roles:
+            if len(lowered) % len(candidate) == 0:
+                repetitions = len(lowered) // len(candidate)
+                if candidate * repetitions == lowered:
+                    self.logger.warning(
+                        "Collapsing repeated role value from provider",
+                        data={
+                            "original_role": role,
+                            "normalized_role": candidate,
+                        },
+                    )
+                    return candidate
+
+        self.logger.warning(
+            "Model emitted unsupported role; defaulting to assistant",
+            data={"original_role": role},
+        )
+        return default_role
 
     # TODO - as per other comment this needs to go in another class. There are a number of "special" cases dealt with
     # here to deal with OpenRouter idiosyncrasies between e.g. Anthropic and Gemini models.
@@ -742,6 +769,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         choice = response.choices[0]
         message = choice.message
+        normalized_role = self._normalize_role(getattr(message, "role", None))
         # prep for image/audio gen models
         if message.content:
             response_content_blocks.append(TextContent(type="text", text=message.content))
@@ -751,6 +779,12 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Convert to dict and remove None values
         message_dict = message.model_dump()
         message_dict = {k: v for k, v in message_dict.items() if v is not None}
+        if normalized_role:
+            try:
+                message.role = normalized_role
+            except Exception:
+                pass
+
         if model_name in (
             "deepseek-r1-distill-llama-70b",
             "openai/gpt-oss-120b",
@@ -758,6 +792,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         ):
             message_dict.pop("reasoning", None)
             message_dict.pop("channel", None)
+
+        message_dict["role"] = normalized_role or message_dict.get("role", "assistant")
 
         messages.append(message_dict)
         stop_reason = LlmStopReason.END_TURN

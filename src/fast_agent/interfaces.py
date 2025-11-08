@@ -51,7 +51,7 @@ ModelT = TypeVar("ModelT", bound=BaseModel)
 class LLMFactoryProtocol(Protocol):
     """Protocol for LLM factory functions that create FastAgentLLM instances."""
 
-    def __call__(self, agent: "LlmAgentProtocol", **kwargs: Any) -> "FastAgentLLMProtocol": ...
+    def __call__(self, agent: "AgentProtocol", **kwargs: Any) -> "FastAgentLLMProtocol": ...
 
 
 class ModelFactoryFunctionProtocol(Protocol):

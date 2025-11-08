@@ -13,7 +13,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the
     # provider name and suffix "_API_KEY" - so no specific mapping needed unless overriding
-    "huggingface": "HF_TOKEN",
+    "hf": "HF_TOKEN",
     "responses": "OPENAI_API_KEY",  # Temporary workaround
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
