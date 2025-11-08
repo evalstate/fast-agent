@@ -283,9 +283,9 @@ class AgentsAsToolsAgent(ToolAgent):
             for i, cid in enumerate(id_list, 1):
                 tool_name = descriptor_by_id[cid]["tool"]
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child and hasattr(child, 'name'):
-                    original_names[cid] = child.name
-                    child.name = f"{child.name}: {i}"
+                if child and hasattr(child, '_name'):
+                    original_names[cid] = child._name
+                    child._name = f"{child._name}: {i}"
 
         # Now create tasks with modified names
         for cid in id_list:
@@ -329,6 +329,6 @@ class AgentsAsToolsAgent(ToolAgent):
             tool_name = descriptor_by_id[cid]["tool"]
             child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
             if child:
-                child.name = original_name
+                child._name = original_name
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
