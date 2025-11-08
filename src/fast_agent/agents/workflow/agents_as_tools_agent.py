@@ -109,7 +109,7 @@ class AgentsAsToolsAgent(ToolAgent):
         # Build a single-user message to the child and execute
         child_request = Prompt.user(input_text)
         try:
-            # Suppress child agent display when invoked as a tool
+            # Suppress only child agent chat messages (keep tool calls visible)
             original_config = None
             if hasattr(child, 'display') and child.display and child.display.config:
                 original_config = child.display.config
@@ -117,7 +117,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 if hasattr(temp_config, 'logger'):
                     temp_logger = copy(temp_config.logger)
                     temp_logger.show_chat = False
-                    temp_logger.show_tools = False
+                    # Keep show_tools = True to see child's internal tool activity
                     temp_config.logger = temp_logger
                     child.display.config = temp_config
             
@@ -275,6 +275,22 @@ class AgentsAsToolsAgent(ToolAgent):
 
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
+
+        # Add instance IDs to child agent names BEFORE creating tasks
+        pending_count = len(id_list)
+        original_names = {}
+        if pending_count > 1:
+            for i, cid in enumerate(id_list, 1):
+                tool_name = descriptor_by_id[cid]["tool"]
+                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+                if child and hasattr(child, 'name'):
+                    original_names[cid] = child.name
+                    child.name = f"{child.name}: {i}"
+
+        # Now create tasks with modified names
+        for cid in id_list:
+            tool_name = descriptor_by_id[cid]["tool"]
+            tool_args = descriptor_by_id[cid]["args"]
             tasks.append(asyncio.create_task(self.call_tool(tool_name, tool_args)))
 
         # Show aggregated tool call(s)
@@ -307,5 +323,12 @@ class AgentsAsToolsAgent(ToolAgent):
             ordered_records.append({"descriptor": descriptor, "result": result})
 
         self._show_parallel_tool_results(ordered_records)
+
+        # Restore original agent names
+        for cid, original_name in original_names.items():
+            tool_name = descriptor_by_id[cid]["tool"]
+            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+            if child:
+                child.name = original_name
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
