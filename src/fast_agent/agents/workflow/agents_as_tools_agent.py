@@ -496,7 +496,17 @@ class AgentsAsToolsAgent(ToolAgent):
                         agent_name=instance_name
                     ))
             
-            return await self.call_tool(tool_name, tool_args)
+            try:
+                return await self.call_tool(tool_name, tool_args)
+            finally:
+                # Hide instance line immediately when this task completes
+                if instance_name and pending_count > 1:
+                    if instance_name in progress_display._taskmap:
+                        task_id = progress_display._taskmap[instance_name]
+                        for task in progress_display._progress.tasks:
+                            if task.id == task_id:
+                                task.visible = False
+                                break
         
         # Hide parent agent lines while instances run
         if pending_count > 1:
@@ -549,10 +559,8 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original agent names and hide instance lines from progress panel
+        # Restore original agent names (instance lines already hidden in task finally blocks)
         if pending_count > 1:
-            from fast_agent.ui.progress_display import progress_display
-            
             for tool_name, original_name in original_names.items():
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child:
@@ -560,24 +568,6 @@ class AgentsAsToolsAgent(ToolAgent):
                     # Restore aggregator's agent_name too
                     if hasattr(child, '_aggregator') and child._aggregator:
                         child._aggregator.agent_name = original_name
-                
-                # Show parent line again and hide instance lines
-                if original_name in progress_display._taskmap:
-                    task_id = progress_display._taskmap[original_name]
-                    for task in progress_display._progress.tasks:
-                        if task.id == task_id:
-                            task.visible = True  # Restore parent line
-                            break
-                
-                # Hide instance lines from progress panel
-                for i in range(1, pending_count + 1):
-                    instance_name = f"{original_name}[{i}]"
-                    if instance_name in progress_display._taskmap:
-                        task_id = progress_display._taskmap[instance_name]
-                        for task in progress_display._progress.tasks:
-                            if task.id == task_id:
-                                task.visible = False
-                                break
         else:
             # Single instance, just restore name
             for tool_name, original_name in original_names.items():
