@@ -283,6 +283,54 @@ class InteractivePrompt:
                             if result:
                                 rich_print(f"[green]{result}[/green]")
                         continue
+                    elif "load_history" in command_dict:
+                        # Load history for the current agent
+                        filename = command_dict.get("filename")
+                        if not filename:
+                            rich_print("[red]Error: Please specify a filename[/red]")
+                            rich_print("[yellow]Usage: /load_history <filename.json>[/yellow]")
+                            continue
+                        try:
+                            from pathlib import Path
+
+                            from fast_agent.mcp.prompt_serialization import load_messages
+
+                            # Check if file exists
+                            file_path = Path(filename)
+                            if not file_path.exists():
+                                rich_print(f"[red]Error: File '{filename}' not found[/red]")
+                                continue
+
+                            # Load messages from the file
+                            loaded_messages = load_messages(str(file_path))
+
+                            if not loaded_messages:
+                                rich_print(
+                                    f"[yellow]Warning: No messages found in '{filename}'[/yellow]"
+                                )
+                                continue
+
+                            # Get the agent and load the messages into its history
+                            agent_obj = prompt_provider._agent(agent)
+
+                            # Clear existing history first (optional - you might want to ask user)
+                            if hasattr(agent_obj, "clear"):
+                                agent_obj.clear()
+
+                            # Add loaded messages to the agent's history
+                            if hasattr(agent_obj, "llm") and hasattr(agent_obj.llm, "message_history"):
+                                agent_obj.llm.message_history.extend(loaded_messages)
+                                rich_print(
+                                    f"[green]Successfully loaded {len(loaded_messages)} messages from {filename}[/green]"
+                                )
+                            else:
+                                rich_print(
+                                    "[red]Error: Agent does not support message history[/red]"
+                                )
+
+                        except Exception as e:
+                            rich_print(f"[red]Error loading history: {e}[/red]")
+                        continue
 
                 # Skip further processing if:
                 # 1. The command was handled (command_result is truthy)

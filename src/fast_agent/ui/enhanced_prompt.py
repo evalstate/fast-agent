@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from prompt_toolkit import PromptSession
-from prompt_toolkit.completion import Completer, Completion, WordCompleter
+from prompt_toolkit.completion import Completer, Completion, PathCompleter, WordCompleter
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
@@ -372,6 +372,7 @@ class AgentCompleter(Completer):
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
+            "load_history": "Load history from a .json file",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
@@ -384,9 +385,39 @@ class AgentCompleter(Completer):
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
+        # Create a PathCompleter for file completion with .json filter
+        def json_file_filter(filename: str) -> bool:
+            """Filter to show only .json files and directories."""
+            # Always show directories (so users can navigate)
+            if Path(filename).is_dir():
+                return True
+            # Show .json files
+            return filename.endswith('.json')
+
+        self.path_completer = PathCompleter(
+            file_filter=json_file_filter,
+            expanduser=True,
+            min_input_len=0
+        )
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor.lower()
+        original_text = document.text_before_cursor
+
+        # Check if we're completing a file path after /load_history command
+        if original_text.startswith("/load_history "):
+            # Extract the part after "/load_history "
+            path_part = original_text[14:]  # Length of "/load_history "
+
+            # Create a new document for the path completer with just the file path part
+            from prompt_toolkit.document import Document
+            path_document = Document(path_part, len(path_part))
+
+            # Get completions from the path completer
+            for completion in self.path_completer.get_completions(path_document, complete_event):
+                yield completion
+            return
 
         # Complete commands
         if text.startswith("/"):
@@ -1032,6 +1063,15 @@ async def get_enhanced_input(
                     cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
                 )
                 return {"save_history": True, "filename": filename}
+            elif cmd in ("load_history", "load"):
+                # Return a structured action for loading history from a file
+                filename = (
+                    cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+                )
+                if not filename:
+                    # If no filename provided, show error
+                    return {"load_history": True, "filename": None}
+                return {"load_history": True, "filename": filename}
             elif cmd in ("mcpstatus", "mcp"):
                 return {"show_mcp_status": True}
             elif cmd == "prompt":
@@ -1224,6 +1264,10 @@ async def handle_special_commands(
         rich_print("  /save_history <filename> - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"
+        )
+        rich_print("  /load_history <filename> - Load chat history from a .json file")
+        rich_print(
+            "      [dim]Tip: Start typing the filename and press Tab for completion of .json files.[/dim]"
         )
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
