@@ -136,3 +136,7 @@ ignore=["E501"]
 
 [tool.uv.workspace]
 members = ["examples/tensorzero/mcp_server"]
+
+[tool.uv.sources]
+# Use MCP python-sdk PR #1554 until an official release lands.
+mcp = { git = "https://github.com/modelcontextprotocol/python-sdk.git", rev = "refs/pull/1554/head" }
