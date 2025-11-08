@@ -483,21 +483,32 @@ class AgentsAsToolsAgent(ToolAgent):
                     
                     # Suppress ALL child output/events to prevent duplicate panel rows
                     child_id = id(child)
-                    if child_id not in suppressed_configs and hasattr(child, 'display'):
-                        # Store original display object
-                        suppressed_configs[child_id] = child.display
+                    if child_id not in suppressed_configs:
+                        # Store original display and logger
+                        suppressed_configs[child_id] = {
+                            'display': child.display if hasattr(child, 'display') else None,
+                            'logger': child.logger if hasattr(child, 'logger') else None
+                        }
                         
-                        # Replace with a null display that does nothing
+                        # Replace with null objects that do nothing
                         class NullDisplay:
                             """A display that suppresses ALL output and events"""
                             def __init__(self):
                                 self.config = None
                             def __getattr__(self, name):
-                                # Return a no-op function for any method call
                                 return lambda *args, **kwargs: None
                         
-                        child.display = NullDisplay()
-                        logger.info(f"Replaced display with NullDisplay for {child._name}")
+                        class NullLogger:
+                            """A logger that suppresses ALL logging"""
+                            def __getattr__(self, name):
+                                return lambda *args, **kwargs: None
+                        
+                        if hasattr(child, 'display'):
+                            child.display = NullDisplay()
+                        if hasattr(child, 'logger'):
+                            child.logger = NullLogger()
+                        
+                        logger.info(f"Replaced display & logger with null objects for {child._name}")
                     
                     logger.info(f"Mapped {cid} -> {instance_name}")
         
@@ -557,14 +568,17 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original display objects
-        for child_id, original_display in suppressed_configs.items():
+        # Restore original display and logger objects
+        for child_id, originals in suppressed_configs.items():
             # Find the child agent by id
             for tool_name in original_names.keys():
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child and id(child) == child_id:
-                    child.display = original_display
-                    logger.info(f"Restored original display for {child._name}")
+                    if originals.get('display') and hasattr(child, 'display'):
+                        child.display = originals['display']
+                    if originals.get('logger') and hasattr(child, 'logger'):
+                        child.logger = originals['logger']
+                    logger.info(f"Restored original display & logger for {child._name}")
                     break
         
         logger.info(f"Parallel execution complete for {len(id_list)} instances")
