@@ -320,7 +320,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child and hasattr(child, '_name'):
                     original_names[cid] = child._name
-                    child._name = f"{child._name}: {i}"
+                    child._name = f"{child._name}#{i}"
 
         # Now create tasks with modified names
         for cid in id_list:
