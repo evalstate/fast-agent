@@ -98,7 +98,13 @@ class ToolDisplay:
             bottom_metadata_items.append("Structured ■")
 
         bottom_metadata = bottom_metadata_items or None
-        right_info = f"[dim]tool result - {status}[/dim]"
+        
+        # Build right_info with instance count if present
+        right_parts = [f"tool result - {status}"]
+        instance_count = getattr(result, "_instance_count", None)
+        if instance_count and instance_count > 1:
+            right_parts.append(f"instances {instance_count}")
+        right_info = f"[dim]{' | '.join(right_parts)}[/dim]"
 
         if has_structured:
             config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
@@ -206,7 +212,12 @@ class ToolDisplay:
         tool_args = tool_args or {}
         metadata = metadata or {}
 
-        right_info = f"[dim]tool request - {tool_name}[/dim]"
+        # Build right_info with instance count if present
+        right_parts = [f"tool request - {tool_name}"]
+        if metadata.get("instance_info"):
+            right_parts.append(metadata["instance_info"])
+        right_info = f"[dim]{' | '.join(right_parts)}[/dim]"
+        
         content: Any = tool_args
         pre_content: Text | None = None
         truncate_content = True

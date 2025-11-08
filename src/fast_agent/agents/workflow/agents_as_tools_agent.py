@@ -182,14 +182,22 @@ class AgentsAsToolsAgent(ToolAgent):
             status_label = status_labels.get(status, status)
             bottom_items.append(f"{tool_label} · {status_label}")
         
+        # Show instance count if multiple agents
+        instance_count = len([d for d in descriptors if d.get("status") != "error"])
+        
         # Show detailed call information for each agent
-        for desc in descriptors:
+        for i, desc in enumerate(descriptors):
             tool_name = desc.get("tool", "(unknown)")
             args = desc.get("args", {})
             status = desc.get("status", "pending")
             
             if status == "error":
                 continue  # Skip display for error tools, will show in results
+            
+            # Build metadata for display
+            metadata = {}
+            if instance_count > 1:
+                metadata["instance_info"] = f"instances {instance_count}"
             
             # Show individual tool call with arguments
             self.display.show_tool_call(
@@ -198,6 +206,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 tool_args=args,
                 bottom_items=bottom_items,
                 max_item_length=28,
+                metadata=metadata,
             )
 
     def _summarize_result_text(self, result: CallToolResult) -> str:
@@ -227,6 +236,9 @@ class AgentsAsToolsAgent(ToolAgent):
                 any_error = True
             bottom_items.append(f"{tool_label} · {status}")
         
+        # Show instance count if multiple agents
+        instance_count = len(records)
+        
         # Show detailed result for each agent
         for record in records:
             descriptor = record.get("descriptor", {})
@@ -234,6 +246,11 @@ class AgentsAsToolsAgent(ToolAgent):
             tool_name = descriptor.get("tool", "(unknown)")
             
             if result:
+                # Add instance count to result if multiple
+                if instance_count > 1:
+                    # Add metadata to track parallel execution
+                    setattr(result, "_instance_count", instance_count)
+                
                 # Show individual tool result with full content
                 self.display.show_tool_result(
                     name=self.name,
