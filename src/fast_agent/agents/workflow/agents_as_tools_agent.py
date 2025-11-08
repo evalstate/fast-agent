@@ -11,7 +11,8 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
-from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content, text_content
+from fast_agent.ui.message_primitives import MessageType
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)
@@ -123,15 +124,121 @@ class AgentsAsToolsAgent(ToolAgent):
         # Build a single-user message to the child and execute
         child_request = Prompt.user(input_text)
         try:
-            # We do not override child's request_params; pass None to use child's defaults
-            response: PromptMessageExtended = await child.generate([child_request], None)
+            # Suppress child agent display when invoked as a tool
+            child_params = RequestParams(show_chat=False, show_tools=False)
+            response: PromptMessageExtended = await child.generate([child_request], child_params)
+            # Prefer preserving original content blocks for better UI fidelity
+            content_blocks = list(response.content or [])
+
+            # Mark error if error channel contains entries, and surface them
+            from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+
+            error_blocks = None
+            if response.channels and FAST_AGENT_ERROR_CHANNEL in response.channels:
+                error_blocks = response.channels.get(FAST_AGENT_ERROR_CHANNEL) or []
+                # Append error blocks so they are visible in the tool result panel
+                if error_blocks:
+                    content_blocks.extend(error_blocks)
+
             return CallToolResult(
-                content=[text_content(response.all_text() or "")],
-                isError=False,
+                content=content_blocks,
+                isError=bool(error_blocks),
             )
         except Exception as e:
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
+
+    def _show_parallel_tool_calls(self, descriptors: List[Dict[str, Any]]) -> None:
+        if not descriptors:
+            return
+
+        status_labels = {
+            "pending": "running",
+            "error": "error",
+            "missing": "missing",
+        }
+
+        bottom_items: List[str] = []
+        for desc in descriptors:
+            tool_label = desc.get("tool", "(unknown)")
+            status = desc.get("status", "pending")
+            status_label = status_labels.get(status, status)
+            bottom_items.append(f"{tool_label} · {status_label}")
+        
+        if len(descriptors) == 1:
+            content = f"Calling agent: {descriptors[0].get('tool', '(unknown)')}"
+        else:
+            lines = [f"Calling {len(descriptors)} agents:"]
+            for desc in descriptors:
+                tool_label = desc.get("tool", "(unknown)")
+                status = desc.get("status", "pending")
+                status_label = status_labels.get(status, status)
+                lines.append(f"  • {tool_label}: {status_label}")
+            content = "\n".join(lines)
+
+        self.display.display_message(
+            content=content,
+            message_type=MessageType.TOOL_CALL,
+            name=self.name,
+            bottom_metadata=bottom_items,
+            max_item_length=28,
+        )
+
+    def _summarize_result_text(self, result: CallToolResult) -> str:
+        for block in result.content or []:
+            if is_text_content(block):
+                text = (get_text(block) or "").strip()
+                if text:
+                    text = text.replace("\n", " ")
+                    return text[:180] + "…" if len(text) > 180 else text
+        return ""
+
+    def _show_parallel_tool_results(
+        self, records: List[Dict[str, Any]]
+    ) -> None:
+        if not records:
+            return
+
+        bottom_items: List[str] = []
+        any_error = False
+
+        for record in records:
+            descriptor = record.get("descriptor", {})
+            result: CallToolResult = record.get("result")
+            tool_label = descriptor.get("tool", "(unknown)")
+            status = "error" if result and result.isError else "done"
+            if result and result.isError:
+                any_error = True
+            bottom_items.append(f"{tool_label} · {status}")
+        
+        if len(records) == 1:
+            # Single result: show content directly
+            record = records[0]
+            result = record.get("result")
+            content = result.content if result else []
+        else:
+            # Multiple results: show summary list
+            lines = [f"Completed {len(records)} agents:"]
+            for record in records:
+                descriptor = record.get("descriptor", {})
+                result = record.get("result")
+                tool_label = descriptor.get("tool", "(unknown)")
+                status = "error" if result and result.isError else "done"
+                preview = self._summarize_result_text(result) if result else ""
+                if preview:
+                    lines.append(f"  • {tool_label}: {status} — {preview}")
+                else:
+                    lines.append(f"  • {tool_label}: {status}")
+            content = "\n".join(lines)
+
+        self.display.display_message(
+            content=content,
+            message_type=MessageType.TOOL_RESULT,
+            name=self.name,
+            bottom_metadata=bottom_items,
+            max_item_length=28,
+            is_error=any_error,
+        )
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """
@@ -152,39 +259,39 @@ class AgentsAsToolsAgent(ToolAgent):
             logger.warning(f"Failed to list tools before execution: {exc}")
             available_tools = list(self._child_agents.keys())
 
-        # Build tasks for parallel execution
+        # Build aggregated view of all tool calls
+        call_descriptors: List[Dict[str, Any]] = []
+        descriptor_by_id: Dict[str, Dict[str, Any]] = {}
         tasks: List[asyncio.Task] = []
         id_list: List[str] = []
+        
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
 
+            descriptor = {
+                "id": correlation_id,
+                "tool": tool_name,
+                "args": tool_args,
+            }
+            call_descriptors.append(descriptor)
+            descriptor_by_id[correlation_id] = descriptor
+
             if tool_name not in available_tools and self._make_tool_name(tool_name) not in available_tools:
-                # Mark error in results but continue other tools
                 error_message = f"Tool '{tool_name}' is not available"
                 tool_results[correlation_id] = CallToolResult(
                     content=[text_content(error_message)], isError=True
                 )
                 tool_loop_error = tool_loop_error or error_message
+                descriptor["status"] = "error"
                 continue
 
-            # UI: show planned tool call
-            try:
-                highlight_index = available_tools.index(tool_name)
-            except ValueError:
-                highlight_index = None
-            self.display.show_tool_call(
-                name=self.name,
-                tool_args=tool_args,
-                bottom_items=available_tools,
-                tool_name=tool_name,
-                highlight_index=highlight_index,
-                max_item_length=12,
-            )
-
-            # Schedule execution
+            descriptor["status"] = "pending"
             id_list.append(correlation_id)
             tasks.append(asyncio.create_task(self.call_tool(tool_name, tool_args)))
+
+        # Show aggregated tool call(s)
+        self._show_parallel_tool_calls(call_descriptors)
 
         # Execute concurrently
         if tasks:
@@ -197,16 +304,25 @@ class AgentsAsToolsAgent(ToolAgent):
                         content=[text_content(msg)], isError=True
                     )
                     tool_loop_error = tool_loop_error or msg
+                    if descriptor_by_id.get(correlation_id):
+                        descriptor_by_id[correlation_id]["status"] = "error"
+                        descriptor_by_id[correlation_id]["error_message"] = msg
                 else:
                     tool_results[correlation_id] = result
+                    if descriptor_by_id.get(correlation_id):
+                        descriptor_by_id[correlation_id]["status"] = (
+                            "error" if result.isError else "done"
+                        )
 
-        # UI: show results
-        for cid, res in tool_results.items():
-            # Try to infer the name shown in UI
-            try:
-                tool_name = request.tool_calls[cid].params.name
-            except Exception:
-                tool_name = None
-            self.display.show_tool_result(name=self.name, result=res, tool_name=tool_name)
+        # Show aggregated result(s)
+        ordered_records: List[Dict[str, Any]] = []
+        for cid in request.tool_calls.keys():
+            result = tool_results.get(cid)
+            if result is None:
+                continue
+            descriptor = descriptor_by_id.get(cid, {})
+            ordered_records.append({"descriptor": descriptor, "result": result})
+
+        self._show_parallel_tool_results(ordered_records)
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
