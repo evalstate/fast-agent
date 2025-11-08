@@ -218,45 +218,74 @@ class AgentACPServer(ACPAgent):
             prompt_length=len(prompt_text),
         )
 
-        # Send to the fast-agent agent
+        # Send to the fast-agent agent with streaming support
         try:
             if self.primary_agent_name:
                 agent = instance.agents[self.primary_agent_name]
-                response_text = await agent.send(prompt_text)
 
-                logger.info(
-                    "Received response from fast-agent",
-                    name="acp_prompt_response",
-                    session_id=session_id,
-                    response_length=len(response_text),
-                )
-
-                # Send the response back to the client via sessionUpdate
+                # Set up streaming if connection is available
+                stream_listener = None
                 if self._connection:
-                    try:
-                        # Create an agent message chunk with the response text
-                        message_chunk = update_agent_message_text(response_text)
+                    # Accumulator for streamed chunks
+                    accumulated_chunks = []
+                    update_lock = asyncio.Lock()
 
-                        # Wrap it in a session notification
-                        notification = session_notification(session_id, message_chunk)
+                    async def send_stream_update(text: str):
+                        """Send sessionUpdate with accumulated text so far."""
+                        try:
+                            async with update_lock:
+                                message_chunk = update_agent_message_text(text)
+                                notification = session_notification(session_id, message_chunk)
+                                await self._connection.sessionUpdate(notification)
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending stream update: {e}",
+                                name="acp_stream_error",
+                                exc_info=True,
+                            )
 
-                        # Send to the client
-                        await self._connection.sessionUpdate(notification)
+                    def on_stream_chunk(chunk: str):
+                        """
+                        Sync callback from fast-agent streaming.
+                        Accumulates chunks and sends updates to ACP client.
+                        """
+                        accumulated_chunks.append(chunk)
+                        current_text = "".join(accumulated_chunks)
 
+                        # Send update asynchronously (don't await in sync callback)
+                        asyncio.create_task(send_stream_update(current_text))
+
+                    # Register the stream listener
+                    stream_listener = on_stream_chunk
+                    agent.add_stream_listener(stream_listener)
+
+                    logger.info(
+                        "Streaming enabled for prompt",
+                        name="acp_streaming_enabled",
+                        session_id=session_id,
+                    )
+
+                try:
+                    # This will trigger streaming callbacks as chunks arrive
+                    response_text = await agent.send(prompt_text)
+
+                    logger.info(
+                        "Received complete response from fast-agent",
+                        name="acp_prompt_response",
+                        session_id=session_id,
+                        response_length=len(response_text),
+                    )
+
+                finally:
+                    # Clean up stream listener
+                    if stream_listener and hasattr(agent, '_stream_listeners'):
+                        agent._stream_listeners.discard(stream_listener)
                         logger.info(
-                            "Sent response to client via sessionUpdate",
-                            name="acp_session_update",
+                            "Removed stream listener",
+                            name="acp_streaming_cleanup",
                             session_id=session_id,
                         )
-                    except Exception as e:
-                        logger.error(
-                            f"Error sending sessionUpdate: {e}",
-                            name="acp_session_update_error",
-                            exc_info=True,
-                        )
-                        raise
-                else:
-                    logger.warning("No connection available to send response")
+
             else:
                 logger.error("No primary agent available")
         except Exception as e:
