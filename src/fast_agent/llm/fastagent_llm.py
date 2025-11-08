@@ -241,7 +241,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
 
         # add generic error and termination reason handling/rollback
-        self._message_history.append(assistant_response)
+        # Only append if it's not already the last message in history
+        # (this can happen when loading a saved history that ends with an assistant message)
+        if not self._message_history or self._message_history[-1] is not assistant_response:
+            self._message_history.append(assistant_response)
 
         return assistant_response
 
