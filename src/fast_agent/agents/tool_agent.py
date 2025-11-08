@@ -182,7 +182,7 @@ class ToolAgent(LlmAgent):
 
             tool_results[correlation_id] = result
             tool_timings[correlation_id] = duration_ms
-            self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name)
+            self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms)
 
         return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
 

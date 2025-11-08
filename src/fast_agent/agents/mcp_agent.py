@@ -844,6 +844,7 @@ class McpAgent(ABC, ToolAgent):
                         result=result,
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
+                        timing_ms=duration_ms,
                     )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")

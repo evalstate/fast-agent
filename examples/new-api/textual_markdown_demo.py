@@ -773,10 +773,6 @@ class MarkdownLLMApp(App[None]):
         if channel:
             bottom_metadata.append(self._format_transport_channel(channel))
 
-        elapsed = getattr(result, "transport_elapsed", None)
-        if isinstance(elapsed, (int, float)):
-            bottom_metadata.append(self._format_elapsed_seconds(float(elapsed)))
-
         self._active_assistant_message = None
 
         message = ChatMessage(
