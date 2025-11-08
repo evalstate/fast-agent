@@ -483,63 +483,24 @@ class AgentsAsToolsAgent(ToolAgent):
                     
                     logger.info(f"Mapped {cid} -> {instance_name}")
         
-        # Import progress_display at outer scope to ensure same instance
+        # Import progress_display at outer scope to ensure same instance  
         from fast_agent.event_progress import ProgressAction, ProgressEvent
         from fast_agent.ui.progress_display import progress_display as outer_progress_display
         
-        # Create wrapper coroutine that uses pre-assigned instance info
+        # Simple wrapper - NO renaming, just call the tool
+        # Instance numbers already shown in display headers via _show_parallel_tool_calls
         async def call_with_instance_name(correlation_id: str, tool_name: str, tool_args: dict[str, Any]) -> CallToolResult:
             instance_info = instance_map.get(correlation_id)
-            instance_name = None
             
             if instance_info:
-                child, instance_name, instance_num = instance_info
-                
-                # Emit progress event to create separate line in progress panel
-                outer_progress_display.update(ProgressEvent(
-                    action=ProgressAction.CHATTING,
-                    target=instance_name,
-                    details="",
-                    agent_name=instance_name
-                ))
-                
-                # Temporarily set instance name for this execution
-                # Store the current names to restore after
-                old_name = child._name if hasattr(child, '_name') else None
-                old_agg_name = child._aggregator.agent_name if hasattr(child, '_aggregator') and child._aggregator else None
-                
-                try:
-                    # Set instance name for THIS execution only
-                    child._name = instance_name
-                    if hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = instance_name
-                    
-                    logger.info(f"[{instance_name}] Starting execution")
-                    result = await self.call_tool(tool_name, tool_args)
-                    logger.info(f"[{instance_name}] Completed execution")
-                    return result
-                    
-                finally:
-                    # Restore original names immediately
-                    if old_name is not None:
-                        child._name = old_name
-                    if old_agg_name is not None and hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = old_agg_name
-                    
-                    # Hide instance line
-                    logger.info(f"Hiding instance line: {instance_name}")
-                    if instance_name in outer_progress_display._taskmap:
-                        task_id = outer_progress_display._taskmap[instance_name]
-                        for task in outer_progress_display._progress.tasks:
-                            if task.id == task_id:
-                                task.visible = False
-                                break
+                _, instance_name, _ = instance_info
+                logger.info(f"[{instance_name}] Starting parallel execution")
+                result = await self.call_tool(tool_name, tool_args)
+                logger.info(f"[{instance_name}] Completed parallel execution")
+                return result
             else:
-                # Single instance or no mapping - just call normally
+                # Single instance - just call normally
                 return await self.call_tool(tool_name, tool_args)
-        
-        # DON'T hide or suppress main instance - keep it visible to see event routing
-        # Parent stays visible in progress panel during parallel execution
         
         # Create tasks with instance-specific wrappers
         for cid in id_list:
