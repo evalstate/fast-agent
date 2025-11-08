@@ -536,7 +536,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.6" },
     { name = "google-genai", specifier = ">=1.46.0" },
     { name = "keyring", specifier = ">=24.3.1" },
-    { name = "mcp", specifier = "==1.21.0" },
+    { name = "mcp", git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=refs%2Fpull%2F1554%2Fhead" },
     { name = "openai", extras = ["aiohttp"], specifier = ">=2.6.1" },
     { name = "opentelemetry-distro", specifier = ">=0.55b0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.7.0" },
@@ -1121,8 +1121,8 @@ wheels = [
 
 [[package]]
 name = "mcp"
-version = "1.21.0"
-source = { registry = "https://pypi.org/simple" }
+version = "1.20.1.dev12+d29c215"
+source = { git = "https://github.com/modelcontextprotocol/python-sdk.git?rev=refs%2Fpull%2F1554%2Fhead#d29c215ac217354797de4689ef739ff80eabb030" }
 dependencies = [
     { name = "anyio" },
     { name = "httpx" },
@@ -1136,10 +1136,6 @@ dependencies = [
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/33/54/dd2330ef4611c27ae59124820863c34e1d3edb1133c58e6375e2d938c9c5/mcp-1.21.0.tar.gz", hash = "sha256:bab0a38e8f8c48080d787233343f8d301b0e1e95846ae7dead251b2421d99855", size = 452697, upload-time = "2025-11-06T23:19:58.432Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/39/47/850b6edc96c03bd44b00de9a0ca3c1cc71e0ba1cd5822955bc9e4eb3fad3/mcp-1.21.0-py3-none-any.whl", hash = "sha256:598619e53eb0b7a6513db38c426b28a4bdf57496fed04332100d2c56acade98b", size = 173672, upload-time = "2025-11-06T23:19:56.508Z" },
 ]
 
 [[package]]
