@@ -280,18 +280,32 @@ class AgentsAsToolsAgent(ToolAgent):
 
         # Serialize arguments to text input
         child_request = Prompt.user(input_text)
+        
+        # Track display config changes per child to handle parallel instances
+        child_id = id(child)
+        if not hasattr(self, '_display_suppression_count'):
+            self._display_suppression_count = {}
+            self._original_display_configs = {}
+        
         try:
-            # Suppress only child agent chat messages (keep tool calls visible)
-            original_config = None
-            if hasattr(child, 'display') and child.display and child.display.config:
-                original_config = child.display.config
-                temp_config = copy(original_config)
-                if hasattr(temp_config, 'logger'):
-                    temp_logger = copy(temp_config.logger)
-                    temp_logger.show_chat = False
-                    temp_logger.show_tools = True  # Explicitly keep tools visible
-                    temp_config.logger = temp_logger
-                    child.display.config = temp_config
+            # Suppress child agent chat messages (keep tool calls visible)
+            # Only modify config on first parallel instance
+            if child_id not in self._display_suppression_count:
+                self._display_suppression_count[child_id] = 0
+                
+                if hasattr(child, 'display') and child.display and child.display.config:
+                    # Store original config for restoration later
+                    self._original_display_configs[child_id] = child.display.config
+                    temp_config = copy(child.display.config)
+                    if hasattr(temp_config, 'logger'):
+                        temp_logger = copy(temp_config.logger)
+                        temp_logger.show_chat = False
+                        temp_logger.show_tools = True  # Explicitly keep tools visible
+                        temp_config.logger = temp_logger
+                        child.display.config = temp_config
+            
+            # Increment active instance count
+            self._display_suppression_count[child_id] += 1
             
             response: PromptMessageExtended = await child.generate([child_request], None)
             # Prefer preserving original content blocks for better UI fidelity
@@ -315,9 +329,22 @@ class AgentsAsToolsAgent(ToolAgent):
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
         finally:
-            # Restore original config
-            if original_config and hasattr(child, 'display') and child.display:
-                child.display.config = original_config
+            # Decrement active instance count
+            if child_id in self._display_suppression_count:
+                self._display_suppression_count[child_id] -= 1
+                
+                # Restore original config only when last instance completes
+                if self._display_suppression_count[child_id] == 0:
+                    del self._display_suppression_count[child_id]
+                    
+                    # Restore from stored original config
+                    if child_id in self._original_display_configs:
+                        original_config = self._original_display_configs[child_id]
+                        del self._original_display_configs[child_id]
+                        
+                        if hasattr(child, 'display') and child.display:
+                            child.display.config = original_config
+                            logger.info(f"Restored display config for {child.name} (all instances completed)")
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
