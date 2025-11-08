@@ -337,6 +337,10 @@ class AgentsAsToolsAgent(ToolAgent):
                     instance_name = f"{original}[{instance}]"
                     child._name = instance_name
                     
+                    # Also update aggregator's agent_name so tool progress events use instance name
+                    if hasattr(child, '_aggregator') and child._aggregator:
+                        child._aggregator.agent_name = instance_name
+                    
                     # Emit progress event to create separate line in progress panel
                     progress_display.update(ProgressEvent(
                         action=ProgressAction.CHATTING,
@@ -406,6 +410,9 @@ class AgentsAsToolsAgent(ToolAgent):
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child:
                     child._name = original_name
+                    # Restore aggregator's agent_name too
+                    if hasattr(child, '_aggregator') and child._aggregator:
+                        child._aggregator.agent_name = original_name
                 
                 # Hide instance lines from progress panel
                 for i in range(1, pending_count + 1):
@@ -422,5 +429,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child:
                     child._name = original_name
+                    if hasattr(child, '_aggregator') and child._aggregator:
+                        child._aggregator.agent_name = original_name
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
