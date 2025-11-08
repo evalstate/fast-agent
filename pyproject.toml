@@ -30,14 +30,13 @@ dependencies = [
     "opentelemetry-instrumentation-openai>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-anthropic>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-mcp>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
-    "google-genai>=1.46.0",
+    "google-genai>=1.49.0",
     "opentelemetry-instrumentation-google-genai>=0.3b0",
     "deprecated>=1.2.18",
     "a2a-sdk>=0.3.10",
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
-    "textual>=6.2.1",
     "python-frontmatter>=1.1.0",
 ]
 
@@ -53,6 +52,9 @@ bedrock = [
 # For TensorZero gateway support, install with: uv pip install fast-agent-mcp[tensorzero]
 tensorzero = [
     "tensorzero>=2025.7.5"
+]
+textual = [
+    "textual>=6.2.1",
 ]
 # For all provider support, install with: uv pip install fast-agent-mcp[all-providers]
 all-providers = [
