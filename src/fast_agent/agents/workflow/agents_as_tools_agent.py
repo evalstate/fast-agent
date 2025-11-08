@@ -304,6 +304,7 @@ class AgentsAsToolsAgent(ToolAgent):
         child_id = id(child)
         if not hasattr(self, '_display_suppression_count'):
             self._display_suppression_count = {}
+        if not hasattr(self, '_original_display_configs'):
             self._original_display_configs = {}
         
         try:
@@ -311,7 +312,12 @@ class AgentsAsToolsAgent(ToolAgent):
             # Only modify config on first parallel instance
             if child_id not in self._display_suppression_count:
                 self._display_suppression_count[child_id] = 0
-                
+            
+            # Increment active instance count first
+            self._display_suppression_count[child_id] += 1
+            
+            # Only modify config if this is the first instance and we haven't stored the original yet
+            if self._display_suppression_count[child_id] == 1 and child_id not in self._original_display_configs:
                 if hasattr(child, 'display') and child.display and child.display.config:
                     # Store original config for restoration later
                     self._original_display_configs[child_id] = child.display.config
@@ -322,9 +328,7 @@ class AgentsAsToolsAgent(ToolAgent):
                         temp_logger.show_tools = True  # Explicitly keep tools visible
                         temp_config.logger = temp_logger
                         child.display.config = temp_config
-            
-            # Increment active instance count
-            self._display_suppression_count[child_id] += 1
+                        logger.info(f"Suppressed chat for {child.name} (first instance)")
             
             response: PromptMessageExtended = await child.generate([child_request], None)
             # Prefer preserving original content blocks for better UI fidelity
@@ -351,6 +355,7 @@ class AgentsAsToolsAgent(ToolAgent):
             # Decrement active instance count
             if child_id in self._display_suppression_count:
                 self._display_suppression_count[child_id] -= 1
+                logger.info(f"Decremented count for {child.name}: {self._display_suppression_count[child_id]} instances remaining")
                 
                 # Don't restore config here - let run_tools restore after results are displayed
                 # This ensures final logs keep instance numbers [N]
@@ -397,7 +402,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 tool_name=display_tool_name,
                 tool_args=args,
                 bottom_items=[bottom_item],  # Only this instance's label
-                max_item_length=28,
+                max_item_length=50,  # Increased from 28 to prevent truncation
             )
 
     def _summarize_result_text(self, result: CallToolResult) -> str:
@@ -601,22 +606,36 @@ class AgentsAsToolsAgent(ToolAgent):
                     
                     # Restore display config now that all results are shown
                     child_id = id(child)
-                    if child_id in self._display_suppression_count:
-                        del self._display_suppression_count[child_id]
                     
-                    if child_id in self._original_display_configs:
+                    # Check and clean up suppression count
+                    if hasattr(self, '_display_suppression_count') and child_id in self._display_suppression_count:
+                        if self._display_suppression_count[child_id] == 0:
+                            del self._display_suppression_count[child_id]
+                            logger.info(f"Cleaned up suppression count for {original_name}")
+                    
+                    # Restore original display config
+                    if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
                         original_config = self._original_display_configs[child_id]
                         del self._original_display_configs[child_id]
                         if hasattr(child, 'display') and child.display:
                             child.display.config = original_config
                             logger.info(f"Restored display config for {original_name} after all results displayed")
         else:
-            # Single instance, just restore name
+            # Single instance, also restore name and config
             for tool_name, original_name in original_names.items():
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child:
                     child._name = original_name
                     if hasattr(child, '_aggregator') and child._aggregator:
                         child._aggregator.agent_name = original_name
+                    
+                    # Also restore display config for single instance
+                    child_id = id(child)
+                    if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
+                        original_config = self._original_display_configs[child_id]
+                        del self._original_display_configs[child_id]
+                        if hasattr(child, 'display') and child.display:
+                            child.display.config = original_config
+                            logger.info(f"Restored display config for {original_name} (single instance)")
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
