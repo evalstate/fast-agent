@@ -132,6 +132,8 @@ class ModelFactory:
         "gpt-oss": "hf.openai/gpt-oss-120b",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm": "hf.zai-org/GLM-4.6",
+        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
     }
 
     @staticmethod
@@ -257,8 +259,8 @@ class ModelFactory:
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,
-                "name": agent.name,
-                "instructions": agent.instruction,
+                "name": getattr(agent, "name", "fast-agent"),
+                "instructions": getattr(agent, "instruction", None),
                 **kwargs,
             }
             llm: FastAgentLLMProtocol = llm_class(**llm_args)

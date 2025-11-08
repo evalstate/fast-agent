@@ -190,11 +190,19 @@ class ModelDatabase:
     # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
     GLM_46 = ModelParameters(
         context_window=202752,
-        max_output_tokens=2048,
+        max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="tags",
         stream_mode="manual",
+    )
+
+    HF_PROVIDER_DEEPSEEK31 = ModelParameters(
+        context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
+    )
+
+    HF_PROVIDER_QWEN3_NEXT = ModelParameters(
+        context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
 
     # Model configuration database
@@ -290,6 +298,8 @@ class ModelDatabase:
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
         "zai-org/glm-4.6": GLM_46,
         "minimaxai/minimax-m2": GLM_46,
+        "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
+        "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
     }
 
     @classmethod

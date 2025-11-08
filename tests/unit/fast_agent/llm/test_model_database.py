@@ -1,7 +1,10 @@
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 
 
 def test_model_database_context_windows():
@@ -153,3 +156,43 @@ def test_openai_llm_uses_model_database_reasoning_flag():
     standard_llm = ModelFactory.create_factory("gpt-4o")(agent=agent)
     assert not standard_llm._reasoning
     assert getattr(standard_llm, "_reasoning_mode", None) is None
+
+
+def _hf_request_args(llm: HuggingFaceLLM):
+    messages = [{"role": "user", "content": "hi"}]
+    return llm._prepare_api_request(messages, None, llm.default_request_params)
+
+
+def _make_hf_llm(model: str, hf_settings: HuggingFaceSettings | None = None) -> HuggingFaceLLM:
+    settings = Settings(huggingface=hf_settings or HuggingFaceSettings())
+    context = Context(config=settings)
+    return HuggingFaceLLM(context=context, model=model, name="test-agent")
+
+
+def test_huggingface_appends_default_provider_from_config():
+    llm = _make_hf_llm(
+        "moonshotai/kimi-k2-instruct", HuggingFaceSettings(default_provider="fireworks-ai")
+    )
+
+    assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "moonshotai/kimi-k2-instruct:fireworks-ai"
+
+
+def test_huggingface_env_default_provider(monkeypatch):
+    monkeypatch.setenv("HF_DEFAULT_PROVIDER", "router")
+    llm = _make_hf_llm("moonshotai/kimi-k2-instruct")
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "moonshotai/kimi-k2-instruct:router"
+
+
+def test_huggingface_explicit_provider_overrides_default():
+    llm = _make_hf_llm(
+        "moonshotai/kimi-k2-instruct:custom", HuggingFaceSettings(default_provider="router")
+    )
+
+    assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
+    args = _hf_request_args(llm)
+    assert args["model"] == "moonshotai/kimi-k2-instruct:custom"
