@@ -545,16 +545,6 @@ def display_history_overview(
         Text(" " + "─" * (history_bar.cell_len + context_bar.cell_len + gap.cell_len), style="dim")
     )
 
-    header_line = Text(" ")
-    header_line.append(" #", style="dim")
-    header_line.append(" ", style="dim")
-    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
-    header_line.append(f" {'Time':>7}", style="dim")
-    header_line.append(f" {'Chars':>7}", style="dim")
-    header_line.append("  ", style="dim")
-    header_line.append("Summary", style="dim")
-    printer(header_line)
-
     summary_candidates = [row for row in rows if not row.get("hide_summary")]
     summary_rows = summary_candidates[-SUMMARY_COUNT:]
     start_index = len(summary_candidates) - len(summary_rows) + 1
@@ -566,6 +556,22 @@ def display_history_overview(
         total_width = console.width if console else get_terminal_size().columns
     except Exception:
         total_width = 80
+
+    # Responsive column layout based on terminal width
+    show_time = total_width >= 60
+    show_chars = total_width >= 50
+
+    header_line = Text(" ")
+    header_line.append(" #", style="dim")
+    header_line.append(" ", style="dim")
+    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
+    if show_time:
+        header_line.append(f" {'Time':>7}", style="dim")
+    if show_chars:
+        header_line.append(f" {'Chars':>7}", style="dim")
+    header_line.append("  ", style="dim")
+    header_line.append("Summary", style="dim")
+    printer(header_line)
 
     for offset, row in enumerate(summary_rows):
         role = row["role"]
@@ -595,8 +601,10 @@ def display_history_overview(
         line.append(arrow, style=color)
         line.append(" ")
         line.append(f"{label:<{ROLE_COLUMN_WIDTH}}", style=color)
-        line.append(f" {timing_str:>7}", style="dim")
-        line.append(f" {format_chars(chars):>7}", style="dim")
+        if show_time:
+            line.append(f" {timing_str:>7}", style="dim")
+        if show_chars:
+            line.append(f" {format_chars(chars):>7}", style="dim")
         line.append("  ")
         summary_width = max(0, total_width - line.cell_len)
         summary_text = _compose_summary_text(
