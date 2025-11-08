@@ -10,7 +10,9 @@ This module provides shared console instances for consistent output handling:
 from rich.console import Console
 
 # Main console for general output
+# Note: For ACP/stdio modes, all output must go to stderr to avoid polluting JSON-RPC
 console = Console(
+    stderr=True,  # Always use stderr to avoid stdout pollution in stdio/ACP modes
     color_system="auto",
 )
 
