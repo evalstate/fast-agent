@@ -12,21 +12,21 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent"
 ]
-requires-python = ">=3.13.5,<3.14"
+requires-python = ">=3.13.5"
 dependencies = [
-    "fastapi>=0.115.6",
+    "fastapi>=0.121.0",
     "mcp==1.21.0",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
-    "rich>=14.1.0",
-    "typer>=0.15.1",
-    "anthropic>=0.71.0",
-    "openai[aiohttp]>=2.6.1",
+    "rich>=14.2.0",
+    "typer>=0.20.0",
+    "anthropic>=0.72.0",
+    "openai[aiohttp]>=2.7.1",
     "prompt-toolkit>=3.0.52",
-    "aiohttp>=3.13.1",
+    "aiohttp>=3.13.2",
     "opentelemetry-instrumentation-openai>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-anthropic>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-mcp>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
