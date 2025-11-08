@@ -499,12 +499,14 @@ class ConsoleDisplay:
         name: str | None = None,
         tool_name: str | None = None,
         skybridge_config: "SkybridgeServerConfig | None" = None,
+        timing_ms: float | None = None,
     ) -> None:
         self._tool_display.show_tool_result(
             result,
             name=name,
             tool_name=tool_name,
             skybridge_config=skybridge_config,
+            timing_ms=timing_ms,
         )
 
     def show_tool_call(
