@@ -484,11 +484,16 @@ class AgentsAsToolsAgent(ToolAgent):
                     # Suppress ALL child output/events to prevent duplicate panel rows
                     child_id = id(child)
                     if child_id not in suppressed_configs:
-                        # Store original display and logger
+                        # Store original display, logger, and aggregator logger
                         suppressed_configs[child_id] = {
                             'display': child.display if hasattr(child, 'display') else None,
-                            'logger': child.logger if hasattr(child, 'logger') else None
+                            'logger': child.logger if hasattr(child, 'logger') else None,
+                            'agg_logger': None
                         }
+                        
+                        # Also store aggregator logger if it exists
+                        if hasattr(child, '_aggregator') and child._aggregator and hasattr(child._aggregator, 'logger'):
+                            suppressed_configs[child_id]['agg_logger'] = child._aggregator.logger
                         
                         # Replace with null objects that do nothing
                         class NullDisplay:
@@ -503,12 +508,17 @@ class AgentsAsToolsAgent(ToolAgent):
                             def __getattr__(self, name):
                                 return lambda *args, **kwargs: None
                         
+                        # Replace child's display and logger
                         if hasattr(child, 'display'):
                             child.display = NullDisplay()
                         if hasattr(child, 'logger'):
                             child.logger = NullLogger()
                         
-                        logger.info(f"Replaced display & logger with null objects for {child._name}")
+                        # CRITICAL: Also replace aggregator's logger (MCP tools emit progress here)
+                        if hasattr(child, '_aggregator') and child._aggregator:
+                            child._aggregator.logger = NullLogger()
+                        
+                        logger.info(f"Replaced display, logger & aggregator logger with null objects for {child._name}")
                     
                     logger.info(f"Mapped {cid} -> {instance_name}")
         
@@ -568,7 +578,7 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original display and logger objects
+        # Restore original display, logger, and aggregator logger
         for child_id, originals in suppressed_configs.items():
             # Find the child agent by id
             for tool_name in original_names.keys():
@@ -578,7 +588,9 @@ class AgentsAsToolsAgent(ToolAgent):
                         child.display = originals['display']
                     if originals.get('logger') and hasattr(child, 'logger'):
                         child.logger = originals['logger']
-                    logger.info(f"Restored original display & logger for {child._name}")
+                    if originals.get('agg_logger') and hasattr(child, '_aggregator') and child._aggregator:
+                        child._aggregator.logger = originals['agg_logger']
+                    logger.info(f"Restored original display, logger & aggregator logger for {child._name}")
                     break
         
         logger.info(f"Parallel execution complete for {len(id_list)} instances")
