@@ -352,18 +352,8 @@ class AgentsAsToolsAgent(ToolAgent):
             if child_id in self._display_suppression_count:
                 self._display_suppression_count[child_id] -= 1
                 
-                # Restore original config only when last instance completes
-                if self._display_suppression_count[child_id] == 0:
-                    del self._display_suppression_count[child_id]
-                    
-                    # Restore from stored original config
-                    if child_id in self._original_display_configs:
-                        original_config = self._original_display_configs[child_id]
-                        del self._original_display_configs[child_id]
-                        
-                        if hasattr(child, 'display') and child.display:
-                            child.display.config = original_config
-                            logger.info(f"Restored display config for {child.name} (all instances completed)")
+                # Don't restore config here - let run_tools restore after results are displayed
+                # This ensures final logs keep instance numbers [N]
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
@@ -383,17 +373,6 @@ class AgentsAsToolsAgent(ToolAgent):
         # Show instance count if multiple agents
         instance_count = len([d for d in descriptors if d.get("status") != "error"])
         
-        # Build bottom items with unique instance numbers if multiple
-        bottom_items: list[str] = []
-        for i, desc in enumerate(descriptors, 1):
-            tool_label = desc.get("tool", "(unknown)")
-            status = desc.get("status", "pending")
-            status_label = status_labels.get(status, status)
-            if instance_count > 1:
-                bottom_items.append(f"{tool_label}[{i}] · {status_label}")
-            else:
-                bottom_items.append(f"{tool_label} · {status_label}")
-        
         # Show detailed call information for each agent
         for i, desc in enumerate(descriptors, 1):
             tool_name = desc.get("tool", "(unknown)")
@@ -408,12 +387,16 @@ class AgentsAsToolsAgent(ToolAgent):
             if instance_count > 1:
                 display_tool_name = f"{tool_name}[{i}]"
             
+            # Build bottom item for THIS instance only (not all instances)
+            status_label = status_labels.get(status, "pending")
+            bottom_item = f"{display_tool_name} · {status_label}"
+            
             # Show individual tool call with arguments
             self.display.show_tool_call(
                 name=self.name,
                 tool_name=display_tool_name,
                 tool_args=args,
-                bottom_items=bottom_items,
+                bottom_items=[bottom_item],  # Only this instance's label
                 max_item_length=28,
             )
 
@@ -606,7 +589,7 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original agent names (instance lines already hidden in task finally blocks)
+        # Restore original agent names and display configs (instance lines already hidden in task finally blocks)
         if pending_count > 1:
             for tool_name, original_name in original_names.items():
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
@@ -615,6 +598,18 @@ class AgentsAsToolsAgent(ToolAgent):
                     # Restore aggregator's agent_name too
                     if hasattr(child, '_aggregator') and child._aggregator:
                         child._aggregator.agent_name = original_name
+                    
+                    # Restore display config now that all results are shown
+                    child_id = id(child)
+                    if child_id in self._display_suppression_count:
+                        del self._display_suppression_count[child_id]
+                    
+                    if child_id in self._original_display_configs:
+                        original_config = self._original_display_configs[child_id]
+                        del self._original_display_configs[child_id]
+                        if hasattr(child, 'display') and child.display:
+                            child.display.config = original_config
+                            logger.info(f"Restored display config for {original_name} after all results displayed")
         else:
             # Single instance, just restore name
             for tool_name, original_name in original_names.items():
