@@ -25,6 +25,18 @@ wheels = [
 ]
 
 [[package]]
+name = "agent-client-protocol"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c6/fe/147187918c5ba695db537b3088c441bcace4ac9365fae532bf36b1494769/agent_client_protocol-0.6.3.tar.gz", hash = "sha256:ea01a51d5b55864c606401694dad429d83c5bedb476807d81b8208031d6cf3d8", size = 152382, upload-time = "2025-11-03T20:09:19.027Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9c/2e/62d1770a489d3356cd75e19cd61583e7e411f1b00ab9859c73048621e4c2/agent_client_protocol-0.6.3-py3-none-any.whl", hash = "sha256:184264bd6988731613a49c9eb89d7ecd23c6afffe905c64f1b604a42a9b20aef", size = 47613, upload-time = "2025-11-03T20:09:17.427Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -482,6 +494,7 @@ version = "0.3.19"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
+    { name = "agent-client-protocol" },
     { name = "aiohttp" },
     { name = "anthropic" },
     { name = "azure-identity" },
@@ -527,6 +540,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.10" },
+    { name = "agent-client-protocol", specifier = ">=0.6.3" },
     { name = "aiohttp", specifier = ">=3.13.1" },
     { name = "anthropic", specifier = ">=0.71.0" },
     { name = "azure-identity", specifier = ">=1.14.0" },
