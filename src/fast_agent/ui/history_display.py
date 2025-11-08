@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from rich import print as rich_print
 from rich.text import Text
 
-from fast_agent.constants import FAST_AGENT_TIMING
+from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
 from fast_agent.mcp.helpers.content_helpers import get_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
@@ -240,6 +240,26 @@ def _extract_timing_ms(message: PromptMessageExtended) -> float | None:
         return None
 
 
+def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, float]:
+    """Extract tool timing data from message channels."""
+    channels = getattr(message, "channels", None)
+    if not channels:
+        return {}
+
+    timing_blocks = channels.get(FAST_AGENT_TOOL_TIMING, [])
+    if not timing_blocks:
+        return {}
+
+    timing_text = get_text(timing_blocks[0])
+    if not timing_text:
+        return {}
+
+    try:
+        return json.loads(timing_text)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
 def format_time(value: float | None) -> str:
     """Format timing value for display."""
     if value is None:
@@ -271,6 +291,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
 
         # Extract timing data
         timing_ms = _extract_timing_ms(message)
+        tool_timings = _extract_tool_timings(message)
 
         tool_calls: Mapping[str, object] | None = getattr(message, "tool_calls", None)
         tool_results: Mapping[str, object] | None = getattr(message, "tool_results", None)
@@ -311,6 +332,8 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 detail = _format_tool_detail("result→", [tool_name])
                 is_error = getattr(result, "isError", False)
                 tool_result_has_error = tool_result_has_error or is_error
+                # Get timing for this specific tool call
+                tool_timing = tool_timings.get(call_id)
                 result_rows.append(
                     {
                         "role": "tool",
@@ -323,7 +346,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                         "hide_summary": False,
                         "include_in_timeline": False,
                         "is_error": is_error,
-                        "timing_ms": None,
+                        "timing_ms": tool_timing,
                     }
                 )
             if role == "user":

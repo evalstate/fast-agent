@@ -722,11 +722,14 @@ class McpAgent(ABC, ToolAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Override ToolAgent's run_tools to use MCP tools via aggregator."""
+        import time
+
         if not request.tool_calls:
             self.logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
+        tool_timings: dict[str, float] = {}  # Track timing for each tool call
         tool_loop_error: str | None = None
 
         # Cache available tool names exactly as advertised to the LLM for display/highlighting
@@ -818,9 +821,14 @@ class McpAgent(ABC, ToolAgent):
             )
 
             try:
-                # Use the appropriate handler for this tool
+                # Track timing for tool execution
+                start_time = time.perf_counter()
                 result = await self.call_tool(tool_name, tool_args)
+                end_time = time.perf_counter()
+                duration_ms = round((end_time - start_time) * 1000, 2)
+
                 tool_results[correlation_id] = result
+                tool_timings[correlation_id] = duration_ms
 
                 # Show tool result (like ToolAgent does)
                 skybridge_config = None
@@ -850,7 +858,7 @@ class McpAgent(ABC, ToolAgent):
                 # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
-        return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
+        return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
 
     def _prepare_tool_display(
         self,

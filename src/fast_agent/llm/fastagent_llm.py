@@ -229,17 +229,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
 
-        # Add timing data to channels
-        timing_data = {
-            "start_time": start_time,
-            "end_time": end_time,
-            "duration_ms": duration_ms,
-        }
+        # Add timing data to channels only if not already present
+        # (preserves original timing when loading saved history)
         channels = dict(assistant_response.channels or {})
-        channels[FAST_AGENT_TIMING] = [
-            TextContent(type="text", text=json.dumps(timing_data))
-        ]
-        assistant_response.channels = channels
+        if FAST_AGENT_TIMING not in channels:
+            timing_data = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration_ms": duration_ms,
+            }
+            channels[FAST_AGENT_TIMING] = [
+                TextContent(type="text", text=json.dumps(timing_data))
+            ]
+            assistant_response.channels = channels
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
 
@@ -311,17 +313,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
 
-        # Add timing data to channels
-        timing_data = {
-            "start_time": start_time,
-            "end_time": end_time,
-            "duration_ms": duration_ms,
-        }
+        # Add timing data to channels only if not already present
+        # (preserves original timing when loading saved history)
         channels = dict(assistant_response.channels or {})
-        channels[FAST_AGENT_TIMING] = [
-            TextContent(type="text", text=json.dumps(timing_data))
-        ]
-        assistant_response.channels = channels
+        if FAST_AGENT_TIMING not in channels:
+            timing_data = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration_ms": duration_ms,
+            }
+            channels[FAST_AGENT_TIMING] = [
+                TextContent(type="text", text=json.dumps(timing_data))
+            ]
+            assistant_response.channels = channels
 
         self._message_history.append(assistant_response)
         return result, assistant_response
