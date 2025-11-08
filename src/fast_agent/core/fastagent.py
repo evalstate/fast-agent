@@ -443,6 +443,21 @@ class FastAgent:
     parallel = parallel_decorator
     evaluator_optimizer = evaluator_optimizer_decorator
 
+    def _get_acp_server_class(self):
+        """Import and return the ACP server class with helpful error handling."""
+        try:
+            from fast_agent.acp.server import AgentACPServer
+
+            return AgentACPServer
+        except ModuleNotFoundError as exc:
+            if exc.name == "acp":
+                raise ServerInitializationError(
+                    "ACP transport requires the 'agent-client-protocol' package. "
+                    "Install it via `pip install fast-agent-mcp[acp]` or "
+                    "`pip install agent-client-protocol`."
+                ) from exc
+            raise
+
     @asynccontextmanager
     async def run(self) -> AsyncIterator["AgentApp"]:
         """
@@ -556,23 +571,32 @@ class FastAgent:
                     # Handle --server option
                     # Check if parse_cli_args was True before checking self.args.server
                     if hasattr(self.args, "server") and self.args.server:
+                        # For stdio/acp transports, use stderr to avoid interfering with JSON-RPC
+                        import sys
+
+                        output_stream = (
+                            sys.stderr if self.args.transport in ["stdio", "acp"] else sys.stdout
+                        )
+
                         try:
                             # Print info message if not in quiet mode
-                            # For stdio/acp transports, use stderr to avoid interfering with JSON-RPC
-                            import sys
-                            output_stream = sys.stderr if self.args.transport in ["stdio", "acp"] else sys.stdout
-
                             if not quiet_mode:
-                                print(f"Starting FastAgent '{self.name}' in server mode", file=output_stream)
+                                print(
+                                    f"Starting fast-agent  '{self.name}' in server mode",
+                                    file=output_stream,
+                                )
                                 print(f"Transport: {self.args.transport}", file=output_stream)
                                 if self.args.transport == "sse":
-                                    print(f"Listening on {self.args.host}:{self.args.port}", file=output_stream)
+                                    print(
+                                        f"Listening on {self.args.host}:{self.args.port}",
+                                        file=output_stream,
+                                    )
                                 print("Press Ctrl+C to stop", file=output_stream)
 
-                            # Check if using ACP transport
+                            # Check which server type to use based on transport
                             if self.args.transport == "acp":
-                                # Create the ACP server
-                                from fast_agent.acp.server import AgentACPServer
+                                # Create and run ACP server
+                                AgentACPServer = self._get_acp_server_class()
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
@@ -612,13 +636,17 @@ class FastAgent:
                                 )
                         except KeyboardInterrupt:
                             if not quiet_mode:
-                                print("\nServer stopped by user (Ctrl+C)")
+                                print("\nServer stopped by user (Ctrl+C)", file=output_stream)
+                            raise SystemExit(0)
                         except Exception as e:
                             if not quiet_mode:
                                 import traceback
 
                                 traceback.print_exc()
-                                print(f"\nServer stopped with error: {e}")
+                                print(f"\nServer stopped with error: {e}", file=output_stream)
+                            else:
+                                print(f"\nServer stopped with error: {e}", file=output_stream)
+                            raise SystemExit(1)
 
                         # Exit after server shutdown
                         raise SystemExit(0)
@@ -984,6 +1012,8 @@ class FastAgent:
         # Just check if the flag is set, no action here
         # The actual server code will be handled by run()
         return hasattr(self, "args") and self.args.server
+
+
 @dataclass
 class AgentInstance:
     app: AgentApp

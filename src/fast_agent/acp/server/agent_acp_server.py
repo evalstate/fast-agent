@@ -219,44 +219,57 @@ class AgentACPServer(ACPAgent):
         )
 
         # Send to the fast-agent agent
-        if self.primary_agent_name:
-            agent = instance.agents[self.primary_agent_name]
-            response_text = await agent.send(prompt_text)
+        try:
+            if self.primary_agent_name:
+                agent = instance.agents[self.primary_agent_name]
+                response_text = await agent.send(prompt_text)
 
-            logger.info(
-                "Received response from fast-agent",
-                name="acp_prompt_response",
-                session_id=session_id,
-                response_length=len(response_text),
-            )
+                logger.info(
+                    "Received response from fast-agent",
+                    name="acp_prompt_response",
+                    session_id=session_id,
+                    response_length=len(response_text),
+                )
 
-            # Send the response back to the client via sessionUpdate
-            if self._connection:
-                try:
-                    # Create an agent message chunk with the response text
-                    message_chunk = update_agent_message_text(response_text)
+                # Send the response back to the client via sessionUpdate
+                if self._connection:
+                    try:
+                        # Create an agent message chunk with the response text
+                        message_chunk = update_agent_message_text(response_text)
 
-                    # Wrap it in a session notification
-                    notification = session_notification(session_id, message_chunk)
+                        # Wrap it in a session notification
+                        notification = session_notification(session_id, message_chunk)
 
-                    # Send to the client
-                    await self._connection.sessionUpdate(notification)
+                        # Send to the client
+                        await self._connection.sessionUpdate(notification)
 
-                    logger.info(
-                        "Sent response to client via sessionUpdate",
-                        name="acp_session_update",
-                        session_id=session_id,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Error sending sessionUpdate: {e}",
-                        name="acp_session_update_error",
-                        exc_info=True,
-                    )
+                        logger.info(
+                            "Sent response to client via sessionUpdate",
+                            name="acp_session_update",
+                            session_id=session_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error sending sessionUpdate: {e}",
+                            name="acp_session_update_error",
+                            exc_info=True,
+                        )
+                        raise
+                else:
+                    logger.warning("No connection available to send response")
             else:
-                logger.warning("No connection available to send response")
-        else:
-            logger.error("No primary agent available")
+                logger.error("No primary agent available")
+        except Exception as e:
+            logger.error(
+                f"Error processing prompt: {e}",
+                name="acp_prompt_error",
+                exc_info=True,
+            )
+            import sys
+            import traceback
+            print(f"ERROR processing prompt: {e}", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            raise
 
         # Return success
         return PromptResponse(
