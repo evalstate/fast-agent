@@ -207,6 +207,7 @@ def get_agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
         AgentType.EVALUATOR_OPTIMIZER: ("evaluator", "generator", "eval_optimizer_agents"),
         AgentType.ITERATIVE_PLANNER: ("child_agents",),
         AgentType.ORCHESTRATOR: ("child_agents",),
+        AgentType.BASIC: ("child_agents",),
         AgentType.PARALLEL: ("fan_out", "fan_in", "parallel_agents"),
         AgentType.ROUTER: ("router_agents",),
     }
