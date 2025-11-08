@@ -333,8 +333,10 @@ class AgentsAsToolsAgent(ToolAgent):
         Shows individual tool call headers with instance numbers when multiple
         instances of the same agent execute in parallel.
         
-        Example output:
-            ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[1]]
+        NOTE: First instance has no index (runs normally), instances 2+ are indexed.
+        
+        Example output (4 parallel instances):
+            ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer]
             ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[2]]
             ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[3]]
             ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[4]]
@@ -398,8 +400,10 @@ class AgentsAsToolsAgent(ToolAgent):
         Shows individual tool result headers with instance numbers matching
         the tool call headers shown earlier.
         
-        Example output:
-            ▎▶ orchestrator [tool result - Text Only 78 chars] PM-1-DayStatusSummarizer[1]
+        NOTE: First instance has no index, instances 2+ are indexed.
+        
+        Example output (4 parallel instances):
+            ▎▶ orchestrator [tool result - Text Only 78 chars] PM-1-DayStatusSummarizer
             ▎▶ orchestrator [tool result - Text Only 78 chars] PM-1-DayStatusSummarizer[2]
             ▎▶ orchestrator [tool result - ERROR] PM-1-DayStatusSummarizer[3]
             ▎▶ orchestrator [tool result - Text Only 33 chars] PM-1-DayStatusSummarizer[4]
@@ -485,13 +489,17 @@ class AgentsAsToolsAgent(ToolAgent):
         # ═══════════════════════════════════════════════════════════════════════════════
         # When multiple tool calls invoke the same child agent, we execute them in parallel.
         # 
-        # INSTANCE NUMBERING:
-        # - Tool headers show: PM-1-DayStatusSummarizer[1], [2], [3], [4]
-        # - Progress panel shows: PM-1-DayStatusSummarizer (single entry, no duplicates)
+        # INSTANCE NUMBERING (NEW APPROACH):
+        # - First instance: PM-1-DayStatusSummarizer (no index, runs normally)
+        # - Second instance: PM-1-DayStatusSummarizer[2] (indexed, suppressed)
+        # - Third instance: PM-1-DayStatusSummarizer[3] (indexed, suppressed)
+        # - Fourth instance: PM-1-DayStatusSummarizer[4] (indexed, suppressed)
+        # - Progress panel shows: PM-1-DayStatusSummarizer (single entry from first instance)
         # 
         # DISPLAY SUPPRESSION:
-        # - Child agents get display.config modified: show_chat=False, show_tools=False
-        # - This prevents duplicate progress panel rows during parallel execution
+        # - First instance: NOT suppressed - runs with full display (progress panel visible)
+        # - Instances 2+: display.config modified (show_chat=False, show_tools=False)
+        # - This prevents duplicate progress panel rows for parallel instances
         # - Orchestrator displays all tool calls/results with instance numbers
         # - Original configs restored after parallel execution completes
         # 
@@ -507,6 +515,8 @@ class AgentsAsToolsAgent(ToolAgent):
         suppressed_configs = {}  # Store original configs to restore later
         
         # Build instance map and suppress child progress events
+        # NOTE: First instance runs normally (no index, no suppression)
+        #       Only instances 2+ get indexed and suppressed
         if pending_count > 1:
             for i, cid in enumerate(id_list, 1):
                 tool_name = descriptor_by_id[cid]["tool"]
@@ -516,31 +526,39 @@ class AgentsAsToolsAgent(ToolAgent):
                     if tool_name not in original_names and hasattr(child, '_name'):
                         original_names[tool_name] = child._name
                     
-                    # Create instance name
+                    # First instance: no index, runs normally
+                    # Instances 2+: indexed and suppressed
                     original = original_names.get(tool_name, child._name if hasattr(child, '_name') else tool_name)
-                    instance_name = f"{original}[{i}]"
-                    instance_map[cid] = (child, instance_name, i)
-                    
-                    # Suppress child's progress events to prevent duplicate panel rows
-                    child_id = id(child)
-                    if child_id not in suppressed_configs and hasattr(child, 'display') and child.display:
-                        if child.display.config:
-                            # Store original config
-                            suppressed_configs[child_id] = child.display.config
-                            
-                            # Create suppressed config (no chat, no progress events)
-                            temp_config = copy(child.display.config)
-                            if hasattr(temp_config, 'logger'):
-                                temp_logger = copy(temp_config.logger)
-                                temp_logger.show_chat = False
-                                temp_logger.show_tools = False  # Hide child's internal tool calls too
-                                temp_config.logger = temp_logger
-                            
-                            # Apply suppressed config
-                            child.display.config = temp_config
-                            logger.info(f"Suppressed progress events for {child._name}")
-                    
-                    logger.info(f"Mapped {cid} -> {instance_name}")
+                    if i == 1:
+                        # First instance - no index, no suppression
+                        instance_name = original
+                        instance_map[cid] = (child, instance_name, i)
+                        logger.info(f"Mapped {cid} -> {instance_name} (first instance, not suppressed)")
+                    else:
+                        # Instances 2+ - add index and suppress
+                        instance_name = f"{original}[{i}]"
+                        instance_map[cid] = (child, instance_name, i)
+                        
+                        # Suppress child's progress events to prevent duplicate panel rows
+                        child_id = id(child)
+                        if child_id not in suppressed_configs and hasattr(child, 'display') and child.display:
+                            if child.display.config:
+                                # Store original config
+                                suppressed_configs[child_id] = child.display.config
+                                
+                                # Create suppressed config (no chat, no progress events)
+                                temp_config = copy(child.display.config)
+                                if hasattr(temp_config, 'logger'):
+                                    temp_logger = copy(temp_config.logger)
+                                    temp_logger.show_chat = False
+                                    temp_logger.show_tools = False  # Hide child's internal tool calls too
+                                    temp_config.logger = temp_logger
+                                
+                                # Apply suppressed config
+                                child.display.config = temp_config
+                                logger.info(f"Suppressed progress events for {child._name}")
+                        
+                        logger.info(f"Mapped {cid} -> {instance_name} (suppressed)")
         
         # Import progress_display at outer scope to ensure same instance  
         from fast_agent.event_progress import ProgressAction, ProgressEvent
