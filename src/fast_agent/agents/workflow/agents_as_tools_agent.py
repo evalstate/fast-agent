@@ -206,19 +206,18 @@ class AgentsAsToolsAgent(ToolAgent):
             if status == "error":
                 continue  # Skip display for error tools, will show in results
             
-            # Build metadata for display
-            metadata = {}
+            # Add instance count to tool name if multiple
+            display_tool_name = tool_name
             if instance_count > 1:
-                metadata["instance_info"] = f"instances {instance_count}"
+                display_tool_name = f"{tool_name}[{instance_count}]"
             
             # Show individual tool call with arguments
             self.display.show_tool_call(
                 name=self.name,
-                tool_name=tool_name,
+                tool_name=display_tool_name,
                 tool_args=args,
                 bottom_items=bottom_items,
                 max_item_length=28,
-                metadata=metadata,
             )
 
     def _summarize_result_text(self, result: CallToolResult) -> str:
@@ -250,15 +249,15 @@ class AgentsAsToolsAgent(ToolAgent):
             tool_name = descriptor.get("tool", "(unknown)")
             
             if result:
-                # Add instance count to result if multiple
+                # Add instance count to tool name if multiple
+                display_tool_name = tool_name
                 if instance_count > 1:
-                    # Add metadata to track parallel execution
-                    setattr(result, "_instance_count", instance_count)
+                    display_tool_name = f"{tool_name}[{instance_count}]"
                 
                 # Show individual tool result with full content
                 self.display.show_tool_result(
                     name=self.name,
-                    tool_name=tool_name,
+                    tool_name=display_tool_name,
                     result=result,
                 )
 
@@ -320,7 +319,7 @@ class AgentsAsToolsAgent(ToolAgent):
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child and hasattr(child, '_name'):
                     original_names[cid] = child._name
-                    child._name = f"{child._name}#{i}"
+                    child._name = f"{child._name}[{i}]"
 
         # Now create tasks with modified names
         for cid in id_list:
