@@ -324,14 +324,42 @@ class AgentsAsToolsAgent(ToolAgent):
                 if child and hasattr(child, '_name') and tool_name not in original_names:
                     original_names[tool_name] = child._name
         
-        # Create wrapper coroutine that sets name at execution time
+        # Create wrapper coroutine that sets name and emits progress for instance
         async def call_with_instance_name(tool_name: str, tool_args: dict[str, Any], instance: int) -> CallToolResult:
+            from fast_agent.event_progress import ProgressAction, ProgressEvent
+            from fast_agent.ui.progress_display import progress_display
+            
+            instance_name = None
             if pending_count > 1:
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child and hasattr(child, '_name'):
                     original = original_names.get(tool_name, child._name)
-                    child._name = f"{original}[{instance}]"
+                    instance_name = f"{original}[{instance}]"
+                    child._name = instance_name
+                    
+                    # Emit progress event to create separate line in progress panel
+                    progress_display.update(ProgressEvent(
+                        action=ProgressAction.CHATTING,
+                        target=instance_name,
+                        details="",
+                        agent_name=instance_name
+                    ))
+            
             return await self.call_tool(tool_name, tool_args)
+        
+        # Set parent agent lines to Ready status while instances run
+        if pending_count > 1:
+            from fast_agent.event_progress import ProgressAction, ProgressEvent
+            from fast_agent.ui.progress_display import progress_display
+            
+            for tool_name in original_names.keys():
+                original = original_names[tool_name]
+                progress_display.update(ProgressEvent(
+                    action=ProgressAction.READY,
+                    target=original,
+                    details="",
+                    agent_name=original
+                ))
         
         # Create tasks with instance-specific wrappers
         for i, cid in enumerate(id_list, 1):
@@ -370,10 +398,29 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original agent names
-        for tool_name, original_name in original_names.items():
-            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-            if child:
-                child._name = original_name
+        # Restore original agent names and hide instance lines from progress panel
+        if pending_count > 1:
+            from fast_agent.ui.progress_display import progress_display
+            
+            for tool_name, original_name in original_names.items():
+                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+                if child:
+                    child._name = original_name
+                
+                # Hide instance lines from progress panel
+                for i in range(1, pending_count + 1):
+                    instance_name = f"{original_name}[{i}]"
+                    if instance_name in progress_display._taskmap:
+                        task_id = progress_display._taskmap[instance_name]
+                        for task in progress_display._progress.tasks:
+                            if task.id == task_id:
+                                task.visible = False
+                                break
+        else:
+            # Single instance, just restore name
+            for tool_name, original_name in original_names.items():
+                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+                if child:
+                    child._name = original_name
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
