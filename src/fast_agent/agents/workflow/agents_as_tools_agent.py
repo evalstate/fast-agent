@@ -182,24 +182,23 @@ class AgentsAsToolsAgent(ToolAgent):
             status_label = status_labels.get(status, status)
             bottom_items.append(f"{tool_label} · {status_label}")
         
-        if len(descriptors) == 1:
-            content = f"Calling agent: {descriptors[0].get('tool', '(unknown)')}"
-        else:
-            lines = [f"Calling {len(descriptors)} agents:"]
-            for desc in descriptors:
-                tool_label = desc.get("tool", "(unknown)")
-                status = desc.get("status", "pending")
-                status_label = status_labels.get(status, status)
-                lines.append(f"  • {tool_label}: {status_label}")
-            content = "\n".join(lines)
-
-        self.display.display_message(
-            content=content,
-            message_type=MessageType.TOOL_CALL,
-            name=self.name,
-            bottom_metadata=bottom_items,
-            max_item_length=28,
-        )
+        # Show detailed call information for each agent
+        for desc in descriptors:
+            tool_name = desc.get("tool", "(unknown)")
+            args = desc.get("args", {})
+            status = desc.get("status", "pending")
+            
+            if status == "error":
+                continue  # Skip display for error tools, will show in results
+            
+            # Show individual tool call with arguments
+            self.display.show_tool_call(
+                name=self.name,
+                tool_name=tool_name,
+                tool_args=args,
+                bottom_items=bottom_items,
+                max_item_length=28,
+            )
 
     def _summarize_result_text(self, result: CallToolResult) -> str:
         for block in result.content or []:
@@ -228,34 +227,19 @@ class AgentsAsToolsAgent(ToolAgent):
                 any_error = True
             bottom_items.append(f"{tool_label} · {status}")
         
-        if len(records) == 1:
-            # Single result: show content directly
-            record = records[0]
+        # Show detailed result for each agent
+        for record in records:
+            descriptor = record.get("descriptor", {})
             result = record.get("result")
-            content = result.content if result else []
-        else:
-            # Multiple results: show summary list
-            lines = [f"Completed {len(records)} agents:"]
-            for record in records:
-                descriptor = record.get("descriptor", {})
-                result = record.get("result")
-                tool_label = descriptor.get("tool", "(unknown)")
-                status = "error" if result and result.isError else "done"
-                preview = self._summarize_result_text(result) if result else ""
-                if preview:
-                    lines.append(f"  • {tool_label}: {status} — {preview}")
-                else:
-                    lines.append(f"  • {tool_label}: {status}")
-            content = "\n".join(lines)
-
-        self.display.display_message(
-            content=content,
-            message_type=MessageType.TOOL_RESULT,
-            name=self.name,
-            bottom_metadata=bottom_items,
-            max_item_length=28,
-            is_error=any_error,
-        )
+            tool_name = descriptor.get("tool", "(unknown)")
+            
+            if result:
+                # Show individual tool result with full content
+                self.display.show_tool_result(
+                    name=self.name,
+                    tool_name=tool_name,
+                    result=result,
+                )
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """
