@@ -187,18 +187,22 @@ class AgentsAsToolsAgent(ToolAgent):
             "missing": "missing",
         }
 
-        bottom_items: list[str] = []
-        for desc in descriptors:
-            tool_label = desc.get("tool", "(unknown)")
-            status = desc.get("status", "pending")
-            status_label = status_labels.get(status, status)
-            bottom_items.append(f"{tool_label} · {status_label}")
-        
         # Show instance count if multiple agents
         instance_count = len([d for d in descriptors if d.get("status") != "error"])
         
+        # Build bottom items with unique instance numbers if multiple
+        bottom_items: list[str] = []
+        for i, desc in enumerate(descriptors, 1):
+            tool_label = desc.get("tool", "(unknown)")
+            status = desc.get("status", "pending")
+            status_label = status_labels.get(status, status)
+            if instance_count > 1:
+                bottom_items.append(f"{tool_label}[{i}] · {status_label}")
+            else:
+                bottom_items.append(f"{tool_label} · {status_label}")
+        
         # Show detailed call information for each agent
-        for i, desc in enumerate(descriptors):
+        for i, desc in enumerate(descriptors, 1):
             tool_name = desc.get("tool", "(unknown)")
             args = desc.get("args", {})
             status = desc.get("status", "pending")
@@ -206,10 +210,10 @@ class AgentsAsToolsAgent(ToolAgent):
             if status == "error":
                 continue  # Skip display for error tools, will show in results
             
-            # Add instance count to tool name if multiple
+            # Add individual instance number if multiple
             display_tool_name = tool_name
             if instance_count > 1:
-                display_tool_name = f"{tool_name}[{instance_count}]"
+                display_tool_name = f"{tool_name}[{i}]"
             
             # Show individual tool call with arguments
             self.display.show_tool_call(
@@ -243,16 +247,16 @@ class AgentsAsToolsAgent(ToolAgent):
         instance_count = len(records)
         
         # Show detailed result for each agent
-        for record in records:
+        for i, record in enumerate(records, 1):
             descriptor = record.get("descriptor", {})
             result = record.get("result")
             tool_name = descriptor.get("tool", "(unknown)")
             
             if result:
-                # Add instance count to tool name if multiple
+                # Add individual instance number if multiple
                 display_tool_name = tool_name
                 if instance_count > 1:
-                    display_tool_name = f"{tool_name}[{instance_count}]"
+                    display_tool_name = f"{tool_name}[{i}]"
                 
                 # Show individual tool result with full content
                 self.display.show_tool_result(
@@ -310,22 +314,30 @@ class AgentsAsToolsAgent(ToolAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
-        # Add instance IDs to child agent names BEFORE creating tasks
+        # Collect original names
         pending_count = len(id_list)
         original_names = {}
         if pending_count > 1:
-            for i, cid in enumerate(id_list, 1):
+            for cid in id_list:
                 tool_name = descriptor_by_id[cid]["tool"]
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+                if child and hasattr(child, '_name') and tool_name not in original_names:
+                    original_names[tool_name] = child._name
+        
+        # Create wrapper coroutine that sets name at execution time
+        async def call_with_instance_name(tool_name: str, tool_args: dict[str, Any], instance: int) -> CallToolResult:
+            if pending_count > 1:
+                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child and hasattr(child, '_name'):
-                    original_names[cid] = child._name
-                    child._name = f"{child._name}[{i}]"
-
-        # Now create tasks with modified names
-        for cid in id_list:
+                    original = original_names.get(tool_name, child._name)
+                    child._name = f"{original}[{instance}]"
+            return await self.call_tool(tool_name, tool_args)
+        
+        # Create tasks with instance-specific wrappers
+        for i, cid in enumerate(id_list, 1):
             tool_name = descriptor_by_id[cid]["tool"]
             tool_args = descriptor_by_id[cid]["args"]
-            tasks.append(asyncio.create_task(self.call_tool(tool_name, tool_args)))
+            tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i)))
 
         # Show aggregated tool call(s)
         self._show_parallel_tool_calls(call_descriptors)
@@ -359,8 +371,7 @@ class AgentsAsToolsAgent(ToolAgent):
         self._show_parallel_tool_results(ordered_records)
 
         # Restore original agent names
-        for cid, original_name in original_names.items():
-            tool_name = descriptor_by_id[cid]["tool"]
+        for tool_name, original_name in original_names.items():
             child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
             if child:
                 child._name = original_name
