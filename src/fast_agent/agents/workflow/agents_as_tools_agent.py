@@ -47,16 +47,20 @@ Algorithm
 3. **Tool Execution (call_tool)**
    - Route tool name to corresponding child agent
    - Convert tool arguments (text or JSON) to child agent input
-   - Suppress child agent's chat messages (show_chat=False)
+   - Suppress child agent's chat messages (show_chat=False) using reference counting
    - Keep child agent's tool calls visible (show_tools=True)
+   - Track active instances per child agent to prevent race conditions
+   - Only modify display config on first instance, restore on last instance
    - Execute child agent and return response as CallToolResult
 
 4. **Parallel Execution (run_tools)**
    - Collect all tool calls from parent LLM response
    - Create asyncio tasks for each child agent call
    - Modify child agent names with instance numbers: `AgentName[1]`, `AgentName[2]`
-   - Update aggregator agent_name for proper progress tracking
+   - Update both child._name and child._aggregator.agent_name for progress routing
+   - Set parent agent to "Ready" status while instances run
    - Execute all tasks concurrently via asyncio.gather
+   - Hide instance lines immediately as each task completes (via finally block)
    - Aggregate results and return to parent LLM
 
 Progress Panel Behavior
@@ -84,10 +88,15 @@ table) undergoes dynamic updates:
 - Tool progress events (CALLING_TOOL) use instance name, not parent name
 - Each instance shows independent status: Chatting, Calling tool, turn count
 
-**After parallel execution completes:**
-- Instance lines are hidden (task.visible = False)
-- Parent line returns to normal agent lifecycle
-- Original agent names are restored
+**As each instance completes:**
+- Instance line disappears immediately (task.visible = False in finally block)
+- Other instances continue showing their independent progress
+- No "stuck" status lines after completion
+
+**After all parallel executions complete:**
+- All instance lines hidden
+- Parent line returns to normal agent lifecycle  
+- Original agent names and display configs restored
 
 **Chat log display:**
 Tool headers show instance numbers for clarity:
@@ -111,8 +120,18 @@ Implementation Notes
   [1][2] bugs when the same agent is called multiple times
 - **Progress event routing**: Must update both agent._name and agent._aggregator.agent_name
   since MCPAggregator caches agent_name for progress events
-- **Display suppression**: Child agents run with show_chat=False but show_tools=True to
-  show their internal tool activity without cluttering the log with intermediate responses
+- **Display suppression with reference counting**: Multiple parallel instances of the same
+  child agent share a single agent object. Use reference counting to track active instances:
+  - `_display_suppression_count[child_id]`: Count of active parallel instances
+  - `_original_display_configs[child_id]`: Stored original config
+  - Only modify display config when first instance starts (count 0→1)
+  - Only restore display config when last instance completes (count 1→0)
+  - Prevents race condition where early-finishing instances restore config while others run
+- **Instance line visibility**: Each instance line is hidden immediately in the task's
+  finally block, not after all tasks complete. Uses consistent progress_display singleton
+  reference to ensure visibility changes work correctly
+- **Chat log separation**: Each parallel instance gets its own tool request/result headers
+  with instance numbers [1], [2], etc. for traceability
 
 Usage Example
 -------------
