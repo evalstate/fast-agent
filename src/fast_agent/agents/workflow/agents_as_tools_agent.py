@@ -1,3 +1,150 @@
+"""
+Agents as Tools Pattern Implementation
+=======================================
+
+Overview
+--------
+This module implements the "Agents as Tools" pattern, inspired by OpenAI's Agents SDK
+(https://openai.github.io/openai-agents-python/tools). It allows child agents to be
+exposed as callable tools to a parent agent, enabling hierarchical agent composition
+without the complexity of traditional orchestrator patterns.
+
+Rationale
+---------
+Traditional approaches to multi-agent systems often require:
+1. Complex orchestration logic with explicit routing rules
+2. Iterative planning mechanisms that add cognitive overhead
+3. Tight coupling between parent and child agent implementations
+
+The "Agents as Tools" pattern simplifies this by:
+- **Treating agents as first-class tools**: Each child agent becomes a tool that the
+  parent LLM can call naturally via function calling
+- **Delegation, not orchestration**: The parent LLM decides which child agents to invoke
+  based on its instruction and context, without hardcoded routing logic
+- **Parallel execution**: Multiple child agents can run concurrently when the LLM makes
+  parallel tool calls
+- **Clean abstraction**: Child agents expose minimal schemas (text or JSON input),
+  making them universally composable
+
+Benefits over iterative_planner/orchestrator:
+- Simpler codebase: No custom planning loops or routing tables
+- Better LLM utilization: Modern LLMs excel at function calling
+- Natural composition: Agents nest cleanly without special handling
+- Parallel by default: Leverage asyncio.gather for concurrent execution
+
+Algorithm
+---------
+1. **Initialization**
+   - Parent agent receives list of child agents
+   - Each child agent is mapped to a tool name: `agent__{child_name}`
+   - Tool schemas advertise text/json input capabilities
+
+2. **Tool Discovery (list_tools)**
+   - Parent LLM receives one tool per child agent
+   - Each tool schema includes child agent's instruction as description
+   - LLM decides which tools (child agents) to call based on user request
+
+3. **Tool Execution (call_tool)**
+   - Route tool name to corresponding child agent
+   - Convert tool arguments (text or JSON) to child agent input
+   - Suppress child agent's chat messages (show_chat=False)
+   - Keep child agent's tool calls visible (show_tools=True)
+   - Execute child agent and return response as CallToolResult
+
+4. **Parallel Execution (run_tools)**
+   - Collect all tool calls from parent LLM response
+   - Create asyncio tasks for each child agent call
+   - Modify child agent names with instance numbers: `AgentName[1]`, `AgentName[2]`
+   - Update aggregator agent_name for proper progress tracking
+   - Execute all tasks concurrently via asyncio.gather
+   - Aggregate results and return to parent LLM
+
+Progress Panel Behavior
+-----------------------
+To provide clear visibility into parallel executions, the progress panel (left status
+table) undergoes dynamic updates:
+
+**Before parallel execution:**
+```
+▎▶ Chatting      ▎ PM-1-DayStatusSummarizer     gpt-5 turn 1
+```
+
+**During parallel execution (2+ instances):**
+- Parent line switches to "Ready" status to indicate waiting for children
+- New lines appear for each instance:
+```
+▎ Ready          ▎ PM-1-DayStatusSummarizer      ← parent waiting
+▎▶ Calling tool  ▎ PM-1-DayStatusSummarizer[1]   tg-ro (list_messages)
+▎▶ Chatting      ▎ PM-1-DayStatusSummarizer[2]   gpt-5 turn 2
+```
+
+**Key implementation details:**
+- Each instance gets unique agent_name: `OriginalName[instance_number]`
+- Both child._name and child._aggregator.agent_name are updated for correct progress routing
+- Tool progress events (CALLING_TOOL) use instance name, not parent name
+- Each instance shows independent status: Chatting, Calling tool, turn count
+
+**After parallel execution completes:**
+- Instance lines are hidden (task.visible = False)
+- Parent line returns to normal agent lifecycle
+- Original agent names are restored
+
+**Chat log display:**
+Tool headers show instance numbers for clarity:
+```
+▎▶ orchestrator    [tool request - agent__PM-1-DayStatusSummarizer[1]]
+▎◀ orchestrator    [tool result - agent__PM-1-DayStatusSummarizer[1]]
+▎▶ orchestrator    [tool request - agent__PM-1-DayStatusSummarizer[2]]
+▎◀ orchestrator    [tool result - agent__PM-1-DayStatusSummarizer[2]]
+```
+
+Bottom status bar shows all instances:
+```
+| agent__PM-1-DayStatusSummarizer[1] · running | agent__PM-1-DayStatusSummarizer[2] · running |
+```
+
+Implementation Notes
+--------------------
+- **Name modification timing**: Agent names are modified in a wrapper coroutine that
+  executes at task runtime, not task creation time, to avoid race conditions
+- **Original name caching**: Store original names before ANY modifications to prevent
+  [1][2] bugs when the same agent is called multiple times
+- **Progress event routing**: Must update both agent._name and agent._aggregator.agent_name
+  since MCPAggregator caches agent_name for progress events
+- **Display suppression**: Child agents run with show_chat=False but show_tools=True to
+  show their internal tool activity without cluttering the log with intermediate responses
+
+Usage Example
+-------------
+```python
+from fast_agent import FastAgent
+
+fast = FastAgent("parent")
+
+# Define child agents
+@fast.agent(name="researcher", instruction="Research topics")
+async def researcher(): pass
+
+@fast.agent(name="writer", instruction="Write content")
+async def writer(): pass
+
+# Define parent with agents-as-tools
+@fast.agent(
+    name="coordinator",
+    instruction="Coordinate research and writing",
+    child_agents=["researcher", "writer"]  # Exposes children as tools
+)
+async def coordinator(): pass
+```
+
+The parent LLM can now naturally call researcher and writer as tools.
+
+References
+----------
+- OpenAI Agents SDK: https://openai.github.io/openai-agents-python/tools
+- GitHub Issue: https://github.com/evalstate/fast-agent/issues/XXX
+"""
+
 from __future__ import annotations
 
 import asyncio
