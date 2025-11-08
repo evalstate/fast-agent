@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from copy import copy
 from typing import Any, Dict, List, Optional
 
 from mcp import ListToolsResult, Tool
@@ -37,7 +39,6 @@ class AgentsAsToolsAgent(ToolAgent):
         # Initialize as a ToolAgent but without local FastMCP tools; we'll override list_tools
         super().__init__(config=config, tools=[], context=context)
         self._child_agents: Dict[str, LlmAgent] = {}
-        self._tool_names: List[str] = []
 
         # Build tool name mapping for children
         for child in agents:
@@ -47,7 +48,6 @@ class AgentsAsToolsAgent(ToolAgent):
                     f"Duplicate tool name '{tool_name}' for child agent '{child.name}', overwriting"
                 )
             self._child_agents[tool_name] = child
-            self._tool_names.append(tool_name)
 
     def _make_tool_name(self, child_name: str) -> str:
         # Use a distinct prefix to avoid collisions with MCP tools
@@ -93,44 +93,26 @@ class AgentsAsToolsAgent(ToolAgent):
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         # Route the call to the corresponding child agent
-        child = self._child_agents.get(name)
-        if child is None:
-            # Fallback: try to resolve without prefix in case the LLM omitted it
-            alt = self._child_agents.get(self._make_tool_name(name))
-            if alt is not None:
-                child = alt
+        child = self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
         if child is None:
             return CallToolResult(content=[text_content(f"Unknown agent-tool: {name}")], isError=True)
 
         args = arguments or {}
         # Prefer explicit text; otherwise serialize json; otherwise serialize entire dict
-        input_text: str
         if isinstance(args.get("text"), str):
             input_text = args["text"]
+        elif "json" in args:
+            input_text = json.dumps(args["json"], ensure_ascii=False) if isinstance(args["json"], dict) else str(args["json"])
         else:
-            import json
-
-            if "json" in args:
-                try:
-                    input_text = json.dumps(args["json"], ensure_ascii=False)
-                except Exception:
-                    input_text = str(args["json"])
-            else:
-                try:
-                    input_text = json.dumps(args, ensure_ascii=False)
-                except Exception:
-                    input_text = str(args)
+            input_text = json.dumps(args, ensure_ascii=False) if args else ""
 
         # Build a single-user message to the child and execute
         child_request = Prompt.user(input_text)
         try:
             # Suppress child agent display when invoked as a tool
-            # Save original config, temporarily disable display
             original_config = None
             if hasattr(child, 'display') and child.display and child.display.config:
                 original_config = child.display.config
-                # Create a modified config with display disabled
-                from copy import copy
                 temp_config = copy(original_config)
                 if hasattr(temp_config, 'logger'):
                     temp_logger = copy(temp_config.logger)
@@ -224,19 +206,6 @@ class AgentsAsToolsAgent(ToolAgent):
         if not records:
             return
 
-        bottom_items: List[str] = []
-        any_error = False
-
-        for record in records:
-            descriptor = record.get("descriptor", {})
-            result: CallToolResult = record.get("result")
-            tool_label = descriptor.get("tool", "(unknown)")
-            status = "error" if result and result.isError else "done"
-            if result and result.isError:
-                any_error = True
-            bottom_items.append(f"{tool_label} · {status}")
-        
-        # Show instance count if multiple agents
         instance_count = len(records)
         
         # Show detailed result for each agent
@@ -322,15 +291,11 @@ class AgentsAsToolsAgent(ToolAgent):
                         content=[text_content(msg)], isError=True
                     )
                     tool_loop_error = tool_loop_error or msg
-                    if descriptor_by_id.get(correlation_id):
-                        descriptor_by_id[correlation_id]["status"] = "error"
-                        descriptor_by_id[correlation_id]["error_message"] = msg
+                    descriptor_by_id[correlation_id]["status"] = "error"
+                    descriptor_by_id[correlation_id]["error_message"] = msg
                 else:
                     tool_results[correlation_id] = result
-                    if descriptor_by_id.get(correlation_id):
-                        descriptor_by_id[correlation_id]["status"] = (
-                            "error" if result.isError else "done"
-                        )
+                    descriptor_by_id[correlation_id]["status"] = "error" if result.isError else "done"
 
         # Show aggregated result(s)
         ordered_records: List[Dict[str, Any]] = []
