@@ -325,8 +325,19 @@ class AgentsAsToolsAgent(ToolAgent):
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
 
-    def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
-        """Display tool call headers for parallel agent execution.
+    def _show_parallel_tool_calls(
+        self, descriptors: list[dict[str, Any]]
+    ) -> None:
+        """Display aggregated view of parallel agent tool calls.
+        
+        Shows individual tool call headers with instance numbers when multiple
+        instances of the same agent execute in parallel.
+        
+        Example output:
+            ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[1]]
+            ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[2]]
+            ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[3]]
+            ▎◀ orchestrator [tool request - agent__PM-1-DayStatusSummarizer[4]]
         
         Args:
             descriptors: List of tool call descriptors with metadata
@@ -383,6 +394,15 @@ class AgentsAsToolsAgent(ToolAgent):
         self, records: list[dict[str, Any]]
     ) -> None:
         """Display tool result panels for parallel agent execution.
+        
+        Shows individual tool result headers with instance numbers matching
+        the tool call headers shown earlier.
+        
+        Example output:
+            ▎▶ orchestrator [tool result - Text Only 78 chars] PM-1-DayStatusSummarizer[1]
+            ▎▶ orchestrator [tool result - Text Only 78 chars] PM-1-DayStatusSummarizer[2]
+            ▎▶ orchestrator [tool result - ERROR] PM-1-DayStatusSummarizer[3]
+            ▎▶ orchestrator [tool result - Text Only 33 chars] PM-1-DayStatusSummarizer[4]
         
         Args:
             records: List of result records with descriptor and result data
@@ -460,7 +480,27 @@ class AgentsAsToolsAgent(ToolAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
-        # Collect original names and prepare for parallel execution
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # PARALLEL EXECUTION SETUP
+        # ═══════════════════════════════════════════════════════════════════════════════
+        # When multiple tool calls invoke the same child agent, we execute them in parallel.
+        # 
+        # INSTANCE NUMBERING:
+        # - Tool headers show: PM-1-DayStatusSummarizer[1], [2], [3], [4]
+        # - Progress panel shows: PM-1-DayStatusSummarizer (single entry, no duplicates)
+        # 
+        # DISPLAY SUPPRESSION:
+        # - Child agents get display.config modified: show_chat=False, show_tools=False
+        # - This prevents duplicate progress panel rows during parallel execution
+        # - Orchestrator displays all tool calls/results with instance numbers
+        # - Original configs restored after parallel execution completes
+        # 
+        # NO AGENT RENAMING:
+        # - We do NOT rename child._name during execution (causes race conditions)
+        # - Instance numbers only appear in display headers (via _show_parallel_tool_calls)
+        # - This ensures true parallel execution without shared state mutations
+        # ═══════════════════════════════════════════════════════════════════════════════
+        
         pending_count = len(id_list)
         original_names = {}
         instance_map = {}  # Map correlation_id -> (child, instance_name, instance_number)
