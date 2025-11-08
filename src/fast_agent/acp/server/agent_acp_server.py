@@ -252,6 +252,13 @@ class AgentACPServer(ACPAgent):
                         accumulated_chunks.append(chunk)
                         current_text = "".join(accumulated_chunks)
 
+                        logger.debug(
+                            f"Stream chunk received: {len(chunk)} chars, total: {len(current_text)}",
+                            name="acp_stream_chunk",
+                            session_id=session_id,
+                            chunk_count=len(accumulated_chunks),
+                        )
+
                         # Send update asynchronously (don't await in sync callback)
                         asyncio.create_task(send_stream_update(current_text))
 
@@ -275,6 +282,24 @@ class AgentACPServer(ACPAgent):
                         session_id=session_id,
                         response_length=len(response_text),
                     )
+
+                    # Send final sessionUpdate with complete response
+                    if self._connection and response_text:
+                        try:
+                            message_chunk = update_agent_message_text(response_text)
+                            notification = session_notification(session_id, message_chunk)
+                            await self._connection.sessionUpdate(notification)
+                            logger.info(
+                                "Sent final sessionUpdate with complete response",
+                                name="acp_final_update",
+                                session_id=session_id,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending final update: {e}",
+                                name="acp_final_update_error",
+                                exc_info=True,
+                            )
 
                 finally:
                     # Clean up stream listener
