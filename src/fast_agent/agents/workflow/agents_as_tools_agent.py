@@ -300,36 +300,9 @@ class AgentsAsToolsAgent(ToolAgent):
         # Serialize arguments to text input
         child_request = Prompt.user(input_text)
         
-        # Track display config changes per child to handle parallel instances
-        child_id = id(child)
-        if not hasattr(self, '_display_suppression_count'):
-            self._display_suppression_count = {}
-        if not hasattr(self, '_original_display_configs'):
-            self._original_display_configs = {}
-        
         try:
-            # Suppress child agent chat messages (keep tool calls visible)
-            # Only modify config on first parallel instance
-            if child_id not in self._display_suppression_count:
-                self._display_suppression_count[child_id] = 0
-            
-            # Increment active instance count first
-            self._display_suppression_count[child_id] += 1
-            
-            # Only modify config if this is the first instance and we haven't stored the original yet
-            if self._display_suppression_count[child_id] == 1 and child_id not in self._original_display_configs:
-                if hasattr(child, 'display') and child.display and child.display.config:
-                    # Store original config for restoration later
-                    self._original_display_configs[child_id] = child.display.config
-                    temp_config = copy(child.display.config)
-                    if hasattr(temp_config, 'logger'):
-                        temp_logger = copy(temp_config.logger)
-                        temp_logger.show_chat = False
-                        temp_logger.show_tools = True  # Explicitly keep tools visible
-                        temp_config.logger = temp_logger
-                        child.display.config = temp_config
-                        logger.info(f"Suppressed chat for {child.name} (first instance)")
-            
+            # Note: Display suppression is now handled in run_tools before parallel execution
+            # This ensures all instances use the same suppressed config
             response: PromptMessageExtended = await child.generate([child_request], None)
             # Prefer preserving original content blocks for better UI fidelity
             content_blocks = list(response.content or [])
@@ -351,14 +324,6 @@ class AgentsAsToolsAgent(ToolAgent):
         except Exception as e:
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
-        finally:
-            # Decrement active instance count
-            if child_id in self._display_suppression_count:
-                self._display_suppression_count[child_id] -= 1
-                logger.info(f"Decremented count for {child.name}: {self._display_suppression_count[child_id]} instances remaining")
-                
-                # Don't restore config here - let run_tools restore after results are displayed
-                # This ensures final logs keep instance numbers [N]
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
@@ -495,15 +460,45 @@ class AgentsAsToolsAgent(ToolAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
-        # Collect original names
+        # Collect original names and setup display suppression BEFORE parallel execution
         pending_count = len(id_list)
         original_names = {}
+        suppressed_children = set()  # Track which children we suppressed
+        
+        # Initialize tracking dictionaries if needed
+        if not hasattr(self, '_display_suppression_count'):
+            self._display_suppression_count = {}
+        if not hasattr(self, '_original_display_configs'):
+            self._original_display_configs = {}
+        
         if pending_count > 1:
             for cid in id_list:
                 tool_name = descriptor_by_id[cid]["tool"]
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child and hasattr(child, '_name') and tool_name not in original_names:
-                    original_names[tool_name] = child._name
+                if child:
+                    # Store original name
+                    if hasattr(child, '_name') and tool_name not in original_names:
+                        original_names[tool_name] = child._name
+                    
+                    # Suppress display for this child (only once per unique child)
+                    child_id = id(child)
+                    if child_id not in suppressed_children:
+                        suppressed_children.add(child_id)
+                        
+                        # Only suppress if not already suppressed
+                        if child_id not in self._original_display_configs:
+                            if hasattr(child, 'display') and child.display and child.display.config:
+                                # Store original config
+                                self._original_display_configs[child_id] = child.display.config
+                                # Create suppressed config
+                                temp_config = copy(child.display.config)
+                                if hasattr(temp_config, 'logger'):
+                                    temp_logger = copy(temp_config.logger)
+                                    temp_logger.show_chat = False
+                                    temp_logger.show_tools = True
+                                    temp_config.logger = temp_logger
+                                    child.display.config = temp_config
+                                    logger.info(f"Pre-suppressed chat for {child._name} before parallel execution")
         
         # Import progress_display at outer scope to ensure same instance
         from fast_agent.event_progress import ProgressAction, ProgressEvent
@@ -594,48 +589,22 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original agent names and display configs (instance lines already hidden in task finally blocks)
-        if pending_count > 1:
-            for tool_name, original_name in original_names.items():
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child:
-                    child._name = original_name
-                    # Restore aggregator's agent_name too
-                    if hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = original_name
-                    
-                    # Restore display config now that all results are shown
-                    child_id = id(child)
-                    
-                    # Check and clean up suppression count
-                    if hasattr(self, '_display_suppression_count') and child_id in self._display_suppression_count:
-                        if self._display_suppression_count[child_id] == 0:
-                            del self._display_suppression_count[child_id]
-                            logger.info(f"Cleaned up suppression count for {original_name}")
-                    
-                    # Restore original display config
-                    if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
-                        original_config = self._original_display_configs[child_id]
-                        del self._original_display_configs[child_id]
-                        if hasattr(child, 'display') and child.display:
-                            child.display.config = original_config
-                            logger.info(f"Restored display config for {original_name} after all results displayed")
-        else:
-            # Single instance, also restore name and config
-            for tool_name, original_name in original_names.items():
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child:
-                    child._name = original_name
-                    if hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = original_name
-                    
-                    # Also restore display config for single instance
-                    child_id = id(child)
-                    if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
-                        original_config = self._original_display_configs[child_id]
-                        del self._original_display_configs[child_id]
-                        if hasattr(child, 'display') and child.display:
-                            child.display.config = original_config
-                            logger.info(f"Restored display config for {original_name} (single instance)")
+        # Restore original agent names and display configs
+        for tool_name, original_name in original_names.items():
+            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+            if child:
+                child._name = original_name
+                # Restore aggregator's agent_name too
+                if hasattr(child, '_aggregator') and child._aggregator:
+                    child._aggregator.agent_name = original_name
+                
+                # Restore display config if it was suppressed
+                child_id = id(child)
+                if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
+                    original_config = self._original_display_configs[child_id]
+                    del self._original_display_configs[child_id]
+                    if hasattr(child, 'display') and child.display:
+                        child.display.config = original_config
+                        logger.info(f"Restored display config for {original_name} after all results displayed")
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
