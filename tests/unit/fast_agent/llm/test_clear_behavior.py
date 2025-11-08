@@ -35,11 +35,9 @@ async def test_llm_clear_retains_templates():
 
     llm.clear()
     assert [msg.first_text() for msg in llm.message_history] == ["template context"]
-    assert len(llm.history.get()) == 1
 
     llm.clear(clear_prompts=True)
     assert llm.message_history == []
-    assert llm.history.get() == []
 
 
 @pytest.mark.asyncio

@@ -698,7 +698,12 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
 
-        messages.extend(self.history.get(include_completion_history=request_params.use_history))
+        # Build messages from canonical history if use_history is enabled
+        if request_params.use_history:
+            # Convert all messages from _message_history to OpenAI format
+            for msg in self._message_history:
+                messages.extend(OpenAIConverter.convert_to_openai(msg))
+
         if message is not None:
             messages.extend(message)
 
@@ -821,18 +826,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             stop_reason = LlmStopReason.SAFETY
             self.logger.debug(" Stopping because finish_reason is 'content_filter'")
 
-        if request_params.use_history:
-            # Get current prompt messages
-            prompt_messages = self.history.get(include_completion_history=False)
-
-            # Calculate new conversation messages (excluding prompts)
-            new_messages = messages[len(prompt_messages) :]
-
-            if system_prompt:
-                new_messages = new_messages[1:]
-
-            self.history.set(new_messages)
-
         self._log_chat_finished(model=self.default_request_params.model)
 
         return Prompt.assistant(
@@ -923,8 +916,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # History-aware vs stateless turn construction
         if req_params.use_history:
-            # Persist prior context to provider memory; send only the last message for this turn
-            self.history.extend(converted_prior, is_prompt=is_template)
+            # Messages already in _message_history via _precall; send only the last message for this turn
             turn_messages = converted_last
         else:
             # Do NOT persist; inline the full turn context to the provider call

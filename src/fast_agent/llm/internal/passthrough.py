@@ -77,8 +77,8 @@ class PassthroughLLM(FastAgentLLM):
         tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
-        # Add messages to history with proper is_prompt flag
-        self.history.extend(multipart_messages, is_prompt=is_template)
+        # Messages are already in _message_history via _precall
+        # No need to duplicate in provider-specific history
 
         last_message = multipart_messages[-1]
         tool_calls: Dict[str, CallToolRequest] = {}

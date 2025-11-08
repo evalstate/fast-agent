@@ -35,7 +35,7 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     ModelT,
 )
-from fast_agent.llm.memory import Memory, SimpleMemory
+from fast_agent.llm.cache_tracker import CachePositionTracker
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
@@ -130,11 +130,13 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.name: str = name or "fast-agent"
         self.instruction = instruction
         self._provider = provider
-        # memory contains provider specific API types.
-        self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
 
+        # Single source of truth for conversation history
         self._message_history: List[PromptMessageExtended] = []
         self._template_messages: List[PromptMessageExtended] = []
+
+        # Cache position tracking for Anthropic conversation caching
+        self._cache_tracker = CachePositionTracker()
 
         # Initialize the display component
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -731,18 +733,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if not self._message_history:
             return None
 
-        removed = self._message_history.pop()
-        try:
-            self.history.pop()
-        except Exception:
-            # If provider-specific memory isn't available, ignore to avoid crashing UX
-            pass
-        return removed
+        return self._message_history.pop()
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         """Reset stored message history while optionally retaining prompt templates."""
 
-        self.history.clear(clear_prompts=clear_prompts)
+        # Clear cache tracking
+        self._cache_tracker.clear()
+
         if clear_prompts:
             self._template_messages = []
             self._message_history = []

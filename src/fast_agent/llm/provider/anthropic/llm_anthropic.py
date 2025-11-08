@@ -136,26 +136,35 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             else:
                 logger.debug(f"Unexpected system prompt type: {type(system_content)}")
 
-    async def _apply_conversation_cache(self, messages: List[MessageParam], cache_mode: str) -> int:
+    async def _apply_conversation_cache(
+        self, messages: List[MessageParam], cache_mode: str, prompt_message_count: int
+    ) -> int:
         """Apply conversation caching if in auto mode. Returns number of cache blocks applied."""
         applied_count = 0
-        if cache_mode == "auto" and self.history.should_apply_conversation_cache():
-            cache_updates = self.history.get_conversation_cache_updates()
+        total_conversation_messages = len(messages) - prompt_message_count
+        if cache_mode == "auto" and self._cache_tracker.should_apply_conversation_cache(
+            total_conversation_messages
+        ):
+            cache_updates = self._cache_tracker.get_conversation_cache_updates(
+                total_conversation_messages, prompt_message_count
+            )
 
             # Remove cache control from old positions
             if cache_updates["remove"]:
-                self.history.remove_cache_control_from_messages(messages, cache_updates["remove"])
+                self._cache_tracker.remove_cache_control_from_messages(
+                    messages, cache_updates["remove"]
+                )
                 logger.debug(
                     f"Removed conversation cache_control from positions {cache_updates['remove']}"
                 )
 
             # Add cache control to new positions
             if cache_updates["add"]:
-                applied_count = self.history.add_cache_control_to_messages(
+                applied_count = self._cache_tracker.add_cache_control_to_messages(
                     messages, cache_updates["add"]
                 )
                 if applied_count > 0:
-                    self.history.apply_conversation_cache_updates(cache_updates)
+                    self._cache_tracker.apply_conversation_cache_updates(cache_updates)
                     logger.debug(
                         f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)"
                     )
@@ -474,7 +483,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         try:
             anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
-            messages: List[MessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
         except AuthenticationError as e:
             raise ProviderKeyError(
@@ -482,12 +490,40 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
             ) from e
 
-        # Always include prompt messages, but only include conversation history if enabled
-        messages.extend(self.history.get(include_completion_history=params.use_history))
-        messages.append(message_param)  # message_param is the current user turn
+        # Build messages from canonical history
+        messages: List[MessageParam] = []
 
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()
+
+        # If pre_messages provided (use_history=False case), use them
+        if pre_messages:
+            messages.extend(pre_messages)
+        # Otherwise, convert from _message_history if use_history is enabled
+        elif params.use_history:
+            # Convert all messages from _message_history to Anthropic format
+            # Apply cache control to template messages if cache_mode allows it
+            template_count = len(self._template_messages)
+
+            for idx, msg in enumerate(self._message_history):
+                converted_msg = AnthropicConverter.convert_to_anthropic(msg)
+
+                # Apply cache control to template messages
+                is_template_msg = idx < template_count
+                if is_template_msg and cache_mode in ["prompt", "auto"] and converted_msg.get("content"):
+                    content_list = converted_msg["content"]
+                    if isinstance(content_list, list) and content_list:
+                        # Apply cache control to the last content block
+                        last_block = content_list[-1]
+                        if isinstance(last_block, dict):
+                            last_block["cache_control"] = {"type": "ephemeral"}
+                            logger.debug(f"Applied cache_control to template message at index {idx}")
+
+                messages.append(converted_msg)
+
+        # Add the current turn's message
+        messages.append(message_param)
+
         logger.debug(f"Anthropic cache_mode: {cache_mode}")
 
         available_tools = await self._prepare_tools(structured_model, tools)
@@ -524,7 +560,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self._apply_system_cache(arguments, cache_mode)
 
         # Apply conversation caching
-        applied_count = await self._apply_conversation_cache(messages, cache_mode)
+        # Prompt message count is the number of template messages
+        prompt_message_count = len(self._template_messages)
+        applied_count = await self._apply_conversation_cache(messages, cache_mode, prompt_message_count)
 
         # Verify we don't exceed Anthropic's 4 cache block limit
         if applied_count > 0:
@@ -607,14 +645,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 else:
                     tool_calls = self._build_tool_calls_dict(tool_uses)
 
-        # Only save the new conversation messages to history if use_history is true
-        # Keep the prompt messages separate
-        if params.use_history:
-            # Get current prompt messages
-            prompt_messages = self.history.get(include_completion_history=False)
-            new_messages = messages[len(prompt_messages) :]
-            self.history.set(new_messages)
-
         self._log_chat_finished(model=model)
 
         return Prompt.assistant(
@@ -660,12 +690,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             converted.append(anthropic_msg)
 
-        # Persist prior only when history is enabled; otherwise inline for this call
-        pre_messages: List[MessageParam] | None = None
-        if params.use_history:
-            self.history.extend(converted, is_prompt=is_template)
-        else:
-            pre_messages = converted
+        # When history is disabled, pass converted messages directly
+        # Otherwise, they'll be rebuilt from _message_history in _anthropic_completion
+        pre_messages: List[MessageParam] | None = None if params.use_history else converted
 
         if last_message.role == "user":
             logger.debug("Last message in prompt is from user, generating assistant response")
@@ -699,7 +726,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             anthropic_msg = AnthropicConverter.convert_to_anthropic(msg)
             converted.append(anthropic_msg)
 
-        self.history.extend(converted, is_prompt=False)
+        # Messages are already in _message_history via _precall
+        # No need to duplicate in provider-specific history
 
         if last_message.role == "user":
             logger.debug("Last message in prompt is from user, generating structured response")
