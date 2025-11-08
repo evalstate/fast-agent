@@ -464,10 +464,10 @@ class AgentsAsToolsAgent(ToolAgent):
         pending_count = len(id_list)
         original_names = {}
         instance_map = {}  # Map correlation_id -> (child, instance_name, instance_number)
+        suppressed_configs = {}  # Store original configs to restore later
         
-        # Build instance map - assign instance numbers and names
+        # Build instance map and suppress child progress events
         if pending_count > 1:
-            instance_counter = {}  # Track instance numbers per tool_name
             for i, cid in enumerate(id_list, 1):
                 tool_name = descriptor_by_id[cid]["tool"]
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
@@ -480,6 +480,25 @@ class AgentsAsToolsAgent(ToolAgent):
                     original = original_names.get(tool_name, child._name if hasattr(child, '_name') else tool_name)
                     instance_name = f"{original}[{i}]"
                     instance_map[cid] = (child, instance_name, i)
+                    
+                    # Suppress child's progress events to prevent duplicate panel rows
+                    child_id = id(child)
+                    if child_id not in suppressed_configs and hasattr(child, 'display') and child.display:
+                        if child.display.config:
+                            # Store original config
+                            suppressed_configs[child_id] = child.display.config
+                            
+                            # Create suppressed config (no chat, no progress events)
+                            temp_config = copy(child.display.config)
+                            if hasattr(temp_config, 'logger'):
+                                temp_logger = copy(temp_config.logger)
+                                temp_logger.show_chat = False
+                                temp_logger.show_tools = False  # Hide child's internal tool calls too
+                                temp_config.logger = temp_logger
+                            
+                            # Apply suppressed config
+                            child.display.config = temp_config
+                            logger.info(f"Suppressed progress events for {child._name}")
                     
                     logger.info(f"Mapped {cid} -> {instance_name}")
         
@@ -539,8 +558,17 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Names are already restored in the finally blocks of each task
-        # No additional cleanup needed - each task restored its own changes
+        # Restore suppressed child display configs
+        for child_id, original_config in suppressed_configs.items():
+            # Find the child agent by id
+            for tool_name in original_names.keys():
+                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+                if child and id(child) == child_id:
+                    if hasattr(child, 'display') and child.display:
+                        child.display.config = original_config
+                        logger.info(f"Restored display config for {child._name}")
+                    break
+        
         logger.info(f"Parallel execution complete for {len(id_list)} instances")
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
