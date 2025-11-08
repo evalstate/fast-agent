@@ -351,19 +351,19 @@ class AgentsAsToolsAgent(ToolAgent):
             
             return await self.call_tool(tool_name, tool_args)
         
-        # Set parent agent lines to Ready status while instances run
+        # Hide parent agent lines while instances run
         if pending_count > 1:
-            from fast_agent.event_progress import ProgressAction, ProgressEvent
             from fast_agent.ui.progress_display import progress_display
             
             for tool_name in original_names.keys():
                 original = original_names[tool_name]
-                progress_display.update(ProgressEvent(
-                    action=ProgressAction.READY,
-                    target=original,
-                    details="",
-                    agent_name=original
-                ))
+                # Hide parent line from progress panel
+                if original in progress_display._taskmap:
+                    task_id = progress_display._taskmap[original]
+                    for task in progress_display._progress.tasks:
+                        if task.id == task_id:
+                            task.visible = False
+                            break
         
         # Create tasks with instance-specific wrappers
         for i, cid in enumerate(id_list, 1):
@@ -413,6 +413,14 @@ class AgentsAsToolsAgent(ToolAgent):
                     # Restore aggregator's agent_name too
                     if hasattr(child, '_aggregator') and child._aggregator:
                         child._aggregator.agent_name = original_name
+                
+                # Show parent line again and hide instance lines
+                if original_name in progress_display._taskmap:
+                    task_id = progress_display._taskmap[original_name]
+                    for task in progress_display._progress.tasks:
+                        if task.id == task_id:
+                            task.visible = True  # Restore parent line
+                            break
                 
                 # Hide instance lines from progress panel
                 for i in range(1, pending_count + 1):
