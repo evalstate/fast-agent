@@ -460,114 +460,92 @@ class AgentsAsToolsAgent(ToolAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
-        # Collect original names and setup display suppression BEFORE parallel execution
+        # Collect original names and prepare for parallel execution
         pending_count = len(id_list)
         original_names = {}
-        suppressed_children = set()  # Track which children we suppressed
+        instance_map = {}  # Map correlation_id -> (child, instance_name, instance_number)
         
-        # Initialize tracking dictionaries if needed
-        if not hasattr(self, '_display_suppression_count'):
-            self._display_suppression_count = {}
-        if not hasattr(self, '_original_display_configs'):
-            self._original_display_configs = {}
-        
+        # Build instance map - assign instance numbers and names
         if pending_count > 1:
-            for cid in id_list:
+            instance_counter = {}  # Track instance numbers per tool_name
+            for i, cid in enumerate(id_list, 1):
                 tool_name = descriptor_by_id[cid]["tool"]
                 child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
                 if child:
-                    # Store original name
-                    if hasattr(child, '_name') and tool_name not in original_names:
+                    # Store original name once
+                    if tool_name not in original_names and hasattr(child, '_name'):
                         original_names[tool_name] = child._name
                     
-                    # Suppress display for this child (only once per unique child)
-                    child_id = id(child)
-                    if child_id not in suppressed_children:
-                        suppressed_children.add(child_id)
-                        
-                        # Only suppress if not already suppressed
-                        if child_id not in self._original_display_configs:
-                            if hasattr(child, 'display') and child.display:
-                                # Store original display for complete restoration
-                                self._original_display_configs[child_id] = {
-                                    'config': child.display.config,
-                                    'display': child.display
-                                }
-                                
-                                # Create a display wrapper that blocks chat messages
-                                from fast_agent.ui.console_display import ConsoleDisplay
-                                
-                                # Create suppressed config
-                                if child.display.config:
-                                    temp_config = copy(child.display.config)
-                                    if hasattr(temp_config, 'logger'):
-                                        temp_logger = copy(temp_config.logger)
-                                        temp_logger.show_chat = False
-                                        temp_logger.show_tools = True
-                                        temp_config.logger = temp_logger
-                                    
-                                    # Create new display with suppressed config
-                                    suppressed_display = ConsoleDisplay(config=temp_config)
-                                    child.display = suppressed_display
-                                    logger.info(f"Pre-suppressed chat for {child._name} with new display object")
+                    # Create instance name
+                    original = original_names.get(tool_name, child._name if hasattr(child, '_name') else tool_name)
+                    instance_name = f"{original}[{i}]"
+                    instance_map[cid] = (child, instance_name, i)
+                    
+                    logger.info(f"Mapped {cid} -> {instance_name}")
         
         # Import progress_display at outer scope to ensure same instance
         from fast_agent.event_progress import ProgressAction, ProgressEvent
         from fast_agent.ui.progress_display import progress_display as outer_progress_display
         
-        # Create wrapper coroutine that sets name and emits progress for instance
-        async def call_with_instance_name(tool_name: str, tool_args: dict[str, Any], instance: int) -> CallToolResult:
+        # Create wrapper coroutine that uses pre-assigned instance info
+        async def call_with_instance_name(correlation_id: str, tool_name: str, tool_args: dict[str, Any]) -> CallToolResult:
+            instance_info = instance_map.get(correlation_id)
             instance_name = None
-            if pending_count > 1:
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child and hasattr(child, '_name'):
-                    original = original_names.get(tool_name, child._name)
-                    instance_name = f"{original}[{instance}]"
+            
+            if instance_info:
+                child, instance_name, instance_num = instance_info
+                
+                # Emit progress event to create separate line in progress panel
+                outer_progress_display.update(ProgressEvent(
+                    action=ProgressAction.CHATTING,
+                    target=instance_name,
+                    details="",
+                    agent_name=instance_name
+                ))
+                
+                # Temporarily set instance name for this execution
+                # Store the current names to restore after
+                old_name = child._name if hasattr(child, '_name') else None
+                old_agg_name = child._aggregator.agent_name if hasattr(child, '_aggregator') and child._aggregator else None
+                
+                try:
+                    # Set instance name for THIS execution only
                     child._name = instance_name
-                    
-                    # Also update aggregator's agent_name so tool progress events use instance name
                     if hasattr(child, '_aggregator') and child._aggregator:
                         child._aggregator.agent_name = instance_name
                     
-                    # Emit progress event to create separate line in progress panel
-                    outer_progress_display.update(ProgressEvent(
-                        action=ProgressAction.CHATTING,
-                        target=instance_name,
-                        details="",
-                        agent_name=instance_name
-                    ))
-            
-            try:
-                return await self.call_tool(tool_name, tool_args)
-            finally:
-                # Hide instance line immediately when this task completes
-                if instance_name and pending_count > 1:
+                    logger.info(f"[{instance_name}] Starting execution")
+                    result = await self.call_tool(tool_name, tool_args)
+                    logger.info(f"[{instance_name}] Completed execution")
+                    return result
+                    
+                finally:
+                    # Restore original names immediately
+                    if old_name is not None:
+                        child._name = old_name
+                    if old_agg_name is not None and hasattr(child, '_aggregator') and child._aggregator:
+                        child._aggregator.agent_name = old_agg_name
+                    
+                    # Hide instance line
                     logger.info(f"Hiding instance line: {instance_name}")
                     if instance_name in outer_progress_display._taskmap:
                         task_id = outer_progress_display._taskmap[instance_name]
                         for task in outer_progress_display._progress.tasks:
                             if task.id == task_id:
                                 task.visible = False
-                                logger.info(f"Set visible=False for {instance_name}")
                                 break
+            else:
+                # Single instance or no mapping - just call normally
+                return await self.call_tool(tool_name, tool_args)
         
-        # Set parent agent lines to Ready status while instances run
-        if pending_count > 1:
-            for tool_name in original_names.keys():
-                original = original_names[tool_name]
-                # Set parent to Ready status
-                outer_progress_display.update(ProgressEvent(
-                    action=ProgressAction.READY,
-                    target=original,
-                    details="",
-                    agent_name=original
-                ))
+        # DON'T hide or suppress main instance - keep it visible to see event routing
+        # Parent stays visible in progress panel during parallel execution
         
         # Create tasks with instance-specific wrappers
-        for i, cid in enumerate(id_list, 1):
+        for cid in id_list:
             tool_name = descriptor_by_id[cid]["tool"]
             tool_args = descriptor_by_id[cid]["args"]
-            tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i)))
+            tasks.append(asyncio.create_task(call_with_instance_name(cid, tool_name, tool_args)))
 
         # Show aggregated tool call(s)
         self._show_parallel_tool_calls(call_descriptors)
@@ -600,23 +578,8 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        # Restore original agent names and display configs
-        for tool_name, original_name in original_names.items():
-            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-            if child:
-                child._name = original_name
-                # Restore aggregator's agent_name too
-                if hasattr(child, '_aggregator') and child._aggregator:
-                    child._aggregator.agent_name = original_name
-                
-                # Restore display if it was suppressed
-                child_id = id(child)
-                if hasattr(self, '_original_display_configs') and child_id in self._original_display_configs:
-                    original_data = self._original_display_configs[child_id]
-                    del self._original_display_configs[child_id]
-                    if hasattr(child, 'display'):
-                        # Restore both display object and config
-                        child.display = original_data['display']
-                        logger.info(f"Restored display object for {original_name} after all results displayed")
+        # Names are already restored in the finally blocks of each task
+        # No additional cleanup needed - each task restored its own changes
+        logger.info(f"Parallel execution complete for {len(id_list)} instances")
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
