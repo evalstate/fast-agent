@@ -2,17 +2,18 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping, Sequence
 from shutil import get_terminal_size
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING
 
 from rich import print as rich_print
 from rich.text import Text
 
+from fast_agent.constants import FAST_AGENT_TIMING
 from fast_agent.mcp.helpers.content_helpers import get_text
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Mapping
-
     from rich.console import Console
 
     from fast_agent.llm.usage_tracking import UsageAccumulator
@@ -25,7 +26,7 @@ SUMMARY_COUNT = 8
 ROLE_COLUMN_WIDTH = 17
 
 
-def _normalize_text(value: Optional[str]) -> str:
+def _normalize_text(value: str | None) -> str:
     return "" if not value else " ".join(value.split())
 
 
@@ -44,7 +45,7 @@ class Colours:
     TOOL_DETAIL = "dim magenta"
 
 
-def _char_count(value: Optional[str]) -> int:
+def _char_count(value: str | None) -> int:
     return len(_normalize_text(value))
 
 
@@ -81,10 +82,10 @@ def _truncate_text_segment(segment: Text, width: int) -> Text:
 
 def _compose_summary_text(
     preview: Text,
-    detail: Optional[Text],
+    detail: Text | None,
     *,
     include_non_text: bool,
-    max_width: Optional[int],
+    max_width: int | None,
 ) -> Text:
     marker_component = Text()
     if include_non_text:
@@ -171,7 +172,7 @@ def _compose_summary_text(
     return combined
 
 
-def _preview_text(value: Optional[str], limit: int = 80) -> str:
+def _preview_text(value: str | None, limit: int = 80) -> str:
     normalized = _normalize_text(value)
     if not normalized:
         return "<no text>"
@@ -189,7 +190,7 @@ def _has_non_text_content(message: PromptMessageExtended) -> bool:
 
 
 def _extract_tool_result_summary(result, *, limit: int = 80) -> tuple[str, int, bool]:
-    preview: Optional[str] = None
+    preview: str | None = None
     total_chars = 0
     saw_non_text = False
 
@@ -218,6 +219,36 @@ def format_chars(value: int) -> str:
     return str(value)
 
 
+def _extract_timing_ms(message: PromptMessageExtended) -> float | None:
+    """Extract timing duration in milliseconds from message channels."""
+    channels = getattr(message, "channels", None)
+    if not channels:
+        return None
+
+    timing_blocks = channels.get(FAST_AGENT_TIMING, [])
+    if not timing_blocks:
+        return None
+
+    timing_text = get_text(timing_blocks[0])
+    if not timing_text:
+        return None
+
+    try:
+        timing_data = json.loads(timing_text)
+        return timing_data.get("duration_ms")
+    except (json.JSONDecodeError, AttributeError, KeyError):
+        return None
+
+
+def format_time(value: float | None) -> str:
+    """Format timing value for display."""
+    if value is None:
+        return "-"
+    if value < 1000:
+        return f"{value:.0f}ms"
+    return f"{value / 1000:.1f}s"
+
+
 def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
     rows: list[dict] = []
     call_name_lookup: dict[str, str] = {}
@@ -238,8 +269,11 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         preview = _preview_text(text)
         non_text = _has_non_text_content(message) or chars == 0
 
-        tool_calls: Optional[Mapping[str, object]] = getattr(message, "tool_calls", None)
-        tool_results: Optional[Mapping[str, object]] = getattr(message, "tool_results", None)
+        # Extract timing data
+        timing_ms = _extract_timing_ms(message)
+
+        tool_calls: Mapping[str, object] | None = getattr(message, "tool_calls", None)
+        tool_results: Mapping[str, object] | None = getattr(message, "tool_results", None)
 
         detail_sections: list[Text] = []
         row_non_text = non_text
@@ -289,6 +323,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                         "hide_summary": False,
                         "include_in_timeline": False,
                         "is_error": is_error,
+                        "timing_ms": None,
                     }
                 )
             if role == "user":
@@ -327,6 +362,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 "hide_summary": hide_in_summary,
                 "include_in_timeline": include_in_timeline,
                 "is_error": row_is_error,
+                "timing_ms": timing_ms,
             }
         )
         rows.extend(result_rows)
@@ -392,7 +428,7 @@ def _build_history_bar(entries: Sequence[dict], width: int = TIMELINE_WIDTH) -> 
 
 def _build_context_bar_line(
     current: int,
-    window: Optional[int],
+    window: int | None,
     width: int = TIMELINE_WIDTH,
 ) -> tuple[Text, Text]:
     bar = Text(" context |", style="dim")
@@ -427,7 +463,7 @@ def _build_context_bar_line(
     return bar, detail
 
 
-def _render_header_line(agent_name: str, *, console: Optional[Console], printer) -> None:
+def _render_header_line(agent_name: str, *, console: Console | None, printer) -> None:
     header = Text()
     header.append("▎", style=Colours.HEADER)
     header.append("●", style=f"dim {Colours.HEADER}")
@@ -454,9 +490,9 @@ def _render_header_line(agent_name: str, *, console: Optional[Console], printer)
 def display_history_overview(
     agent_name: str,
     history: Sequence[PromptMessageExtended],
-    usage_accumulator: Optional["UsageAccumulator"] = None,
+    usage_accumulator: "UsageAccumulator" | None = None,
     *,
-    console: Optional[Console] = None,
+    console: Console | None = None,
 ) -> None:
     if not history:
         printer = console.print if console else rich_print
@@ -509,15 +545,6 @@ def display_history_overview(
         Text(" " + "─" * (history_bar.cell_len + context_bar.cell_len + gap.cell_len), style="dim")
     )
 
-    header_line = Text(" ")
-    header_line.append(" #", style="dim")
-    header_line.append(" ", style="dim")
-    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
-    header_line.append(f" {'Chars':>7}", style="dim")
-    header_line.append("  ", style="dim")
-    header_line.append("Summary", style="dim")
-    printer(header_line)
-
     summary_candidates = [row for row in rows if not row.get("hide_summary")]
     summary_rows = summary_candidates[-SUMMARY_COUNT:]
     start_index = len(summary_candidates) - len(summary_rows) + 1
@@ -529,6 +556,22 @@ def display_history_overview(
         total_width = console.width if console else get_terminal_size().columns
     except Exception:
         total_width = 80
+
+    # Responsive column layout based on terminal width
+    show_time = total_width >= 60
+    show_chars = total_width >= 50
+
+    header_line = Text(" ")
+    header_line.append(" #", style="dim")
+    header_line.append(" ", style="dim")
+    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
+    if show_time:
+        header_line.append(f" {'Time':>7}", style="dim")
+    if show_chars:
+        header_line.append(f" {'Chars':>7}", style="dim")
+    header_line.append("  ", style="dim")
+    header_line.append("Summary", style="dim")
+    printer(header_line)
 
     for offset, row in enumerate(summary_rows):
         role = row["role"]
@@ -547,6 +590,9 @@ def display_history_overview(
         if detail_text.cell_len == 0:
             detail_text = None
 
+        timing_ms = row.get("timing_ms")
+        timing_str = format_time(timing_ms)
+
         line = Text(" ")
         line.append(f"{start_index + offset:>2}", style="dim")
         line.append(" ")
@@ -555,7 +601,10 @@ def display_history_overview(
         line.append(arrow, style=color)
         line.append(" ")
         line.append(f"{label:<{ROLE_COLUMN_WIDTH}}", style=color)
-        line.append(f" {format_chars(chars):>7}", style="dim")
+        if show_time:
+            line.append(f" {timing_str:>7}", style="dim")
+        if show_chars:
+            line.append(f" {format_chars(chars):>7}", style="dim")
         line.append("  ")
         summary_width = max(0, total_width - line.cell_len)
         summary_text = _compose_summary_text(
