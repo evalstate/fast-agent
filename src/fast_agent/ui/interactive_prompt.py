@@ -283,6 +283,35 @@ class InteractivePrompt:
                             if result:
                                 rich_print(f"[green]{result}[/green]")
                         continue
+                    elif "load_history" in command_dict:
+                        # Load history for the current agent
+                        if command_dict.get("error"):
+                            rich_print(f"[red]{command_dict['error']}[/red]")
+                            continue
+
+                        filename = command_dict.get("filename")
+                        try:
+                            from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+                            # Load the messages from the file
+                            messages = load_prompt(Path(filename))
+
+                            # Get the agent object
+                            agent_obj = prompt_provider._agent(agent)
+
+                            # Clear the agent's history first
+                            agent_obj.clear()
+
+                            # Load the messages into the agent's history
+                            # We use generate() to properly process the loaded history
+                            await agent_obj.generate(messages)
+
+                            rich_print(f"[green]History loaded from {filename}[/green]")
+                        except FileNotFoundError:
+                            rich_print(f"[red]File not found: {filename}[/red]")
+                        except Exception as e:
+                            rich_print(f"[red]Error loading history: {e}[/red]")
+                        continue
 
                 # Skip further processing if:
                 # 1. The command was handled (command_result is truthy)

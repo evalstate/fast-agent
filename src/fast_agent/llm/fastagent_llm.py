@@ -205,9 +205,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         if messages[-1].first_text().startswith("***SAVE_HISTORY"):
             parts: list[str] = messages[-1].first_text().split(" ", 1)
-            filename: str = (
-                parts[1].strip() if len(parts) > 1 else f"{self.name or 'assistant'}.json"
-            )
+            if len(parts) > 1:
+                filename: str = parts[1].strip()
+            else:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
+                filename = f"{timestamp}-conversation.json"
             await self._save_history(filename)
             return Prompt.assistant(f"History saved to {filename}")
 
