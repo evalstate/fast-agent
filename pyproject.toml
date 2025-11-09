@@ -99,7 +99,8 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "e2e: tests that connect to external resources (llms)",
     "integration: marks tests as integration tests",
-    "simulated_endpoints: marks tests that use simulated external endpoints"
+    "simulated_endpoints: marks tests that use simulated external endpoints",
+    "unit: marks tests as unit tests"
 ]
 
 # Filter out utcnow depreciation warnings from the boto3 library (if installed)

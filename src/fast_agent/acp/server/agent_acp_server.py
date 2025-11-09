@@ -28,6 +28,7 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
@@ -82,8 +83,14 @@ class AgentACPServer(ACPAgent):
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
 
+        # Terminal runtime tracking (for cleanup)
+        self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
+
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
+
+        # Client capabilities (set during initialize)
+        self._client_supports_terminal: bool = False
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
@@ -106,11 +113,18 @@ class AgentACPServer(ACPAgent):
         Negotiates protocol version and advertises capabilities.
         """
         try:
+            # Store client capabilities
+            if params.clientCapabilities:
+                self._client_supports_terminal = bool(
+                    getattr(params.clientCapabilities, "terminal", False)
+                )
+
             logger.info(
                 "ACP initialize request",
                 name="acp_initialize",
                 client_protocol=params.protocolVersion,
                 client_info=params.clientInfo,
+                client_supports_terminal=self._client_supports_terminal,
             )
 
             # Build our capabilities
@@ -178,11 +192,40 @@ class AgentACPServer(ACPAgent):
 
             self.sessions[session_id] = instance
 
+            # If client supports terminals and we have shell runtime enabled,
+            # inject ACP terminal runtime to replace local ShellRuntime
+            if self._client_supports_terminal and self._connection:
+                # Check if any agent has shell runtime enabled
+                for agent_name, agent in instance.agents.items():
+                    if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
+                        # Create ACPTerminalRuntime for this session
+                        terminal_runtime = ACPTerminalRuntime(
+                            connection=self._connection,
+                            session_id=session_id,
+                            activation_reason="via ACP terminal support",
+                            timeout_seconds=getattr(
+                                agent._shell_runtime, "timeout_seconds", 90
+                            ),
+                        )
+
+                        # Inject into agent
+                        if hasattr(agent, "set_external_runtime"):
+                            agent.set_external_runtime(terminal_runtime)
+                            self._session_terminal_runtimes[session_id] = terminal_runtime
+
+                            logger.info(
+                                "ACP terminal runtime injected",
+                                name="acp_terminal_injected",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                            )
+
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
             session_id=session_id,
             total_sessions=len(self.sessions),
+            terminal_enabled=session_id in self._session_terminal_runtimes,
         )
 
         return NewSessionResponse(sessionId=session_id)
@@ -294,7 +337,8 @@ class AgentACPServer(ACPAgent):
                         response_length=len(response_text),
                     )
 
-                    # Send final sessionUpdate with complete response
+                    # Always send final update with complete response
+                    # (streaming sends chunks during execution, this is the final complete message)
                     if self._connection and response_text:
                         try:
                             message_chunk = update_agent_message_text(response_text)
@@ -312,8 +356,23 @@ class AgentACPServer(ACPAgent):
                                 exc_info=True,
                             )
 
+                except Exception as send_error:
+                    # Make sure listener is cleaned up even on error
+                    if stream_listener and remove_listener:
+                        try:
+                            remove_listener()
+                            logger.info(
+                                "Removed stream listener after error",
+                                name="acp_streaming_cleanup_error",
+                                session_id=session_id,
+                            )
+                        except Exception:
+                            logger.exception("Failed to remove ACP stream listener after error")
+                    # Re-raise the original error
+                    raise send_error
+
                 finally:
-                    # Clean up stream listener
+                    # Clean up stream listener (if not already cleaned up in except)
                     if stream_listener and remove_listener:
                         try:
                             remove_listener()
@@ -404,6 +463,20 @@ class AgentACPServer(ACPAgent):
         logger.info(f"Cleaning up {len(self.sessions)} sessions")
 
         async with self._session_lock:
+            # Clean up terminal runtimes (must release as per ACP spec)
+            for session_id, terminal_runtime in list(self._session_terminal_runtimes.items()):
+                try:
+                    # Terminal runtime cleanup happens automatically via _release_terminal
+                    # in each execute() call, but we log here for completeness
+                    logger.debug(f"Terminal runtime for session {session_id} will be cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error noting terminal cleanup for session {session_id}: {e}",
+                        name="acp_terminal_cleanup_error",
+                    )
+
+            self._session_terminal_runtimes.clear()
+
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
                 for session_id, instance in self.sessions.items():

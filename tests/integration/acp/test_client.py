@@ -34,6 +34,8 @@ class TestClient(Client):
         self.notifications: list[SessionNotification] = []
         self.ext_calls: list[tuple[str, dict[str, Any]]] = []
         self.ext_notes: list[tuple[str, dict[str, Any]]] = []
+        self.terminals: dict[str, dict[str, Any]] = {}
+        self._terminal_count: int = 0  # For generating terminal IDs like real clients
 
     def queue_permission_cancelled(self) -> None:
         self.permission_outcomes.append(
@@ -63,20 +65,77 @@ class TestClient(Client):
     async def sessionUpdate(self, params: SessionNotification) -> None:
         self.notifications.append(params)
 
-    async def createTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    # Terminal support - implement simple in-memory simulation
+    async def terminal_create(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Simulate terminal creation and command execution.
 
-    async def terminalOutput(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        Per ACP spec: CLIENT creates the terminal ID, not the agent.
+        This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
 
-    async def releaseTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        Params per spec: command, args, env, cwd, outputByteLimit (no sessionId)
+        """
+        command = params["command"]
+        args = params.get("args", [])
+        env = params.get("env", {})
+        cwd = params.get("cwd")
 
-    async def waitForTerminalExit(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
+        self._terminal_count += 1
+        terminal_id = f"terminal-{self._terminal_count}"
 
-    async def killTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        # Build full command if args provided
+        full_command = command
+        if args:
+            full_command = f"{command} {' '.join(args)}"
+
+        # Store terminal state
+        self.terminals[terminal_id] = {
+            "command": full_command,
+            "output": f"Executed: {full_command}\nMock output for testing",
+            "exit_code": 0,
+            "completed": True,
+            "env": env,
+            "cwd": cwd,
+        }
+
+        # Return the ID we created
+        return {"terminalId": terminal_id}
+
+    async def terminal_output(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Get terminal output."""
+        terminal_id = params["terminalId"]
+        terminal = self.terminals.get(terminal_id, {})
+
+        return {
+            "output": terminal.get("output", ""),
+            "truncated": False,
+            "exitCode": terminal.get("exit_code") if terminal.get("completed") else None,
+        }
+
+    async def terminal_release(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Release terminal resources."""
+        terminal_id = params["terminalId"]
+        if terminal_id in self.terminals:
+            del self.terminals[terminal_id]
+        return {}
+
+    async def terminal_wait_for_exit(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Wait for terminal to exit (immediate in simulation)."""
+        terminal_id = params["terminalId"]
+        terminal = self.terminals.get(terminal_id, {})
+
+        return {
+            "exitCode": terminal.get("exit_code", -1),
+            "signal": None,
+        }
+
+    async def terminal_kill(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Kill a running terminal."""
+        terminal_id = params["terminalId"]
+        if terminal_id in self.terminals:
+            self.terminals[terminal_id]["exit_code"] = -1
+            self.terminals[terminal_id]["completed"] = True
+        return {}
 
     async def extMethod(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.ext_calls.append((method, params))
