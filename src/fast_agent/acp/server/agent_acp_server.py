@@ -83,6 +83,9 @@ class AgentACPServer(ACPAgent):
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
 
+        # Active prompt tracking (for preventing overlapping requests)
+        self._active_prompts: set[str] = set()
+
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
 
@@ -245,37 +248,50 @@ class AgentACPServer(ACPAgent):
             session_id=session_id,
         )
 
-        # Get the agent instance for this session
+        # Get the agent instance for this session and check for overlapping requests
         async with self._session_lock:
             instance = self.sessions.get(session_id)
 
-        if not instance:
-            logger.error(
-                "ACP prompt error: session not found",
-                name="acp_prompt_error",
-                session_id=session_id,
-            )
-            # Return an error response
-            return PromptResponse(stopReason=REFUSAL)
+            if not instance:
+                logger.error(
+                    "ACP prompt error: session not found",
+                    name="acp_prompt_error",
+                    session_id=session_id,
+                )
+                # Return an error response
+                return PromptResponse(stopReason=REFUSAL)
 
-        # Extract text content from the prompt
-        text_parts = []
-        for content_block in params.prompt:
-            if hasattr(content_block, "type") and content_block.type == "text":
-                text_parts.append(content_block.text)
+            # Check for overlapping prompt requests
+            if session_id in self._active_prompts:
+                logger.warning(
+                    "Overlapping prompt request detected - returning cancelled",
+                    name="acp_prompt_overlap",
+                    session_id=session_id,
+                )
+                return PromptResponse(stopReason="cancelled")
 
-        prompt_text = "\n".join(text_parts)
+            # Mark this session as having an active prompt
+            self._active_prompts.add(session_id)
 
-        logger.info(
-            "Sending prompt to fast-agent",
-            name="acp_prompt_send",
-            session_id=session_id,
-            agent=self.primary_agent_name,
-            prompt_length=len(prompt_text),
-        )
-
-        # Send to the fast-agent agent with streaming support
+        # Process the prompt and ensure cleanup of active prompt tracking
         try:
+            # Extract text content from the prompt
+            text_parts = []
+            for content_block in params.prompt:
+                if hasattr(content_block, "type") and content_block.type == "text":
+                    text_parts.append(content_block.text)
+
+            prompt_text = "\n".join(text_parts)
+
+            logger.info(
+                "Sending prompt to fast-agent",
+                name="acp_prompt_send",
+                session_id=session_id,
+                agent=self.primary_agent_name,
+                prompt_length=len(prompt_text),
+            )
+
+            # Send to the fast-agent agent with streaming support
             if self.primary_agent_name:
                 agent = instance.agents[self.primary_agent_name]
 
@@ -399,6 +415,17 @@ class AgentACPServer(ACPAgent):
             print(f"ERROR processing prompt: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             raise
+
+        finally:
+            # Clean up active prompt tracking
+            async with self._session_lock:
+                self._active_prompts.discard(session_id)
+
+            logger.debug(
+                "Removed session from active prompts",
+                name="acp_prompt_cleanup",
+                session_id=session_id,
+            )
 
         # Return success
         return PromptResponse(

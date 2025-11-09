@@ -80,6 +80,52 @@ async def test_acp_initialize_and_prompt_roundtrip() -> None:
         assert getattr(last_update.update.content, "text", None) == prompt_text
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_acp_overlapping_prompts_rejected() -> None:
+    """Ensure overlapping prompt requests on the same session are rejected with 'cancelled'."""
+    client = TestClient()
+
+    async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
+        # Initialize
+        init_request = InitializeRequest(
+            protocolVersion=1,
+            clientCapabilities=ClientCapabilities(
+                fs={"readTextFile": True, "writeTextFile": True},
+                terminal=False,
+            ),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+        )
+        await connection.initialize(init_request)
+
+        # Create session
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+
+        # Send two prompts concurrently to the same session
+        # One should succeed with "end_turn", the other should be cancelled
+        prompt1_task = asyncio.create_task(
+            connection.prompt(
+                PromptRequest(sessionId=session_id, prompt=[text_block("First prompt")])
+            )
+        )
+        prompt2_task = asyncio.create_task(
+            connection.prompt(
+                PromptRequest(sessionId=session_id, prompt=[text_block("Second prompt")])
+            )
+        )
+
+        # Wait for both to complete
+        responses = await asyncio.gather(prompt1_task, prompt2_task)
+
+        # One should succeed, one should be cancelled
+        stop_reasons = [r.stopReason for r in responses]
+        assert "end_turn" in stop_reasons, "Expected one prompt to succeed with 'end_turn'"
+        assert "cancelled" in stop_reasons, "Expected one prompt to be rejected with 'cancelled'"
+
+
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:
     """Wait for the ACP client to receive at least one sessionUpdate."""
     loop = asyncio.get_running_loop()
