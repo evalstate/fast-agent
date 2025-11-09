@@ -34,6 +34,8 @@ class TestClient(Client):
         self.notifications: list[SessionNotification] = []
         self.ext_calls: list[tuple[str, dict[str, Any]]] = []
         self.ext_notes: list[tuple[str, dict[str, Any]]] = []
+        # Terminal tracking for tests
+        self.terminals: dict[str, dict[str, Any]] = {}
 
     def queue_permission_cancelled(self) -> None:
         self.permission_outcomes.append(
@@ -63,20 +65,51 @@ class TestClient(Client):
     async def sessionUpdate(self, params: SessionNotification) -> None:
         self.notifications.append(params)
 
-    async def createTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    async def createTerminal(self, params: Any) -> Any:
+        """Track terminal creation for test validation."""
+        terminal_id = params.get("terminalId", f"test-terminal-{len(self.terminals)}")
+        self.terminals[terminal_id] = {
+            "command": params.get("command"),
+            "args": params.get("args", []),
+            "env": params.get("env", {}),
+            "cwd": params.get("cwd"),
+            "output": "",
+            "exitCode": None,
+            "released": False,
+        }
+        return {"terminalId": terminal_id}
 
-    async def terminalOutput(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    async def terminalOutput(self, params: Any) -> Any:
+        """Return tracked terminal output for tests."""
+        terminal_id = params.get("terminalId")
+        terminal = self.terminals.get(terminal_id, {})
+        return {
+            "output": terminal.get("output", ""),
+            "truncated": False,
+            "exitStatus": {"exitCode": terminal.get("exitCode")}
+            if terminal.get("exitCode") is not None
+            else None,
+        }
 
-    async def releaseTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    async def releaseTerminal(self, params: Any) -> Any:
+        """Mark terminal as released for test validation."""
+        terminal_id = params.get("terminalId")
+        if terminal_id in self.terminals:
+            self.terminals[terminal_id]["released"] = True
+        return {}
 
-    async def waitForTerminalExit(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    async def waitForTerminalExit(self, params: Any) -> Any:
+        """Return terminal exit status for tests."""
+        terminal_id = params.get("terminalId")
+        terminal = self.terminals.get(terminal_id, {})
+        return {"exitCode": terminal.get("exitCode", 0), "signal": None}
 
-    async def killTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    async def killTerminal(self, params: Any) -> Any:
+        """Mark terminal as killed for test validation."""
+        terminal_id = params.get("terminalId")
+        if terminal_id in self.terminals:
+            self.terminals[terminal_id]["exitCode"] = -1
+        return {}
 
     async def extMethod(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.ext_calls.append((method, params))

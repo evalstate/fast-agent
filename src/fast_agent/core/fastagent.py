@@ -601,12 +601,17 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
+
+                                # Check if terminal/shell support is enabled
+                                terminal_enabled = getattr(self.context, "shell_runtime", False)
+
                                 acp_server = AgentACPServer(
                                     primary_instance=primary_instance,
                                     create_instance=self._server_instance_factory,
                                     dispose_instance=self._server_instance_dispose,
                                     instance_scope=instance_scope,
                                     server_name=server_name or f"{self.name}",
+                                    terminal_enabled=terminal_enabled,
                                 )
 
                                 # Run the ACP server (this is a blocking call)

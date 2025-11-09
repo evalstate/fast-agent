@@ -28,6 +28,7 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.server.terminal_manager import TerminalManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
@@ -57,6 +58,7 @@ class AgentACPServer(ACPAgent):
         instance_scope: str,
         server_name: str = "fast-agent-acp",
         server_version: str = "0.1.0",
+        terminal_enabled: bool = False,
     ) -> None:
         """
         Initialize the ACP server.
@@ -68,6 +70,7 @@ class AgentACPServer(ACPAgent):
             instance_scope: How to scope instances ('shared', 'connection', or 'request')
             server_name: Name of the server for capability advertisement
             server_version: Version of the server
+            terminal_enabled: Whether to enable terminal support
         """
         super().__init__()
 
@@ -77,10 +80,16 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self.server_name = server_name
         self.server_version = server_version
+        self.terminal_enabled = terminal_enabled
 
         # Session management
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
+
+        # Terminal management (if enabled)
+        self._terminal_manager: TerminalManager | None = None
+        if self.terminal_enabled:
+            self._terminal_manager = TerminalManager()
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
@@ -97,6 +106,7 @@ class AgentACPServer(ACPAgent):
             agent_count=len(primary_instance.agents),
             instance_scope=instance_scope,
             primary_agent=self.primary_agent_name,
+            terminal_enabled=terminal_enabled,
         )
 
     async def initialize(self, params: InitializeRequest) -> InitializeResponse:
@@ -120,6 +130,8 @@ class AgentACPServer(ACPAgent):
                 ),
                 # We don't support loadSession yet
                 loadSession=False,
+                # Advertise terminal support if enabled
+                terminal=self.terminal_enabled,
             )
 
             # Build agent info using Implementation type
@@ -346,6 +358,232 @@ class AgentACPServer(ACPAgent):
             stopReason=END_TURN,
         )
 
+    # Terminal methods (ACP protocol)
+
+    async def createTerminal(self, params: dict) -> dict:
+        """
+        Handle terminal/create request.
+
+        Creates a new terminal and starts executing the command in the background.
+
+        Args:
+            params: Dict containing:
+                - sessionId: The session ID
+                - command: The executable name
+                - args: Optional list of command-line arguments
+                - env: Optional dict of environment variables
+                - cwd: Optional working directory path
+                - outputByteLimit: Optional maximum retained output bytes
+
+        Returns:
+            Dict with terminalId
+        """
+        if not self.terminal_enabled or not self._terminal_manager:
+            logger.error(
+                "Terminal support not enabled",
+                name="acp_terminal_not_enabled",
+            )
+            raise RuntimeError("Terminal support is not enabled")
+
+        session_id = params.get("sessionId")
+        command = params.get("command")
+        args = params.get("args", [])
+        env = params.get("env", {})
+        cwd = params.get("cwd")
+        output_byte_limit = params.get("outputByteLimit")
+
+        logger.info(
+            "ACP createTerminal request",
+            name="acp_create_terminal",
+            session_id=session_id,
+            command=command,
+        )
+
+        try:
+            terminal_id = await self._terminal_manager.create_terminal(
+                command=command,
+                args=args,
+                env=env,
+                cwd=cwd,
+                output_byte_limit=output_byte_limit,
+            )
+
+            return {"terminalId": terminal_id}
+
+        except Exception as e:
+            logger.error(
+                f"Error creating terminal: {e}",
+                name="acp_create_terminal_error",
+                exc_info=True,
+            )
+            raise
+
+    async def terminalOutput(self, params: dict) -> dict:
+        """
+        Handle terminal/output request.
+
+        Retrieves current output without blocking.
+
+        Args:
+            params: Dict containing:
+                - terminalId: The terminal ID
+
+        Returns:
+            Dict with:
+                - output: Captured text
+                - truncated: Boolean indicating byte-limit truncation
+                - exitStatus: Optional dict with exitCode and signal (if completed)
+        """
+        if not self.terminal_enabled or not self._terminal_manager:
+            raise RuntimeError("Terminal support is not enabled")
+
+        terminal_id = params.get("terminalId")
+
+        logger.debug(
+            "ACP terminalOutput request",
+            name="acp_terminal_output",
+            terminal_id=terminal_id,
+        )
+
+        try:
+            output, truncated, exit_status = await self._terminal_manager.get_output(terminal_id)
+
+            result = {
+                "output": output,
+                "truncated": truncated,
+            }
+
+            if exit_status:
+                result["exitStatus"] = exit_status
+
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Error getting terminal output: {e}",
+                name="acp_terminal_output_error",
+                exc_info=True,
+            )
+            raise
+
+    async def waitForTerminalExit(self, params: dict) -> dict:
+        """
+        Handle terminal/wait_for_exit request.
+
+        Blocks until command completion.
+
+        Args:
+            params: Dict containing:
+                - terminalId: The terminal ID
+
+        Returns:
+            Dict with:
+                - exitCode: Exit code
+                - signal: Optional signal number
+        """
+        if not self.terminal_enabled or not self._terminal_manager:
+            raise RuntimeError("Terminal support is not enabled")
+
+        terminal_id = params.get("terminalId")
+
+        logger.info(
+            "ACP waitForTerminalExit request",
+            name="acp_wait_for_terminal_exit",
+            terminal_id=terminal_id,
+        )
+
+        try:
+            exit_code, signal_num = await self._terminal_manager.wait_for_exit(terminal_id)
+
+            result = {
+                "exitCode": exit_code,
+            }
+
+            if signal_num is not None:
+                result["signal"] = signal_num
+
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Error waiting for terminal exit: {e}",
+                name="acp_wait_for_terminal_exit_error",
+                exc_info=True,
+            )
+            raise
+
+    async def killTerminal(self, params: dict) -> dict:
+        """
+        Handle terminal/kill request.
+
+        Terminates the process while preserving the terminal for further operations.
+
+        Args:
+            params: Dict containing:
+                - terminalId: The terminal ID
+
+        Returns:
+            Empty dict
+        """
+        if not self.terminal_enabled or not self._terminal_manager:
+            raise RuntimeError("Terminal support is not enabled")
+
+        terminal_id = params.get("terminalId")
+
+        logger.info(
+            "ACP killTerminal request",
+            name="acp_kill_terminal",
+            terminal_id=terminal_id,
+        )
+
+        try:
+            await self._terminal_manager.kill_terminal(terminal_id)
+            return {}
+
+        except Exception as e:
+            logger.error(
+                f"Error killing terminal: {e}",
+                name="acp_kill_terminal_error",
+                exc_info=True,
+            )
+            raise
+
+    async def releaseTerminal(self, params: dict) -> dict:
+        """
+        Handle terminal/release request.
+
+        Performs cleanup by killing any running process and invalidating the terminal ID.
+
+        Args:
+            params: Dict containing:
+                - terminalId: The terminal ID
+
+        Returns:
+            Empty dict
+        """
+        if not self.terminal_enabled or not self._terminal_manager:
+            raise RuntimeError("Terminal support is not enabled")
+
+        terminal_id = params.get("terminalId")
+
+        logger.info(
+            "ACP releaseTerminal request",
+            name="acp_release_terminal",
+            terminal_id=terminal_id,
+        )
+
+        try:
+            await self._terminal_manager.release_terminal(terminal_id)
+            return {}
+
+        except Exception as e:
+            logger.error(
+                f"Error releasing terminal: {e}",
+                name="acp_release_terminal_error",
+                exc_info=True,
+            )
+            raise
+
     async def run_async(self) -> None:
         """
         Run the ACP server over stdio.
@@ -402,6 +640,16 @@ class AgentACPServer(ACPAgent):
     async def _cleanup_sessions(self) -> None:
         """Clean up all sessions and dispose of agent instances."""
         logger.info(f"Cleaning up {len(self.sessions)} sessions")
+
+        # Clean up all terminals first
+        if self._terminal_manager:
+            try:
+                await self._terminal_manager.cleanup_all()
+            except Exception as e:
+                logger.error(
+                    f"Error cleaning up terminals: {e}",
+                    name="acp_terminal_cleanup_error",
+                )
 
         async with self._session_lock:
             # Dispose of non-shared instances
