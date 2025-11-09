@@ -110,12 +110,6 @@ async def test_acp_terminal_execution() -> None:
         )
         await connection.initialize(init_request)
 
-        # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
-
         # Directly test terminal methods are being called
         # Since we're using passthrough model, we can't test actual LLM-driven tool calls
         # but we can verify the terminal runtime is set up correctly
