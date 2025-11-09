@@ -304,7 +304,6 @@ class AgentACPServer(ACPAgent):
                     # Set up streaming if connection is available and agent supports it
                     stream_listener = None
                     remove_listener: Callable[[], None] | None = None
-                    streaming_enabled = False
                     streaming_tasks: list[asyncio.Task] = []
                     if self._connection and isinstance(agent, StreamingAgentProtocol):
                         update_lock = asyncio.Lock()
@@ -345,7 +344,6 @@ class AgentACPServer(ACPAgent):
                         # Register the stream listener and keep the cleanup function
                         stream_listener = on_stream_chunk
                         remove_listener = agent.add_stream_listener(stream_listener)
-                        streaming_enabled = True
 
                         logger.info(
                             "Streaming enabled for prompt",
@@ -382,10 +380,10 @@ class AgentACPServer(ACPAgent):
                                     exc_info=True,
                                 )
 
-                        # Only send final update if streaming was NOT enabled
-                        # When streaming is enabled, the final chunk already contains the complete response
+                        # Only send final update if no streaming chunks were sent
+                        # When chunks were streamed, the final chunk already contains the complete response
                         # This prevents duplicate messages from being sent to the client
-                        if not streaming_enabled and self._connection and response_text:
+                        if not streaming_tasks and self._connection and response_text:
                             try:
                                 message_chunk = update_agent_message_text(response_text)
                                 notification = session_notification(session_id, message_chunk)
