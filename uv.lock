@@ -542,7 +542,6 @@ bedrock = [
     { name = "boto3" },
 ]
 dev = [
-    { name = "anthropic" },
     { name = "pre-commit" },
     { name = "pydantic" },
     { name = "pytest" },
@@ -560,7 +559,6 @@ textual = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "anthropic" },
     { name = "ipdb" },
     { name = "pre-commit" },
     { name = "pydantic" },
@@ -574,8 +572,8 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "a2a-sdk", specifier = ">=0.3.10" },
+    { name = "agent-client-protocol", specifier = ">=0.6.3" },
     { name = "aiohttp", specifier = ">=3.13.2" },
-    { name = "agent-client-protocol", specifier = ">=0.6.3" },    
     { name = "anthropic", specifier = ">=0.72.0" },
     { name = "azure-identity", marker = "extra == 'all-providers'", specifier = ">=1.14.0" },
     { name = "azure-identity", marker = "extra == 'azure'", specifier = ">=1.14.0" },

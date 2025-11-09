@@ -64,7 +64,6 @@ all-providers = [
     "tensorzero>=2025.7.5"
 ]
 dev = [
-    "anthropic>=0.42.0",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
@@ -115,7 +114,6 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
-    "anthropic>=0.49.0",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
@@ -130,6 +128,7 @@ dev = [
 fast-agent = "fast_agent.cli.__main__:main"
 fast-agent-mcp = "fast_agent.cli.__main__:main"
 fastagent = "fast_agent.cli.__main__:app"
+fast-agent-acp = "fast_agent.cli.commands.acp:main"
 prompt-server = "fast_agent.mcp.prompts.__main__:main"
 
 
@@ -151,4 +150,10 @@ ignore=["E501"]
 "tests/*" = ["ANN"]  # Don't require type annotations in tests
 
 [tool.uv.workspace]
-members = ["examples/tensorzero/mcp_server"]
+members = [
+    "examples/tensorzero/mcp_server",
+]
+
+[tool.uv.sources]
+fast-agent-mcp = { workspace = true }
+fast-agent-acp = { workspace = true }

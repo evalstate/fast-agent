@@ -1,0 +1,17 @@
+# FastAgent configuration for ACP integration tests
+#
+# Keep everything local and deterministic by sticking to the passthrough model
+# and disabling console noise. The tests explicitly pass --model=passthrough as
+# well, but retaining the same default here ensures the agent never attempts to
+# reach external providers.
+
+default_model: passthrough
+
+logger:
+  progress_display: false
+  show_chat: false
+  show_tools: false
+  truncate_tools: true
+
+mcp:
+  servers: {}

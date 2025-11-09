@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "FastAgentLLMProtocol",
+    "StreamingAgentProtocol",
     "LlmAgentProtocol",
     "AgentProtocol",
     "LLMFactoryProtocol",
@@ -252,3 +253,14 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 
     @property
     def initialized(self) -> bool: ...
+
+
+@runtime_checkable
+class StreamingAgentProtocol(AgentProtocol, Protocol):
+    """Optional extension for agents that expose LLM streaming callbacks."""
+
+    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
+
+    def add_tool_stream_listener(
+        self, listener: Callable[[str, Dict[str, Any] | None], None]
+    ) -> Callable[[], None]: ...

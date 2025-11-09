@@ -7,6 +7,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
+    Any,
+    Callable,
     Dict,
     List,
     Mapping,
@@ -46,6 +48,7 @@ from fast_agent.interfaces import (
     AgentProtocol,
     FastAgentLLMProtocol,
     LLMFactoryProtocol,
+    StreamingAgentProtocol,
 )
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
@@ -58,6 +61,34 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 ModelT = TypeVar("ModelT", bound=BaseModel)
 
 LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
+
+
+class StreamingNotAvailableError(RuntimeError):
+    """Raised when streaming APIs are accessed before an LLM is attached."""
+
+
+class StreamingAgentMixin(StreamingAgentProtocol):
+    """Mixin that forwards streaming listener registration to the attached LLM."""
+
+    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
+        try:
+            llm = self.llm
+        except AssertionError as exc:  # LLM not attached yet
+            raise StreamingNotAvailableError(
+                "LLM not attached; cannot register stream listener"
+            ) from exc
+        return llm.add_stream_listener(listener)
+
+    def add_tool_stream_listener(
+        self, listener: Callable[[str, Dict[str, Any] | None], None]
+    ) -> Callable[[], None]:
+        try:
+            llm = self.llm
+        except AssertionError as exc:
+            raise StreamingNotAvailableError(
+                "LLM not attached; cannot register tool stream listener"
+            ) from exc
+        return llm.add_tool_stream_listener(listener)
 
 
 @dataclass
@@ -82,7 +113,7 @@ class RemovedContentSummary:
     message: str
 
 
-class LlmDecorator(AgentProtocol):
+class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     """
     A pure delegation wrapper around LlmAgent instances.
 

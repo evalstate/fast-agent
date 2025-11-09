@@ -6,27 +6,36 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 """
 
 import asyncio
-import logging
 import uuid
 from typing import Awaitable, Callable
 
 from acp import Agent as ACPAgent
-from acp import InitializeRequest, InitializeResponse, NewSessionRequest, NewSessionResponse
-from acp import PromptRequest, PromptResponse
-from acp import AgentSideConnection
+from acp import (
+    AgentSideConnection,
+    InitializeRequest,
+    InitializeResponse,
+    NewSessionRequest,
+    NewSessionResponse,
+    PromptRequest,
+    PromptResponse,
+)
+from acp.helpers import session_notification, update_agent_message_text
 from acp.schema import (
     AgentCapabilities,
     Implementation,
     PromptCapabilities,
     StopReason,
 )
-from acp.helpers import text_block, session_notification, update_agent_message_text
 from acp.stdio import stdio_streams
 
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.interfaces import StreamingAgentProtocol
 
 logger = get_logger(__name__)
+
+END_TURN: StopReason = "end_turn"
+REFUSAL: StopReason = "refusal"
 
 
 class AgentACPServer(ACPAgent):
@@ -78,10 +87,12 @@ class AgentACPServer(ACPAgent):
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
-        self.primary_agent_name = list(primary_instance.agents.keys())[0] if primary_instance.agents else None
+        self.primary_agent_name = (
+            list(primary_instance.agents.keys())[0] if primary_instance.agents else None
+        )
 
         logger.info(
-            f"AgentACPServer initialized",
+            "AgentACPServer initialized",
             name="acp_server_initialized",
             agent_count=len(primary_instance.agents),
             instance_scope=instance_scope,
@@ -133,7 +144,7 @@ class AgentACPServer(ACPAgent):
             return response
         except Exception as e:
             logger.error(f"Error in initialize: {e}", name="acp_initialize_error", exc_info=True)
-            print(f"ERROR in initialize: {e}", file=__import__('sys').stderr)
+            print(f"ERROR in initialize: {e}", file=__import__("sys").stderr)
             raise
 
     async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
@@ -202,12 +213,12 @@ class AgentACPServer(ACPAgent):
                 session_id=session_id,
             )
             # Return an error response
-            return PromptResponse(stopReason=StopReason.REFUSAL)
+            return PromptResponse(stopReason=REFUSAL)
 
         # Extract text content from the prompt
         text_parts = []
         for content_block in params.prompt:
-            if hasattr(content_block, 'type') and content_block.type == "text":
+            if hasattr(content_block, "type") and content_block.type == "text":
                 text_parts.append(content_block.text)
 
         prompt_text = "\n".join(text_parts)
@@ -225,18 +236,19 @@ class AgentACPServer(ACPAgent):
             if self.primary_agent_name:
                 agent = instance.agents[self.primary_agent_name]
 
-                # Set up streaming if connection is available
+                # Set up streaming if connection is available and agent supports it
                 stream_listener = None
-                if self._connection:
-                    # Accumulator for streamed chunks
-                    accumulated_chunks = []
+                remove_listener: Callable[[], None] | None = None
+                if self._connection and isinstance(agent, StreamingAgentProtocol):
                     update_lock = asyncio.Lock()
 
-                    async def send_stream_update(text: str):
+                    async def send_stream_update(chunk: str):
                         """Send sessionUpdate with accumulated text so far."""
+                        if not chunk:
+                            return
                         try:
                             async with update_lock:
-                                message_chunk = update_agent_message_text(text)
+                                message_chunk = update_agent_message_text(chunk)
                                 notification = session_notification(session_id, message_chunk)
                                 await self._connection.sessionUpdate(notification)
                         except Exception as e:
@@ -249,24 +261,21 @@ class AgentACPServer(ACPAgent):
                     def on_stream_chunk(chunk: str):
                         """
                         Sync callback from fast-agent streaming.
-                        Accumulates chunks and sends updates to ACP client.
+                        Sends each chunk as it arrives to the ACP client.
                         """
-                        accumulated_chunks.append(chunk)
-                        current_text = "".join(accumulated_chunks)
-
                         logger.debug(
-                            f"Stream chunk received: {len(chunk)} chars, total: {len(current_text)}",
+                            f"Stream chunk received: {len(chunk)} chars",
                             name="acp_stream_chunk",
                             session_id=session_id,
-                            chunk_count=len(accumulated_chunks),
+                            chunk_length=len(chunk),
                         )
 
                         # Send update asynchronously (don't await in sync callback)
-                        asyncio.create_task(send_stream_update(current_text))
+                        asyncio.create_task(send_stream_update(chunk))
 
-                    # Register the stream listener
+                    # Register the stream listener and keep the cleanup function
                     stream_listener = on_stream_chunk
-                    agent.add_stream_listener(stream_listener)
+                    remove_listener = agent.add_stream_listener(stream_listener)
 
                     logger.info(
                         "Streaming enabled for prompt",
@@ -305,13 +314,17 @@ class AgentACPServer(ACPAgent):
 
                 finally:
                     # Clean up stream listener
-                    if stream_listener and hasattr(agent, '_stream_listeners'):
-                        agent._stream_listeners.discard(stream_listener)
-                        logger.info(
-                            "Removed stream listener",
-                            name="acp_streaming_cleanup",
-                            session_id=session_id,
-                        )
+                    if stream_listener and remove_listener:
+                        try:
+                            remove_listener()
+                        except Exception:
+                            logger.exception("Failed to remove ACP stream listener")
+                        else:
+                            logger.info(
+                                "Removed stream listener",
+                                name="acp_streaming_cleanup",
+                                session_id=session_id,
+                            )
 
             else:
                 logger.error("No primary agent available")
@@ -323,13 +336,14 @@ class AgentACPServer(ACPAgent):
             )
             import sys
             import traceback
+
             print(f"ERROR processing prompt: {e}", file=sys.stderr)
             traceback.print_exc(file=sys.stderr)
             raise
 
         # Return success
         return PromptResponse(
-            stopReason=StopReason.END_TURN,
+            stopReason=END_TURN,
         )
 
     async def run_async(self) -> None:
@@ -339,9 +353,9 @@ class AgentACPServer(ACPAgent):
         This creates the stdio streams and sets up the ACP connection.
         """
         logger.info("Starting ACP server on stdio")
-        print(f"Starting FastAgent '{self.server_name}' in ACP mode", file=__import__('sys').stderr)
-        print(f"Instance scope: {self._instance_scope}", file=__import__('sys').stderr)
-        print("Press Ctrl+C to stop", file=__import__('sys').stderr)
+        print(f"Starting FastAgent '{self.server_name}' in ACP mode", file=__import__("sys").stderr)
+        print(f"Instance scope: {self._instance_scope}", file=__import__("sys").stderr)
+        print("Press Ctrl+C to stop", file=__import__("sys").stderr)
 
         try:
             # Get stdio streams
@@ -372,7 +386,7 @@ class AgentACPServer(ACPAgent):
                 await shutdown_event.wait()
             except (asyncio.CancelledError, KeyboardInterrupt):
                 logger.info("ACP server shutting down")
-                print("\nServer stopped (Ctrl+C)", file=__import__('sys').stderr)
+                print("\nServer stopped (Ctrl+C)", file=__import__("sys").stderr)
             finally:
                 # Close the connection properly
                 await connection._conn.close()
