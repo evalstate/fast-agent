@@ -2,7 +2,7 @@
 
 import time
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any, Optional
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
@@ -138,7 +138,7 @@ class RichProgressDisplay:
             description = f"[{self._get_action_style(event.action)}]▎ {event.action.value:<15}"
 
         # Update basic task information
-        update_kwargs: dict[str, object] = {
+        update_kwargs: dict[str, Any] = {
             "description": description,
             "target": event.target or task_name,  # Use task_name as fallback for target
             "details": event.details or "",

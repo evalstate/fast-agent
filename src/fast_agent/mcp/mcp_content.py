@@ -32,7 +32,7 @@ from fast_agent.mcp.mime_utils import (
 def MCPText(
     text: str,
     role: Literal["user", "assistant"] = "user",
-    annotations: Annotations = None,
+    annotations: Annotations | None = None,
 ) -> dict:
     """
     Create a message with text content.
