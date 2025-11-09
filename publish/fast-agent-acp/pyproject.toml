@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fast-agent-acp"
+version = "0.3.21"
+description = "Convenience launcher that pulls in fast-agent-mcp and exposes the ACP CLI entrypoint."
+readme = "../../README.md"
+authors = [
+    { name = "Fast Agent Maintainers", email = "fastagent@llmindset.co.uk" },
+]
+requires-python = ">=3.13.5,<3.14"
+dependencies = [
+    "fast-agent-mcp",
+]
+
+[project.scripts]
+fast-agent-acp = "fast_agent_acp.cli:main"
+
+[tool.hatch.build]
+packages = ["src/fast_agent_acp"]

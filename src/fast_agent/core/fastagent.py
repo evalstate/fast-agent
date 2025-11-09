@@ -80,6 +80,7 @@ from fast_agent.core.validation import (
 )
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SkillManifest, SkillRegistry
+from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
@@ -443,6 +444,21 @@ class FastAgent:
     parallel = parallel_decorator
     evaluator_optimizer = evaluator_optimizer_decorator
 
+    def _get_acp_server_class(self):
+        """Import and return the ACP server class with helpful error handling."""
+        try:
+            from fast_agent.acp.server import AgentACPServer
+
+            return AgentACPServer
+        except ModuleNotFoundError as exc:
+            if exc.name == "acp":
+                raise ServerInitializationError(
+                    "ACP transport requires the 'agent-client-protocol' package. "
+                    "Install it via `pip install fast-agent-mcp[acp]` or "
+                    "`pip install agent-client-protocol`."
+                ) from exc
+            raise
+
     @asynccontextmanager
     async def run(self) -> AsyncIterator["AgentApp"]:
         """
@@ -556,47 +572,82 @@ class FastAgent:
                     # Handle --server option
                     # Check if parse_cli_args was True before checking self.args.server
                     if hasattr(self.args, "server") and self.args.server:
+                        # For stdio/acp transports, use stderr to avoid interfering with JSON-RPC
+                        import sys
+
+                        is_stdio_transport = self.args.transport in ["stdio", "acp"]
+                        configure_console_stream("stderr" if is_stdio_transport else "stdout")
+                        output_stream = sys.stderr if is_stdio_transport else sys.stdout
+
                         try:
                             # Print info message if not in quiet mode
                             if not quiet_mode:
-                                print(f"Starting FastAgent '{self.name}' in server mode")
-                                print(f"Transport: {self.args.transport}")
+                                print(
+                                    f"Starting fast-agent  '{self.name}' in server mode",
+                                    file=output_stream,
+                                )
+                                print(f"Transport: {self.args.transport}", file=output_stream)
                                 if self.args.transport == "sse":
-                                    print(f"Listening on {self.args.host}:{self.args.port}")
-                                print("Press Ctrl+C to stop")
+                                    print(
+                                        f"Listening on {self.args.host}:{self.args.port}",
+                                        file=output_stream,
+                                    )
+                                print("Press Ctrl+C to stop", file=output_stream)
 
-                            # Create the MCP server
-                            from fast_agent.mcp.server import AgentMCPServer
+                            # Check which server type to use based on transport
+                            if self.args.transport == "acp":
+                                # Create and run ACP server
+                                AgentACPServer = self._get_acp_server_class()
 
-                            tool_description = getattr(self.args, "tool_description", None)
-                            server_description = getattr(self.args, "server_description", None)
-                            server_name = getattr(self.args, "server_name", None)
-                            instance_scope = getattr(self.args, "instance_scope", "shared")
-                            mcp_server = AgentMCPServer(
-                                primary_instance=primary_instance,
-                                create_instance=self._server_instance_factory,
-                                dispose_instance=self._server_instance_dispose,
-                                instance_scope=instance_scope,
-                                server_name=server_name or f"{self.name}-MCP-Server",
-                                server_description=server_description,
-                                tool_description=tool_description,
-                            )
+                                server_name = getattr(self.args, "server_name", None)
+                                instance_scope = getattr(self.args, "instance_scope", "shared")
+                                acp_server = AgentACPServer(
+                                    primary_instance=primary_instance,
+                                    create_instance=self._server_instance_factory,
+                                    dispose_instance=self._server_instance_dispose,
+                                    instance_scope=instance_scope,
+                                    server_name=server_name or f"{self.name}",
+                                )
 
-                            # Run the server directly (this is a blocking call)
-                            await mcp_server.run_async(
-                                transport=self.args.transport,
-                                host=self.args.host,
-                                port=self.args.port,
-                            )
+                                # Run the ACP server (this is a blocking call)
+                                await acp_server.run_async()
+                            else:
+                                # Create the MCP server
+                                from fast_agent.mcp.server import AgentMCPServer
+
+                                tool_description = getattr(self.args, "tool_description", None)
+                                server_description = getattr(self.args, "server_description", None)
+                                server_name = getattr(self.args, "server_name", None)
+                                instance_scope = getattr(self.args, "instance_scope", "shared")
+                                mcp_server = AgentMCPServer(
+                                    primary_instance=primary_instance,
+                                    create_instance=self._server_instance_factory,
+                                    dispose_instance=self._server_instance_dispose,
+                                    instance_scope=instance_scope,
+                                    server_name=server_name or f"{self.name}-MCP-Server",
+                                    server_description=server_description,
+                                    tool_description=tool_description,
+                                )
+
+                                # Run the server directly (this is a blocking call)
+                                await mcp_server.run_async(
+                                    transport=self.args.transport,
+                                    host=self.args.host,
+                                    port=self.args.port,
+                                )
                         except KeyboardInterrupt:
                             if not quiet_mode:
-                                print("\nServer stopped by user (Ctrl+C)")
+                                print("\nServer stopped by user (Ctrl+C)", file=output_stream)
+                            raise SystemExit(0)
                         except Exception as e:
                             if not quiet_mode:
                                 import traceback
 
                                 traceback.print_exc()
-                                print(f"\nServer stopped with error: {e}")
+                                print(f"\nServer stopped with error: {e}", file=output_stream)
+                            else:
+                                print(f"\nServer stopped with error: {e}", file=output_stream)
+                            raise SystemExit(1)
 
                         # Exit after server shutdown
                         raise SystemExit(0)
@@ -962,6 +1013,8 @@ class FastAgent:
         # Just check if the flag is set, no action here
         # The actual server code will be handled by run()
         return hasattr(self, "args") and self.args.server
+
+
 @dataclass
 class AgentInstance:
     app: AgentApp

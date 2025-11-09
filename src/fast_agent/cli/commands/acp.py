@@ -1,40 +1,37 @@
-"""Run FastAgent as an MCP server from the command line."""
+"""Dedicated entry point for running FastAgent in ACP mode."""
 
-from enum import Enum
+import sys
 from pathlib import Path
 
 import typer
 
+from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import (
     collect_stdio_commands,
     resolve_instruction_option,
     run_async_agent,
 )
 
-
-class ServeTransport(str, Enum):
-    HTTP = "http"
-    SSE = "sse"
-    STDIO = "stdio"
-    ACP = "acp"
-
-
-class InstanceScope(str, Enum):
-    SHARED = "shared"
-    CONNECTION = "connection"
-    REQUEST = "request"
-
-
 app = typer.Typer(
-    help="Run FastAgent as an MCP server without writing an agent.py file",
+    help="Run FastAgent as an ACP stdio server without specifying --transport=acp explicitly.",
     context_settings={"allow_extra_args": True, "ignore_unknown_options": True},
 )
 
+ROOT_SUBCOMMANDS = {
+    "go",
+    "serve",
+    "setup",
+    "check",
+    "auth",
+    "bootstrap",
+    "quickstart",
+}
+
 
 @app.callback(invoke_without_command=True, no_args_is_help=False)
-def serve(
+def run_acp(
     ctx: typer.Context,
-    name: str = typer.Option("fast-agent", "--name", help="Name for the MCP server"),
+    name: str = typer.Option("fast-agent-acp", "--name", help="Name for the ACP server"),
     instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
@@ -72,11 +69,6 @@ def serve(
         "-d",
         help="Description used for the exposed send tool (use {agent} to reference the agent name)",
     ),
-    transport: ServeTransport = typer.Option(
-        ServeTransport.HTTP,
-        "--transport",
-        help="Transport protocol to expose (http, sse, stdio, acp)",
-    ),
     host: str = typer.Option(
         "0.0.0.0",
         "--host",
@@ -93,21 +85,17 @@ def serve(
         "-x",
         help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
-    instance_scope: InstanceScope = typer.Option(
-        InstanceScope.SHARED,
+    instance_scope: serve.InstanceScope = typer.Option(
+        serve.InstanceScope.SHARED,
         "--instance-scope",
-        help="Control how MCP clients receive isolated agent instances (shared, connection, request)",
+        help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
     ),
 ) -> None:
     """
-    Run FastAgent as an MCP server.
+    Run FastAgent with ACP transport defaults.
 
-    Examples:
-        fast-agent serve --model=haiku --instruction=./instruction.md --transport=http --port=8000
-        fast-agent serve --url=http://localhost:8001/mcp --auth=YOUR_API_TOKEN
-        fast-agent serve --stdio "python my_server.py --debug"
-        fast-agent serve --npx "@modelcontextprotocol/server-filesystem /path/to/data"
-        fast-agent serve --description "Interact with the {agent} assistant"
+    This mirrors `fast-agent serve --transport acp` but provides a shorter command and
+    a distinct default name so ACP-specific tooling can integrate more easily.
     """
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
@@ -129,9 +117,20 @@ def serve(
         skills_directory=skills_dir,
         shell_enabled=shell_enabled,
         mode="serve",
-        transport=transport.value,
+        transport=serve.ServeTransport.ACP.value,
         host=host,
         port=port,
         tool_description=description,
         instance_scope=instance_scope.value,
     )
+
+
+def main() -> None:
+    """Console script entrypoint for `fast-agent-acp`."""
+    args = sys.argv[1:]
+    if args and args[0] in ROOT_SUBCOMMANDS:
+        from fast_agent.cli.__main__ import main as root_cli_main
+
+        root_cli_main()
+        return
+    app()
