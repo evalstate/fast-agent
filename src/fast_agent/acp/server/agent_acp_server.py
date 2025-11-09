@@ -304,6 +304,7 @@ class AgentACPServer(ACPAgent):
                     # Set up streaming if connection is available and agent supports it
                     stream_listener = None
                     remove_listener: Callable[[], None] | None = None
+                    streaming_tasks: list[asyncio.Task] = []  # Track streaming tasks to prevent race condition
                     if self._connection and isinstance(agent, StreamingAgentProtocol):
                         update_lock = asyncio.Lock()
 
@@ -336,7 +337,9 @@ class AgentACPServer(ACPAgent):
                             )
 
                             # Send update asynchronously (don't await in sync callback)
-                            asyncio.create_task(send_stream_update(chunk))
+                            # Track the task to ensure we wait for it before sending final message
+                            task = asyncio.create_task(send_stream_update(chunk))
+                            streaming_tasks.append(task)
 
                         # Register the stream listener and keep the cleanup function
                         stream_listener = on_stream_chunk
@@ -359,15 +362,32 @@ class AgentACPServer(ACPAgent):
                             response_length=len(response_text),
                         )
 
-                        # Always send final update with complete response
-                        # (streaming sends chunks during execution, this is the final complete message)
-                        if self._connection and response_text:
+                        # Wait for all streaming tasks to complete to ensure all chunks are sent
+                        if streaming_tasks:
+                            try:
+                                await asyncio.gather(*streaming_tasks)
+                                logger.debug(
+                                    f"All {len(streaming_tasks)} streaming tasks completed",
+                                    name="acp_streaming_tasks_complete",
+                                    session_id=session_id,
+                                    task_count=len(streaming_tasks),
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Error waiting for streaming tasks: {e}",
+                                    name="acp_streaming_wait_error",
+                                    exc_info=True,
+                                )
+
+                        # Only send final update if we didn't stream
+                        # (streaming already sends the complete response in the final chunk)
+                        if self._connection and response_text and not streaming_tasks:
                             try:
                                 message_chunk = update_agent_message_text(response_text)
                                 notification = session_notification(session_id, message_chunk)
                                 await self._connection.sessionUpdate(notification)
                                 logger.info(
-                                    "Sent final sessionUpdate with complete response",
+                                    "Sent final sessionUpdate with complete response (no streaming)",
                                     name="acp_final_update",
                                     session_id=session_id,
                                 )
