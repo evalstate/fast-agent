@@ -205,9 +205,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         if messages[-1].first_text().startswith("***SAVE_HISTORY"):
             parts: list[str] = messages[-1].first_text().split(" ", 1)
-            filename: str = (
-                parts[1].strip() if len(parts) > 1 else f"{self.name or 'assistant'}.json"
-            )
+            if len(parts) > 1:
+                filename: str = parts[1].strip()
+            else:
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
+                filename = f"{timestamp}-conversation.json"
             await self._save_history(filename)
             return Prompt.assistant(f"History saved to {filename}")
 
@@ -226,22 +229,27 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
 
-        # Add timing data to channels
-        timing_data = {
-            "start_time": start_time,
-            "end_time": end_time,
-            "duration_ms": duration_ms,
-        }
+        # Add timing data to channels only if not already present
+        # (preserves original timing when loading saved history)
         channels = dict(assistant_response.channels or {})
-        channels[FAST_AGENT_TIMING] = [
-            TextContent(type="text", text=json.dumps(timing_data))
-        ]
-        assistant_response.channels = channels
+        if FAST_AGENT_TIMING not in channels:
+            timing_data = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration_ms": duration_ms,
+            }
+            channels[FAST_AGENT_TIMING] = [
+                TextContent(type="text", text=json.dumps(timing_data))
+            ]
+            assistant_response.channels = channels
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
 
         # add generic error and termination reason handling/rollback
-        self._message_history.append(assistant_response)
+        # Only append if it's not already the last message in history
+        # (this can happen when loading a saved history that ends with an assistant message)
+        if not self._message_history or self._message_history[-1] is not assistant_response:
+            self._message_history.append(assistant_response)
 
         return assistant_response
 
@@ -305,17 +313,19 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
 
-        # Add timing data to channels
-        timing_data = {
-            "start_time": start_time,
-            "end_time": end_time,
-            "duration_ms": duration_ms,
-        }
+        # Add timing data to channels only if not already present
+        # (preserves original timing when loading saved history)
         channels = dict(assistant_response.channels or {})
-        channels[FAST_AGENT_TIMING] = [
-            TextContent(type="text", text=json.dumps(timing_data))
-        ]
-        assistant_response.channels = channels
+        if FAST_AGENT_TIMING not in channels:
+            timing_data = {
+                "start_time": start_time,
+                "end_time": end_time,
+                "duration_ms": duration_ms,
+            }
+            channels[FAST_AGENT_TIMING] = [
+                TextContent(type="text", text=json.dumps(timing_data))
+            ]
+            assistant_response.channels = channels
 
         self._message_history.append(assistant_response)
         return result, assistant_response

@@ -372,6 +372,7 @@ class AgentCompleter(Completer):
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
+            "load_history": "Load history from a file",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
@@ -1032,6 +1033,14 @@ async def get_enhanced_input(
                     cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
                 )
                 return {"save_history": True, "filename": filename}
+            elif cmd in ("load_history", "load"):
+                # Return a structured action for loading history from a file
+                filename = (
+                    cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+                )
+                if not filename:
+                    return {"load_history": True, "error": "Filename required for load_history"}
+                return {"load_history": True, "filename": filename}
             elif cmd in ("mcpstatus", "mcp"):
                 return {"show_mcp_status": True}
             elif cmd == "prompt":
@@ -1221,10 +1230,14 @@ async def handle_special_commands(
         rich_print("  /clear last [agent_name] - Remove the most recent message from history")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
-        rich_print("  /save_history <filename> - Save current chat history to a file")
+        rich_print("  /save_history [filename] - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"
         )
+        rich_print(
+            "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
+        )
+        rich_print("  /load_history <filename> - Load chat history from a file")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")

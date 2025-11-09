@@ -29,13 +29,18 @@ class HistoryExporter:
 
         Args:
             agent: The agent whose history will be saved.
-            filename: Optional filename. If None, a default name is chosen.
+            filename: Optional filename. If None, a default timestamped name is generated.
 
         Returns:
             The path that was written to.
         """
         # Determine a default filename when not provided
-        target = filename or f"{getattr(agent, 'name', 'assistant')}.json"
+        if not filename:
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
+            target = f"{timestamp}-conversation.json"
+        else:
+            target = filename
 
         messages = agent.message_history
         save_messages(messages, target)

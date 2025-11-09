@@ -33,6 +33,7 @@ class ToolDisplay:
         name: str | None = None,
         tool_name: str | None = None,
         skybridge_config: "SkybridgeServerConfig | None" = None,
+        timing_ms: float | None = None,
     ) -> None:
         """Display a tool result in the console."""
         config = self._display.config
@@ -90,9 +91,11 @@ class ToolDisplay:
 
             bottom_metadata_items.append(transport_info)
 
-        elapsed = getattr(result, "transport_elapsed", None)
-        if isinstance(elapsed, (int, float)):
-            bottom_metadata_items.append(self._display._format_elapsed(float(elapsed)))
+        # Use timing from FAST_AGENT_TOOL_TIMING (passed as parameter)
+        if timing_ms is not None:
+            # Convert ms to seconds for display
+            timing_seconds = timing_ms / 1000.0
+            bottom_metadata_items.append(self._display._format_elapsed(timing_seconds))
 
         if has_structured:
             bottom_metadata_items.append("Structured ■")
