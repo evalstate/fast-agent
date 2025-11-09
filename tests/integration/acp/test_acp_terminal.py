@@ -123,23 +123,25 @@ async def test_acp_terminal_execution() -> None:
         # The terminals dict should be empty initially
         assert len(client.terminals) == 0
 
-        # If we manually called terminal_create, it would work
-        await client.terminal_create(
-            {"terminalId": "test-id", "sessionId": session_id, "command": "echo test"}
+        # Manually test terminal lifecycle (client creates ID)
+        create_result = await client.terminal_create(
+            {"sessionId": session_id, "command": "echo test"}
         )
+        terminal_id = create_result["terminalId"]
 
-        # Verify terminal was created
-        assert "test-id" in client.terminals
-        assert client.terminals["test-id"]["command"] == "echo test"
+        # Verify terminal was created with client-generated ID
+        assert terminal_id == "terminal-1"  # First terminal
+        assert terminal_id in client.terminals
+        assert client.terminals[terminal_id]["command"] == "echo test"
 
         # Get output
-        output = await client.terminal_output({"terminalId": "test-id", "sessionId": session_id})
+        output = await client.terminal_output({"terminalId": terminal_id, "sessionId": session_id})
         assert "Executed: echo test" in output["output"]
         assert output["exitCode"] == 0
 
         # Release terminal
-        await client.terminal_release({"terminalId": "test-id", "sessionId": session_id})
-        assert "test-id" not in client.terminals
+        await client.terminal_release({"terminalId": terminal_id, "sessionId": session_id})
+        assert terminal_id not in client.terminals
 
 
 @pytest.mark.integration

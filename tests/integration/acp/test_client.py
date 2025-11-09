@@ -35,6 +35,7 @@ class TestClient(Client):
         self.ext_calls: list[tuple[str, dict[str, Any]]] = []
         self.ext_notes: list[tuple[str, dict[str, Any]]] = []
         self.terminals: dict[str, dict[str, Any]] = {}
+        self._terminal_count: int = 0  # For generating terminal IDs like real clients
 
     def queue_permission_cancelled(self) -> None:
         self.permission_outcomes.append(
@@ -66,9 +67,16 @@ class TestClient(Client):
 
     # Terminal support - implement simple in-memory simulation
     async def terminal_create(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Simulate terminal creation and command execution."""
-        terminal_id = params["terminalId"]
+        """Simulate terminal creation and command execution.
+
+        Per ACP spec: CLIENT creates the terminal ID, not the agent.
+        This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
+        """
         command = params["command"]
+
+        # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
+        self._terminal_count += 1
+        terminal_id = f"terminal-{self._terminal_count}"
 
         # Store terminal state
         self.terminals[terminal_id] = {
@@ -78,6 +86,7 @@ class TestClient(Client):
             "completed": True,
         }
 
+        # Return the ID we created
         return {"terminalId": terminal_id}
 
     async def terminal_output(self, params: dict[str, Any]) -> dict[str, Any]:
