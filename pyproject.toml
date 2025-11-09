@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.3.20"
+version = "0.3.21"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -14,39 +14,53 @@ classifiers = [
 ]
 requires-python = ">=3.13.5,<3.14"
 dependencies = [
-    "fastapi>=0.115.6",
+    "fastapi>=0.121.0",
     "mcp==1.21.0",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
-    "rich>=14.1.0",
-    "typer>=0.15.1",
-    "anthropic>=0.71.0",
-    "openai[aiohttp]>=2.6.1",
-    "azure-identity>=1.14.0",
-    "boto3>=1.35.0",
+    "rich>=14.2.0",
+    "typer>=0.20.0",
+    "anthropic>=0.72.0",
+    "openai[aiohttp]>=2.7.1",
     "prompt-toolkit>=3.0.52",
-    "aiohttp>=3.13.1",
+    "aiohttp>=3.13.2",
     "opentelemetry-instrumentation-openai>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-anthropic>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
     "opentelemetry-instrumentation-mcp>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
-    "google-genai>=1.46.0",
+    "google-genai>=1.49.0",
     "opentelemetry-instrumentation-google-genai>=0.3b0",
-    "tensorzero>=2025.7.5",
     "deprecated>=1.2.18",
     "a2a-sdk>=0.3.10",
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
-    "textual>=6.2.1",
     "python-frontmatter>=1.1.0",
 ]
 
-# For Azure OpenAI with DefaultAzureCredential support, install with: pip install fast-agent-mcp[azure]
+[project.optional-dependencies]
+# For Azure OpenAI with DefaultAzureCredential support, install with: uv pip install fast-agent-mcp[azure]
 azure = [
     "azure-identity>=1.14.0"
+]
+# For AWS Bedrock support, install with: uv pip install fast-agent-mcp[bedrock]
+bedrock = [
+    "boto3>=1.35.0"
+]
+# For TensorZero gateway support, install with: uv pip install fast-agent-mcp[tensorzero]
+tensorzero = [
+    "tensorzero>=2025.7.5"
+]
+textual = [
+    "textual>=6.2.1",
+]
+# For all provider support, install with: uv pip install fast-agent-mcp[all-providers]
+all-providers = [
+    "azure-identity>=1.14.0",
+    "boto3>=1.35.0",
+    "tensorzero>=2025.7.5"
 ]
 dev = [
     "anthropic>=0.42.0",
@@ -88,7 +102,8 @@ markers = [
     "simulated_endpoints: marks tests that use simulated external endpoints"
 ]
 
-# Filter out utcnow depreciation warnings from the boto3 library
+# Filter out utcnow depreciation warnings from the boto3 library (if installed)
+# These filters are ignored if botocore is not installed
 filterwarnings = [
     "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning:botocore\\.auth",
     "ignore:datetime\\.datetime\\.utcnow\\(\\) is deprecated.*:DeprecationWarning:botocore\\.endpoint$",
