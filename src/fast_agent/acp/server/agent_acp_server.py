@@ -57,6 +57,7 @@ class AgentACPServer(ACPAgent):
         instance_scope: str,
         server_name: str = "fast-agent-acp",
         server_version: str = "0.1.0",
+        shell_runtime: bool = False,
     ) -> None:
         """
         Initialize the ACP server.
@@ -68,6 +69,7 @@ class AgentACPServer(ACPAgent):
             instance_scope: How to scope instances ('shared', 'connection', or 'request')
             server_name: Name of the server for capability advertisement
             server_version: Version of the server
+            shell_runtime: Whether to enable shell/terminal execution via ACP
         """
         super().__init__()
 
@@ -77,6 +79,7 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self.server_name = server_name
         self.server_version = server_version
+        self.shell_runtime = shell_runtime
 
         # Session management
         self.sessions: dict[str, AgentInstance] = {}
@@ -84,6 +87,12 @@ class AgentACPServer(ACPAgent):
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
+
+        # Client capabilities (set during initialize)
+        self._client_capabilities: dict = {}
+
+        # Terminal executors per session (created when terminals are supported)
+        self._terminal_executors: dict[str, Any] = {}  # session_id -> ACPTerminalExecutor
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
@@ -97,6 +106,7 @@ class AgentACPServer(ACPAgent):
             agent_count=len(primary_instance.agents),
             instance_scope=instance_scope,
             primary_agent=self.primary_agent_name,
+            shell_runtime=shell_runtime,
         )
 
     async def initialize(self, params: InitializeRequest) -> InitializeResponse:
@@ -106,11 +116,16 @@ class AgentACPServer(ACPAgent):
         Negotiates protocol version and advertises capabilities.
         """
         try:
+            # Store client capabilities for later use
+            if params.clientCapabilities:
+                self._client_capabilities = params.clientCapabilities.model_dump()
+
             logger.info(
                 "ACP initialize request",
                 name="acp_initialize",
                 client_protocol=params.protocolVersion,
                 client_info=params.clientInfo,
+                client_capabilities=self._client_capabilities,
             )
 
             # Build our capabilities
@@ -152,6 +167,7 @@ class AgentACPServer(ACPAgent):
         Handle new session request.
 
         Creates a new session and maps it to an AgentInstance based on instance_scope.
+        Also creates a terminal executor if shell_runtime is enabled and client supports terminals.
         """
         session_id = str(uuid.uuid4())
 
@@ -177,6 +193,49 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Create terminal executor if shell runtime is enabled and client supports terminals
+            if self.shell_runtime and self._connection:
+                terminal_supported = self._client_capabilities.get("terminal", False)
+                if terminal_supported:
+                    from fast_agent.acp.server.acp_terminal_executor import ACPTerminalExecutor
+                    from fast_agent.acp.server.acp_shell_runtime_wrapper import (
+                        ACPShellRuntimeWrapper,
+                    )
+
+                    executor = ACPTerminalExecutor(
+                        connection=self._connection,
+                        session_id=session_id,
+                    )
+                    self._terminal_executors[session_id] = executor
+
+                    # Inject the terminal executor into the agent as a shell_runtime replacement
+                    # This allows the agent to use ACP terminals instead of local execution
+                    if hasattr(instance, "agents") and self.primary_agent_name:
+                        agent = instance.agents.get(self.primary_agent_name)
+                        if agent and hasattr(agent, "_shell_runtime"):
+                            # Replace the shell_runtime with our ACP wrapper
+                            wrapper = ACPShellRuntimeWrapper(executor)
+                            agent._shell_runtime = wrapper
+
+                            logger.info(
+                                "Injected ACP terminal executor into agent",
+                                name="acp_terminal_injected",
+                                session_id=session_id,
+                                agent_name=self.primary_agent_name,
+                            )
+
+                    logger.info(
+                        "Terminal executor created for session",
+                        name="acp_terminal_executor_created",
+                        session_id=session_id,
+                    )
+                else:
+                    logger.warning(
+                        "Shell runtime requested but client does not support terminals",
+                        name="acp_terminal_not_supported",
+                        session_id=session_id,
+                    )
 
         logger.info(
             "ACP new session created",
