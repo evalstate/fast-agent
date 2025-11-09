@@ -209,7 +209,9 @@ class ToolAgent(LlmAgent):
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
         import json
+
         from mcp.types import TextContent
+
         from fast_agent.constants import FAST_AGENT_TOOL_TIMING
 
         channels = None
