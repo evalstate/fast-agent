@@ -123,30 +123,31 @@ async def test_acp_overlapping_prompts_are_refused() -> None:
         session_id = session_response.sessionId
         assert session_id
 
-        # Start first prompt (this will complete normally)
+        # Send two prompts truly concurrently (no sleep between them)
+        # This ensures they both arrive before either completes
         prompt1_task = asyncio.create_task(
             connection.prompt(
                 PromptRequest(sessionId=session_id, prompt=[text_block("first prompt")])
             )
         )
 
-        # Give the first prompt a moment to start processing
-        await asyncio.sleep(0.1)
-
-        # Attempt second prompt while first is still active
-        # This should be immediately refused
-        prompt2_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block("overlapping prompt")])
+        # Send immediately without waiting - ensures actual overlap
+        prompt2_task = asyncio.create_task(
+            connection.prompt(
+                PromptRequest(sessionId=session_id, prompt=[text_block("overlapping prompt")])
+            )
         )
 
-        # The overlapping prompt should be refused
-        assert prompt2_response.stopReason == "refusal"
+        # Wait for both to complete
+        prompt1_response, prompt2_response = await asyncio.gather(prompt1_task, prompt2_task)
 
-        # Wait for first prompt to complete normally
-        prompt1_response = await prompt1_task
-        assert prompt1_response.stopReason == END_TURN
+        # One should succeed, one should be refused
+        # (We don't know which one arrives first due to async scheduling)
+        responses = [prompt1_response.stopReason, prompt2_response.stopReason]
+        assert "end_turn" in responses, "One prompt should succeed"
+        assert "refusal" in responses, "One prompt should be refused"
 
-        # After first prompt completes, a new prompt should succeed
+        # After both complete, a new prompt should succeed
         prompt3_response = await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block("third prompt")])
         )
