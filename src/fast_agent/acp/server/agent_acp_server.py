@@ -305,6 +305,7 @@ class AgentACPServer(ACPAgent):
                     stream_listener = None
                     remove_listener: Callable[[], None] | None = None
                     streaming_enabled = False
+                    streaming_tasks: list[asyncio.Task] = []
                     if self._connection and isinstance(agent, StreamingAgentProtocol):
                         update_lock = asyncio.Lock()
 
@@ -337,7 +338,9 @@ class AgentACPServer(ACPAgent):
                             )
 
                             # Send update asynchronously (don't await in sync callback)
-                            asyncio.create_task(send_stream_update(chunk))
+                            # Track task to ensure all chunks complete before returning PromptResponse
+                            task = asyncio.create_task(send_stream_update(chunk))
+                            streaming_tasks.append(task)
 
                         # Register the stream listener and keep the cleanup function
                         stream_listener = on_stream_chunk
@@ -360,6 +363,24 @@ class AgentACPServer(ACPAgent):
                             session_id=session_id,
                             response_length=len(response_text),
                         )
+
+                        # Wait for all streaming tasks to complete before sending final message
+                        # and returning PromptResponse. This ensures all chunks arrive before END_TURN.
+                        if streaming_tasks:
+                            try:
+                                await asyncio.gather(*streaming_tasks)
+                                logger.debug(
+                                    f"All {len(streaming_tasks)} streaming tasks completed",
+                                    name="acp_streaming_complete",
+                                    session_id=session_id,
+                                    task_count=len(streaming_tasks),
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Error waiting for streaming tasks: {e}",
+                                    name="acp_streaming_wait_error",
+                                    exc_info=True,
+                                )
 
                         # Only send final update if streaming was NOT enabled
                         # When streaming is enabled, the final chunk already contains the complete response
