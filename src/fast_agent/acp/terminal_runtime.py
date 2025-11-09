@@ -7,7 +7,6 @@ compared to local process execution.
 """
 
 import asyncio
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, Tool
@@ -119,25 +118,33 @@ class ACPTerminalRuntime:
                 isError=True,
             )
 
-        terminal_id = str(uuid.uuid4())
-
         self.logger.info(
             "Executing command via ACP terminal",
-            terminal_id=terminal_id,
             session_id=self.session_id,
             command=command[:100],  # Log first 100 chars
         )
 
+        terminal_id = None  # Will be set by client in terminal/create response
+
         try:
             # Step 1: Create terminal and start command execution
-            self.logger.debug(f"Creating terminal {terminal_id}")
+            # NOTE: Client creates and returns the terminal ID, we don't generate it
+            self.logger.debug("Creating terminal")
             create_params = {
                 "sessionId": self.session_id,
-                "terminalId": terminal_id,
                 "command": command,
                 # Optional: could add args, env, cwd, outputByteLimit
             }
-            await self.connection._conn.send_request("terminal/create", create_params)
+            create_result = await self.connection._conn.send_request("terminal/create", create_params)
+            terminal_id = create_result.get("terminalId")
+
+            if not terminal_id:
+                return CallToolResult(
+                    content=[{"type": "text", "text": "Error: Client did not return terminal ID"}],
+                    isError=True,
+                )
+
+            self.logger.debug(f"Terminal created with ID: {terminal_id}")
 
             # Step 2: Wait for command to complete (with timeout)
             self.logger.debug(f"Waiting for terminal {terminal_id} to exit")
@@ -222,11 +229,12 @@ class ACPTerminalRuntime:
                 terminal_id=terminal_id,
                 exc_info=True,
             )
-            # Try to clean up
-            try:
-                await self._release_terminal(terminal_id)
-            except Exception:
-                pass  # Best effort cleanup
+            # Try to clean up if we have a terminal ID
+            if terminal_id:
+                try:
+                    await self._release_terminal(terminal_id)
+                except Exception:
+                    pass  # Best effort cleanup
 
             return CallToolResult(
                 content=[{"type": "text", "text": f"Terminal execution error: {e}"}],
