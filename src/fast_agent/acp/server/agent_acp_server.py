@@ -337,8 +337,9 @@ class AgentACPServer(ACPAgent):
                         response_length=len(response_text),
                     )
 
-                    # Send final sessionUpdate with complete response
-                    if self._connection and response_text:
+                    # Only send final update if streaming wasn't enabled
+                    # (streaming already sent the response chunks)
+                    if self._connection and response_text and not stream_listener:
                         try:
                             message_chunk = update_agent_message_text(response_text)
                             notification = session_notification(session_id, message_chunk)
@@ -355,8 +356,23 @@ class AgentACPServer(ACPAgent):
                                 exc_info=True,
                             )
 
+                except Exception as send_error:
+                    # Make sure listener is cleaned up even on error
+                    if stream_listener and remove_listener:
+                        try:
+                            remove_listener()
+                            logger.info(
+                                "Removed stream listener after error",
+                                name="acp_streaming_cleanup_error",
+                                session_id=session_id,
+                            )
+                        except Exception:
+                            logger.exception("Failed to remove ACP stream listener after error")
+                    # Re-raise the original error
+                    raise send_error
+
                 finally:
-                    # Clean up stream listener
+                    # Clean up stream listener (if not already cleaned up in except)
                     if stream_listener and remove_listener:
                         try:
                             remove_listener()
