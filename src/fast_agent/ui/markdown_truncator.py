@@ -451,11 +451,15 @@ class MarkdownTruncator:
                 # Look ahead in tokens to find thead and tbody
                 for j in range(i + 1, len(tokens)):
                     if tokens[j].type == "thead_open" and tokens[j].map:
-                        thead_start_line = tokens[j].map[0]
-                        thead_end_line = tokens[j].map[1]
+                        token_map = tokens[j].map
+                        assert token_map is not None  # Type narrowing
+                        thead_start_line = token_map[0]
+                        thead_end_line = token_map[1]
                     elif tokens[j].type == "tbody_open" and tokens[j].map:
-                        tbody_start_line = tokens[j].map[0]
-                        tbody_end_line = tokens[j].map[1]
+                        token_map = tokens[j].map
+                        assert token_map is not None  # Type narrowing
+                        tbody_start_line = token_map[0]
+                        tbody_end_line = token_map[1]
                     elif tokens[j].type == "table_close":
                         # End of this table
                         break

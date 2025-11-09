@@ -56,7 +56,7 @@ class SignalHandler(Protocol, Generic[SignalValueT]):
         """
 
 
-class PendingSignal(BaseModel):
+class PendingSignal(BaseModel, Generic[SignalValueT]):
     """Tracks a waiting signal handler and its event."""
 
     registration: SignalRegistration
@@ -182,7 +182,8 @@ class ConsoleSignalHandler(SignalHandler[str]):
         if signal.name in self._pending_signals:
             for ps in self._pending_signals[signal.name]:
                 ps.value = signal.payload
-                ps.event.set()
+                if ps.event is not None:
+                    ps.event.set()
 
 
 class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
@@ -200,7 +201,9 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
             workflow_id=signal.workflow_id,
         )
 
-        pending_signal = PendingSignal(registration=registration, event=event)
+        pending_signal: PendingSignal[SignalValueT] = PendingSignal(
+            registration=registration, event=event
+        )
 
         async with self._lock:
             # Add to pending signals
@@ -213,6 +216,9 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
             else:
                 await event.wait()
 
+            # After event is set, value should be populated
+            if pending_signal.value is None:
+                raise ValueError(f"Signal {signal.name} was received but value is None")
             return pending_signal.value
         except asyncio.TimeoutError as e:
             raise TimeoutError(f"Timeout waiting for signal {signal.name}") from e
@@ -248,7 +254,8 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
                 pending = self._pending_signals[signal.name]
                 for ps in pending:
                     ps.value = signal.payload
-                    ps.event.set()
+                    if ps.event is not None:
+                        ps.event.set()
 
         # Notify any registered handler functions
         tasks = []

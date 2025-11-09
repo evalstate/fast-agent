@@ -13,6 +13,7 @@ class StringField:
     default: Optional[str] = None
     min_length: Optional[int] = None
     max_length: Optional[int] = None
+    pattern: Optional[str] = None
     format: Optional[str] = None  # email, uri, date, date-time
 
     def to_schema(self) -> Dict[str, Any]:

@@ -19,7 +19,7 @@ KISS (Keep It Simple, Stupid):
 
 from dataclasses import dataclass
 from math import ceil
-from typing import List, Optional
+from typing import Generator, List, Optional
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -382,7 +382,7 @@ class StreamBuffer:
 
         return text
 
-    def _flatten_tokens(self, tokens: List[Token]) -> List[Token]:
+    def _flatten_tokens(self, tokens: List[Token]) -> Generator[Token, None, None]:
         """Flatten nested token tree.
 
         Args:

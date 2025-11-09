@@ -166,8 +166,8 @@ class ElicitationForm:
         self.required_fields = schema.get("required", [])
 
         # Field storage
-        self.field_widgets = {}
-        self.multiline_fields = set()  # Track which fields are multiline
+        self.field_widgets: dict[str, Any] = {}
+        self.multiline_fields: set[str] = set()  # Track which fields are multiline
 
         # Result
         self.result = None
@@ -598,7 +598,7 @@ class ElicitationForm:
 
         else:
             # Text/number input
-            validator = None
+            validator: Validator | None = None
 
             if field_type in ["number", "integer"]:
                 validator = SimpleNumberValidator(
@@ -730,7 +730,7 @@ class ElicitationForm:
 
     def _get_form_data(self) -> Dict[str, Any]:
         """Extract data from form fields."""
-        data = {}
+        data: Dict[str, Any] = {}
 
         for field_name, field_def in self.properties.items():
             widget = self.field_widgets.get(field_name)
