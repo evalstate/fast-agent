@@ -34,6 +34,7 @@ class TestClient(Client):
         self.notifications: list[SessionNotification] = []
         self.ext_calls: list[tuple[str, dict[str, Any]]] = []
         self.ext_notes: list[tuple[str, dict[str, Any]]] = []
+        self.terminals: dict[str, dict[str, Any]] = {}
 
     def queue_permission_cancelled(self) -> None:
         self.permission_outcomes.append(
@@ -63,20 +64,57 @@ class TestClient(Client):
     async def sessionUpdate(self, params: SessionNotification) -> None:
         self.notifications.append(params)
 
-    async def createTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    # Terminal support - implement simple in-memory simulation
+    async def terminal_create(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Simulate terminal creation and command execution."""
+        terminal_id = params["terminalId"]
+        command = params["command"]
 
-    async def terminalOutput(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        # Store terminal state
+        self.terminals[terminal_id] = {
+            "command": command,
+            "output": f"Executed: {command}\nMock output for testing",
+            "exit_code": 0,
+            "completed": True,
+        }
 
-    async def releaseTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        return {"terminalId": terminal_id}
 
-    async def waitForTerminalExit(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+    async def terminal_output(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Get terminal output."""
+        terminal_id = params["terminalId"]
+        terminal = self.terminals.get(terminal_id, {})
 
-    async def killTerminal(self, params: Any) -> Any:  # pragma: no cover - placeholder
-        raise NotImplementedError
+        return {
+            "output": terminal.get("output", ""),
+            "truncated": False,
+            "exitCode": terminal.get("exit_code") if terminal.get("completed") else None,
+        }
+
+    async def terminal_release(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Release terminal resources."""
+        terminal_id = params["terminalId"]
+        if terminal_id in self.terminals:
+            del self.terminals[terminal_id]
+        return {}
+
+    async def terminal_wait_for_exit(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Wait for terminal to exit (immediate in simulation)."""
+        terminal_id = params["terminalId"]
+        terminal = self.terminals.get(terminal_id, {})
+
+        return {
+            "exitCode": terminal.get("exit_code", -1),
+            "signal": None,
+        }
+
+    async def terminal_kill(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Kill a running terminal."""
+        terminal_id = params["terminalId"]
+        if terminal_id in self.terminals:
+            self.terminals[terminal_id]["exit_code"] = -1
+            self.terminals[terminal_id]["completed"] = True
+        return {}
 
     async def extMethod(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.ext_calls.append((method, params))
