@@ -131,22 +131,20 @@ class ACPTerminalRuntime:
         try:
             # Step 1: Create terminal and start command execution
             self.logger.debug(f"Creating terminal {terminal_id}")
-            await self.connection.terminal_create(
-                {
-                    "sessionId": self.session_id,
-                    "terminalId": terminal_id,
-                    "command": command,
-                    # Optional: could add args, env, cwd, outputByteLimit
-                }
-            )
+            create_params = {
+                "sessionId": self.session_id,
+                "terminalId": terminal_id,
+                "command": command,
+                # Optional: could add args, env, cwd, outputByteLimit
+            }
+            await self.connection._conn.request("terminal/create", create_params)
 
             # Step 2: Wait for command to complete (with timeout)
             self.logger.debug(f"Waiting for terminal {terminal_id} to exit")
             try:
+                wait_params = {"sessionId": self.session_id, "terminalId": terminal_id}
                 wait_result = await asyncio.wait_for(
-                    self.connection.terminal_wait_for_exit(
-                        {"sessionId": self.session_id, "terminalId": terminal_id}
-                    ),
+                    self.connection._conn.request("terminal/wait_for_exit", wait_params),
                     timeout=self.timeout_seconds,
                 )
                 exit_code = wait_result.get("exitCode", -1)
@@ -157,15 +155,15 @@ class ACPTerminalRuntime:
                 )
                 # Kill the terminal
                 try:
-                    await self.connection.terminal_kill(
-                        {"sessionId": self.session_id, "terminalId": terminal_id}
-                    )
+                    kill_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+                    await self.connection._conn.request("terminal/kill", kill_params)
                 except Exception as kill_error:
                     self.logger.error(f"Error killing terminal: {kill_error}")
 
                 # Still try to get output
-                output_result = await self.connection.terminal_output(
-                    {"sessionId": self.session_id, "terminalId": terminal_id}
+                output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+                output_result = await self.connection._conn.request(
+                    "terminal/output", output_params
                 )
                 output_text = output_result.get("output", "")
 
@@ -185,9 +183,8 @@ class ACPTerminalRuntime:
 
             # Step 3: Get the output
             self.logger.debug(f"Retrieving output from terminal {terminal_id}")
-            output_result = await self.connection.terminal_output(
-                {"sessionId": self.session_id, "terminalId": terminal_id}
-            )
+            output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+            output_result = await self.connection._conn.request("terminal/output", output_params)
             output_text = output_result.get("output", "")
             truncated = output_result.get("truncated", False)
 
@@ -245,9 +242,8 @@ class ACPTerminalRuntime:
         """
         try:
             self.logger.debug(f"Releasing terminal {terminal_id}")
-            await self.connection.terminal_release(
-                {"sessionId": self.session_id, "terminalId": terminal_id}
-            )
+            release_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+            await self.connection._conn.request("terminal/release", release_params)
         except Exception as e:
             self.logger.error(f"Error releasing terminal {terminal_id}: {e}")
 
