@@ -10,8 +10,9 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from mcp.types import CallToolResult, Tool
+
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.tools.util import CallToolResult, Tool
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
