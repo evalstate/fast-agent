@@ -80,6 +80,7 @@ from fast_agent.core.validation import (
 )
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SkillManifest, SkillRegistry
+from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
@@ -574,9 +575,9 @@ class FastAgent:
                         # For stdio/acp transports, use stderr to avoid interfering with JSON-RPC
                         import sys
 
-                        output_stream = (
-                            sys.stderr if self.args.transport in ["stdio", "acp"] else sys.stdout
-                        )
+                        is_stdio_transport = self.args.transport in ["stdio", "acp"]
+                        configure_console_stream("stderr" if is_stdio_transport else "stdout")
+                        output_stream = sys.stderr if is_stdio_transport else sys.stdout
 
                         try:
                             # Print info message if not in quiet mode

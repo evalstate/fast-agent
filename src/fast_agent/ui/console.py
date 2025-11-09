@@ -7,14 +7,43 @@ This module provides shared console instances for consistent output handling:
 - server_console: Special console for MCP server output
 """
 
+from __future__ import annotations
+
+import os
+from typing import Literal
+
 from rich.console import Console
 
-# Main console for general output
-# Note: For ACP/stdio modes, all output must go to stderr to avoid polluting JSON-RPC
-console = Console(
-    stderr=True,  # Always use stderr to avoid stdout pollution in stdio/ACP modes
-    color_system="auto",
-)
+
+def _env_truthy(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _create_console(stderr: bool) -> Console:
+    return Console(stderr=stderr, color_system="auto")
+
+
+# Allow forcing stderr via env (useful for ACP/stdio wrappers that import fast_agent early)
+_default_stderr = _env_truthy(os.environ.get("FAST_AGENT_FORCE_STDERR"))
+
+# Main console for general output (stdout by default, can be toggled at runtime)
+console = _create_console(stderr=_default_stderr)
+
+
+def configure_console_stream(stream: Literal["stdout", "stderr"]) -> None:
+    """
+    Route the shared console to stdout (default) or stderr (required for stdio/ACP servers).
+    """
+    target_is_stderr = stream == "stderr"
+    if console.stderr == target_is_stderr:
+        return
+
+    # Reset the underlying stream selection so Console.file uses the new stderr flag
+    console._file = None  # type: ignore[attr-defined]
+    console.stderr = target_is_stderr
+
 
 # Error console for application errors
 error_console = Console(
