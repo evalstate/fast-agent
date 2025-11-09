@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.helpers.content_helpers import text_content
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -102,7 +103,7 @@ class ACPTerminalRuntime:
         # Validate arguments
         if not isinstance(arguments, dict):
             return CallToolResult(
-                content=[{"type": "text", "text": "Error: arguments must be a dict"}],
+                content=[text_content("Error: arguments must be a dict")],
                 isError=True,
             )
 
@@ -110,10 +111,9 @@ class ACPTerminalRuntime:
         if not command or not isinstance(command, str):
             return CallToolResult(
                 content=[
-                    {
-                        "type": "text",
-                        "text": "Error: 'command' argument is required and must be a string",
-                    }
+                    text_content(
+                        "Error: 'command' argument is required and must be a string"
+                    )
                 ],
                 isError=True,
             )
@@ -140,7 +140,7 @@ class ACPTerminalRuntime:
 
             if not terminal_id:
                 return CallToolResult(
-                    content=[{"type": "text", "text": "Error: Client did not return terminal ID"}],
+                    content=[text_content("Error: Client did not return terminal ID")],
                     isError=True,
                 )
 
@@ -179,11 +179,10 @@ class ACPTerminalRuntime:
 
                 return CallToolResult(
                     content=[
-                        {
-                            "type": "text",
-                            "text": f"Command timed out after {self.timeout_seconds}s\n\n"
-                            f"Output so far:\n{output_text}",
-                        }
+                        text_content(
+                            f"Command timed out after {self.timeout_seconds}s\n\n"
+                            f"Output so far:\n{output_text}"
+                        )
                     ],
                     isError=True,
                 )
@@ -219,7 +218,7 @@ class ACPTerminalRuntime:
             )
 
             return CallToolResult(
-                content=[{"type": "text", "text": result_text}],
+                content=[text_content(result_text)],
                 isError=is_error,
             )
 
@@ -237,7 +236,7 @@ class ACPTerminalRuntime:
                     pass  # Best effort cleanup
 
             return CallToolResult(
-                content=[{"type": "text", "text": f"Terminal execution error: {e}"}],
+                content=[text_content(f"Terminal execution error: {e}")],
                 isError=True,
             )
 
