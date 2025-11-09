@@ -8,13 +8,13 @@ from typing import Any, Dict, List, Optional, Union
 class StringField:
     """String field with validation and default support."""
 
-    title: Optional[str] = None
-    description: Optional[str] = None
-    default: Optional[str] = None
-    min_length: Optional[int] = None
-    max_length: Optional[int] = None
-    pattern: Optional[str] = None
-    format: Optional[str] = None  # email, uri, date, date-time
+    title: str | None = None
+    description: str | None = None
+    default: str | None = None
+    min_length: int | None = None
+    max_length: int | None = None
+    pattern: str | None = None
+    format: str | None = None  # email, uri, date, date-time
 
     def to_schema(self) -> Dict[str, Any]:
         """Convert to MCP elicitation schema format."""
