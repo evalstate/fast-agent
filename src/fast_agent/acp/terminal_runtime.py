@@ -71,7 +71,25 @@ class ACPTerminalRuntime:
                         "type": "string",
                         "description": "The shell command to execute. Do not include shell "
                         "prefix (bash -c, etc.) - just provide the command string.",
-                    }
+                    },
+                    "args": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional array of command arguments (alternative to including in command string).",
+                    },
+                    "env": {
+                        "type": "object",
+                        "description": "Optional environment variables as key-value pairs.",
+                        "additionalProperties": {"type": "string"},
+                    },
+                    "cwd": {
+                        "type": "string",
+                        "description": "Optional absolute path for working directory.",
+                    },
+                    "outputByteLimit": {
+                        "type": "integer",
+                        "description": "Optional maximum bytes of output to retain (prevents unbounded buffers).",
+                    },
                 },
                 "required": ["command"],
                 "additionalProperties": False,
@@ -130,11 +148,21 @@ class ACPTerminalRuntime:
             # Step 1: Create terminal and start command execution
             # NOTE: Client creates and returns the terminal ID, we don't generate it
             self.logger.debug("Creating terminal")
-            create_params = {
-                "sessionId": self.session_id,
-                "command": command,
-                # Optional: could add args, env, cwd, outputByteLimit
-            }
+
+            # Build create params per ACP spec (command, args, env, cwd, outputByteLimit)
+            # Extract optional parameters from arguments
+            create_params: dict[str, Any] = {"command": command}
+
+            # Add optional parameters if provided
+            if args := arguments.get("args"):
+                create_params["args"] = args
+            if env := arguments.get("env"):
+                create_params["env"] = env
+            if cwd := arguments.get("cwd"):
+                create_params["cwd"] = cwd
+            if output_limit := arguments.get("outputByteLimit"):
+                create_params["outputByteLimit"] = output_limit
+
             create_result = await self.connection._conn.send_request("terminal/create", create_params)
             terminal_id = create_result.get("terminalId")
 
@@ -162,13 +190,13 @@ class ACPTerminalRuntime:
                 )
                 # Kill the terminal
                 try:
-                    kill_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+                    kill_params = {"terminalId": terminal_id}
                     await self.connection._conn.send_request("terminal/kill", kill_params)
                 except Exception as kill_error:
                     self.logger.error(f"Error killing terminal: {kill_error}")
 
                 # Still try to get output
-                output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+                output_params = {"terminalId": terminal_id}
                 output_result = await self.connection._conn.send_request(
                     "terminal/output", output_params
                 )
@@ -189,7 +217,7 @@ class ACPTerminalRuntime:
 
             # Step 3: Get the output
             self.logger.debug(f"Retrieving output from terminal {terminal_id}")
-            output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+            output_params = {"terminalId": terminal_id}
             output_result = await self.connection._conn.send_request("terminal/output", output_params)
             output_text = output_result.get("output", "")
             truncated = output_result.get("truncated", False)
@@ -249,7 +277,7 @@ class ACPTerminalRuntime:
         """
         try:
             self.logger.debug(f"Releasing terminal {terminal_id}")
-            release_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+            release_params = {"terminalId": terminal_id}
             await self.connection._conn.send_request("terminal/release", release_params)
         except Exception as e:
             self.logger.error(f"Error releasing terminal {terminal_id}: {e}")

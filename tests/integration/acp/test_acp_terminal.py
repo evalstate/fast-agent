@@ -124,9 +124,7 @@ async def test_acp_terminal_execution() -> None:
         assert len(client.terminals) == 0
 
         # Manually test terminal lifecycle (client creates ID)
-        create_result = await client.terminal_create(
-            {"sessionId": session_id, "command": "echo test"}
-        )
+        create_result = await client.terminal_create({"command": "echo test"})
         terminal_id = create_result["terminalId"]
 
         # Verify terminal was created with client-generated ID
@@ -135,12 +133,12 @@ async def test_acp_terminal_execution() -> None:
         assert client.terminals[terminal_id]["command"] == "echo test"
 
         # Get output
-        output = await client.terminal_output({"terminalId": terminal_id, "sessionId": session_id})
+        output = await client.terminal_output({"terminalId": terminal_id})
         assert "Executed: echo test" in output["output"]
         assert output["exitCode"] == 0
 
         # Release terminal
-        await client.terminal_release({"terminalId": terminal_id, "sessionId": session_id})
+        await client.terminal_release({"terminalId": terminal_id})
         assert terminal_id not in client.terminals
 
 

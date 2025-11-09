@@ -71,19 +71,31 @@ class TestClient(Client):
 
         Per ACP spec: CLIENT creates the terminal ID, not the agent.
         This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
+
+        Params per spec: command, args, env, cwd, outputByteLimit (no sessionId)
         """
         command = params["command"]
+        args = params.get("args", [])
+        env = params.get("env", {})
+        cwd = params.get("cwd")
 
         # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
         self._terminal_count += 1
         terminal_id = f"terminal-{self._terminal_count}"
 
+        # Build full command if args provided
+        full_command = command
+        if args:
+            full_command = f"{command} {' '.join(args)}"
+
         # Store terminal state
         self.terminals[terminal_id] = {
-            "command": command,
-            "output": f"Executed: {command}\nMock output for testing",
+            "command": full_command,
+            "output": f"Executed: {full_command}\nMock output for testing",
             "exit_code": 0,
             "completed": True,
+            "env": env,
+            "cwd": cwd,
         }
 
         # Return the ID we created

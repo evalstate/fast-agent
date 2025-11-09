@@ -337,9 +337,9 @@ class AgentACPServer(ACPAgent):
                         response_length=len(response_text),
                     )
 
-                    # Only send final update if streaming wasn't enabled
-                    # (streaming already sent the response chunks)
-                    if self._connection and response_text and not stream_listener:
+                    # Always send final update with complete response
+                    # (streaming sends chunks during execution, this is the final complete message)
+                    if self._connection and response_text:
                         try:
                             message_chunk = update_agent_message_text(response_text)
                             notification = session_notification(session_id, message_chunk)
