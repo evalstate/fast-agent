@@ -1,8 +1,9 @@
 """Bootstrap command to create example applications."""
 
 import shutil
+from contextlib import ExitStack
 from dataclasses import dataclass
-from importlib.resources import files
+from importlib.resources import as_file, files
 from pathlib import Path
 
 import typer
@@ -156,31 +157,53 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
             target_dir.mkdir(parents=True)
             console.print(f"Created subdirectory: {target_dir}")
 
+    # Determine source directory - try package resources first, then fallback
+    use_as_file = False
     # Try to use examples from the installed package first, or fall back to the top-level directory
     try:
         # First try to find examples in the package resources
-        source_dir = BASE_EXAMPLES_DIR
+        source_dir_traversable = BASE_EXAMPLES_DIR
         for dir in example_info.path_in_examples:
-            source_dir = source_dir.joinpath(dir)
+            source_dir_traversable = source_dir_traversable.joinpath(dir)
 
         # Check if we found a valid directory
-        if not source_dir.is_dir():
+        if not source_dir_traversable.is_dir():
             console.print(
-                f"[yellow]Resource directory not found: {source_dir}. "
+                f"[yellow]Resource directory not found: {source_dir_traversable}. "
                 "Falling back to development mode.[/yellow]"
             )
             # Fall back to the top-level directory for development mode
-            source_dir = _development_mode_fallback(example_info)
+            source_dir: Path = _development_mode_fallback(example_info)
+        else:
+            # We have a valid Traversable, will need to use as_file
+            source_dir = source_dir_traversable  # type: ignore
+            use_as_file = True
     except (ImportError, ModuleNotFoundError, ValueError) as e:
         console.print(
             f"[yellow]Error accessing resources: {e}. Falling back to development mode.[/yellow]"
         )
         source_dir = _development_mode_fallback(example_info)
 
-    if not source_dir.exists():
-        console.print(f"[red]Error: Source directory not found: {source_dir}[/red]")
-        return []
+    # Use as_file context manager if source_dir is a Traversable, otherwise use directly
+    with ExitStack() as stack:
+        if use_as_file:
+            source_path = stack.enter_context(as_file(source_dir))  # type: ignore
+        else:
+            source_path = source_dir
 
+        if not source_path.exists():
+            console.print(f"[red]Error: Source directory not found: {source_path}[/red]")
+            return []
+
+        return _copy_files_from_source(
+            example_type, example_info, source_path, target_dir, force
+        )
+
+
+def _copy_files_from_source(
+    example_type: str, example_info: ExampleConfig, source_dir: Path, target_dir: Path, force: bool
+) -> list[str]:
+    """Helper function to copy files from a source directory."""
     created = []
     for filename in example_info.files:
         source = source_dir / filename
@@ -457,15 +480,16 @@ def tensorzero(
     dest_project_dir = directory.resolve() / "tensorzero"
 
     # --- Find Source Directory ---
-    from importlib.resources import files
-
+    use_as_file = False
     try:
         # This path MUST match the "to" path from hatch_build.py
-        source_dir = (
+        source_dir_traversable = (
             files("fast_agent").joinpath("resources").joinpath("examples").joinpath("tensorzero")
         )
-        if not source_dir.is_dir():
+        if not source_dir_traversable.is_dir():
             raise FileNotFoundError  # Fallback to dev mode if resource isn't a dir
+        source_dir = source_dir_traversable  # type: ignore
+        use_as_file = True
     except (ImportError, ModuleNotFoundError, FileNotFoundError):
         console.print(
             "[yellow]Package resources not found. Falling back to development mode.[/yellow]"
@@ -473,39 +497,46 @@ def tensorzero(
         # This path is relative to the project root in a development environment
         source_dir = Path(__file__).parent.parent.parent.parent / "examples" / "tensorzero"
 
-    if not source_dir.exists() or not source_dir.is_dir():
-        console.print(f"[red]Error: Source project directory not found at '{source_dir}'[/red]")
-        raise typer.Exit(1)
+    # Use as_file context manager if needed
+    with ExitStack() as stack:
+        if use_as_file:
+            source_path = stack.enter_context(as_file(source_dir))  # type: ignore
+        else:
+            source_path = source_dir  # type: ignore[assignment]
 
-    console.print(f"Source directory: [dim]{source_dir}[/dim]")
-    console.print(f"Destination: [dim]{dest_project_dir}[/dim]")
+        if not source_path.exists() or not source_path.is_dir():
+            console.print(f"[red]Error: Source project directory not found at '{source_path}'[/red]")
+            raise typer.Exit(1)
 
-    # --- Copy Project and Show Message ---
-    if copy_project_template(source_dir, dest_project_dir, console, force):
-        console.print(
-            f"\n[bold green]✅ Success![/bold green] Your TensorZero project has been created in: [cyan]{dest_project_dir}[/cyan]"
-        )
-        console.print("\n[bold yellow]Next Steps:[/bold yellow]")
-        console.print("\n1. [bold]Navigate to your new project directory:[/bold]")
-        console.print(f"   [cyan]cd {dest_project_dir.relative_to(Path.cwd())}[/cyan]")
+        console.print(f"Source directory: [dim]{source_path}[/dim]")
+        console.print(f"Destination: [dim]{dest_project_dir}[/dim]")
 
-        console.print("\n2. [bold]Set up your API keys:[/bold]")
-        console.print("   [cyan]cp .env.sample .env[/cyan]")
-        console.print(
-            "   [dim]Then, open the new '.env' file and add your OpenAI or Anthropic API key.[/dim]"
-        )
+        # --- Copy Project and Show Message ---
+        if copy_project_template(source_path, dest_project_dir, console, force):
+            console.print(
+                f"\n[bold green]✅ Success![/bold green] Your TensorZero project has been created in: [cyan]{dest_project_dir}[/cyan]"
+            )
+            console.print("\n[bold yellow]Next Steps:[/bold yellow]")
+            console.print("\n1. [bold]Navigate to your new project directory:[/bold]")
+            console.print(f"   [cyan]cd {dest_project_dir.relative_to(Path.cwd())}[/cyan]")
 
-        console.print(
-            "\n3. [bold]Start the required services (TensorZero Gateway & MCP Server):[/bold]"
-        )
-        console.print("   [cyan]docker compose up --build -d[/cyan]")
-        console.print(
-            "   [dim](This builds and starts the necessary containers in the background)[/dim]"
-        )
+            console.print("\n2. [bold]Set up your API keys:[/bold]")
+            console.print("   [cyan]cp .env.sample .env[/cyan]")
+            console.print(
+                "   [dim]Then, open the new '.env' file and add your OpenAI or Anthropic API key.[/dim]"
+            )
 
-        console.print("\n4. [bold]Run the interactive agent:[/bold]")
-        console.print("   [cyan]make agent[/cyan]  (or `uv run agent.py`)")
-        console.print("\nEnjoy exploring the TensorZero integration with fast-agent! ✨")
+            console.print(
+                "\n3. [bold]Start the required services (TensorZero Gateway & MCP Server):[/bold]"
+            )
+            console.print("   [cyan]docker compose up --build -d[/cyan]")
+            console.print(
+                "   [dim](This builds and starts the necessary containers in the background)[/dim]"
+            )
+
+            console.print("\n4. [bold]Run the interactive agent:[/bold]")
+            console.print("   [cyan]make agent[/cyan]  (or `uv run agent.py`)")
+            console.print("\nEnjoy exploring the TensorZero integration with fast-agent! ✨")
 
 
 @app.command(name="t0", help="Alias for the TensorZero quickstart.", hidden=True)
