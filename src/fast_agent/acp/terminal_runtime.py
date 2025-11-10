@@ -79,7 +79,8 @@ class ACPTerminalRuntime:
                     },
                     "env": {
                         "type": "object",
-                        "description": "Optional environment variables as key-value pairs.",
+                        "description": "Optional environment variables as key-value pairs. "
+                        "Will be converted to ACP format (array of {name, value} objects).",
                         "additionalProperties": {"type": "string"},
                     },
                     "cwd": {
@@ -149,15 +150,25 @@ class ACPTerminalRuntime:
             # NOTE: Client creates and returns the terminal ID, we don't generate it
             self.logger.debug("Creating terminal")
 
-            # Build create params per ACP spec (command, args, env, cwd, outputByteLimit)
+            # Build create params per ACP spec (sessionId, command, args, env, cwd, outputByteLimit)
             # Extract optional parameters from arguments
-            create_params: dict[str, Any] = {"command": command}
+            create_params: dict[str, Any] = {
+                "sessionId": self.session_id,
+                "command": command,
+            }
 
             # Add optional parameters if provided
             if args := arguments.get("args"):
                 create_params["args"] = args
             if env := arguments.get("env"):
-                create_params["env"] = env
+                # Convert env from object format to ACP array format
+                # LLM provides: {"KEY": "value"}
+                # ACP expects: [{"name": "KEY", "value": "value"}]
+                if isinstance(env, dict):
+                    create_params["env"] = [{"name": k, "value": v} for k, v in env.items()]
+                else:
+                    # If already in array format, pass through
+                    create_params["env"] = env
             if cwd := arguments.get("cwd"):
                 create_params["cwd"] = cwd
             if output_limit := arguments.get("outputByteLimit"):
@@ -190,13 +201,13 @@ class ACPTerminalRuntime:
                 )
                 # Kill the terminal
                 try:
-                    kill_params = {"terminalId": terminal_id}
+                    kill_params = {"sessionId": self.session_id, "terminalId": terminal_id}
                     await self.connection._conn.send_request("terminal/kill", kill_params)
                 except Exception as kill_error:
                     self.logger.error(f"Error killing terminal: {kill_error}")
 
                 # Still try to get output
-                output_params = {"terminalId": terminal_id}
+                output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
                 output_result = await self.connection._conn.send_request(
                     "terminal/output", output_params
                 )
@@ -217,7 +228,7 @@ class ACPTerminalRuntime:
 
             # Step 3: Get the output
             self.logger.debug(f"Retrieving output from terminal {terminal_id}")
-            output_params = {"terminalId": terminal_id}
+            output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
             output_result = await self.connection._conn.send_request("terminal/output", output_params)
             output_text = output_result.get("output", "")
             truncated = output_result.get("truncated", False)
@@ -277,7 +288,7 @@ class ACPTerminalRuntime:
         """
         try:
             self.logger.debug(f"Releasing terminal {terminal_id}")
-            release_params = {"terminalId": terminal_id}
+            release_params = {"sessionId": self.session_id, "terminalId": terminal_id}
             await self.connection._conn.send_request("terminal/release", release_params)
         except Exception as e:
             self.logger.error(f"Error releasing terminal {terminal_id}: {e}")

@@ -72,11 +72,14 @@ class TestClient(Client):
         Per ACP spec: CLIENT creates the terminal ID, not the agent.
         This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
 
-        Params per spec: command, args, env, cwd, outputByteLimit (no sessionId)
+        Params per spec: sessionId (required), command (required), args, env, cwd, outputByteLimit
         """
+        session_id = params.get("sessionId")  # Required per ACP spec
         command = params["command"]
         args = params.get("args", [])
-        env = params.get("env", {})
+        # env is an array of {name, value} objects per ACP spec
+        env_array = params.get("env", [])
+        env = {item["name"]: item["value"] for item in env_array} if env_array else {}
         cwd = params.get("cwd")
 
         # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
@@ -90,6 +93,7 @@ class TestClient(Client):
 
         # Store terminal state
         self.terminals[terminal_id] = {
+            "session_id": session_id,
             "command": full_command,
             "output": f"Executed: {full_command}\nMock output for testing",
             "exit_code": 0,
@@ -102,7 +106,11 @@ class TestClient(Client):
         return {"terminalId": terminal_id}
 
     async def terminal_output(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Get terminal output."""
+        """Get terminal output.
+
+        Params per spec: sessionId (required), terminalId (required)
+        """
+        session_id = params.get("sessionId")  # Required per ACP spec
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -113,14 +121,22 @@ class TestClient(Client):
         }
 
     async def terminal_release(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Release terminal resources."""
+        """Release terminal resources.
+
+        Params per spec: sessionId (required), terminalId (required)
+        """
+        session_id = params.get("sessionId")  # Required per ACP spec
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             del self.terminals[terminal_id]
         return {}
 
     async def terminal_wait_for_exit(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Wait for terminal to exit (immediate in simulation)."""
+        """Wait for terminal to exit (immediate in simulation).
+
+        Params per spec: sessionId (required), terminalId (required)
+        """
+        session_id = params.get("sessionId")  # Required per ACP spec
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -130,7 +146,11 @@ class TestClient(Client):
         }
 
     async def terminal_kill(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Kill a running terminal."""
+        """Kill a running terminal.
+
+        Params per spec: sessionId (required), terminalId (required)
+        """
+        session_id = params.get("sessionId")  # Required per ACP spec
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1
