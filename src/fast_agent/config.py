@@ -424,7 +424,8 @@ class HuggingFaceSettings(BaseModel):
     Settings for HuggingFace authentication (used for MCP connections).
     """
 
-    base_url: str | None = "https://api.huggingface.co/v1"
+    # Leave unset to allow the provider to use its default router endpoint.
+    base_url: str | None = None
     api_key: str | None = None
     default_provider: str | None = None
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -592,7 +593,7 @@ class Settings(BaseSettings):
     bedrock: BedrockSettings | None = None
     """Settings for using AWS Bedrock models in the fast-agent application"""
 
-    huggingface: HuggingFaceSettings | None = None
+    hf: HuggingFaceSettings | None = None
     """Settings for HuggingFace authentication (used for MCP connections)"""
 
     groq: GroqSettings | None = None

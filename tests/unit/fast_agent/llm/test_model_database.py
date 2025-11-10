@@ -164,7 +164,7 @@ def _hf_request_args(llm: HuggingFaceLLM):
 
 
 def _make_hf_llm(model: str, hf_settings: HuggingFaceSettings | None = None) -> HuggingFaceLLM:
-    settings = Settings(huggingface=hf_settings or HuggingFaceSettings())
+    settings = Settings(hf=hf_settings or HuggingFaceSettings())
     context = Context(config=settings)
     return HuggingFaceLLM(context=context, model=model, name="test-agent")
 
