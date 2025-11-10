@@ -49,7 +49,9 @@ class TestClient(Client):
             )
         )
 
-    async def requestPermission(self, params: RequestPermissionRequest) -> RequestPermissionResponse:
+    async def requestPermission(
+        self, params: RequestPermissionRequest
+    ) -> RequestPermissionResponse:
         if self.permission_outcomes:
             return self.permission_outcomes.pop()
         return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
@@ -116,7 +118,6 @@ class TestClient(Client):
 
         Params per spec: sessionId (required), terminalId (required)
         """
-        session_id = params["sessionId"]  # Required per ACP spec
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -131,7 +132,6 @@ class TestClient(Client):
 
         Params per spec: sessionId (required), terminalId (required)
         """
-        session_id = params["sessionId"]  # Required per ACP spec
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             del self.terminals[terminal_id]
@@ -142,7 +142,6 @@ class TestClient(Client):
 
         Params per spec: sessionId (required), terminalId (required)
         """
-        session_id = params["sessionId"]  # Required per ACP spec
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -156,7 +155,6 @@ class TestClient(Client):
 
         Params per spec: sessionId (required), terminalId (required)
         """
-        session_id = params["sessionId"]  # Required per ACP spec
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1
