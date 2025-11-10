@@ -216,6 +216,55 @@ async def test_acp_terminal_disabled_when_client_unsupported() -> None:
         # This test ensures graceful fallback
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_acp_terminal_timeout_handling() -> None:
+    """Test that terminal timeout properly includes sessionId in all cleanup calls."""
+    from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+
+    client = TestClient()
+
+    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (
+        connection,
+        _process,
+    ):
+        # Initialize with terminal support
+        init_request = InitializeRequest(
+            protocolVersion=1,
+            clientCapabilities=ClientCapabilities(
+                fs={"readTextFile": True, "writeTextFile": True},
+                terminal=True,
+            ),
+            clientInfo=Implementation(name="pytest-terminal-client", version="0.0.1"),
+        )
+        await connection.initialize(init_request)
+
+        # Create session
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+
+        # Create a terminal runtime directly to test timeout behavior
+        runtime = ACPTerminalRuntime(
+            connection=connection,
+            session_id=session_id,
+            activation_reason="test-timeout",
+            timeout_seconds=0.2,  # Very short timeout
+        )
+
+        # Execute a command that will timeout (TestClient sleeps for "slow:" commands)
+        result = await runtime.execute({"command": "slow:sleep 1000"})
+
+        # Verify it returned an error
+        assert result.isError
+        assert "timed out" in result.content[0].text.lower()
+
+        # Verify the terminal was properly cleaned up (released)
+        # The TestClient tracks terminals, so we can check it's empty after cleanup
+        assert len(client.terminals) == 0, "Terminal should be released after timeout"
+
+
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:
     """Wait for the ACP client to receive at least one sessionUpdate."""
     loop = asyncio.get_running_loop()

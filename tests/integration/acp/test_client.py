@@ -141,9 +141,16 @@ class TestClient(Client):
         """Wait for terminal to exit (immediate in simulation).
 
         Params per spec: sessionId (required), terminalId (required)
+
+        Special behavior: If terminal command starts with "slow:", sleep to simulate long-running process
         """
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
+
+        # Simulate long-running process if command starts with "slow:"
+        if terminal.get("command", "").startswith("slow:"):
+            import asyncio
+            await asyncio.sleep(60)  # Long enough to trigger timeout in tests
 
         return {
             "exitCode": terminal.get("exit_code", -1),
