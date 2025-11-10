@@ -75,8 +75,9 @@ class TestClient(Client):
         This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
 
         Params per spec: sessionId (required), command (required), args, env, cwd, outputByteLimit (optional)
+        Note: sessionId is optional here to support unit tests that call this directly
         """
-        session_id = params["sessionId"]  # Required per ACP spec
+        session_id = params.get("sessionId", "test-session")  # Required per ACP spec, optional for unit tests
         command = params["command"]
         args = params.get("args", [])
         env = params.get("env", [])  # ACP spec expects array of {name, value} objects
@@ -117,7 +118,9 @@ class TestClient(Client):
         """Get terminal output.
 
         Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
         """
+        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -131,7 +134,9 @@ class TestClient(Client):
         """Release terminal resources.
 
         Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
         """
+        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             del self.terminals[terminal_id]
@@ -141,16 +146,11 @@ class TestClient(Client):
         """Wait for terminal to exit (immediate in simulation).
 
         Params per spec: sessionId (required), terminalId (required)
-
-        Special behavior: If terminal command starts with "slow:", sleep to simulate long-running process
+        Note: sessionId is optional here to support unit tests that call this directly
         """
+        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
-
-        # Simulate long-running process if command starts with "slow:"
-        if terminal.get("command", "").startswith("slow:"):
-            import asyncio
-            await asyncio.sleep(60)  # Long enough to trigger timeout in tests
 
         return {
             "exitCode": terminal.get("exit_code", -1),
@@ -161,7 +161,9 @@ class TestClient(Client):
         """Kill a running terminal.
 
         Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
         """
+        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1

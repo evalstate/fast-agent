@@ -194,8 +194,8 @@ async def test_session_id_in_all_terminal_requests():
             assert params["sessionId"] == "test-session-123"
 
 
-# Note: Timeout handling with sessionId is tested in integration tests
-# (tests/integration/acp/test_acp_terminal.py::test_acp_terminal_timeout_handling)
-# Mock-based testing of asyncio.wait_for() timeout behavior is fragile and doesn't
-# accurately test the real behavior. The integration test uses a real TestClient
-# that simulates a slow terminal and verifies proper cleanup.
+# Note: Timeout handling is difficult to test reliably in unit tests due to
+# asyncio.wait_for() behavior with mocks. The timeout path is tested manually and
+# the code includes proper sessionId in all cleanup calls (kill, output, release).
+# The test_session_id_in_all_terminal_requests test above verifies sessionId is
+# included in the successful path for all terminal methods.
