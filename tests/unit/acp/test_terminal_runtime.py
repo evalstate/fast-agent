@@ -197,26 +197,20 @@ async def test_session_id_in_all_terminal_requests():
 @pytest.mark.asyncio
 async def test_terminal_timeout_includes_session_id():
     """Test that sessionId is included in kill/output requests during timeout."""
+    import asyncio
+
     # Setup mock connection
     mock_conn = MagicMock()
     mock_conn._conn = AsyncMock()
-    mock_conn._conn.send_request = AsyncMock()
-
-    import asyncio
 
     # Mock terminal responses - make wait_for_exit hang to trigger timeout
     async def slow_wait(*args, **kwargs):
-        await asyncio.sleep(100)  # Will be cancelled by timeout
+        await asyncio.sleep(100)  # Will be interrupted by timeout
 
+    # Set up side effects: create, wait_for_exit (slow), kill, output, release
     mock_conn._conn.send_request.side_effect = [
         {"terminalId": "terminal-1"},  # terminal/create
-        slow_wait(),  # terminal/wait_for_exit (will timeout)
-    ]
-
-    # Add more mocks for kill, output, release
-    mock_conn._conn.send_request.side_effect = [
-        {"terminalId": "terminal-1"},  # terminal/create
-        asyncio.TimeoutError(),  # terminal/wait_for_exit times out
+        slow_wait(),  # terminal/wait_for_exit (will trigger timeout)
         {},  # terminal/kill
         {"output": "partial", "truncated": True, "exitCode": None},  # terminal/output
         {},  # terminal/release
@@ -226,28 +220,38 @@ async def test_terminal_timeout_includes_session_id():
         connection=mock_conn,
         session_id="test-session",
         activation_reason="test",
-        timeout_seconds=0.1,  # Very short timeout
+        timeout_seconds=0.1,  # Very short timeout to trigger quickly
     )
 
     result = await runtime.execute({"command": "sleep 1000"})
     assert result.isError
 
-    # Verify sessionId in kill, output, and release calls after timeout
+    # Verify sessionId in all calls after timeout
     calls = mock_conn._conn.send_request.call_args_list
-    # Should have: create, kill, output, release
-    assert len(calls) >= 4
+    # Should have: create, wait_for_exit, kill, output, release
+    assert len(calls) == 5
+
+    # Check create call
+    create_call = calls[0]
+    assert create_call[0][0] == "terminal/create"
+    assert "sessionId" in create_call[0][1]
+
+    # Check wait_for_exit call (the one that timed out)
+    wait_call = calls[1]
+    assert wait_call[0][0] == "terminal/wait_for_exit"
+    assert "sessionId" in wait_call[0][1]
 
     # Check kill call has sessionId
-    kill_call = calls[1]
+    kill_call = calls[2]
     assert kill_call[0][0] == "terminal/kill"
     assert "sessionId" in kill_call[0][1]
 
     # Check output call has sessionId
-    output_call = calls[2]
+    output_call = calls[3]
     assert output_call[0][0] == "terminal/output"
     assert "sessionId" in output_call[0][1]
 
     # Check release call has sessionId
-    release_call = calls[3]
+    release_call = calls[4]
     assert release_call[0][0] == "terminal/release"
     assert "sessionId" in release_call[0][1]
