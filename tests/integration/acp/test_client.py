@@ -77,8 +77,16 @@ class TestClient(Client):
         session_id = params["sessionId"]  # Required per ACP spec
         command = params["command"]
         args = params.get("args", [])
-        env = params.get("env", {})
+        env = params.get("env", [])  # ACP spec expects array of {name, value} objects
         cwd = params.get("cwd")
+
+        # Validate env format per ACP spec
+        if env:
+            if not isinstance(env, list):
+                raise ValueError(f"env must be an array, got {type(env).__name__}")
+            for item in env:
+                if not isinstance(item, dict) or "name" not in item or "value" not in item:
+                    raise ValueError(f"env items must have 'name' and 'value' keys, got {item}")
 
         # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
         self._terminal_count += 1
