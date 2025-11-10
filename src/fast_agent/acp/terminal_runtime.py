@@ -157,7 +157,16 @@ class ACPTerminalRuntime:
             if args := arguments.get("args"):
                 create_params["args"] = args
             if env := arguments.get("env"):
-                create_params["env"] = env
+                # Transform env from object format (LLM-friendly) to ACP array format
+                # Input: {"PATH": "/usr/bin", "HOME": "/home/user"}
+                # Output: [{"name": "PATH", "value": "/usr/bin"}, {"name": "HOME", "value": "/home/user"}]
+                if isinstance(env, dict):
+                    create_params["env"] = [
+                        {"name": name, "value": value} for name, value in env.items()
+                    ]
+                else:
+                    # If already in array format, pass through
+                    create_params["env"] = env
             if cwd := arguments.get("cwd"):
                 create_params["cwd"] = cwd
             if output_limit := arguments.get("outputByteLimit"):
@@ -177,7 +186,7 @@ class ACPTerminalRuntime:
             # Step 2: Wait for command to complete (with timeout)
             self.logger.debug(f"Waiting for terminal {terminal_id} to exit")
             try:
-                wait_params = {"sessionId": self.session_id, "terminalId": terminal_id}
+                wait_params = {"terminalId": terminal_id}
                 wait_result = await asyncio.wait_for(
                     self.connection._conn.send_request("terminal/wait_for_exit", wait_params),
                     timeout=self.timeout_seconds,
