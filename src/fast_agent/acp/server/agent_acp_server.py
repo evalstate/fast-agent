@@ -28,7 +28,11 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.acp_tool_wrapper import ACPToolWrapper
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_call_manager import ToolCallManager
+from fast_agent.acp.tool_permission import ToolPermissionManager
+from fast_agent.acp.tool_permission_factory import resolve_tool_permission_handler
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
@@ -88,6 +92,9 @@ class AgentACPServer(ACPAgent):
 
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
+
+        # Tool call managers per session
+        self._session_tool_call_managers: dict[str, ToolCallManager] = {}
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
@@ -194,6 +201,67 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Create tool call manager for this session
+            if self._connection:
+                tool_call_manager = ToolCallManager(
+                    connection=self._connection,
+                    session_id=session_id,
+                )
+                self._session_tool_call_managers[session_id] = tool_call_manager
+
+                logger.info(
+                    "Tool call manager created for session",
+                    name="acp_tool_call_manager_created",
+                    session_id=session_id,
+                )
+
+                # Wrap MCP aggregators with ACP tool wrapper for each agent
+                for agent_name, agent in instance.agents.items():
+                    if hasattr(agent, "_aggregator"):
+                        # Resolve permission handler for this agent
+                        permission_handler = None
+                        permission_manager = None
+
+                        if hasattr(agent, "config"):
+                            # Get app config from context if available
+                            app_config = (
+                                agent.context.config if hasattr(agent, "context") and agent.context else None
+                            )
+
+                            if app_config:
+                                permission_handler = resolve_tool_permission_handler(
+                                    agent_config=agent.config,
+                                    app_config=app_config,
+                                    server_config=None,
+                                    is_acp_mode=True,
+                                )
+
+                        # Create permission manager if handler is configured
+                        if permission_handler:
+                            permission_manager = ToolPermissionManager(
+                                handler=permission_handler,
+                                connection=self._connection,
+                            )
+
+                        # Wrap the aggregator with ACP tool wrapper
+                        wrapper = ACPToolWrapper(
+                            aggregator=agent._aggregator,
+                            tool_call_manager=tool_call_manager,
+                            permission_manager=permission_manager,
+                        )
+
+                        # Replace the aggregator with the wrapper
+                        # The wrapper delegates all non-call_tool methods to the original
+                        agent._aggregator = wrapper
+
+                        logger.info(
+                            "ACP tool wrapper injected into agent",
+                            name="acp_tool_wrapper_injected",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                            has_permissions=bool(permission_manager),
+                        )
 
             # If client supports terminals and we have shell runtime enabled,
             # inject ACP terminal runtime to replace local ShellRuntime
@@ -529,6 +597,9 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_terminal_runtimes.clear()
+
+            # Clean up tool call managers
+            self._session_tool_call_managers.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
