@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Dict,
     List,
@@ -45,6 +46,12 @@ from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
+
+
+# Type aliases for tool execution hooks
+ToolStartHookT = Callable[[str, str, dict | None], Awaitable[str]]  # Returns tool_call_id
+ToolProgressHookT = Callable[[str, float, float | None, str | None], Awaitable[None]]
+ToolCompleteHookT = Callable[[str, bool, str | None, str | None], Awaitable[None]]
 
 
 logger = get_logger(__name__)  # This will be replaced per-instance when agent_name is available
@@ -164,12 +171,18 @@ class MCPAggregator(ContextDependent):
         context: Optional["Context"] = None,
         name: str | None = None,
         config: Optional[Any] = None,  # Accept the agent config for elicitation_handler access
+        tool_start_hook: ToolStartHookT | None = None,
+        tool_progress_hook: ToolProgressHookT | None = None,
+        tool_complete_hook: ToolCompleteHookT | None = None,
         **kwargs,
     ) -> None:
         """
         :param server_names: A list of server names to connect to.
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
+        :param tool_start_hook: Optional callback when a tool call starts (e.g., for ACP notifications).
+        :param tool_progress_hook: Optional callback for tool progress updates (e.g., for ACP notifications).
+        :param tool_complete_hook: Optional callback when a tool call completes (e.g., for ACP notifications).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -181,6 +194,11 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Store the config for access in session factory
+
+        # Store tool execution hooks for integration with ACP or other protocols
+        self._tool_start_hook = tool_start_hook
+        self._tool_progress_hook = tool_progress_hook
+        self._tool_complete_hook = tool_complete_hook
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -207,7 +225,9 @@ class MCPAggregator(ContextDependent):
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: Dict[str, SkybridgeServerConfig] = {}
 
-    def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
+    def _create_progress_callback(
+        self, server_name: str, tool_name: str, tool_call_id: str | None = None
+    ) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
 
         async def progress_callback(
@@ -226,6 +246,13 @@ class MCPAggregator(ContextDependent):
                     "details": message or "",  # Put the message in details column
                 },
             )
+
+            # Call tool progress hook if registered (e.g., for ACP notifications)
+            if self._tool_progress_hook and tool_call_id:
+                try:
+                    await self._tool_progress_hook(tool_call_id, progress, total, message)
+                except Exception as e:
+                    logger.error(f"Error in tool progress hook: {e}", exc_info=True)
 
         return progress_callback
 
@@ -1226,28 +1253,75 @@ class MCPAggregator(ContextDependent):
             },
         )
 
+        # Call tool start hook if registered (e.g., for ACP notifications)
+        tool_call_id: str | None = None
+        if self._tool_start_hook:
+            try:
+                tool_call_id = await self._tool_start_hook(
+                    local_tool_name, server_name, arguments
+                )
+            except Exception as e:
+                logger.error(f"Error in tool start hook: {e}", exc_info=True)
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
 
             # Create progress callback for this tool execution
-            progress_callback = self._create_progress_callback(server_name, local_tool_name)
-
-            return await self._execute_on_server(
-                server_name=server_name,
-                operation_type="tools/call",
-                operation_name=local_tool_name,
-                method_name="call_tool",
-                method_args={
-                    "name": local_tool_name,
-                    "arguments": arguments,
-                },
-                error_factory=lambda msg: CallToolResult(
-                    isError=True, content=[TextContent(type="text", text=msg)]
-                ),
-                progress_callback=progress_callback,
+            progress_callback = self._create_progress_callback(
+                server_name, local_tool_name, tool_call_id
             )
+
+            try:
+                result = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="tools/call",
+                    operation_name=local_tool_name,
+                    method_name="call_tool",
+                    method_args={
+                        "name": local_tool_name,
+                        "arguments": arguments,
+                    },
+                    error_factory=lambda msg: CallToolResult(
+                        isError=True, content=[TextContent(type="text", text=msg)]
+                    ),
+                    progress_callback=progress_callback,
+                )
+
+                # Call tool complete hook if registered (e.g., for ACP notifications)
+                if self._tool_complete_hook and tool_call_id:
+                    try:
+                        # Extract result text from the result
+                        result_text = None
+                        if result.content:
+                            text_contents = [
+                                c.text for c in result.content if hasattr(c, "text") and c.text
+                            ]
+                            if text_contents:
+                                result_text = "\n".join(text_contents)
+
+                        error_text = None
+                        if result.isError and result_text:
+                            error_text = result_text
+                            result_text = None
+
+                        await self._tool_complete_hook(
+                            tool_call_id, not result.isError, result_text, error_text
+                        )
+                    except Exception as e:
+                        logger.error(f"Error in tool complete hook: {e}", exc_info=True)
+
+                return result
+
+            except Exception as e:
+                # Call tool complete hook with error if registered
+                if self._tool_complete_hook and tool_call_id:
+                    try:
+                        await self._tool_complete_hook(tool_call_id, False, None, str(e))
+                    except Exception as hook_error:
+                        logger.error(f"Error in tool complete hook: {hook_error}", exc_info=True)
+                raise
 
     async def get_prompt(
         self,

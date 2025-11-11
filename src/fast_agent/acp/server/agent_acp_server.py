@@ -29,6 +29,7 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
@@ -91,6 +92,9 @@ class AgentACPServer(ACPAgent):
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
+
+        # Tool progress manager (initialized when connection is available)
+        self._tool_progress_manager: ACPToolProgressManager | None = None
 
         # Client capabilities (set during initialize)
         self._client_supports_terminal: bool = False
@@ -194,6 +198,60 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Initialize tool progress manager if connection is available
+            if self._connection and not self._tool_progress_manager:
+                self._tool_progress_manager = ACPToolProgressManager(self._connection)
+                logger.info(
+                    "ACP tool progress manager initialized",
+                    name="acp_tool_progress_init",
+                )
+
+            # Wire up tool execution hooks to agents' aggregators
+            if self._tool_progress_manager:
+                for agent_name, agent in instance.agents.items():
+                    if hasattr(agent, "_aggregator"):
+                        aggregator = agent._aggregator
+
+                        # Create closure for session_id
+                        async def tool_start_hook(
+                            tool_name: str, server_name: str, arguments: dict | None
+                        ) -> str:
+                            return await self._tool_progress_manager.start_tool_call(
+                                session_id, tool_name, server_name, arguments
+                            )
+
+                        async def tool_progress_hook(
+                            tool_call_id: str,
+                            progress: float,
+                            total: float | None,
+                            message: str | None,
+                        ) -> None:
+                            await self._tool_progress_manager.update_tool_progress(
+                                tool_call_id, progress, total, message
+                            )
+
+                        async def tool_complete_hook(
+                            tool_call_id: str,
+                            success: bool,
+                            result_text: str | None,
+                            error: str | None,
+                        ) -> None:
+                            await self._tool_progress_manager.complete_tool_call(
+                                tool_call_id, success, result_text, error
+                            )
+
+                        # Register hooks
+                        aggregator._tool_start_hook = tool_start_hook
+                        aggregator._tool_progress_hook = tool_progress_hook
+                        aggregator._tool_complete_hook = tool_complete_hook
+
+                        logger.info(
+                            "ACP tool hooks registered",
+                            name="acp_tool_hooks_registered",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
 
             # If client supports terminals and we have shell runtime enabled,
             # inject ACP terminal runtime to replace local ShellRuntime

@@ -14,4 +14,8 @@ logger:
   truncate_tools: true
 
 mcp:
-  servers: {}
+  servers:
+    progress_test:
+      command: "python"
+      args:
+        - "../api/mcp_progress_server.py"
