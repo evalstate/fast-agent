@@ -29,6 +29,15 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_call_integration import (
+    ACPToolCallMiddleware,
+    create_tool_title,
+    infer_tool_kind,
+)
+from fast_agent.acp.tool_call_permission_handler import (
+    ToolCallPermissionHandler,
+)
+from fast_agent.acp.tool_call_tracker import ToolCallTracker
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
@@ -94,6 +103,14 @@ class AgentACPServer(ACPAgent):
 
         # Client capabilities (set during initialize)
         self._client_supports_terminal: bool = False
+
+        # Tool call tracking
+        self._session_tool_trackers: dict[str, ToolCallTracker] = {}
+        self._session_tool_middlewares: dict[str, ACPToolCallMiddleware] = {}
+
+        # Tool call permission handler (can be customized)
+        self._tool_permission_handler: ToolCallPermissionHandler | None = None
+        self._enable_tool_permissions: bool = False
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
@@ -194,6 +211,37 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Initialize tool call tracker and middleware for this session
+            if self._connection:
+                tracker = ToolCallTracker(
+                    session_id=session_id,
+                    connection=self._connection,
+                )
+                self._session_tool_trackers[session_id] = tracker
+
+                middleware = ACPToolCallMiddleware(
+                    tracker=tracker,
+                    permission_handler=self._tool_permission_handler,
+                    enable_permissions=self._enable_tool_permissions,
+                )
+                self._session_tool_middlewares[session_id] = middleware
+
+                # Wrap all agents in the instance with ACP tool call tracking
+                for agent_name, agent in instance.agents.items():
+                    wrapped_agent = ACPAgentWrapper(agent, middleware)
+                    instance.agents[agent_name] = wrapped_agent
+                    logger.debug(
+                        f"Wrapped agent {agent_name} with ACP tool tracking",
+                        name="acp_agent_wrapped",
+                        agent_name=agent_name,
+                    )
+
+                logger.info(
+                    "Tool call tracking enabled",
+                    name="acp_tool_tracking_enabled",
+                    session_id=session_id,
+                )
 
             # If client supports terminals and we have shell runtime enabled,
             # inject ACP terminal runtime to replace local ShellRuntime
