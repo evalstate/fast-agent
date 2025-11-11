@@ -12,14 +12,10 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from acp.schema import (
-    SessionNotification,
-    ToolCallContent,
-    ToolCallStatus,
-    ToolCallUpdate,
-)
+from acp.helpers import session_notification
+from acp.schema import SessionNotification
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -27,6 +23,10 @@ if TYPE_CHECKING:
     from acp import AgentSideConnection
 
 logger = get_logger(__name__)
+
+
+# Type aliases for ACP tool call protocol
+ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
 
 
 class ToolKind(str, Enum):
@@ -166,16 +166,17 @@ class ACPToolProgressManager:
 
         # Send initial notification
         try:
-            notification = SessionNotification(
-                sessionId=session_id,
-                update=ToolCallUpdate(
-                    sessionUpdate="tool_call",
-                    toolCallId=tool_call_id,
-                    title=title,
-                    kind=kind.value,
-                    status="pending",
-                ),
-            )
+            # Build update as dictionary per ACP specification
+            update = {
+                "sessionUpdate": "tool_call",
+                "toolCallId": tool_call_id,
+                "title": title,
+                "kind": kind.value,
+                "status": "pending",
+            }
+
+            # Use the session_notification helper to create the notification
+            notification = session_notification(session_id, update)
             await self._connection.sessionUpdate(notification)
 
             logger.debug(
@@ -224,12 +225,12 @@ class ACPToolProgressManager:
                 tracker.status = "in_progress"
 
         # Build content for progress update
-        content = None
+        content_blocks = []
         if message:
-            content = ToolCallContent(
-                type="text",
-                text=message,
-            )
+            content_blocks.append({
+                "type": "text",
+                "text": message,
+            })
 
         # Send progress update
         try:
@@ -239,13 +240,11 @@ class ACPToolProgressManager:
                 "status": tracker.status,
             }
 
-            if content:
-                update_data["content"] = content
+            if content_blocks:
+                update_data["content"] = content_blocks
 
-            notification = SessionNotification(
-                sessionId=tracker.session_id,
-                update=ToolCallUpdate(**update_data),
-            )
+            # Use the session_notification helper to create the notification
+            notification = session_notification(tracker.session_id, update_data)
             await self._connection.sessionUpdate(notification)
 
             logger.debug(
@@ -291,12 +290,12 @@ class ACPToolProgressManager:
             tracker.status = "completed" if success else "failed"
 
         # Build content
-        content = None
+        content_blocks = []
         if result_text or error:
-            content = ToolCallContent(
-                type="text",
-                text=error if error else result_text or "",
-            )
+            content_blocks.append({
+                "type": "text",
+                "text": error if error else result_text or "",
+            })
 
         # Send completion notification
         try:
@@ -306,13 +305,11 @@ class ACPToolProgressManager:
                 "status": tracker.status,
             }
 
-            if content:
-                update_data["content"] = content
+            if content_blocks:
+                update_data["content"] = content_blocks
 
-            notification = SessionNotification(
-                sessionId=tracker.session_id,
-                update=ToolCallUpdate(**update_data),
-            )
+            # Use the session_notification helper to create the notification
+            notification = session_notification(tracker.session_id, update_data)
             await self._connection.sessionUpdate(notification)
 
             logger.info(

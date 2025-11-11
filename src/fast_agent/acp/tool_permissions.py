@@ -9,11 +9,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
 
-from acp.schema import (
-    PermissionKind,
-    RequestPermissionRequest,
-    RequestPermissionRequestOption,
-)
+from acp.schema import RequestPermissionRequest
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -115,31 +111,32 @@ class ACPToolPermissionManager:
         prompt = "\n".join(prompt_parts)
 
         # Create permission request with options
+        # Use plain dictionaries for options per ACP specification
         options = [
-            RequestPermissionRequestOption(
-                id="allow_once",
-                kind=PermissionKind.ALLOW_ONCE,
-                title="Allow Once",
-                description="Allow this tool execution",
-            ),
-            RequestPermissionRequestOption(
-                id="allow_always",
-                kind=PermissionKind.ALLOW_ALWAYS,
-                title="Always Allow",
-                description=f"Always allow {server_name}/{tool_name}",
-            ),
-            RequestPermissionRequestOption(
-                id="reject_once",
-                kind=PermissionKind.REJECT_ONCE,
-                title="Reject Once",
-                description="Reject this tool execution",
-            ),
-            RequestPermissionRequestOption(
-                id="reject_always",
-                kind=PermissionKind.REJECT_ALWAYS,
-                title="Never Allow",
-                description=f"Never allow {server_name}/{tool_name}",
-            ),
+            {
+                "id": "allow_once",
+                "kind": "allow_once",
+                "title": "Allow Once",
+                "description": "Allow this tool execution",
+            },
+            {
+                "id": "allow_always",
+                "kind": "allow_always",
+                "title": "Always Allow",
+                "description": f"Always allow {server_name}/{tool_name}",
+            },
+            {
+                "id": "reject_once",
+                "kind": "reject_once",
+                "title": "Reject Once",
+                "description": "Reject this tool execution",
+            },
+            {
+                "id": "reject_always",
+                "kind": "reject_always",
+                "title": "Never Allow",
+                "description": f"Never allow {server_name}/{tool_name}",
+            },
         ]
 
         request = RequestPermissionRequest(
