@@ -599,6 +599,12 @@ class FastAgent:
                                 # Create and run ACP server
                                 AgentACPServer = self._get_acp_server_class()
 
+                                # Get version
+                                try:
+                                    app_version = get_version("fast-agent-mcp")
+                                except Exception:
+                                    app_version = "0.1.0"
+
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
                                 acp_server = AgentACPServer(
@@ -607,6 +613,7 @@ class FastAgent:
                                     dispose_instance=self._server_instance_dispose,
                                     instance_scope=instance_scope,
                                     server_name=server_name or f"{self.name}",
+                                    server_version=app_version,
                                 )
 
                                 # Run the ACP server (this is a blocking call)

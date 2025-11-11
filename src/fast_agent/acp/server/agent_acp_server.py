@@ -26,6 +26,7 @@ from acp.schema import (
     PromptCapabilities,
     StopReason,
 )
+from importlib.metadata import version as get_version
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
@@ -89,6 +90,9 @@ class AgentACPServer(ACPAgent):
 
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
+
+        # Session context tracking for slash commands
+        self._session_contexts: dict[str, dict] = {}  # session_id -> context data
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
@@ -256,7 +260,102 @@ class AgentACPServer(ACPAgent):
             terminal_enabled=session_id in self._session_terminal_runtimes,
         )
 
+        # Initialize session context for tracking
+        self._session_contexts[session_id] = {
+            "turns": 0,
+            "tool_calls": 0,
+            "model": None,  # Will be set on first prompt
+        }
+
+        # Send available commands notification
+        await self._send_available_commands(session_id)
+
         return NewSessionResponse(sessionId=session_id)
+
+    async def _send_available_commands(self, session_id: str) -> None:
+        """
+        Send available_commands_update notification to the client.
+
+        This advertises the slash commands available in this session.
+        """
+        if not self._connection:
+            return
+
+        available_commands = [
+            {
+                "name": "status",
+                "description": "Display session status including version, model, and context information",
+            }
+        ]
+
+        update_content = {
+            "sessionUpdate": "available_commands_update",
+            "availableCommands": available_commands,
+        }
+
+        notification = session_notification(session_id, update_content)
+
+        try:
+            await self._connection.sessionUpdate(notification)
+            logger.info(
+                "Available commands sent",
+                name="acp_available_commands",
+                session_id=session_id,
+                command_count=len(available_commands),
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending available commands: {e}",
+                name="acp_available_commands_error",
+                exc_info=True,
+            )
+
+    async def _handle_status_command(self, session_id: str, instance: AgentInstance) -> str:
+        """
+        Handle the /status slash command.
+
+        Returns a formatted string with session status information.
+        """
+        context = self._session_contexts.get(session_id, {})
+
+        # Get fast-agent version
+        try:
+            fa_version = get_version("fast-agent-mcp")
+        except Exception:
+            fa_version = self.server_version
+
+        # Get model from the agent
+        model_name = "unknown"
+        if self.primary_agent_name and self.primary_agent_name in instance.agents:
+            agent = instance.agents[self.primary_agent_name]
+            if hasattr(agent, "_model"):
+                model_name = agent._model
+            elif hasattr(agent, "model"):
+                model_name = agent.model
+
+        # Get context information
+        turns = context.get("turns", 0)
+        tool_calls = context.get("tool_calls", 0)
+
+        # Calculate context usage percentage
+        # We'll estimate based on message history if available
+        context_pct = 0.0
+        if hasattr(agent, "message_history") and agent.message_history:
+            # Rough estimate: assume average 100 tokens per message, 200k context window
+            estimated_tokens = len(agent.message_history) * 100
+            context_pct = min(100.0, (estimated_tokens / 200000) * 100)
+
+        status_text = f"""**Session Status**
+
+**Version:** fast-agent v{fa_version}
+**Model:** {model_name}
+**Turns:** {turns}
+**Tool Calls:** {tool_calls}
+**Context Usage:** ~{context_pct:.1f}%
+**Session ID:** {session_id}
+"""
+
+        return status_text
 
     async def prompt(self, params: PromptRequest) -> PromptResponse:
         """
@@ -312,6 +411,45 @@ class AgentACPServer(ACPAgent):
                     text_parts.append(content_block.text)
 
             prompt_text = "\n".join(text_parts)
+
+            # Check for slash commands
+            if prompt_text.strip().startswith("/"):
+                command_parts = prompt_text.strip().split(None, 1)
+                command_name = command_parts[0][1:]  # Remove leading /
+
+                logger.info(
+                    "Slash command detected",
+                    name="acp_slash_command",
+                    session_id=session_id,
+                    command=command_name,
+                )
+
+                # Handle known commands
+                if command_name == "status":
+                    response_text = await self._handle_status_command(session_id, instance)
+
+                    # Send response via sessionUpdate
+                    if self._connection:
+                        try:
+                            message_chunk = update_agent_message_text(response_text)
+                            notification = session_notification(session_id, message_chunk)
+                            await self._connection.sessionUpdate(notification)
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending slash command response: {e}",
+                                name="acp_slash_command_error",
+                                exc_info=True,
+                            )
+
+                    return PromptResponse(stopReason=END_TURN)
+                else:
+                    # Unknown command - pass through to agent
+                    logger.info(
+                        "Unknown slash command, passing to agent",
+                        name="acp_slash_command_unknown",
+                        session_id=session_id,
+                        command=command_name,
+                    )
 
             logger.info(
                 "Sending prompt to fast-agent",
@@ -386,6 +524,19 @@ class AgentACPServer(ACPAgent):
                             session_id=session_id,
                             response_length=len(response_text),
                         )
+
+                        # Update session context
+                        if session_id in self._session_contexts:
+                            context = self._session_contexts[session_id]
+                            context["turns"] += 1
+
+                            # Count tool calls from message history
+                            if hasattr(agent, "message_history") and agent.message_history:
+                                total_tool_calls = sum(
+                                    len(msg.tool_calls) if hasattr(msg, "tool_calls") and msg.tool_calls else 0
+                                    for msg in agent.message_history
+                                )
+                                context["tool_calls"] = total_tool_calls
 
                         # Wait for all streaming tasks to complete before sending final message
                         # and returning PromptResponse. This ensures all chunks arrive before END_TURN.
@@ -554,6 +705,9 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_terminal_runtimes.clear()
+
+            # Clear session contexts
+            self._session_contexts.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
