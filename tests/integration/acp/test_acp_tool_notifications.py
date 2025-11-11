@@ -17,6 +17,8 @@ from acp.helpers import text_block
 from acp.schema import ClientCapabilities, Implementation, StopReason
 from acp.stdio import spawn_agent_process
 
+from fast_agent.mcp.common import create_namespaced_name
+
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
@@ -69,7 +71,8 @@ async def test_acp_tool_call_notifications() -> None:
 
         # Send a prompt that will trigger a tool call
         # Using the ***CALL_TOOL directive that the passthrough model supports
-        prompt_text = '***CALL_TOOL progress_test__progress_task {"steps": 3}'
+        tool_name = create_namespaced_name("progress_test", "progress_task")
+        prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 3}}'
         prompt_response = await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
@@ -135,7 +138,8 @@ async def test_acp_tool_progress_updates() -> None:
         session_id = session_response.sessionId
 
         # Call a tool that reports progress
-        prompt_text = '***CALL_TOOL progress_test__progress_task {"steps": 5}'
+        tool_name = create_namespaced_name("progress_test", "progress_task")
+        prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 5}}'
         await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
@@ -187,7 +191,8 @@ async def test_acp_tool_kinds_inferred() -> None:
         session_id = session_response.sessionId
 
         # Call a tool - progress_task should be inferred as "other"
-        prompt_text = '***CALL_TOOL progress_test__progress_task {"steps": 2}'
+        tool_name = create_namespaced_name("progress_test", "progress_task")
+        prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 2}}'
         await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
