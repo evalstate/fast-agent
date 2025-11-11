@@ -17,7 +17,6 @@ from typing import TYPE_CHECKING, Any
 from acp.schema import (
     SessionNotification,
     ToolCallContent,
-    ToolCallDiff,
     ToolCallStatus,
     ToolCallUpdate,
 )
