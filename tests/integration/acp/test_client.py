@@ -120,7 +120,6 @@ class TestClient(Client):
         Params per spec: sessionId (required), terminalId (required)
         Note: sessionId is optional here to support unit tests that call this directly
         """
-        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -136,7 +135,6 @@ class TestClient(Client):
         Params per spec: sessionId (required), terminalId (required)
         Note: sessionId is optional here to support unit tests that call this directly
         """
-        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             del self.terminals[terminal_id]
@@ -148,7 +146,6 @@ class TestClient(Client):
         Params per spec: sessionId (required), terminalId (required)
         Note: sessionId is optional here to support unit tests that call this directly
         """
-        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -163,7 +160,6 @@ class TestClient(Client):
         Params per spec: sessionId (required), terminalId (required)
         Note: sessionId is optional here to support unit tests that call this directly
         """
-        session_id = params.get("sessionId")  # Optional for unit tests
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1
