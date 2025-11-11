@@ -41,6 +41,7 @@ from fast_agent.mcp.skybridge import (
     SkybridgeServerConfig,
     SkybridgeToolConfig,
 )
+from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
@@ -164,12 +165,14 @@ class MCPAggregator(ContextDependent):
         context: Optional["Context"] = None,
         name: str | None = None,
         config: Optional[Any] = None,  # Accept the agent config for elicitation_handler access
+        tool_handler: ToolExecutionHandler | None = None,
         **kwargs,
     ) -> None:
         """
         :param server_names: A list of server names to connect to.
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
+        :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -181,6 +184,10 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Store the config for access in session factory
+
+        # Store tool execution handler for integration with ACP or other protocols
+        # Default to NoOpToolExecutionHandler if none provided
+        self._tool_handler = tool_handler or NoOpToolExecutionHandler()
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -207,7 +214,9 @@ class MCPAggregator(ContextDependent):
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: Dict[str, SkybridgeServerConfig] = {}
 
-    def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
+    def _create_progress_callback(
+        self, server_name: str, tool_name: str, tool_call_id: str
+    ) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
 
         async def progress_callback(
@@ -226,6 +235,12 @@ class MCPAggregator(ContextDependent):
                     "details": message or "",  # Put the message in details column
                 },
             )
+
+            # Forward progress to tool handler (e.g., for ACP notifications)
+            try:
+                await self._tool_handler.on_tool_progress(tool_call_id, progress, total, message)
+            except Exception as e:
+                logger.error(f"Error in tool progress handler: {e}", exc_info=True)
 
         return progress_callback
 
@@ -1226,28 +1241,74 @@ class MCPAggregator(ContextDependent):
             },
         )
 
+        # Notify tool handler that execution is starting
+        try:
+            tool_call_id = await self._tool_handler.on_tool_start(
+                local_tool_name, server_name, arguments
+            )
+        except Exception as e:
+            logger.error(f"Error in tool start handler: {e}", exc_info=True)
+            # Generate fallback ID if handler fails
+            import uuid
+            tool_call_id = str(uuid.uuid4())
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
 
             # Create progress callback for this tool execution
-            progress_callback = self._create_progress_callback(server_name, local_tool_name)
-
-            return await self._execute_on_server(
-                server_name=server_name,
-                operation_type="tools/call",
-                operation_name=local_tool_name,
-                method_name="call_tool",
-                method_args={
-                    "name": local_tool_name,
-                    "arguments": arguments,
-                },
-                error_factory=lambda msg: CallToolResult(
-                    isError=True, content=[TextContent(type="text", text=msg)]
-                ),
-                progress_callback=progress_callback,
+            progress_callback = self._create_progress_callback(
+                server_name, local_tool_name, tool_call_id
             )
+
+            try:
+                result = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="tools/call",
+                    operation_name=local_tool_name,
+                    method_name="call_tool",
+                    method_args={
+                        "name": local_tool_name,
+                        "arguments": arguments,
+                    },
+                    error_factory=lambda msg: CallToolResult(
+                        isError=True, content=[TextContent(type="text", text=msg)]
+                    ),
+                    progress_callback=progress_callback,
+                )
+
+                # Notify tool handler of completion
+                try:
+                    # Extract result text from the result
+                    result_text = None
+                    if result.content:
+                        text_contents = [
+                            c.text for c in result.content if hasattr(c, "text") and c.text
+                        ]
+                        if text_contents:
+                            result_text = "\n".join(text_contents)
+
+                    error_text = None
+                    if result.isError and result_text:
+                        error_text = result_text
+                        result_text = None
+
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, not result.isError, result_text, error_text
+                    )
+                except Exception as e:
+                    logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+                return result
+
+            except Exception as e:
+                # Notify tool handler of error
+                try:
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
+                except Exception as handler_error:
+                    logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                raise
 
     async def get_prompt(
         self,

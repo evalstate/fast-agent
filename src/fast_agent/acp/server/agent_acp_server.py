@@ -29,6 +29,7 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
@@ -194,6 +195,30 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Create tool progress manager for this session if connection is available
+            if self._connection:
+                # Create a progress manager for this session
+                tool_handler = ACPToolProgressManager(self._connection, session_id)
+
+                logger.info(
+                    "ACP tool progress manager created for session",
+                    name="acp_tool_progress_init",
+                    session_id=session_id,
+                )
+
+                # Register tool handler with agents' aggregators
+                for agent_name, agent in instance.agents.items():
+                    if hasattr(agent, "_aggregator"):
+                        aggregator = agent._aggregator
+                        aggregator._tool_handler = tool_handler
+
+                        logger.info(
+                            "ACP tool handler registered",
+                            name="acp_tool_handler_registered",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
 
             # If client supports terminals and we have shell runtime enabled,
             # inject ACP terminal runtime to replace local ShellRuntime

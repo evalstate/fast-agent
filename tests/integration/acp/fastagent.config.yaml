@@ -14,4 +14,7 @@ logger:
   truncate_tools: true
 
 mcp:
-  servers: {}
+  servers:
+    progress_test:
+      command: "uv"
+      args: ["run", "./tests/integration/api/mcp_progress_server.py"]
