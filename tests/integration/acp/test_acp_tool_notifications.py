@@ -69,7 +69,7 @@ async def test_acp_tool_call_notifications() -> None:
 
         # Send a prompt that will trigger a tool call
         # Using the ***CALL_TOOL directive that the passthrough model supports
-        prompt_text = '***CALL_TOOL progress_test-progress_task {"steps": 3}'
+        prompt_text = '***CALL_TOOL progress_test__progress_task {"steps": 3}'
         prompt_response = await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
@@ -135,7 +135,7 @@ async def test_acp_tool_progress_updates() -> None:
         session_id = session_response.sessionId
 
         # Call a tool that reports progress
-        prompt_text = '***CALL_TOOL progress_test-progress_task {"steps": 5}'
+        prompt_text = '***CALL_TOOL progress_test__progress_task {"steps": 5}'
         await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
@@ -187,7 +187,7 @@ async def test_acp_tool_kinds_inferred() -> None:
         session_id = session_response.sessionId
 
         # Call a tool - progress_task should be inferred as "other"
-        prompt_text = '***CALL_TOOL progress_test-progress_task {"steps": 2}'
+        prompt_text = '***CALL_TOOL progress_test__progress_task {"steps": 2}'
         await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
