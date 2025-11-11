@@ -15,7 +15,6 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
 
 from acp.helpers import session_notification
-from acp.schema import SessionNotification
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -63,18 +62,21 @@ class ACPToolProgressManager:
     """
     Manages tool call progress notifications for ACP clients.
 
-    This class tracks active tool calls and sends appropriate notifications
-    to the ACP client as tools execute and report progress.
+    Implements the ToolExecutionHandler protocol to provide lifecycle hooks
+    for tool execution. Sends sessionUpdate notifications to ACP clients as
+    tools execute and report progress.
     """
 
-    def __init__(self, connection: "AgentSideConnection") -> None:
+    def __init__(self, connection: "AgentSideConnection", session_id: str) -> None:
         """
         Initialize the progress manager.
 
         Args:
             connection: The ACP connection to send notifications on
+            session_id: The ACP session ID for this manager
         """
         self._connection = connection
+        self._session_id = session_id
         self._active_tools: dict[str, ToolCallTracker] = {}
         self._lock = asyncio.Lock()
 
@@ -116,18 +118,18 @@ class ACPToolProgressManager:
 
         return ToolKind.OTHER
 
-    async def start_tool_call(
+    async def on_tool_start(
         self,
-        session_id: str,
         tool_name: str,
         server_name: str,
         arguments: dict[str, Any] | None = None,
     ) -> str:
         """
-        Notify the client that a tool call has started.
+        Called when a tool execution starts.
+
+        Implements ToolExecutionHandler.on_tool_start protocol method.
 
         Args:
-            session_id: The ACP session ID
             tool_name: Name of the tool being called
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
@@ -135,6 +137,7 @@ class ACPToolProgressManager:
         Returns:
             The tool call ID for tracking
         """
+        session_id = self._session_id
         tool_call_id = str(uuid.uuid4())
 
         # Infer tool kind
@@ -195,20 +198,22 @@ class ACPToolProgressManager:
 
         return tool_call_id
 
-    async def update_tool_progress(
+    async def on_tool_progress(
         self,
         tool_call_id: str,
-        progress: float | None = None,
+        progress: float,
         total: float | None = None,
         message: str | None = None,
     ) -> None:
         """
-        Update the progress of a tool call.
+        Called when tool execution reports progress.
+
+        Implements ToolExecutionHandler.on_tool_progress protocol method.
 
         Args:
             tool_call_id: The tool call ID
             progress: Current progress value
-            total: Total value for progress calculation
+            total: Total value for progress calculation (optional)
             message: Optional progress message
         """
         async with self._lock:
@@ -261,20 +266,22 @@ class ACPToolProgressManager:
                 exc_info=True,
             )
 
-    async def complete_tool_call(
+    async def on_tool_complete(
         self,
         tool_call_id: str,
-        success: bool = True,
+        success: bool,
         result_text: str | None = None,
         error: str | None = None,
     ) -> None:
         """
-        Mark a tool call as completed or failed.
+        Called when tool execution completes.
+
+        Implements ToolExecutionHandler.on_tool_complete protocol method.
 
         Args:
             tool_call_id: The tool call ID
-            success: Whether the tool call succeeded
-            result_text: Optional result text to include
+            success: Whether the tool execution succeeded
+            result_text: Optional result text if successful
             error: Optional error message if failed
         """
         async with self._lock:
