@@ -49,7 +49,9 @@ class TestClient(Client):
             )
         )
 
-    async def requestPermission(self, params: RequestPermissionRequest) -> RequestPermissionResponse:
+    async def requestPermission(
+        self, params: RequestPermissionRequest
+    ) -> RequestPermissionResponse:
         if self.permission_outcomes:
             return self.permission_outcomes.pop()
         return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
@@ -72,12 +74,22 @@ class TestClient(Client):
         Per ACP spec: CLIENT creates the terminal ID, not the agent.
         This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
 
-        Params per spec: command, args, env, cwd, outputByteLimit (no sessionId)
+        Params per spec: sessionId (required), command (required), args, env, cwd, outputByteLimit (optional)
+        Note: sessionId is optional here to support unit tests that call this directly
         """
+        session_id = params.get("sessionId", "test-session")  # Required per ACP spec, optional for unit tests
         command = params["command"]
         args = params.get("args", [])
-        env = params.get("env", {})
+        env = params.get("env", [])  # ACP spec expects array of {name, value} objects
         cwd = params.get("cwd")
+
+        # Validate env format per ACP spec
+        if env:
+            if not isinstance(env, list):
+                raise ValueError(f"env must be an array, got {type(env).__name__}")
+            for item in env:
+                if not isinstance(item, dict) or "name" not in item or "value" not in item:
+                    raise ValueError(f"env items must have 'name' and 'value' keys, got {item}")
 
         # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
         self._terminal_count += 1
@@ -90,6 +102,7 @@ class TestClient(Client):
 
         # Store terminal state
         self.terminals[terminal_id] = {
+            "session_id": session_id,
             "command": full_command,
             "output": f"Executed: {full_command}\nMock output for testing",
             "exit_code": 0,
@@ -102,7 +115,11 @@ class TestClient(Client):
         return {"terminalId": terminal_id}
 
     async def terminal_output(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Get terminal output."""
+        """Get terminal output.
+
+        Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
+        """
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -113,14 +130,22 @@ class TestClient(Client):
         }
 
     async def terminal_release(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Release terminal resources."""
+        """Release terminal resources.
+
+        Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
+        """
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             del self.terminals[terminal_id]
         return {}
 
     async def terminal_wait_for_exit(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Wait for terminal to exit (immediate in simulation)."""
+        """Wait for terminal to exit (immediate in simulation).
+
+        Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
+        """
         terminal_id = params["terminalId"]
         terminal = self.terminals.get(terminal_id, {})
 
@@ -130,7 +155,11 @@ class TestClient(Client):
         }
 
     async def terminal_kill(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Kill a running terminal."""
+        """Kill a running terminal.
+
+        Params per spec: sessionId (required), terminalId (required)
+        Note: sessionId is optional here to support unit tests that call this directly
+        """
         terminal_id = params["terminalId"]
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1

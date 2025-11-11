@@ -114,11 +114,20 @@ async def test_acp_terminal_execution() -> None:
         # Since we're using passthrough model, we can't test actual LLM-driven tool calls
         # but we can verify the terminal runtime is set up correctly
 
+        # Create a session first to get a session ID
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+
         # The terminals dict should be empty initially
         assert len(client.terminals) == 0
 
         # Manually test terminal lifecycle (client creates ID)
-        create_result = await client.terminal_create({"command": "echo test"})
+        create_result = await client.terminal_create({
+            "sessionId": session_id,
+            "command": "echo test"
+        })
         terminal_id = create_result["terminalId"]
 
         # Verify terminal was created with client-generated ID
@@ -127,12 +136,18 @@ async def test_acp_terminal_execution() -> None:
         assert client.terminals[terminal_id]["command"] == "echo test"
 
         # Get output
-        output = await client.terminal_output({"terminalId": terminal_id})
+        output = await client.terminal_output({
+            "sessionId": session_id,
+            "terminalId": terminal_id
+        })
         assert "Executed: echo test" in output["output"]
         assert output["exitCode"] == 0
 
         # Release terminal
-        await client.terminal_release({"terminalId": terminal_id})
+        await client.terminal_release({
+            "sessionId": session_id,
+            "terminalId": terminal_id
+        })
         assert terminal_id not in client.terminals
 
 
