@@ -36,6 +36,8 @@ FAST_AGENT_CMD = (
     str(CONFIG_PATH),
     "--transport",
     "acp",
+    "--servers",
+    "progress_test",
     "--model",
     "passthrough",
     "--name",
@@ -83,7 +85,9 @@ async def test_acp_tool_call_notifications() -> None:
 
         # Check notifications for tool_call and tool_call_update types
         tool_notifications = [
-            n for n in client.notifications if hasattr(n.update, "sessionUpdate")
+            n
+            for n in client.notifications
+            if hasattr(n.update, "sessionUpdate")
             and n.update.sessionUpdate in ["tool_call", "tool_call_update"]
         ]
 
@@ -110,7 +114,9 @@ async def test_acp_tool_call_notifications() -> None:
 
             # Last notification should be completed or failed
             last_status = tool_notifications[-1].update.status
-            assert last_status in ["completed", "failed"], f"Expected final status, got {last_status}"
+            assert last_status in ["completed", "failed"], (
+                f"Expected final status, got {last_status}"
+            )
 
 
 @pytest.mark.integration
@@ -149,8 +155,9 @@ async def test_acp_tool_progress_updates() -> None:
 
         # Check for progress updates
         tool_updates = [
-            n for n in client.notifications if hasattr(n.update, "sessionUpdate")
-            and n.update.sessionUpdate == "tool_call_update"
+            n
+            for n in client.notifications
+            if hasattr(n.update, "sessionUpdate") and n.update.sessionUpdate == "tool_call_update"
         ]
 
         # Should have received progress updates
@@ -202,9 +209,12 @@ async def test_acp_tool_kinds_inferred() -> None:
 
         # Find the initial tool_call notification
         tool_call_notif = next(
-            (n for n in client.notifications if hasattr(n.update, "sessionUpdate")
-             and n.update.sessionUpdate == "tool_call"),
-            None
+            (
+                n
+                for n in client.notifications
+                if hasattr(n.update, "sessionUpdate") and n.update.sessionUpdate == "tool_call"
+            ),
+            None,
         )
 
         assert tool_call_notif is not None, "Expected tool_call notification"
@@ -213,9 +223,7 @@ async def test_acp_tool_kinds_inferred() -> None:
         assert tool_call_notif.update.kind == "other"
 
 
-async def _wait_for_notifications(
-    client: TestClient, count: int = 1, timeout: float = 2.0
-) -> None:
+async def _wait_for_notifications(client: TestClient, count: int = 1, timeout: float = 2.0) -> None:
     """Wait for the ACP client to receive specified number of notifications."""
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout

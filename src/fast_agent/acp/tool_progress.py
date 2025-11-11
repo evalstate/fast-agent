@@ -10,11 +10,18 @@ When MCP tools execute and report progress, this module:
 
 import asyncio
 import uuid
-from dataclasses import dataclass, field
-from enum import Enum
-from typing import TYPE_CHECKING, Any, Literal
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from acp.helpers import session_notification
+from acp.schema import (
+    ContentToolCallContent,
+    TextContentBlock,
+    ToolCallProgress,
+    ToolCallStart,
+    ToolCallStatus,
+    ToolKind,
+)
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -22,24 +29,6 @@ if TYPE_CHECKING:
     from acp import AgentSideConnection
 
 logger = get_logger(__name__)
-
-
-# Type aliases for ACP tool call protocol
-ToolCallStatus = Literal["pending", "in_progress", "completed", "failed"]
-
-
-class ToolKind(str, Enum):
-    """ACP tool kinds for categorizing tool calls."""
-
-    READ = "read"
-    EDIT = "edit"
-    DELETE = "delete"
-    MOVE = "move"
-    SEARCH = "search"
-    EXECUTE = "execute"
-    THINK = "think"
-    FETCH = "fetch"
-    OTHER = "other"
 
 
 @dataclass
@@ -52,10 +41,8 @@ class ToolCallTracker:
     server_name: str
     status: ToolCallStatus = "pending"
     title: str = ""
-    kind: ToolKind = ToolKind.OTHER
+    kind: ToolKind = "other"
     arguments: dict[str, Any] | None = None
-    content: list[Any] = field(default_factory=list)
-    locations: list[dict[str, Any]] = field(default_factory=list)
 
 
 class ACPToolProgressManager:
@@ -95,28 +82,38 @@ class ACPToolProgressManager:
 
         # Common patterns for tool categorization
         if any(word in name_lower for word in ["read", "get", "fetch", "list", "show"]):
-            return ToolKind.READ
+            return "read"
         elif any(word in name_lower for word in ["write", "edit", "update", "modify", "patch"]):
-            return ToolKind.EDIT
-        elif any(
-            word in name_lower for word in ["delete", "remove", "clear", "clean", "rm"]
-        ):
-            return ToolKind.DELETE
+            return "edit"
+        elif any(word in name_lower for word in ["delete", "remove", "clear", "clean", "rm"]):
+            return "delete"
         elif any(word in name_lower for word in ["move", "rename", "mv"]):
-            return ToolKind.MOVE
+            return "move"
         elif any(word in name_lower for word in ["search", "find", "query", "grep"]):
-            return ToolKind.SEARCH
+            return "search"
         elif any(
-            word in name_lower
-            for word in ["execute", "run", "exec", "command", "bash", "shell"]
+            word in name_lower for word in ["execute", "run", "exec", "command", "bash", "shell"]
         ):
-            return ToolKind.EXECUTE
+            return "execute"
         elif any(word in name_lower for word in ["think", "plan", "reason"]):
-            return ToolKind.THINK
+            return "think"
         elif any(word in name_lower for word in ["fetch", "download", "http", "request"]):
-            return ToolKind.FETCH
+            return "fetch"
 
-        return ToolKind.OTHER
+        return "other"
+
+    def _build_text_content(self, message: str | None) -> list[ContentToolCallContent] | None:
+        """
+        Convert a text string into ACP-compatible tool call content blocks.
+        """
+        if not message:
+            return None
+        return [
+            ContentToolCallContent(
+                type="content",
+                content=TextContentBlock(type="text", text=message),
+            )
+        ]
 
     async def on_tool_start(
         self,
@@ -169,17 +166,16 @@ class ACPToolProgressManager:
 
         # Send initial notification
         try:
-            # Build update as dictionary per ACP specification
-            update = {
-                "sessionUpdate": "tool_call",
-                "toolCallId": tool_call_id,
-                "title": title,
-                "kind": kind.value,
-                "status": "pending",
-            }
+            tool_call_start = ToolCallStart(
+                sessionUpdate="tool_call",
+                toolCallId=tool_call_id,
+                title=title,
+                kind=kind,
+                status="pending",
+                rawInput=arguments,
+            )
 
-            # Use the session_notification helper to create the notification
-            notification = session_notification(session_id, update)
+            notification = session_notification(session_id, tool_call_start)
             await self._connection.sessionUpdate(notification)
 
             logger.debug(
@@ -230,25 +226,17 @@ class ACPToolProgressManager:
                 tracker.status = "in_progress"
 
         # Build content for progress update
-        content_blocks = []
-        if message:
-            content_blocks.append({
-                "type": "text",
-                "text": message,
-            })
+        content_blocks = self._build_text_content(message)
 
         # Send progress update
         try:
-            update_data: dict[str, Any] = {
-                "sessionUpdate": "tool_call_update",
-                "toolCallId": tool_call_id,
-                "status": tracker.status,
-            }
+            update_data = ToolCallProgress(
+                sessionUpdate="tool_call_update",
+                toolCallId=tool_call_id,
+                status=tracker.status,
+                content=content_blocks,
+            )
 
-            if content_blocks:
-                update_data["content"] = content_blocks
-
-            # Use the session_notification helper to create the notification
             notification = session_notification(tracker.session_id, update_data)
             await self._connection.sessionUpdate(notification)
 
@@ -297,25 +285,18 @@ class ACPToolProgressManager:
             tracker.status = "completed" if success else "failed"
 
         # Build content
-        content_blocks = []
-        if result_text or error:
-            content_blocks.append({
-                "type": "text",
-                "text": error if error else result_text or "",
-            })
+        content_blocks = self._build_text_content(error if error else result_text)
 
         # Send completion notification
         try:
-            update_data: dict[str, Any] = {
-                "sessionUpdate": "tool_call_update",
-                "toolCallId": tool_call_id,
-                "status": tracker.status,
-            }
+            update_data = ToolCallProgress(
+                sessionUpdate="tool_call_update",
+                toolCallId=tool_call_id,
+                status=tracker.status,
+                content=content_blocks,
+                rawOutput=result_text if success else error,
+            )
 
-            if content_blocks:
-                update_data["content"] = content_blocks
-
-            # Use the session_notification helper to create the notification
             notification = session_notification(tracker.session_id, update_data)
             await self._connection.sessionUpdate(notification)
 

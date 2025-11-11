@@ -16,6 +16,5 @@ logger:
 mcp:
   servers:
     progress_test:
-      command: "python"
-      args:
-        - "../api/mcp_progress_server.py"
+      command: "uv"
+      args: ["run", "./tests/integration/api/mcp_progress_server.py"]
