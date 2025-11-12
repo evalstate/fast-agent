@@ -29,16 +29,46 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
+from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 logger = get_logger(__name__)
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
+
+
+def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopReason:
+    """
+    Map fast-agent LlmStopReason to ACP StopReason.
+
+    Args:
+        llm_stop_reason: The stop reason from the LLM response
+
+    Returns:
+        The corresponding ACP StopReason value
+    """
+    if llm_stop_reason is None:
+        return END_TURN
+
+    # Map LlmStopReason values to ACP StopReason literals
+    mapping = {
+        LlmStopReason.END_TURN: END_TURN,
+        LlmStopReason.STOP_SEQUENCE: END_TURN,  # Normal completion
+        LlmStopReason.MAX_TOKENS: "max_tokens",
+        LlmStopReason.TOOL_USE: END_TURN,  # Tool use is normal completion in ACP
+        LlmStopReason.PAUSE: END_TURN,  # Pause is treated as normal completion
+        LlmStopReason.ERROR: REFUSAL,  # Errors are mapped to refusal
+        LlmStopReason.TIMEOUT: REFUSAL,  # Timeouts are mapped to refusal
+        LlmStopReason.SAFETY: REFUSAL,  # Safety triggers are mapped to refusal
+    }
+
+    return mapping.get(llm_stop_reason, END_TURN)
 
 
 class AgentACPServer(ACPAgent):
@@ -137,8 +167,10 @@ class AgentACPServer(ACPAgent):
 
             # Build our capabilities
             agent_capabilities = AgentCapabilities(
-                prompts=PromptCapabilities(
-                    supportedTypes=["text"],  # Start with text only
+                promptCapabilities=PromptCapabilities(
+                    image=True,  # Support image content
+                    embeddedContext=True,  # Support embedded resources
+                    audio=False,  # Don't support audio (yet)
                 ),
                 # We don't support loadSession yet
                 loadSession=False,
@@ -235,9 +267,7 @@ class AgentACPServer(ACPAgent):
                             connection=self._connection,
                             session_id=session_id,
                             activation_reason="via ACP terminal support",
-                            timeout_seconds=getattr(
-                                agent._shell_runtime, "timeout_seconds", 90
-                            ),
+                            timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                         )
 
                         # Inject into agent
@@ -337,14 +367,15 @@ class AgentACPServer(ACPAgent):
                 # Return an error response
                 return PromptResponse(stopReason=REFUSAL)
 
-            # Extract text content from the prompt
-            text_parts = []
-            for content_block in params.prompt:
-                if hasattr(content_block, "type") and content_block.type == "text":
-                    text_parts.append(content_block.text)
+            # Convert ACP content blocks to MCP format
+            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(params.prompt)
 
-            prompt_text = "\n".join(text_parts)
-
+            # Create a PromptMessageExtended with the converted content
+            prompt_message = PromptMessageExtended(
+                role="user",
+                content=mcp_content_blocks,
+            )
+            prompt_text = prompt_message.all_text() or ""
             # Check if this is a slash command
             slash_handler = self._session_slash_handlers.get(session_id)
             if slash_handler and slash_handler.is_slash_command(prompt_text):
@@ -385,10 +416,12 @@ class AgentACPServer(ACPAgent):
                 name="acp_prompt_send",
                 session_id=session_id,
                 agent=self.primary_agent_name,
-                prompt_length=len(prompt_text),
+                content_blocks=len(mcp_content_blocks),
             )
 
             # Send to the fast-agent agent with streaming support
+            # Track the stop reason to return in PromptResponse
+            acp_stop_reason: StopReason = END_TURN
             try:
                 if self.primary_agent_name:
                     agent = instance.agents[self.primary_agent_name]
@@ -445,13 +478,28 @@ class AgentACPServer(ACPAgent):
 
                     try:
                         # This will trigger streaming callbacks as chunks arrive
-                        response_text = await agent.send(prompt_text)
+                        result = await agent.generate(prompt_message)
+                        response_text = result.last_text() or "No content generated"
+
+                        # Map the LLM stop reason to ACP stop reason
+                        try:
+                            acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
+                        except Exception as e:
+                            logger.error(
+                                f"Error mapping stop reason: {e}",
+                                name="acp_stop_reason_error",
+                                exc_info=True,
+                            )
+                            # Default to END_TURN on error
+                            acp_stop_reason = END_TURN
 
                         logger.info(
                             "Received complete response from fast-agent",
                             name="acp_prompt_response",
                             session_id=session_id,
                             response_length=len(response_text),
+                            llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
+                            acp_stop_reason=acp_stop_reason,
                         )
 
                         # Wait for all streaming tasks to complete before sending final message
@@ -536,9 +584,9 @@ class AgentACPServer(ACPAgent):
                 traceback.print_exc(file=sys.stderr)
                 raise
 
-            # Return success
+            # Return response with appropriate stop reason
             return PromptResponse(
-                stopReason=END_TURN,
+                stopReason=acp_stop_reason,
             )
         finally:
             # Always remove session from active prompts, even on error
