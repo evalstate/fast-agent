@@ -235,9 +235,7 @@ class AgentACPServer(ACPAgent):
                             connection=self._connection,
                             session_id=session_id,
                             activation_reason="via ACP terminal support",
-                            timeout_seconds=getattr(
-                                agent._shell_runtime, "timeout_seconds", 90
-                            ),
+                            timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                         )
 
                         # Inject into agent
@@ -383,7 +381,8 @@ class AgentACPServer(ACPAgent):
 
                     try:
                         # This will trigger streaming callbacks as chunks arrive
-                        response_text = await agent.send(prompt_message)
+                        result = await agent.generate(prompt_message)
+                        response_text = result.last_text() or "No content generated"
 
                         logger.info(
                             "Received complete response from fast-agent",
