@@ -1,0 +1,485 @@
+"""
+Slash Commands for ACP
+
+Provides slash command support for the ACP server, allowing clients to
+discover and invoke special commands with the /command syntax.
+"""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass
+from importlib.metadata import version as get_version
+from typing import TYPE_CHECKING, Optional
+
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.history.history_exporter import HistoryExporter
+from fast_agent.llm.model_info import ModelInfo
+from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.types.conversation_summary import ConversationSummary
+from fast_agent.utils.time import format_duration
+
+if TYPE_CHECKING:
+    from fast_agent.core.fastagent import AgentInstance
+
+
+@dataclass
+class AvailableCommand:
+    """Represents a slash command available in the session."""
+
+    name: str
+    description: str
+    input_hint: Optional[str] = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Convert to dictionary format for ACP notification."""
+        result: dict[str, object] = {
+            "name": self.name,
+            "description": self.description,
+        }
+        if self.input_hint:
+            result["input"] = {"hint": self.input_hint}
+        return result
+
+
+class SlashCommandHandler:
+    """Handles slash command execution for ACP sessions."""
+
+    def __init__(
+        self,
+        session_id: str,
+        instance: AgentInstance,
+        primary_agent_name: str,
+        *,
+        history_exporter: type[HistoryExporter] | HistoryExporter | None = None,
+    ):
+        """
+        Initialize the slash command handler.
+
+        Args:
+            session_id: The ACP session ID
+            instance: The agent instance for this session
+            primary_agent_name: Name of the primary agent
+        """
+        self.session_id = session_id
+        self.instance = instance
+        self.primary_agent_name = primary_agent_name
+        self.history_exporter = history_exporter or HistoryExporter
+        self._created_at = time.time()
+
+        # Register available commands
+        self.commands: dict[str, AvailableCommand] = {
+            "status": AvailableCommand(
+                name="status",
+                description="Show fast-agent diagnostics",
+                input_hint=None,
+            ),
+            "save": AvailableCommand(
+                name="save",
+                description="Save conversation history",
+                input_hint=None,
+            ),
+            "clear": AvailableCommand(
+                name="clear",
+                description="Clear history (`last` for prev. turn)",
+                input_hint="[last]",
+            ),
+        }
+
+    def get_available_commands(self) -> list[dict]:
+        """Get the list of available commands for this session."""
+        return [cmd.to_dict() for cmd in self.commands.values()]
+
+    def is_slash_command(self, prompt_text: str) -> bool:
+        """Check if the prompt text is a slash command."""
+        return prompt_text.strip().startswith("/")
+
+    def parse_command(self, prompt_text: str) -> tuple[str, str]:
+        """
+        Parse a slash command into command name and arguments.
+
+        Args:
+            prompt_text: The full prompt text starting with /
+
+        Returns:
+            Tuple of (command_name, arguments)
+        """
+        text = prompt_text.strip()
+        if not text.startswith("/"):
+            return "", text
+
+        # Remove leading slash
+        text = text[1:]
+
+        # Split on first whitespace
+        parts = text.split(None, 1)
+        command_name = parts[0] if parts else ""
+        arguments = parts[1] if len(parts) > 1 else ""
+
+        return command_name, arguments
+
+    async def execute_command(self, command_name: str, arguments: str) -> str:
+        """
+        Execute a slash command and return the response.
+
+        Args:
+            command_name: Name of the command to execute
+            arguments: Arguments passed to the command
+
+        Returns:
+            The command response as a string
+        """
+        if command_name not in self.commands:
+            return f"Unknown command: /{command_name}\n\nAvailable commands:\n" + "\n".join(
+                f"  /{cmd.name} - {cmd.description}" for cmd in self.commands.values()
+            )
+
+        # Route to specific command handler
+        if command_name == "status":
+            return await self._handle_status()
+        if command_name == "save":
+            return await self._handle_save(arguments)
+        if command_name == "clear":
+            return await self._handle_clear(arguments)
+
+        return f"Command /{command_name} is not yet implemented."
+
+    async def _handle_status(self) -> str:
+        """Handle the /status command."""
+        # Get fast-agent version
+        try:
+            fa_version = get_version("fast-agent-mcp")
+        except Exception:
+            fa_version = "unknown"
+
+        # Get model information
+        agent = self.instance.agents.get(self.primary_agent_name)
+        model_name = "unknown"
+        model_provider = "unknown"
+        model_provider_display = "unknown"
+        context_window = "unknown"
+        capabilities_line = "Capabilities: unknown"
+
+        if agent and hasattr(agent, "_llm") and agent._llm:
+            model_info = ModelInfo.from_llm(agent._llm)
+            if model_info:
+                model_name = model_info.name
+                model_provider = str(model_info.provider.value)
+                model_provider_display = getattr(
+                    model_info.provider, "display_name", model_provider
+                )
+                if model_info.context_window:
+                    context_window = f"{model_info.context_window} tokens"
+                capability_parts = []
+                if model_info.supports_text:
+                    capability_parts.append("Text")
+                if model_info.supports_document:
+                    capability_parts.append("Document")
+                if model_info.supports_vision:
+                    capability_parts.append("Vision")
+                if capability_parts:
+                    capabilities_line = f"Capabilities: {', '.join(capability_parts)}"
+
+        # Get conversation statistics
+        summary_stats = self._get_conversation_stats(agent)
+
+        # Format the status response
+        status_lines = [
+            "# fast-agent (fast-agent-mcp) status",
+            "",
+            "## Version",
+            f"fast-agent: {fa_version}",
+            "",
+            "## Active Model",
+            f"Model: {model_name}",
+            f"Provider: {model_provider}"
+            + (f" ({model_provider_display})" if model_provider_display != "unknown" else ""),
+            f"Context Window: {context_window}",
+            capabilities_line,
+            "",
+            "## Conversation Statistics",
+        ]
+
+        uptime_seconds = max(time.time() - self._created_at, 0.0)
+        status_lines.extend(summary_stats)
+        status_lines.extend(["", f"ACP Agent Uptime: {format_duration(uptime_seconds)}"])
+        status_lines.extend(["", "## Error Handling"])
+        status_lines.extend(self._get_error_handling_report(agent))
+
+        return "\n".join(status_lines)
+
+    async def _handle_save(self, arguments: str | None = None) -> str:
+        """Handle the /save command by persisting conversation history."""
+        heading = "# save conversation"
+
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                ]
+            )
+
+        filename = arguments.strip() if arguments and arguments.strip() else None
+
+        try:
+            saved_path = await self.history_exporter.save(agent, filename)
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to save conversation history.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        return "\n".join(
+            [
+                heading,
+                "",
+                "Conversation history saved successfully.",
+                f"Filename: `{saved_path}`",
+            ]
+        )
+
+    async def _handle_clear(self, arguments: str | None = None) -> str:
+        """Handle /clear and /clear last commands."""
+        normalized = (arguments or "").strip().lower()
+        if normalized == "last":
+            return self._handle_clear_last()
+        return self._handle_clear_all()
+
+    def _handle_clear_all(self) -> str:
+        """Clear the entire conversation history."""
+        heading = "# clear conversation"
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                ]
+            )
+
+        try:
+            history = getattr(agent, "message_history", None)
+            original_count = len(history) if isinstance(history, list) else None
+
+            cleared = False
+            clear_method = getattr(agent, "clear", None)
+            if callable(clear_method):
+                clear_method()
+                cleared = True
+            elif isinstance(history, list):
+                history.clear()
+                cleared = True
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to clear conversation history.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        if not cleared:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Agent does not expose a clear() method or message history list.",
+                ]
+            )
+
+        removed_text = (
+            f"Removed {original_count} message(s)." if isinstance(original_count, int) else ""
+        )
+
+        response_lines = [
+            heading,
+            "",
+            "Conversation history cleared.",
+        ]
+
+        if removed_text:
+            response_lines.append(removed_text)
+
+        return "\n".join(response_lines)
+
+    def _handle_clear_last(self) -> str:
+        """Remove the most recent conversation message."""
+        heading = "# clear last conversation turn"
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                ]
+            )
+
+        try:
+            removed = None
+            pop_method = getattr(agent, "pop_last_message", None)
+            if callable(pop_method):
+                removed = pop_method()
+            else:
+                history = getattr(agent, "message_history", None)
+                if isinstance(history, list) and history:
+                    removed = history.pop()
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to remove the last message.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        if removed is None:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No messages available to remove.",
+                ]
+            )
+
+        role = getattr(removed, "role", "message")
+        return "\n".join(
+            [
+                heading,
+                "",
+                f"Removed last {role} message.",
+            ]
+        )
+
+    def _get_conversation_stats(self, agent) -> list[str]:
+        """Get conversation statistics from the agent's message history."""
+        if not agent or not hasattr(agent, "message_history"):
+            return [
+                "- Turns: 0",
+                "- Tool Calls: 0",
+                "- Context Used: 0%",
+            ]
+
+        try:
+            # Create a conversation summary from message history
+            summary = ConversationSummary(messages=agent.message_history)
+
+            # Calculate turns (user + assistant message pairs)
+            turns = min(summary.user_message_count, summary.assistant_message_count)
+
+            # Get tool call statistics
+            tool_calls = summary.tool_calls
+            tool_errors = summary.tool_errors
+            tool_successes = summary.tool_successes
+
+            # Calculate context usage percentage (estimate)
+            # This is a rough estimate based on message count and typical token usage
+            # A more accurate calculation would require token counting
+            context_used_pct = self._estimate_context_usage(summary, agent)
+
+            stats = [
+                f"- Turns: {turns}",
+                f"- Messages: {summary.message_count} (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})",
+                f"- Tool Calls: {tool_calls} (successes: {tool_successes}, errors: {tool_errors})",
+                f"- Context Used: ~{context_used_pct:.1f}%",
+            ]
+
+            # Add timing information if available
+            if summary.total_elapsed_time_ms > 0:
+                stats.append(
+                    f"- Total LLM Time: {format_duration(summary.total_elapsed_time_ms / 1000)}"
+                )
+
+            if summary.conversation_span_ms > 0:
+                span_seconds = summary.conversation_span_ms / 1000
+                stats.append(
+                    "- Conversation Runtime (LLM + tools, aka Conversation Duration): "
+                    f"{format_duration(span_seconds)}"
+                )
+
+            # Add tool breakdown if there were tool calls
+            if tool_calls > 0 and summary.tool_call_map:
+                stats.append("")
+                stats.append("### Tool Usage Breakdown")
+                for tool_name, count in sorted(
+                    summary.tool_call_map.items(), key=lambda x: x[1], reverse=True
+                ):
+                    stats.append(f"  - {tool_name}: {count}")
+
+            return stats
+
+        except Exception as e:
+            return [
+                "- Turns: error",
+                "- Tool Calls: error",
+                f"- Context Used: error ({e})",
+            ]
+
+    def _get_error_handling_report(self, agent, max_entries: int = 3) -> list[str]:
+        """Summarize error channel availability and recent entries."""
+        channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
+        if not agent or not hasattr(agent, "message_history"):
+            return [channel_label, "Recent Entries: unavailable (no agent history)"]
+
+        recent_entries: list[str] = []
+        history = getattr(agent, "message_history", []) or []
+
+        for message in reversed(history):
+            channels = getattr(message, "channels", None) or {}
+            channel_blocks = channels.get(FAST_AGENT_ERROR_CHANNEL)
+            if not channel_blocks:
+                continue
+
+            for block in channel_blocks:
+                text = get_text(block)
+                if text:
+                    cleaned = text.replace("\n", " ").strip()
+                    if cleaned:
+                        recent_entries.append(cleaned)
+                else:
+                    recent_entries.append(str(block))
+                if len(recent_entries) >= max_entries:
+                    break
+            if len(recent_entries) >= max_entries:
+                break
+
+        if recent_entries:
+            lines = [channel_label, "Recent Entries:"]
+            lines.extend(f"- {entry}" for entry in recent_entries)
+            return lines
+
+        return [channel_label, "Recent Entries: none recorded"]
+
+    def _estimate_context_usage(self, summary: ConversationSummary, agent) -> float:
+        """
+        Estimate context usage as a percentage.
+
+        This is a rough estimate based on message count.
+        A more accurate calculation would require actual token counting.
+        """
+        if not hasattr(agent, "_llm") or not agent._llm:
+            return 0.0
+
+        model_info = ModelInfo.from_llm(agent._llm)
+        if not model_info or not model_info.context_window:
+            return 0.0
+
+        # Very rough estimate: assume average of 500 tokens per message
+        # This includes both user and assistant messages
+        estimated_tokens = summary.message_count * 500
+
+        context_window = model_info.context_window
+        percentage = (estimated_tokens / context_window) * 100
+
+        # Cap at 100%
+        return min(percentage, 100.0)
