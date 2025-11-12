@@ -28,11 +28,13 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.content_converter import convert_acp_content_list_to_mcp
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 logger = get_logger(__name__)
 
@@ -134,7 +136,7 @@ class AgentACPServer(ACPAgent):
             # Build our capabilities
             agent_capabilities = AgentCapabilities(
                 prompts=PromptCapabilities(
-                    supportedTypes=["text"],  # Start with text only
+                    supportedTypes=["text", "image", "resource"],  # Support text, images, and embedded resources
                 ),
                 # We don't support loadSession yet
                 loadSession=False,
@@ -305,13 +307,17 @@ class AgentACPServer(ACPAgent):
                 # Return an error response
                 return PromptResponse(stopReason=REFUSAL)
 
-            # Extract text content from the prompt
-            text_parts = []
-            for content_block in params.prompt:
-                if hasattr(content_block, "type") and content_block.type == "text":
-                    text_parts.append(content_block.text)
+            # Convert ACP content blocks to MCP content blocks
+            mcp_content_blocks = convert_acp_content_list_to_mcp(params.prompt)
 
-            prompt_text = "\n".join(text_parts)
+            # Create a PromptMessageExtended from the converted content
+            prompt_message = PromptMessageExtended(
+                role="user",
+                content=mcp_content_blocks,
+            )
+
+            # For backwards compatibility with text-only agents, also extract text
+            prompt_text = prompt_message.all_text()
 
             logger.info(
                 "Sending prompt to fast-agent",
