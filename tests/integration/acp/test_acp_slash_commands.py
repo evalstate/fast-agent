@@ -5,15 +5,17 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import pytest
-from acp.schema import StopReason
 from mcp.types import TextContent
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+if TYPE_CHECKING:
+    from acp.schema import StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:

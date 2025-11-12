@@ -28,8 +28,8 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
-from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance

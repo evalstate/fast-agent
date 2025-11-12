@@ -9,7 +9,6 @@ from rich.text import Text
 
 from fast_agent.config import Settings
 from fast_agent.constants import REASONING
-from fast_agent.utils.time import format_duration
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
@@ -31,6 +30,7 @@ from fast_agent.ui.streaming import (
     StreamingMessageHandle as _StreamingMessageHandle,
 )
 from fast_agent.ui.tool_display import ToolDisplay
+from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
