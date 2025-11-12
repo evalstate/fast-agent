@@ -34,12 +34,40 @@ from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
-from fast_agent.types import PromptMessageExtended
+from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 logger = get_logger(__name__)
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
+
+
+def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopReason:
+    """
+    Map fast-agent LlmStopReason to ACP StopReason.
+
+    Args:
+        llm_stop_reason: The stop reason from the LLM response
+
+    Returns:
+        The corresponding ACP StopReason value
+    """
+    if llm_stop_reason is None:
+        return END_TURN
+
+    # Map LlmStopReason values to ACP StopReason literals
+    mapping = {
+        LlmStopReason.END_TURN: END_TURN,
+        LlmStopReason.STOP_SEQUENCE: END_TURN,  # Normal completion
+        LlmStopReason.MAX_TOKENS: "max_tokens",
+        LlmStopReason.TOOL_USE: END_TURN,  # Tool use is normal completion in ACP
+        LlmStopReason.PAUSE: END_TURN,  # Pause is treated as normal completion
+        LlmStopReason.ERROR: REFUSAL,  # Errors are mapped to refusal
+        LlmStopReason.TIMEOUT: REFUSAL,  # Timeouts are mapped to refusal
+        LlmStopReason.SAFETY: REFUSAL,  # Safety triggers are mapped to refusal
+    }
+
+    return mapping.get(llm_stop_reason, END_TURN)
 
 
 class AgentACPServer(ACPAgent):
@@ -325,6 +353,8 @@ class AgentACPServer(ACPAgent):
             )
 
             # Send to the fast-agent agent with streaming support
+            # Track the stop reason to return in PromptResponse
+            acp_stop_reason: StopReason = END_TURN
             try:
                 if self.primary_agent_name:
                     agent = instance.agents[self.primary_agent_name]
@@ -384,11 +414,25 @@ class AgentACPServer(ACPAgent):
                         result = await agent.generate(prompt_message)
                         response_text = result.last_text() or "No content generated"
 
+                        # Map the LLM stop reason to ACP stop reason
+                        try:
+                            acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
+                        except Exception as e:
+                            logger.error(
+                                f"Error mapping stop reason: {e}",
+                                name="acp_stop_reason_error",
+                                exc_info=True,
+                            )
+                            # Default to END_TURN on error
+                            acp_stop_reason = END_TURN
+
                         logger.info(
                             "Received complete response from fast-agent",
                             name="acp_prompt_response",
                             session_id=session_id,
                             response_length=len(response_text),
+                            llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
+                            acp_stop_reason=acp_stop_reason,
                         )
 
                         # Wait for all streaming tasks to complete before sending final message
@@ -473,9 +517,9 @@ class AgentACPServer(ACPAgent):
                 traceback.print_exc(file=sys.stderr)
                 raise
 
-            # Return success
+            # Return response with appropriate stop reason
             return PromptResponse(
-                stopReason=END_TURN,
+                stopReason=acp_stop_reason,
             )
         finally:
             # Always remove session from active prompts, even on error
