@@ -29,6 +29,7 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
@@ -119,6 +120,9 @@ class AgentACPServer(ACPAgent):
 
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
+
+        # Slash command handlers for each session
+        self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
@@ -278,6 +282,34 @@ class AgentACPServer(ACPAgent):
                                 agent_name=agent_name,
                             )
 
+        # Create slash command handler for this session
+        slash_handler = SlashCommandHandler(session_id, instance, self.primary_agent_name)
+        self._session_slash_handlers[session_id] = slash_handler
+
+        # Send available_commands_update notification
+        if self._connection:
+            try:
+                available_commands = slash_handler.get_available_commands()
+                commands_update = {
+                    "sessionUpdate": "available_commands_update",
+                    "availableCommands": available_commands,
+                }
+                notification = session_notification(session_id, commands_update)
+                await self._connection.sessionUpdate(notification)
+
+                logger.info(
+                    "Sent available_commands_update",
+                    name="acp_available_commands_sent",
+                    session_id=session_id,
+                    command_count=len(available_commands),
+                )
+            except Exception as e:
+                logger.error(
+                    f"Error sending available_commands_update: {e}",
+                    name="acp_available_commands_error",
+                    exc_info=True,
+                )
+
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
@@ -343,6 +375,41 @@ class AgentACPServer(ACPAgent):
                 role="user",
                 content=mcp_content_blocks,
             )
+            prompt_text = prompt_message.all_text() or ""
+            # Check if this is a slash command
+            slash_handler = self._session_slash_handlers.get(session_id)
+            if slash_handler and slash_handler.is_slash_command(prompt_text):
+                logger.info(
+                    "Processing slash command",
+                    name="acp_slash_command",
+                    session_id=session_id,
+                    prompt_text=prompt_text[:100],  # Log first 100 chars
+                )
+
+                # Parse and execute the command
+                command_name, arguments = slash_handler.parse_command(prompt_text)
+                response_text = await slash_handler.execute_command(command_name, arguments)
+
+                # Send the response via sessionUpdate
+                if self._connection and response_text:
+                    try:
+                        message_chunk = update_agent_message_text(response_text)
+                        notification = session_notification(session_id, message_chunk)
+                        await self._connection.sessionUpdate(notification)
+                        logger.info(
+                            "Sent slash command response",
+                            name="acp_slash_command_response",
+                            session_id=session_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error sending slash command response: {e}",
+                            name="acp_slash_command_response_error",
+                            exc_info=True,
+                        )
+
+                # Return success
+                return PromptResponse(stopReason=END_TURN)
 
             logger.info(
                 "Sending prompt to fast-agent",
@@ -602,6 +669,9 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_terminal_runtimes.clear()
+
+            # Clean up slash command handlers
+            self._session_slash_handlers.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
