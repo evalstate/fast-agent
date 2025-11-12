@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
 
 import pytest
 from mcp.types import TextContent
@@ -16,6 +16,8 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 if TYPE_CHECKING:
     from acp.schema import StopReason
+
+    from fast_agent.core.fastagent import AgentInstance
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -49,11 +51,24 @@ class StubAgentInstance:
     agents: Dict[str, Any] = field(default_factory=dict)
 
 
+def _handler(
+    instance: StubAgentInstance,
+    agent_name: str = "test-agent",
+    **kwargs,
+) -> SlashCommandHandler:
+    return SlashCommandHandler(
+        "test-session",
+        cast("AgentInstance", instance),
+        agent_name,
+        **kwargs,
+    )
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_slash_command_parsing() -> None:
     """Test that slash commands are correctly parsed."""
-    handler = SlashCommandHandler("test-session", StubAgentInstance(), "test-agent")
+    handler = _handler(StubAgentInstance())
 
     # Test valid slash command
     assert handler.is_slash_command("/status")
@@ -82,7 +97,7 @@ async def test_slash_command_parsing() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_available_commands() -> None:
     """Test that available commands are returned correctly."""
-    handler = SlashCommandHandler("test-session", StubAgentInstance(), "test-agent")
+    handler = _handler(StubAgentInstance())
 
     # Get available commands
     commands = handler.get_available_commands()
@@ -103,7 +118,7 @@ async def test_slash_command_available_commands() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_unknown_command() -> None:
     """Test that unknown commands are handled gracefully."""
-    handler = SlashCommandHandler("test-session", StubAgentInstance(), "test-agent")
+    handler = _handler(StubAgentInstance())
 
     # Execute unknown command
     response = await handler.execute_command("unknown_cmd", "")
@@ -119,7 +134,7 @@ async def test_slash_command_status() -> None:
     stub_agent = StubAgent(message_history=[], _llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
-    handler = SlashCommandHandler("test-session", instance, "test-agent")
+    handler = _handler(instance)
 
     # Execute status command
     response = await handler.execute_command("status", "")
@@ -146,7 +161,7 @@ async def test_slash_command_status_reports_error_channel_entries() -> None:
     stub_agent = StubAgent(message_history=[mock_message], _llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
-    handler = SlashCommandHandler("test-session", instance, "test-agent")
+    handler = _handler(instance)
 
     response = await handler.execute_command("status", "")
 
@@ -172,12 +187,7 @@ async def test_slash_command_save_conversation() -> None:
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
     exporter = RecordingHistoryExporter()
 
-    handler = SlashCommandHandler(
-        "test-session",
-        instance,
-        "test-agent",
-        history_exporter=exporter,
-    )
+    handler = _handler(instance, history_exporter=exporter)
 
     response = await handler.execute_command("save", "")
 
@@ -194,7 +204,7 @@ async def test_slash_command_save_conversation() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_save_without_agent() -> None:
     """Test /save error handling when the agent is missing."""
-    handler = SlashCommandHandler("test-session", StubAgentInstance(), "missing-agent")
+    handler = _handler(StubAgentInstance(), agent_name="missing-agent")
 
     response = await handler.execute_command("save", "")
 
@@ -213,7 +223,7 @@ async def test_slash_command_clear_history() -> None:
     stub_agent = StubAgent(message_history=messages.copy())
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
-    handler = SlashCommandHandler("test-session", instance, "test-agent")
+    handler = _handler(instance)
 
     response = await handler.execute_command("clear", "")
 
@@ -234,7 +244,7 @@ async def test_slash_command_clear_last_entry() -> None:
     stub_agent = StubAgent(message_history=messages.copy())
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
-    handler = SlashCommandHandler("test-session", instance, "test-agent")
+    handler = _handler(instance)
 
     response = await handler.execute_command("clear", "last")
 
@@ -251,7 +261,7 @@ async def test_slash_command_clear_last_when_empty() -> None:
     """Test /clear last when no messages exist."""
     stub_agent = StubAgent(message_history=[])
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
-    handler = SlashCommandHandler("test-session", instance, "test-agent")
+    handler = _handler(instance)
 
     response = await handler.execute_command("clear", "last")
 
