@@ -28,11 +28,13 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
 
@@ -133,8 +135,10 @@ class AgentACPServer(ACPAgent):
 
             # Build our capabilities
             agent_capabilities = AgentCapabilities(
-                prompts=PromptCapabilities(
-                    supportedTypes=["text"],  # Start with text only
+                promptCapabilities=PromptCapabilities(
+                    image=True,  # Support image content
+                    embeddedContext=True,  # Support embedded resources
+                    audio=False,  # Don't support audio (yet)
                 ),
                 # We don't support loadSession yet
                 loadSession=False,
@@ -305,20 +309,21 @@ class AgentACPServer(ACPAgent):
                 # Return an error response
                 return PromptResponse(stopReason=REFUSAL)
 
-            # Extract text content from the prompt
-            text_parts = []
-            for content_block in params.prompt:
-                if hasattr(content_block, "type") and content_block.type == "text":
-                    text_parts.append(content_block.text)
+            # Convert ACP content blocks to MCP format
+            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(params.prompt)
 
-            prompt_text = "\n".join(text_parts)
+            # Create a PromptMessageExtended with the converted content
+            prompt_message = PromptMessageExtended(
+                role="user",
+                content=mcp_content_blocks,
+            )
 
             logger.info(
                 "Sending prompt to fast-agent",
                 name="acp_prompt_send",
                 session_id=session_id,
                 agent=self.primary_agent_name,
-                prompt_length=len(prompt_text),
+                content_blocks=len(mcp_content_blocks),
             )
 
             # Send to the fast-agent agent with streaming support
@@ -378,7 +383,7 @@ class AgentACPServer(ACPAgent):
 
                     try:
                         # This will trigger streaming callbacks as chunks arrive
-                        response_text = await agent.send(prompt_text)
+                        response_text = await agent.send(prompt_message)
 
                         logger.info(
                             "Received complete response from fast-agent",
