@@ -15,12 +15,26 @@ from typing import TYPE_CHECKING, Any
 
 from acp.helpers import session_notification
 from acp.schema import (
+    AudioContentBlock,
     ContentToolCallContent,
+    EmbeddedResourceContentBlock,
+    ImageContentBlock,
+    ResourceContentBlock,
     TextContentBlock,
     ToolCallProgress,
     ToolCallStart,
     ToolCallStatus,
     ToolKind,
+)
+from mcp.types import (
+    AudioContent,
+    BlobResourceContents,
+    ContentBlock,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
 )
 
 from fast_agent.core.logging.logger import get_logger
@@ -102,9 +116,124 @@ class ACPToolProgressManager:
 
         return "other"
 
+    def _convert_mcp_content_to_acp(
+        self, content: list[ContentBlock] | None
+    ) -> list[ContentToolCallContent] | None:
+        """
+        Convert MCP content blocks to ACP ContentToolCallContent format.
+
+        Args:
+            content: List of MCP content blocks (TextContent, ImageContent, etc.)
+
+        Returns:
+            List of ACP ContentToolCallContent blocks, or None if no content
+        """
+        if not content:
+            return None
+
+        acp_content: list[ContentToolCallContent] = []
+
+        for block in content:
+            if isinstance(block, TextContent):
+                # MCP TextContent -> ACP TextContentBlock
+                acp_content.append(
+                    ContentToolCallContent(
+                        type="content",
+                        content=TextContentBlock(
+                            type="text",
+                            text=block.text,
+                            annotations=block.annotations,
+                        ),
+                    )
+                )
+            elif isinstance(block, ImageContent):
+                # MCP ImageContent -> ACP ImageContentBlock
+                acp_content.append(
+                    ContentToolCallContent(
+                        type="content",
+                        content=ImageContentBlock(
+                            type="image",
+                            data=block.data,
+                            mimeType=block.mimeType,
+                            annotations=block.annotations,
+                        ),
+                    )
+                )
+            elif isinstance(block, AudioContent):
+                # MCP AudioContent -> ACP AudioContentBlock
+                acp_content.append(
+                    ContentToolCallContent(
+                        type="content",
+                        content=AudioContentBlock(
+                            type="audio",
+                            data=block.data,
+                            mimeType=block.mimeType,
+                            annotations=block.annotations,
+                        ),
+                    )
+                )
+            elif isinstance(block, ResourceLink):
+                # MCP ResourceLink -> ACP ResourceContentBlock
+                acp_content.append(
+                    ContentToolCallContent(
+                        type="content",
+                        content=ResourceContentBlock(
+                            type="resource",
+                            uri=str(block.uri),
+                            annotations=block.annotations,
+                        ),
+                    )
+                )
+            elif isinstance(block, EmbeddedResource):
+                # MCP EmbeddedResource -> ACP EmbeddedResourceContentBlock
+                # Need to handle both text and blob resource contents
+                resource = block.resource
+                if isinstance(resource, TextResourceContents):
+                    acp_content.append(
+                        ContentToolCallContent(
+                            type="content",
+                            content=EmbeddedResourceContentBlock(
+                                type="embedded_resource",
+                                resource={
+                                    "type": "text",
+                                    "uri": str(resource.uri),
+                                    "text": resource.text,
+                                    "mimeType": resource.mimeType,
+                                },
+                                annotations=block.annotations,
+                            ),
+                        )
+                    )
+                elif isinstance(resource, BlobResourceContents):
+                    acp_content.append(
+                        ContentToolCallContent(
+                            type="content",
+                            content=EmbeddedResourceContentBlock(
+                                type="embedded_resource",
+                                resource={
+                                    "type": "blob",
+                                    "uri": str(resource.uri),
+                                    "blob": resource.blob,
+                                    "mimeType": resource.mimeType,
+                                },
+                                annotations=block.annotations,
+                            ),
+                        )
+                    )
+            else:
+                # Unknown content type - log warning and skip
+                logger.warning(
+                    f"Unknown content type: {type(block).__name__}",
+                    name="acp_unknown_content_type",
+                )
+
+        return acp_content if acp_content else None
+
     def _build_text_content(self, message: str | None) -> list[ContentToolCallContent] | None:
         """
         Convert a text string into ACP-compatible tool call content blocks.
+
+        DEPRECATED: Use _convert_mcp_content_to_acp instead for full content support.
         """
         if not message:
             return None
@@ -258,7 +387,7 @@ class ACPToolProgressManager:
         self,
         tool_call_id: str,
         success: bool,
-        result_text: str | None = None,
+        content: list[ContentBlock] | None = None,
         error: str | None = None,
     ) -> None:
         """
@@ -269,7 +398,7 @@ class ACPToolProgressManager:
         Args:
             tool_call_id: The tool call ID
             success: Whether the tool execution succeeded
-            result_text: Optional result text if successful
+            content: Optional content blocks (text, images, etc.) if successful
             error: Optional error message if failed
         """
         async with self._lock:
@@ -284,8 +413,21 @@ class ACPToolProgressManager:
             # Update status
             tracker.status = "completed" if success else "failed"
 
-        # Build content
-        content_blocks = self._build_text_content(error if error else result_text)
+        # Build content blocks
+        if error:
+            # Error case: convert error string to text content
+            content_blocks = self._build_text_content(error)
+            raw_output = error
+        elif content:
+            # Success case with structured content: convert MCP content to ACP
+            content_blocks = self._convert_mcp_content_to_acp(content)
+            # For rawOutput, extract just text content for backward compatibility
+            text_parts = [c.text for c in content if isinstance(c, TextContent)]
+            raw_output = "\n".join(text_parts) if text_parts else None
+        else:
+            # No content or error
+            content_blocks = None
+            raw_output = None
 
         # Send completion notification
         try:
@@ -294,7 +436,7 @@ class ACPToolProgressManager:
                 toolCallId=tool_call_id,
                 status=tracker.status,
                 content=content_blocks,
-                rawOutput=result_text if success else error,
+                rawOutput=raw_output,
             )
 
             notification = session_notification(tracker.session_id, update_data)
@@ -304,6 +446,7 @@ class ACPToolProgressManager:
                 f"Completed tool call: {tool_call_id}",
                 name="acp_tool_call_complete",
                 status=tracker.status,
+                content_blocks=len(content_blocks) if content_blocks else 0,
             )
         except Exception as e:
             logger.error(

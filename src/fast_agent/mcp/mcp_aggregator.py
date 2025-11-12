@@ -1280,22 +1280,19 @@ class MCPAggregator(ContextDependent):
 
                 # Notify tool handler of completion
                 try:
-                    # Extract result text from the result
-                    result_text = None
-                    if result.content:
-                        text_contents = [
-                            c.text for c in result.content if hasattr(c, "text") and c.text
-                        ]
-                        if text_contents:
-                            result_text = "\n".join(text_contents)
+                    # Pass the full content blocks to the handler
+                    content = result.content if result.content else None
 
+                    # If there's an error, extract error text
                     error_text = None
-                    if result.isError and result_text:
-                        error_text = result_text
-                        result_text = None
+                    if result.isError and content:
+                        # Extract text from content for error message
+                        text_parts = [c.text for c in content if hasattr(c, "text") and c.text]
+                        error_text = "\n".join(text_parts) if text_parts else None
+                        content = None  # Don't send content when there's an error
 
                     await self._tool_handler.on_tool_complete(
-                        tool_call_id, not result.isError, result_text, error_text
+                        tool_call_id, not result.isError, content, error_text
                     )
                 except Exception as e:
                     logger.error(f"Error in tool complete handler: {e}", exc_info=True)
