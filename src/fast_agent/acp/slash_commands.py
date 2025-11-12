@@ -11,7 +11,10 @@ from dataclasses import dataclass
 from importlib.metadata import version as get_version
 from typing import TYPE_CHECKING, Optional
 
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.llm.model_info import ModelInfo
+from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
 
 if TYPE_CHECKING:
@@ -40,7 +43,14 @@ class AvailableCommand:
 class SlashCommandHandler:
     """Handles slash command execution for ACP sessions."""
 
-    def __init__(self, session_id: str, instance: AgentInstance, primary_agent_name: str):
+    def __init__(
+        self,
+        session_id: str,
+        instance: AgentInstance,
+        primary_agent_name: str,
+        *,
+        history_exporter: type[HistoryExporter] | HistoryExporter | None = None,
+    ):
         """
         Initialize the slash command handler.
 
@@ -52,12 +62,18 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
+        self.history_exporter = history_exporter or HistoryExporter
 
         # Register available commands
         self.commands: dict[str, AvailableCommand] = {
             "status": AvailableCommand(
                 name="status",
-                description="Show fast-agent version, model, and context usage statistics",
+                description="Show fast-agent diagnostics",
+                input_hint=None,
+            ),
+            "save": AvailableCommand(
+                name="save",
+                description="Save conversation history",
                 input_hint=None,
             ),
         }
@@ -113,6 +129,8 @@ class SlashCommandHandler:
         # Route to specific command handler
         if command_name == "status":
             return await self._handle_status()
+        if command_name == "save":
+            return await self._handle_save(arguments)
 
         return f"Command /{command_name} is not yet implemented."
 
@@ -128,38 +146,92 @@ class SlashCommandHandler:
         agent = self.instance.agents.get(self.primary_agent_name)
         model_name = "unknown"
         model_provider = "unknown"
+        model_provider_display = "unknown"
         context_window = "unknown"
+        capabilities_line = "Capabilities: unknown"
 
         if agent and hasattr(agent, "_llm") and agent._llm:
             model_info = ModelInfo.from_llm(agent._llm)
             if model_info:
                 model_name = model_info.name
                 model_provider = str(model_info.provider.value)
-                context_window = (
-                    str(model_info.context_window) if model_info.context_window else "unknown"
+                model_provider_display = getattr(
+                    model_info.provider, "display_name", model_provider
                 )
+                if model_info.context_window:
+                    context_window = f"{model_info.context_window} tokens"
+                capability_parts = []
+                if model_info.supports_text:
+                    capability_parts.append("Text")
+                if model_info.supports_document:
+                    capability_parts.append("Document")
+                if model_info.supports_vision:
+                    capability_parts.append("Vision")
+                if capability_parts:
+                    capabilities_line = f"Capabilities: {', '.join(capability_parts)}"
 
         # Get conversation statistics
         summary_stats = self._get_conversation_stats(agent)
 
         # Format the status response
         status_lines = [
-            "# Fast-Agent Status",
+            "# fast-agent (fast-agent-mcp) status",
             "",
             "## Version",
             f"fast-agent: {fa_version}",
             "",
-            "## Model",
-            f"Name: {model_name}",
-            f"Provider: {model_provider}",
-            f"Context Window: {context_window} tokens",
+            "## Active Model",
+            f"Model: {model_name}",
+            f"Provider: {model_provider}"
+            + (f" ({model_provider_display})" if model_provider_display != "unknown" else ""),
+            f"Context Window: {context_window}",
+            capabilities_line,
             "",
             "## Conversation Statistics",
         ]
 
         status_lines.extend(summary_stats)
+        status_lines.extend(["", "## Error Handling"])
+        status_lines.extend(self._get_error_handling_report(agent))
 
         return "\n".join(status_lines)
+
+    async def _handle_save(self, arguments: str | None = None) -> str:
+        """Handle the /save command by persisting conversation history."""
+        heading = "# save conversation"
+
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                ]
+            )
+
+        filename = arguments.strip() if arguments and arguments.strip() else None
+
+        try:
+            saved_path = await self.history_exporter.save(agent, filename)
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to save conversation history.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        return "\n".join(
+            [
+                heading,
+                "",
+                "Conversation history saved successfully.",
+                f"Filename: `{saved_path}`",
+            ]
+        )
 
     def _get_conversation_stats(self, agent) -> list[str]:
         """Get conversation statistics from the agent's message history."""
@@ -196,14 +268,10 @@ class SlashCommandHandler:
 
             # Add timing information if available
             if summary.total_elapsed_time_ms > 0:
-                stats.append(
-                    f"Total LLM Time: {summary.total_elapsed_time_ms / 1000:.2f}s"
-                )
+                stats.append(f"Total LLM Time: {summary.total_elapsed_time_ms / 1000:.2f}s")
 
             if summary.conversation_span_ms > 0:
-                stats.append(
-                    f"Conversation Duration: {summary.conversation_span_ms / 1000:.2f}s"
-                )
+                stats.append(f"Conversation Duration: {summary.conversation_span_ms / 1000:.2f}s")
 
             # Add tool breakdown if there were tool calls
             if tool_calls > 0 and summary.tool_call_map:
@@ -222,6 +290,41 @@ class SlashCommandHandler:
                 "Tool Calls: error",
                 f"Context Used: error ({e})",
             ]
+
+    def _get_error_handling_report(self, agent, max_entries: int = 3) -> list[str]:
+        """Summarize error channel availability and recent entries."""
+        channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
+        if not agent or not hasattr(agent, "message_history"):
+            return [channel_label, "Recent Entries: unavailable (no agent history)"]
+
+        recent_entries: list[str] = []
+        history = getattr(agent, "message_history", []) or []
+
+        for message in reversed(history):
+            channels = getattr(message, "channels", None) or {}
+            channel_blocks = channels.get(FAST_AGENT_ERROR_CHANNEL)
+            if not channel_blocks:
+                continue
+
+            for block in channel_blocks:
+                text = get_text(block)
+                if text:
+                    cleaned = text.replace("\n", " ").strip()
+                    if cleaned:
+                        recent_entries.append(cleaned)
+                else:
+                    recent_entries.append(str(block))
+                if len(recent_entries) >= max_entries:
+                    break
+            if len(recent_entries) >= max_entries:
+                break
+
+        if recent_entries:
+            lines = [channel_label, "Recent Entries:"]
+            lines.extend(f"- {entry}" for entry in recent_entries)
+            return lines
+
+        return [channel_label, "Recent Entries: none recorded"]
 
     def _estimate_context_usage(self, summary: ConversationSummary, agent) -> float:
         """
