@@ -7,6 +7,7 @@ discover and invoke special commands with the /command syntax.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from importlib.metadata import version as get_version
 from typing import TYPE_CHECKING, Optional
@@ -16,6 +17,7 @@ from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.conversation_summary import ConversationSummary
+from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
@@ -63,6 +65,7 @@ class SlashCommandHandler:
         self.instance = instance
         self.primary_agent_name = primary_agent_name
         self.history_exporter = history_exporter or HistoryExporter
+        self._created_at = time.time()
 
         # Register available commands
         self.commands: dict[str, AvailableCommand] = {
@@ -197,7 +200,9 @@ class SlashCommandHandler:
             "## Conversation Statistics",
         ]
 
+        uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
+        status_lines.extend(["", f"ACP Agent Uptime: {format_duration(uptime_seconds)}"])
         status_lines.extend(["", "## Error Handling"])
         status_lines.extend(self._get_error_handling_report(agent))
 
@@ -360,9 +365,9 @@ class SlashCommandHandler:
         """Get conversation statistics from the agent's message history."""
         if not agent or not hasattr(agent, "message_history"):
             return [
-                "Turns: 0",
-                "Tool Calls: 0",
-                "Context Used: 0%",
+                "- Turns: 0",
+                "- Tool Calls: 0",
+                "- Context Used: 0%",
             ]
 
         try:
@@ -383,18 +388,24 @@ class SlashCommandHandler:
             context_used_pct = self._estimate_context_usage(summary, agent)
 
             stats = [
-                f"Turns: {turns}",
-                f"Messages: {summary.message_count} (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})",
-                f"Tool Calls: {tool_calls} (successes: {tool_successes}, errors: {tool_errors})",
-                f"Context Used: ~{context_used_pct:.1f}%",
+                f"- Turns: {turns}",
+                f"- Messages: {summary.message_count} (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})",
+                f"- Tool Calls: {tool_calls} (successes: {tool_successes}, errors: {tool_errors})",
+                f"- Context Used: ~{context_used_pct:.1f}%",
             ]
 
             # Add timing information if available
             if summary.total_elapsed_time_ms > 0:
-                stats.append(f"Total LLM Time: {summary.total_elapsed_time_ms / 1000:.2f}s")
+                stats.append(
+                    f"- Total LLM Time: {format_duration(summary.total_elapsed_time_ms / 1000)}"
+                )
 
             if summary.conversation_span_ms > 0:
-                stats.append(f"Conversation Duration: {summary.conversation_span_ms / 1000:.2f}s")
+                span_seconds = summary.conversation_span_ms / 1000
+                stats.append(
+                    "- Conversation Runtime (LLM + tools, aka Conversation Duration): "
+                    f"{format_duration(span_seconds)}"
+                )
 
             # Add tool breakdown if there were tool calls
             if tool_calls > 0 and summary.tool_call_map:
@@ -409,9 +420,9 @@ class SlashCommandHandler:
 
         except Exception as e:
             return [
-                "Turns: error",
-                "Tool Calls: error",
-                f"Context Used: error ({e})",
+                "- Turns: error",
+                "- Tool Calls: error",
+                f"- Context Used: error ({e})",
             ]
 
     def _get_error_handling_report(self, agent, max_entries: int = 3) -> list[str]:

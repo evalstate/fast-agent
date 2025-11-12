@@ -9,6 +9,7 @@ from rich.text import Text
 
 from fast_agent.config import Settings
 from fast_agent.constants import REASONING
+from fast_agent.utils.time import format_duration
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
@@ -100,11 +101,7 @@ class ConsoleDisplay:
             return f"{elapsed:.2f}s"
         if elapsed < 60:
             return f"{elapsed:.1f}s"
-        minutes, seconds = divmod(elapsed, 60)
-        if minutes < 60:
-            return f"{int(minutes)}m {seconds:02.0f}s"
-        hours, minutes = divmod(int(minutes), 60)
-        return f"{hours}h {minutes:02d}m"
+        return format_duration(elapsed)
 
     def display_message(
         self,
