@@ -29,9 +29,9 @@ class AvailableCommand:
     description: str
     input_hint: Optional[str] = None
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
         """Convert to dictionary format for ACP notification."""
-        result = {
+        result: dict[str, object] = {
             "name": self.name,
             "description": self.description,
         }
@@ -75,6 +75,11 @@ class SlashCommandHandler:
                 name="save",
                 description="Save conversation history",
                 input_hint=None,
+            ),
+            "clear": AvailableCommand(
+                name="clear",
+                description="Clear history (`last` for prev. turn)",
+                input_hint="[last]",
             ),
         }
 
@@ -131,6 +136,8 @@ class SlashCommandHandler:
             return await self._handle_status()
         if command_name == "save":
             return await self._handle_save(arguments)
+        if command_name == "clear":
+            return await self._handle_clear(arguments)
 
         return f"Command /{command_name} is not yet implemented."
 
@@ -230,6 +237,122 @@ class SlashCommandHandler:
                 "",
                 "Conversation history saved successfully.",
                 f"Filename: `{saved_path}`",
+            ]
+        )
+
+    async def _handle_clear(self, arguments: str | None = None) -> str:
+        """Handle /clear and /clear last commands."""
+        normalized = (arguments or "").strip().lower()
+        if normalized == "last":
+            return self._handle_clear_last()
+        return self._handle_clear_all()
+
+    def _handle_clear_all(self) -> str:
+        """Clear the entire conversation history."""
+        heading = "# clear conversation"
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                ]
+            )
+
+        try:
+            history = getattr(agent, "message_history", None)
+            original_count = len(history) if isinstance(history, list) else None
+
+            cleared = False
+            clear_method = getattr(agent, "clear", None)
+            if callable(clear_method):
+                clear_method()
+                cleared = True
+            elif isinstance(history, list):
+                history.clear()
+                cleared = True
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to clear conversation history.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        if not cleared:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Agent does not expose a clear() method or message history list.",
+                ]
+            )
+
+        removed_text = (
+            f"Removed {original_count} message(s)." if isinstance(original_count, int) else ""
+        )
+
+        response_lines = [
+            heading,
+            "",
+            "Conversation history cleared.",
+        ]
+
+        if removed_text:
+            response_lines.append(removed_text)
+
+        return "\n".join(response_lines)
+
+    def _handle_clear_last(self) -> str:
+        """Remove the most recent conversation message."""
+        heading = "# clear last conversation turn"
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                ]
+            )
+
+        try:
+            removed = None
+            pop_method = getattr(agent, "pop_last_message", None)
+            if callable(pop_method):
+                removed = pop_method()
+            else:
+                history = getattr(agent, "message_history", None)
+                if isinstance(history, list) and history:
+                    removed = history.pop()
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to remove the last message.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        if removed is None:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No messages available to remove.",
+                ]
+            )
+
+        role = getattr(removed, "role", "message")
+        return "\n".join(
+            [
+                heading,
+                "",
+                f"Removed last {role} message.",
             ]
         )
 

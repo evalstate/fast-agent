@@ -28,6 +28,18 @@ END_TURN: StopReason = "end_turn"
 class StubAgent:
     message_history: List[Any] = field(default_factory=list)
     _llm: Any = None
+    cleared: bool = False
+    popped: bool = False
+
+    def clear(self) -> None:
+        self.cleared = True
+        self.message_history.clear()
+
+    def pop_last_message(self):
+        self.popped = True
+        if not self.message_history:
+            return None
+        return self.message_history.pop()
 
 
 @dataclass
@@ -77,6 +89,7 @@ async def test_slash_command_available_commands() -> None:
     command_names = {cmd["name"] for cmd in commands}
     assert "status" in command_names
     assert "save" in command_names
+    assert "clear" in command_names
 
     # Check status command structure
     status_cmd = next(cmd for cmd in commands if cmd["name"] == "status")
@@ -185,3 +198,60 @@ async def test_slash_command_save_without_agent() -> None:
 
     assert "save conversation" in response.lower()
     assert "Unable to locate agent" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_clear_history() -> None:
+    """Test clearing the entire history."""
+    messages = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")]),
+        PromptMessageExtended(role="assistant", content=[TextContent(type="text", text="hello")]),
+    ]
+    stub_agent = StubAgent(message_history=messages.copy())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = SlashCommandHandler("test-session", instance, "test-agent")
+
+    response = await handler.execute_command("clear", "")
+
+    assert stub_agent.cleared is True
+    assert stub_agent.message_history == []
+    assert "clear conversation" in response.lower()
+    assert "history cleared" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_clear_last_entry() -> None:
+    """Test clearing only the last message."""
+    messages = [
+        PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")]),
+        PromptMessageExtended(role="assistant", content=[TextContent(type="text", text="hello")]),
+    ]
+    stub_agent = StubAgent(message_history=messages.copy())
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = SlashCommandHandler("test-session", instance, "test-agent")
+
+    response = await handler.execute_command("clear", "last")
+
+    assert stub_agent.popped is True
+    assert len(stub_agent.message_history) == 1
+    assert stub_agent.message_history[0].role == "user"
+    assert "clear last" in response.lower()
+    assert "removed last" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_clear_last_when_empty() -> None:
+    """Test /clear last when no messages exist."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+    handler = SlashCommandHandler("test-session", instance, "test-agent")
+
+    response = await handler.execute_command("clear", "last")
+
+    assert "clear last" in response.lower()
+    assert "no messages" in response.lower()
