@@ -175,6 +175,9 @@ class McpAgent(ABC, ToolAgent):
         # Allow external runtime injection (e.g., for ACP terminal support)
         self._external_runtime = None
 
+        # Allow multiple external runtimes (e.g., ACP filesystem support)
+        self._external_runtimes: list = []
+
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
 
@@ -474,6 +477,21 @@ class McpAgent(ABC, ToolAgent):
             runtime_type=type(runtime).__name__,
         )
 
+    def add_external_runtime(self, runtime) -> None:
+        """
+        Add an external runtime (e.g., ACPFilesystemRuntime) with multiple tools.
+
+        This allows ACP mode to inject additional capabilities like filesystem support.
+
+        Args:
+            runtime: Runtime instance with tools property and execute() method
+        """
+        self._external_runtimes.append(runtime)
+        self.logger.info(
+            f"External runtime added: {type(runtime).__name__}",
+            runtime_type=type(runtime).__name__,
+        )
+
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
@@ -489,6 +507,13 @@ class McpAgent(ABC, ToolAgent):
         if self._external_runtime and hasattr(self._external_runtime, "tool"):
             if self._external_runtime.tool and name == self._external_runtime.tool.name:
                 return await self._external_runtime.execute(arguments)
+
+        # Check additional external runtimes (e.g., ACP filesystem)
+        for runtime in self._external_runtimes:
+            if hasattr(runtime, "tools"):
+                tool_names = [tool.name for tool in runtime.tools]
+                if name in tool_names:
+                    return await runtime.execute(name, arguments)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -1080,6 +1105,14 @@ class McpAgent(ABC, ToolAgent):
         elif self._bash_tool and self._bash_tool.name not in existing_names:
             merged_tools.append(self._bash_tool)
             existing_names.add(self._bash_tool.name)
+
+        # Add tools from additional external runtimes (e.g., ACP filesystem)
+        for runtime in self._external_runtimes:
+            if hasattr(runtime, "tools"):
+                for tool in runtime.tools:
+                    if tool.name not in existing_names:
+                        merged_tools.append(tool)
+                        existing_names.add(tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)
