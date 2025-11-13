@@ -460,15 +460,25 @@ class McpAgent(ABC, ToolAgent):
 
     def set_external_runtime(self, runtime) -> None:
         """
-        Set an external runtime (e.g., ACPTerminalRuntime) to replace ShellRuntime.
+        Set an external runtime (e.g., ACPTerminalRuntime, ACPFilesystemRuntime).
 
-        This allows ACP mode to inject terminal support that uses the client's
-        terminal capabilities instead of local process execution.
+        This allows ACP mode to inject runtimes that use the client's
+        capabilities instead of local execution. Supports runtimes with either:
+        - A single tool via .tool property (e.g., terminal)
+        - Multiple tools via .tools property (e.g., filesystem)
 
         Args:
-            runtime: Runtime instance with tool and execute() method
+            runtime: Runtime instance with tool/tools property and execute/call_tool method
         """
-        self._external_runtime = runtime
+        # Support both single runtime and multiple runtimes
+        if not hasattr(self, "_external_runtimes"):
+            self._external_runtimes = []
+
+        # For backward compatibility, also set _external_runtime to the first one
+        if self._external_runtime is None:
+            self._external_runtime = runtime
+
+        self._external_runtimes.append(runtime)
         self.logger.info(
             f"External runtime injected: {type(runtime).__name__}",
             runtime_type=type(runtime).__name__,
@@ -485,10 +495,20 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             Result of the tool call
         """
-        # Check external runtime first (e.g., ACP terminal)
-        if self._external_runtime and hasattr(self._external_runtime, "tool"):
-            if self._external_runtime.tool and name == self._external_runtime.tool.name:
-                return await self._external_runtime.execute(arguments)
+        # Check all external runtimes first (e.g., ACP terminal, filesystem)
+        if hasattr(self, "_external_runtimes"):
+            for runtime in self._external_runtimes:
+                # Check if runtime has multiple tools (e.g., filesystem)
+                if hasattr(runtime, "tools"):
+                    for tool in runtime.tools:
+                        if tool.name == name:
+                            # Use call_tool method for multi-tool runtimes
+                            if hasattr(runtime, "call_tool"):
+                                return await runtime.call_tool(name, arguments)
+                # Check if runtime has single tool (e.g., terminal)
+                elif hasattr(runtime, "tool"):
+                    if runtime.tool and name == runtime.tool.name:
+                        return await runtime.execute(arguments)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -1071,13 +1091,27 @@ class McpAgent(ABC, ToolAgent):
                 merged_tools.append(tool)
                 existing_names.add(tool.name)
 
-        # Add external runtime tool (e.g., ACP terminal) if available, otherwise bash tool
-        if self._external_runtime and hasattr(self._external_runtime, "tool"):
-            external_tool = self._external_runtime.tool
-            if external_tool and external_tool.name not in existing_names:
-                merged_tools.append(external_tool)
-                existing_names.add(external_tool.name)
-        elif self._bash_tool and self._bash_tool.name not in existing_names:
+        # Add external runtime tools (e.g., ACP terminal, filesystem) if available
+        has_external_tools = False
+        if hasattr(self, "_external_runtimes"):
+            for runtime in self._external_runtimes:
+                # Check if runtime has multiple tools (e.g., filesystem)
+                if hasattr(runtime, "tools"):
+                    for tool in runtime.tools:
+                        if tool.name not in existing_names:
+                            merged_tools.append(tool)
+                            existing_names.add(tool.name)
+                            has_external_tools = True
+                # Check if runtime has single tool (e.g., terminal)
+                elif hasattr(runtime, "tool"):
+                    external_tool = runtime.tool
+                    if external_tool and external_tool.name not in existing_names:
+                        merged_tools.append(external_tool)
+                        existing_names.add(external_tool.name)
+                        has_external_tools = True
+
+        # Only add bash tool if no external runtimes provided it
+        if not has_external_tools and self._bash_tool and self._bash_tool.name not in existing_names:
             merged_tools.append(self._bash_tool)
             existing_names.add(self._bash_tool.name)
 
