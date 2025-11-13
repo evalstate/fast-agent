@@ -11,7 +11,7 @@ from mcp.types import (
 )
 from pydantic import BaseModel
 
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import get_text, get_text_content_only
 
 # Import directly to avoid circular dependency with types/__init__.py
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -112,6 +112,25 @@ class PromptMessageExtended(BaseModel):
         result = []
         for content in self.content:
             text = get_text(content)
+            if text is not None:
+                result.append(text)
+
+        return "\n".join(result)
+
+    def text_content_only(self) -> str:
+        """
+        Get text from TextContent blocks only, excluding embedded resources.
+
+        This is useful for detecting user commands (like slash commands) vs.
+        contextual data from resources. Resource text should be treated as
+        context for the LLM, not as user commands.
+
+        Returns:
+            Text from TextContent blocks joined with newlines, or empty string
+        """
+        result = []
+        for content in self.content:
+            text = get_text_content_only(content)
             if text is not None:
                 result.append(text)
 

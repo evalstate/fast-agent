@@ -87,6 +87,25 @@ def is_resource_link(content: ContentBlock) -> bool:
     return isinstance(content, ResourceLink)
 
 
+def get_text_content_only(content: ContentBlock) -> Optional[str]:
+    """
+    Extract text only from TextContent blocks, not from embedded resources.
+
+    This is useful for detecting user commands vs. contextual data.
+    Use this instead of get_text() when you need to distinguish between
+    direct text input and embedded resource content.
+
+    Args:
+        content: A content block
+
+    Returns:
+        Text if the content is TextContent, None otherwise (including for resources)
+    """
+    if isinstance(content, TextContent):
+        return content.text
+    return None
+
+
 def get_resource_text(result: ReadResourceResult, index: int = 0) -> Optional[str]:
     """Extract text content from a ReadResourceResult at the specified index."""
     if index >= len(result.contents):

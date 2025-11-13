@@ -267,3 +267,41 @@ async def test_slash_command_clear_last_when_empty() -> None:
 
     assert "clear last" in response.lower()
     assert "no messages" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_resource_only_prompt_not_treated_as_slash_command() -> None:
+    """Test that prompts with only resources (no text) don't trigger slash commands.
+
+    This verifies the fix for the issue where resource text starting with "/"
+    (like "//hello, world!" in code comments) was incorrectly being treated
+    as a slash command.
+    """
+    from mcp.types import EmbeddedResource, TextResourceContents
+
+    handler = _handler(StubAgentInstance())
+
+    # Create a prompt with only a resource (no TextContent)
+    # The resource contains text that starts with "//" which should NOT
+    # be treated as a slash command
+    resource_content = TextResourceContents(
+        uri="file:///test/file.json",
+        text="//hello, world!\nThis is a comment in code",
+        mimeType="text/plain",
+    )
+    resource = EmbeddedResource(type="resource", resource=resource_content)
+
+    prompt_message = PromptMessageExtended(role="user", content=[resource])
+
+    # Get text using text_content_only() - should return empty string
+    text_from_text_content = prompt_message.text_content_only()
+    assert text_from_text_content == "", "Should not extract text from resources"
+
+    # Verify it's not detected as a slash command
+    assert not handler.is_slash_command(text_from_text_content)
+
+    # Contrast with all_text() which DOES extract resource text
+    # (but should not be used for slash command detection)
+    text_from_all = prompt_message.all_text()
+    assert "//hello, world!" in text_from_all, "all_text() should include resource text"
