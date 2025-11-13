@@ -14,6 +14,22 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 
+class NullDisplay:
+    """Simple no-op display for testing in headless environments."""
+
+    def show_tool_call(self, *args, **kwargs):
+        """No-op tool call display."""
+        pass
+
+    def show_tool_result(self, *args, **kwargs):
+        """No-op tool result display."""
+        pass
+
+    def __getattr__(self, name):
+        """Return no-op function for any other method."""
+        return lambda *args, **kwargs: None
+
+
 class SimpleFilesystemRuntime:
     """Simple filesystem runtime for testing that actually reads/writes files."""
 
@@ -164,6 +180,10 @@ async def test_filesystem_runtime_tools_available_in_run_tools():
             # Inject real filesystem runtime
             fs_runtime = SimpleFilesystemRuntime(temp_path)
             agent.set_filesystem_runtime(fs_runtime)
+
+            # Use NullDisplay to avoid Rich console issues in CI/headless environments
+            # This is not mocking the test behavior, just preventing display output
+            agent.display = NullDisplay()
 
             # Create a prompt message with tool calls
             output_file = temp_path / "output.txt"
