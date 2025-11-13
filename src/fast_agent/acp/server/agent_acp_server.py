@@ -20,7 +20,7 @@ from acp import (
     PromptRequest,
     PromptResponse,
 )
-from acp.helpers import session_notification, update_agent_message_text
+from acp.helpers import session_notification, update_agent_message_text, update_available_commands
 from acp.schema import (
     AgentCapabilities,
     Implementation,
@@ -404,10 +404,8 @@ class AgentACPServer(ACPAgent):
         if self._connection:
             try:
                 available_commands = slash_handler.get_available_commands()
-                commands_update = {
-                    "sessionUpdate": "available_commands_update",
-                    "availableCommands": available_commands,
-                }
+                # Use SDK helper to create the update
+                commands_update = update_available_commands(available_commands)
                 notification = session_notification(session_id, commands_update)
                 await self._connection.sessionUpdate(notification)
 

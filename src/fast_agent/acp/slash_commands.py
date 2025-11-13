@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import textwrap
 import time
-from dataclasses import dataclass
 from importlib.metadata import version as get_version
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
+
+from acp.schema import AvailableCommand, AvailableCommandInput, CommandInputHint
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.history.history_exporter import HistoryExporter
@@ -24,32 +25,6 @@ if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
 
     from fast_agent.core.fastagent import AgentInstance
-
-
-@dataclass
-class AvailableCommand:
-    """Represents a slash command available in the session."""
-
-    name: str
-    description: str
-    input_hint: Optional[str] = None
-
-    def to_dict(self) -> dict[str, object]:
-        """
-        Convert to dictionary format for ACP notification.
-
-        Note: We explicitly omit the "input" key when input_hint is None
-        to avoid serializing it as null in the JSON output.
-        """
-        result: dict[str, object] = {
-            "name": self.name,
-            "description": self.description,
-        }
-        # Only include "input" field if we have a hint
-        # This ensures the JSON output doesn't contain "input": null
-        if self.input_hint is not None and self.input_hint.strip():
-            result["input"] = {"hint": self.input_hint}
-        return result
 
 
 class SlashCommandHandler:
@@ -87,33 +62,33 @@ class SlashCommandHandler:
         self.client_capabilities = client_capabilities
         self.protocol_version = protocol_version
 
-        # Register available commands
+        # Register available commands using SDK's AvailableCommand type
         self.commands: dict[str, AvailableCommand] = {
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input_hint=None,
+                input=None,
             ),
             "tools": AvailableCommand(
                 name="tools",
                 description="List available MCP tools",
-                input_hint=None,
+                input=None,
             ),
             "save": AvailableCommand(
                 name="save",
                 description="Save conversation history",
-                input_hint=None,
+                input=None,
             ),
             "clear": AvailableCommand(
                 name="clear",
                 description="Clear history (`last` for prev. turn)",
-                input_hint="[last]",
+                input=AvailableCommandInput(root=CommandInputHint(hint="[last]")),
             ),
         }
 
-    def get_available_commands(self) -> list[dict]:
+    def get_available_commands(self) -> list[AvailableCommand]:
         """Get the list of available commands for this session."""
-        return [cmd.to_dict() for cmd in self.commands.values()]
+        return list(self.commands.values())
 
     def is_slash_command(self, prompt_text: str) -> bool:
         """Check if the prompt text is a slash command."""
