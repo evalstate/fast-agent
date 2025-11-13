@@ -292,6 +292,7 @@ class ModelDatabase:
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
         "moonshotai/kimi-k2-instruct-0905": KIMI_MOONSHOT,
+        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
