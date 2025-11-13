@@ -114,6 +114,7 @@ async def test_filesystem_runtime_tool_call():
 async def test_filesystem_runtime_tools_available_in_run_tools():
     """Test that filesystem tools are recognized as available in run_tools()."""
     from unittest.mock import Mock
+
     from fast_agent.config import Settings
     from fast_agent.context import Context
 
@@ -175,6 +176,7 @@ async def test_filesystem_runtime_tools_available_in_run_tools():
 async def test_external_runtime_tools_available_in_run_tools():
     """Test that external runtime tools (like terminal) are recognized as available."""
     from unittest.mock import Mock
+
     from fast_agent.config import Settings
     from fast_agent.context import Context
 
