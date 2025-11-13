@@ -157,12 +157,22 @@ class AgentACPServer(ACPAgent):
                     getattr(params.clientCapabilities, "terminal", False)
                 )
 
+            # Get fast-agent version from package metadata
+            from importlib.metadata import version as get_version
+
+            try:
+                fast_agent_version = get_version("fast-agent-mcp")
+            except Exception:
+                # Fallback if package metadata is not available
+                fast_agent_version = self.server_version
+
             logger.info(
                 "ACP initialize request",
                 name="acp_initialize",
                 client_protocol=params.protocolVersion,
                 client_info=params.clientInfo,
                 client_supports_terminal=self._client_supports_terminal,
+                fast_agent_version=fast_agent_version,
             )
 
             # Build our capabilities
@@ -176,10 +186,10 @@ class AgentACPServer(ACPAgent):
                 loadSession=False,
             )
 
-            # Build agent info using Implementation type
+            # Build agent info using Implementation type with fast-agent version
             agent_info = Implementation(
                 name=self.server_name,
-                version=self.server_version,
+                version=fast_agent_version,
             )
 
             response = InitializeResponse(
@@ -193,6 +203,7 @@ class AgentACPServer(ACPAgent):
                 "ACP initialize response sent",
                 name="acp_initialize_response",
                 protocol_version=response.protocolVersion,
+                agent_version=fast_agent_version,
             )
 
             return response
