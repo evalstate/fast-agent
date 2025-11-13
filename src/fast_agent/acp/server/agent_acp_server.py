@@ -30,6 +30,7 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.fs_tools import ACPFilesystemTools
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -130,6 +131,12 @@ class AgentACPServer(ACPAgent):
 
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
+
+        # Filesystem tools tracking (per session)
+        self._session_fs_tools: dict[str, Any] = {}
+
+        # Session CWD tracking
+        self._session_cwds: dict[str, str] = {}
 
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
@@ -345,6 +352,46 @@ class AgentACPServer(ACPAgent):
                                 agent_name=agent_name,
                             )
 
+            # Store session CWD for fs tools
+            if params.cwd:
+                self._session_cwds[session_id] = params.cwd
+
+            # If client supports fs operations, inject fs tools
+            if self._client_capabilities and self._connection and params.cwd:
+                fs_caps = self._client_capabilities.get("fs", {})
+                supports_read = fs_caps.get("readTextFile", False)
+                supports_write = fs_caps.get("writeTextFile", False)
+
+                if supports_read or supports_write:
+                    # Create ACPFilesystemTools for this session
+                    fs_tools = ACPFilesystemTools(
+                        connection=self._connection,
+                        session_id=session_id,
+                        cwd=params.cwd,
+                    )
+                    self._session_fs_tools[session_id] = fs_tools
+
+                    # Get the tools to inject
+                    tools_to_add = []
+                    if supports_read:
+                        tools_to_add.append(fs_tools.get_read_text_file_tool())
+                    if supports_write:
+                        tools_to_add.append(fs_tools.get_write_text_file_tool())
+
+                    # Inject fs tools into all agents that support dynamic tool addition
+                    for agent_name, agent in instance.agents.items():
+                        if hasattr(agent, "add_tools"):
+                            agent.add_tools(tools_to_add)
+
+                            logger.info(
+                                "ACP filesystem tools injected",
+                                name="acp_fs_tools_injected",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                                read_enabled=supports_read,
+                                write_enabled=supports_write,
+                            )
+
         # Create slash command handler for this session
         slash_handler = SlashCommandHandler(
             session_id,
@@ -386,6 +433,7 @@ class AgentACPServer(ACPAgent):
             session_id=session_id,
             total_sessions=len(self.sessions),
             terminal_enabled=session_id in self._session_terminal_runtimes,
+            fs_tools_enabled=session_id in self._session_fs_tools,
         )
 
         return NewSessionResponse(sessionId=session_id)

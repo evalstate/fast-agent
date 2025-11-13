@@ -74,6 +74,40 @@ class ToolAgent(LlmAgent):
                 )
             )
 
+    def add_tools(self, tools: Sequence[FastMCPTool | Callable]) -> None:
+        """
+        Add tools dynamically to the agent.
+
+        This method allows adding tools after agent initialization, which is useful
+        for context-specific tools like ACP filesystem tools that depend on session info.
+
+        Args:
+            tools: Sequence of FastMCPTool instances or callable functions to add
+        """
+        for tool in tools:
+            if isinstance(tool, FastMCPTool):
+                fast_tool = tool
+            elif callable(tool):
+                fast_tool = FastMCPTool.from_function(tool)
+            else:
+                logger.warning(f"Skipping unknown tool type: {type(tool)}")
+                continue
+
+            # Skip if tool already exists
+            if fast_tool.name in self._execution_tools:
+                logger.debug(f"Tool '{fast_tool.name}' already exists, skipping")
+                continue
+
+            self._execution_tools[fast_tool.name] = fast_tool
+            self._tool_schemas.append(
+                Tool(
+                    name=fast_tool.name,
+                    description=fast_tool.description,
+                    inputSchema=fast_tool.parameters,
+                )
+            )
+            logger.info(f"Added tool '{fast_tool.name}' to agent")
+
     async def generate_impl(
         self,
         messages: List[PromptMessageExtended],
