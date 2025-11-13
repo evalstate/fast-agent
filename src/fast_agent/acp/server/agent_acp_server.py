@@ -30,6 +30,7 @@ from acp.schema import (
 from acp.stdio import stdio_streams
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.fs_runtime import ACPFilesystemRuntime
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
@@ -129,6 +130,9 @@ class AgentACPServer(ACPAgent):
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
 
+        # Filesystem runtime tracking (for cleanup)
+        self._session_fs_runtimes: dict[str, "ACPFilesystemRuntime"] = {}
+
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
 
@@ -137,6 +141,7 @@ class AgentACPServer(ACPAgent):
 
         # Client capabilities and info (set during initialize)
         self._client_supports_terminal: bool = False
+        self._client_supports_fs: bool = False
         self._client_capabilities: dict | None = None
         self._client_info: dict | None = None
         self._protocol_version: str | None = None
@@ -181,6 +186,15 @@ class AgentACPServer(ACPAgent):
                     getattr(params.clientCapabilities, "terminal", False)
                 )
 
+                # Check for filesystem capabilities
+                if hasattr(params.clientCapabilities, "fs"):
+                    fs_caps = params.clientCapabilities.fs
+                    if fs_caps:
+                        # Check if both read and write are supported
+                        read_supported = getattr(fs_caps, "readTextFile", False)
+                        write_supported = getattr(fs_caps, "writeTextFile", False)
+                        self._client_supports_fs = bool(read_supported and write_supported)
+
                 # Convert capabilities to a dict for status reporting
                 self._client_capabilities = {}
                 if hasattr(params.clientCapabilities, "fs"):
@@ -203,6 +217,7 @@ class AgentACPServer(ACPAgent):
                 client_protocol=params.protocolVersion,
                 client_info=params.clientInfo,
                 client_supports_terminal=self._client_supports_terminal,
+                client_supports_fs=self._client_supports_fs,
             )
 
             # Build our capabilities
@@ -322,6 +337,28 @@ class AgentACPServer(ACPAgent):
                                 agent_name=agent_name,
                             )
 
+            # If client supports filesystem operations, inject ACP filesystem runtime
+            if self._client_supports_fs and self._connection:
+                for agent_name, agent in instance.agents.items():
+                    # Create ACPFilesystemRuntime for this session
+                    fs_runtime = ACPFilesystemRuntime(
+                        connection=self._connection,
+                        session_id=session_id,
+                        activation_reason="via ACP filesystem support",
+                    )
+
+                    # Inject into agent
+                    if hasattr(agent, "set_external_runtime"):
+                        agent.set_external_runtime(fs_runtime)
+                        self._session_fs_runtimes[session_id] = fs_runtime
+
+                        logger.info(
+                            "ACP filesystem runtime injected",
+                            name="acp_fs_injected",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
+
         # Create slash command handler for this session
         slash_handler = SlashCommandHandler(
             session_id,
@@ -363,6 +400,7 @@ class AgentACPServer(ACPAgent):
             session_id=session_id,
             total_sessions=len(self.sessions),
             terminal_enabled=session_id in self._session_terminal_runtimes,
+            fs_enabled=session_id in self._session_fs_runtimes,
         )
 
         return NewSessionResponse(sessionId=session_id)
@@ -722,6 +760,19 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_terminal_runtimes.clear()
+
+            # Clean up filesystem runtimes
+            for session_id, fs_runtime in list(self._session_fs_runtimes.items()):
+                try:
+                    # Filesystem runtime cleanup (no special cleanup needed)
+                    logger.debug(f"Filesystem runtime for session {session_id} cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error noting filesystem cleanup for session {session_id}: {e}",
+                        name="acp_fs_cleanup_error",
+                    )
+
+            self._session_fs_runtimes.clear()
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
