@@ -7,10 +7,10 @@ discover and invoke special commands with the /command syntax.
 
 from __future__ import annotations
 
+import textwrap
 import time
 from dataclasses import dataclass
 from importlib.metadata import version as get_version
-import textwrap
 from typing import TYPE_CHECKING, Optional
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
@@ -21,8 +21,9 @@ from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
-    from fast_agent.core.fastagent import AgentInstance
     from mcp.types import ListToolsResult, Tool
+
+    from fast_agent.core.fastagent import AgentInstance
 
 
 @dataclass
@@ -261,14 +262,17 @@ class SlashCommandHandler:
 
             status_lines.append("")
 
+        provider_line = f"{model_provider}"
+        if model_provider_display != "unknown":
+            provider_line = f"{model_provider_display} ({model_provider})"
+
         status_lines.extend(
             [
                 "## Active Model",
-                f"Model: {model_name}",
-                f"Provider: {model_provider}"
-                + (f" ({model_provider_display})" if model_provider_display != "unknown" else ""),
-                f"Context Window: {context_window}",
-                capabilities_line,
+                f"- Provider: {provider_line}",
+                f"- Model: {model_name}",
+                f"- Context Window: {context_window}",
+                f"- {capabilities_line}",
                 "",
                 "## Conversation Statistics",
             ]
