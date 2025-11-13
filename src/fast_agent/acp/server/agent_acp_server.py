@@ -135,8 +135,11 @@ class AgentACPServer(ACPAgent):
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
 
-        # Client capabilities (set during initialize)
+        # Client capabilities and info (set during initialize)
         self._client_supports_terminal: bool = False
+        self._client_capabilities: dict | None = None
+        self._client_info: dict | None = None
+        self._protocol_version: str | None = None
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
@@ -159,11 +162,40 @@ class AgentACPServer(ACPAgent):
         Negotiates protocol version and advertises capabilities.
         """
         try:
+            # Store protocol version
+            self._protocol_version = params.protocolVersion
+
+            # Store client info
+            if params.clientInfo:
+                self._client_info = {
+                    "name": getattr(params.clientInfo, "name", "unknown"),
+                    "version": getattr(params.clientInfo, "version", "unknown"),
+                }
+                # Include title if available
+                if hasattr(params.clientInfo, "title"):
+                    self._client_info["title"] = params.clientInfo.title
+
             # Store client capabilities
             if params.clientCapabilities:
                 self._client_supports_terminal = bool(
                     getattr(params.clientCapabilities, "terminal", False)
                 )
+
+                # Convert capabilities to a dict for status reporting
+                self._client_capabilities = {}
+                if hasattr(params.clientCapabilities, "fs"):
+                    fs_caps = params.clientCapabilities.fs
+                    if fs_caps:
+                        self._client_capabilities["fs"] = dict(fs_caps) if isinstance(fs_caps, dict) else {}
+
+                if hasattr(params.clientCapabilities, "terminal") and params.clientCapabilities.terminal:
+                    self._client_capabilities["terminal"] = True
+
+                # Store _meta if present
+                if hasattr(params.clientCapabilities, "_meta"):
+                    meta = params.clientCapabilities._meta
+                    if meta:
+                        self._client_capabilities["_meta"] = dict(meta) if isinstance(meta, dict) else {}
 
             logger.info(
                 "ACP initialize request",
@@ -291,7 +323,14 @@ class AgentACPServer(ACPAgent):
                             )
 
         # Create slash command handler for this session
-        slash_handler = SlashCommandHandler(session_id, instance, self.primary_agent_name)
+        slash_handler = SlashCommandHandler(
+            session_id,
+            instance,
+            self.primary_agent_name,
+            client_info=self._client_info,
+            client_capabilities=self._client_capabilities,
+            protocol_version=self._protocol_version,
+        )
         self._session_slash_handlers[session_id] = slash_handler
 
         # Send available_commands_update notification

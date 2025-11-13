@@ -32,12 +32,19 @@ class AvailableCommand:
     input_hint: Optional[str] = None
 
     def to_dict(self) -> dict[str, object]:
-        """Convert to dictionary format for ACP notification."""
+        """
+        Convert to dictionary format for ACP notification.
+
+        Note: We explicitly omit the "input" key when input_hint is None
+        to avoid serializing it as null in the JSON output.
+        """
         result: dict[str, object] = {
             "name": self.name,
             "description": self.description,
         }
-        if self.input_hint:
+        # Only include "input" field if we have a hint
+        # This ensures the JSON output doesn't contain "input": null
+        if self.input_hint is not None and self.input_hint.strip():
             result["input"] = {"hint": self.input_hint}
         return result
 
@@ -52,6 +59,9 @@ class SlashCommandHandler:
         primary_agent_name: str,
         *,
         history_exporter: type[HistoryExporter] | HistoryExporter | None = None,
+        client_info: dict | None = None,
+        client_capabilities: dict | None = None,
+        protocol_version: str | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -60,12 +70,19 @@ class SlashCommandHandler:
             session_id: The ACP session ID
             instance: The agent instance for this session
             primary_agent_name: Name of the primary agent
+            history_exporter: Optional history exporter
+            client_info: Client information from ACP initialize
+            client_capabilities: Client capabilities from ACP initialize
+            protocol_version: ACP protocol version
         """
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
         self.history_exporter = history_exporter or HistoryExporter
         self._created_at = time.time()
+        self.client_info = client_info
+        self.client_capabilities = client_capabilities
+        self.protocol_version = protocol_version
 
         # Register available commands
         self.commands: dict[str, AvailableCommand] = {
@@ -190,15 +207,63 @@ class SlashCommandHandler:
             "## Version",
             f"fast-agent: {fa_version}",
             "",
-            "## Active Model",
-            f"Model: {model_name}",
-            f"Provider: {model_provider}"
-            + (f" ({model_provider_display})" if model_provider_display != "unknown" else ""),
-            f"Context Window: {context_window}",
-            capabilities_line,
-            "",
-            "## Conversation Statistics",
         ]
+
+        # Add client information if available
+        if self.client_info or self.client_capabilities:
+            status_lines.extend(["## Client Information", ""])
+
+            if self.client_info:
+                client_name = self.client_info.get("name", "unknown")
+                client_version = self.client_info.get("version", "unknown")
+                client_title = self.client_info.get("title")
+
+                if client_title:
+                    status_lines.append(f"Client: {client_title} ({client_name})")
+                else:
+                    status_lines.append(f"Client: {client_name}")
+                status_lines.append(f"Client Version: {client_version}")
+
+            if self.protocol_version:
+                status_lines.append(f"ACP Protocol Version: {self.protocol_version}")
+
+            if self.client_capabilities:
+                status_lines.extend(["", "### Client Capabilities"])
+
+                # Filesystem capabilities
+                if "fs" in self.client_capabilities:
+                    fs_caps = self.client_capabilities["fs"]
+                    if fs_caps:
+                        status_lines.append("Filesystem:")
+                        for key, value in fs_caps.items():
+                            status_lines.append(f"  - {key}: {value}")
+
+                # Terminal capability
+                if "terminal" in self.client_capabilities:
+                    status_lines.append(f"Terminal: {self.client_capabilities['terminal']}")
+
+                # Meta capabilities
+                if "_meta" in self.client_capabilities:
+                    meta_caps = self.client_capabilities["_meta"]
+                    if meta_caps:
+                        status_lines.append("Meta:")
+                        for key, value in meta_caps.items():
+                            status_lines.append(f"  - {key}: {value}")
+
+            status_lines.append("")
+
+        status_lines.extend(
+            [
+                "## Active Model",
+                f"Model: {model_name}",
+                f"Provider: {model_provider}"
+                + (f" ({model_provider_display})" if model_provider_display != "unknown" else ""),
+                f"Context Window: {context_window}",
+                capabilities_line,
+                "",
+                "## Conversation Statistics",
+            ]
+        )
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
