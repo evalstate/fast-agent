@@ -424,12 +424,14 @@ class AgentACPServer(ACPAgent):
             )
 
             # Check if this is a slash command
-            # Only treat pure text content as potential slash commands, not resources or other content types
-            # This prevents resource text (like file contents) starting with "/" from being treated as commands
+            # Only process slash commands if the prompt is a single text block
+            # This ensures resources, images, and multi-part prompts are never treated as commands
             slash_handler = self._session_slash_handlers.get(session_id)
-            is_pure_text = all(is_text_content(block) for block in mcp_content_blocks)
+            is_single_text_block = (
+                len(mcp_content_blocks) == 1 and is_text_content(mcp_content_blocks[0])
+            )
             prompt_text = prompt_message.all_text() or ""
-            if slash_handler and is_pure_text and slash_handler.is_slash_command(prompt_text):
+            if slash_handler and is_single_text_block and slash_handler.is_slash_command(prompt_text):
                 logger.info(
                     "Processing slash command",
                     name="acp_slash_command",
