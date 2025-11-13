@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from importlib.metadata import version as get_version
+import textwrap
 from typing import TYPE_CHECKING, Optional
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
@@ -21,6 +22,7 @@ from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
+    from mcp.types import ListToolsResult, Tool
 
 
 @dataclass
@@ -91,6 +93,11 @@ class SlashCommandHandler:
                 description="Show fast-agent diagnostics",
                 input_hint=None,
             ),
+            "tools": AvailableCommand(
+                name="tools",
+                description="List available MCP tools",
+                input_hint=None,
+            ),
             "save": AvailableCommand(
                 name="save",
                 description="Save conversation history",
@@ -154,6 +161,8 @@ class SlashCommandHandler:
         # Route to specific command handler
         if command_name == "status":
             return await self._handle_status()
+        if command_name == "tools":
+            return await self._handle_tools()
         if command_name == "save":
             return await self._handle_save(arguments)
         if command_name == "clear":
@@ -272,6 +281,118 @@ class SlashCommandHandler:
         status_lines.extend(self._get_error_handling_report(agent))
 
         return "\n".join(status_lines)
+
+    async def _handle_tools(self) -> str:
+        """List available MCP tools for the primary agent."""
+        heading = "# tools"
+
+        agent = self.instance.agents.get(self.primary_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Agent '{self.primary_agent_name}' not found for this session.",
+                ]
+            )
+
+        list_tools = getattr(agent, "list_tools", None)
+        if not callable(list_tools):
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "This agent does not expose a list_tools() method.",
+                ]
+            )
+
+        try:
+            tools_result: "ListToolsResult" = await list_tools()
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to fetch tools from the agent.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        tools = tools_result.tools if tools_result else None
+        if not tools:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No MCP tools available for this agent.",
+                ]
+            )
+
+        lines = [heading, ""]
+        for index, tool in enumerate(tools, start=1):
+            lines.extend(self._format_tool_lines(tool, index))
+            lines.append("")
+
+        return "\n".join(lines).strip()
+
+    def _format_tool_lines(self, tool: "Tool", index: int) -> list[str]:
+        """
+        Convert a Tool into markdown-friendly lines.
+
+        We avoid fragile getattr usage by relying on the typed attributes
+        provided by mcp.types.Tool. Additional guards are added for optional fields.
+        """
+        lines: list[str] = []
+
+        meta = tool.meta or {}
+        name = tool.name or "unnamed"
+        title = (tool.title or "").strip()
+
+        header = f"{index}. **{name}**"
+        if title:
+            header = f"{header} - {title}"
+        if meta.get("openai/skybridgeEnabled"):
+            header = f"{header} _(skybridge)_"
+        lines.append(header)
+
+        description = (tool.description or "").strip()
+        if description:
+            wrapped = textwrap.wrap(description, width=92)
+            if wrapped:
+                indent = "    "
+                lines.extend(f"{indent}{desc_line}" for desc_line in wrapped[:6])
+                if len(wrapped) > 6:
+                    lines.append(f"{indent}...")
+
+        args_line = self._format_tool_arguments(tool)
+        if args_line:
+            lines.append(f"    - Args: {args_line}")
+
+        template = meta.get("openai/skybridgeTemplate")
+        if template:
+            lines.append(f"    - Template: `{template}`")
+
+        return lines
+
+    def _format_tool_arguments(self, tool: "Tool") -> str | None:
+        """Render tool input schema fields as inline-code argument list."""
+        schema = tool.inputSchema if isinstance(tool.inputSchema, dict) else None
+        if not schema:
+            return None
+
+        properties = schema.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            return None
+
+        required_raw = schema.get("required", [])
+        required = set(required_raw) if isinstance(required_raw, list) else set()
+
+        args: list[str] = []
+        for prop_name in properties.keys():
+            suffix = "*" if prop_name in required else ""
+            args.append(f"`{prop_name}{suffix}`")
+
+        return ", ".join(args) if args else None
 
     async def _handle_save(self, arguments: str | None = None) -> str:
         """Handle the /save command by persisting conversation history."""

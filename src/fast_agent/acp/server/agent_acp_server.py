@@ -8,7 +8,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 import asyncio
 import uuid
 from importlib.metadata import version as get_version
-from typing import Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from acp import Agent as ACPAgent
 from acp import (
@@ -58,19 +58,21 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
     if llm_stop_reason is None:
         return END_TURN
 
-    # Map LlmStopReason values to ACP StopReason literals
+    # Use string keys to avoid hashing Enum members with custom equality logic
+    key = llm_stop_reason.value if isinstance(llm_stop_reason, LlmStopReason) else str(llm_stop_reason)
+
     mapping = {
-        LlmStopReason.END_TURN: END_TURN,
-        LlmStopReason.STOP_SEQUENCE: END_TURN,  # Normal completion
-        LlmStopReason.MAX_TOKENS: "max_tokens",
-        LlmStopReason.TOOL_USE: END_TURN,  # Tool use is normal completion in ACP
-        LlmStopReason.PAUSE: END_TURN,  # Pause is treated as normal completion
-        LlmStopReason.ERROR: REFUSAL,  # Errors are mapped to refusal
-        LlmStopReason.TIMEOUT: REFUSAL,  # Timeouts are mapped to refusal
-        LlmStopReason.SAFETY: REFUSAL,  # Safety triggers are mapped to refusal
+        LlmStopReason.END_TURN.value: END_TURN,
+        LlmStopReason.STOP_SEQUENCE.value: END_TURN,  # Normal completion
+        LlmStopReason.MAX_TOKENS.value: "max_tokens",
+        LlmStopReason.TOOL_USE.value: END_TURN,  # Tool use is normal completion in ACP
+        LlmStopReason.PAUSE.value: END_TURN,  # Pause is treated as normal completion
+        LlmStopReason.ERROR.value: REFUSAL,  # Errors are mapped to refusal
+        LlmStopReason.TIMEOUT.value: REFUSAL,  # Timeouts are mapped to refusal
+        LlmStopReason.SAFETY.value: REFUSAL,  # Safety triggers are mapped to refusal
     }
 
-    return mapping.get(llm_stop_reason, END_TURN)
+    return mapping.get(key, END_TURN)
 
 
 class AgentACPServer(ACPAgent):
@@ -185,8 +187,9 @@ class AgentACPServer(ACPAgent):
                 self._client_capabilities = {}
                 if hasattr(params.clientCapabilities, "fs"):
                     fs_caps = params.clientCapabilities.fs
-                    if fs_caps:
-                        self._client_capabilities["fs"] = dict(fs_caps) if isinstance(fs_caps, dict) else {}
+                    fs_capabilities = self._extract_fs_capabilities(fs_caps)
+                    if fs_capabilities:
+                        self._client_capabilities["fs"] = fs_capabilities
 
                 if hasattr(params.clientCapabilities, "terminal") and params.clientCapabilities.terminal:
                     self._client_capabilities["terminal"] = True
@@ -240,6 +243,26 @@ class AgentACPServer(ACPAgent):
             logger.error(f"Error in initialize: {e}", name="acp_initialize_error", exc_info=True)
             print(f"ERROR in initialize: {e}", file=__import__("sys").stderr)
             raise
+
+    def _extract_fs_capabilities(self, fs_caps: Any) -> dict[str, bool]:
+        """Normalize filesystem capabilities for status reporting."""
+        normalized: dict[str, bool] = {}
+        if not fs_caps:
+            return normalized
+
+        if isinstance(fs_caps, dict):
+            for key, value in fs_caps.items():
+                if value is not None:
+                    normalized[key] = bool(value)
+            return normalized
+
+        for attr in ("readTextFile", "writeTextFile", "readFile", "writeFile"):
+            if hasattr(fs_caps, attr):
+                value = getattr(fs_caps, attr)
+                if value is not None:
+                    normalized[attr] = bool(value)
+
+        return normalized
 
     async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
         """

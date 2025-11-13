@@ -245,7 +245,7 @@ class ACPToolProgressManager:
                 name="acp_tool_progress_update",
                 progress=progress,
                 total=total,
-                message=message,
+                progress_message=message,
             )
         except Exception as e:
             logger.error(
