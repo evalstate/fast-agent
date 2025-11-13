@@ -8,6 +8,7 @@ security compared to direct file system access.
 
 from typing import TYPE_CHECKING, Any
 
+from acp.schema import ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest
 from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
@@ -166,23 +167,17 @@ class ACPFilesystemRuntime:
         )
 
         try:
-            # Build request params per ACP spec (sessionId, path, line, limit)
-            read_params: dict[str, Any] = {
-                "sessionId": self.session_id,
-                "path": path,
-            }
-
-            # Add optional parameters if provided
-            if line := arguments.get("line"):
-                read_params["line"] = line
-            if limit := arguments.get("limit"):
-                read_params["limit"] = limit
-
-            # Send fs/read_text_file request
-            result = await self.connection._conn.send_request(
-                "fs/read_text_file", read_params
+            # Build request using proper ACP schema
+            request = ReadTextFileRequest(
+                sessionId=self.session_id,
+                path=path,
+                line=arguments.get("line"),
+                limit=arguments.get("limit"),
             )
-            content = result.get("content", "")
+
+            # Send request using the proper ACP method
+            response: ReadTextFileResponse = await self.connection.readTextFile(request)
+            content = response.content
 
             self.logger.info(
                 "File read completed",
@@ -255,15 +250,15 @@ class ACPFilesystemRuntime:
         )
 
         try:
-            # Build request params per ACP spec (sessionId, path, content)
-            write_params: dict[str, Any] = {
-                "sessionId": self.session_id,
-                "path": path,
-                "content": content,
-            }
+            # Build request using proper ACP schema
+            request = WriteTextFileRequest(
+                sessionId=self.session_id,
+                path=path,
+                content=content,
+            )
 
-            # Send fs/write_text_file request
-            await self.connection._conn.send_request("fs/write_text_file", write_params)
+            # Send request using the proper ACP method
+            await self.connection.writeTextFile(request)
 
             self.logger.info(
                 "File write completed",
