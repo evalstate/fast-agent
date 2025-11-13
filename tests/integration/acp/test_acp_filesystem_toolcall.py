@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -32,18 +33,28 @@ def get_fast_agent_cmd() -> tuple:
         "--transport",
         "acp",
         "--model",
-        "claude-3-5-sonnet-20241022",  # Use real model
+        "passthrough",  # Use passthrough model for deterministic testing
         "--name",
         "fast-agent-acp-filesystem-toolcall-test",
     ]
     return tuple(cmd)
 
 
+async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:
+    """Wait for the ACP client to receive at least one sessionUpdate."""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while loop.time() < deadline:
+        if client.notifications:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError("Expected streamed session updates")
+
+
 @pytest.mark.integration
-@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_acp_filesystem_read_tool_call() -> None:
-    """Test that read_text_file tool can be called by the LLM."""
+    """Test that read_text_file tool can be called via passthrough model."""
     from acp.stdio import spawn_agent_process
 
     client = TestClient()
@@ -78,8 +89,8 @@ async def test_acp_filesystem_read_tool_call() -> None:
         session_id = session_response.sessionId
         assert session_id
 
-        # Ask the LLM to read the test file
-        prompt_text = f'Please use the read_text_file tool to read the file at {test_path}'
+        # Use passthrough model's ***CALL_TOOL directive to invoke read_text_file
+        prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
         prompt_response = await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
         )
@@ -87,17 +98,22 @@ async def test_acp_filesystem_read_tool_call() -> None:
         # Should complete successfully
         assert prompt_response.stopReason == END_TURN
 
-        # Verify the file was actually accessed
-        # The LLM should have called read_text_file which routes through the client
-        # We can verify this by checking client notifications contain the file content
+        # Wait for notifications
+        await _wait_for_notifications(client)
+
+        # Verify we got notifications
         assert len(client.notifications) > 0
+
+        # Verify the file content appears in the notifications
+        # This confirms the read_text_file tool was called and returned content
+        notification_text = str(client.notifications)
+        assert test_content in notification_text or test_path in notification_text
 
 
 @pytest.mark.integration
-@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_acp_filesystem_write_tool_call() -> None:
-    """Test that write_text_file tool can be called by the LLM."""
+    """Test that write_text_file tool can be called via passthrough model."""
     from acp.stdio import spawn_agent_process
 
     client = TestClient()
@@ -124,10 +140,10 @@ async def test_acp_filesystem_write_tool_call() -> None:
         session_id = session_response.sessionId
         assert session_id
 
-        # Ask the LLM to write to a file
+        # Use passthrough model's ***CALL_TOOL directive to invoke write_text_file
         test_path = "/test/output.txt"
-        test_content = "Test content from LLM"
-        prompt_text = f'Please use the write_text_file tool to write "{test_content}" to {test_path}'
+        test_content = "Test content from tool call"
+        prompt_text = f'***CALL_TOOL write_text_file {{"path": "{test_path}", "content": "{test_content}"}}'
 
         prompt_response = await connection.prompt(
             PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
@@ -135,6 +151,9 @@ async def test_acp_filesystem_write_tool_call() -> None:
 
         # Should complete successfully
         assert prompt_response.stopReason == END_TURN
+
+        # Wait for notifications
+        await _wait_for_notifications(client)
 
         # Verify the file was written
         assert test_path in client.files
