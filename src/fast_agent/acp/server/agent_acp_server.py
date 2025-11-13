@@ -7,6 +7,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 
 import asyncio
 import uuid
+from importlib.metadata import version as get_version
 from typing import Awaitable, Callable
 
 from acp import Agent as ACPAgent
@@ -35,6 +36,7 @@ from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 logger = get_logger(__name__)
@@ -89,7 +91,7 @@ class AgentACPServer(ACPAgent):
         dispose_instance: Callable[[AgentInstance], Awaitable[None]],
         instance_scope: str,
         server_name: str = "fast-agent-acp",
-        server_version: str = "0.1.0",
+        server_version: str | None = None,
     ) -> None:
         """
         Initialize the ACP server.
@@ -100,7 +102,7 @@ class AgentACPServer(ACPAgent):
             dispose_instance: Function to dispose of agent instances
             instance_scope: How to scope instances ('shared', 'connection', or 'request')
             server_name: Name of the server for capability advertisement
-            server_version: Version of the server
+            server_version: Version of the server (defaults to fast-agent version)
         """
         super().__init__()
 
@@ -109,6 +111,12 @@ class AgentACPServer(ACPAgent):
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
         self.server_name = server_name
+        # Use provided version or get fast-agent version
+        if server_version is None:
+            try:
+                server_version = get_version("fast-agent-mcp")
+            except Exception:
+                server_version = "unknown"
         self.server_version = server_version
 
         # Session management
@@ -127,8 +135,11 @@ class AgentACPServer(ACPAgent):
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
 
-        # Client capabilities (set during initialize)
+        # Client capabilities and info (set during initialize)
         self._client_supports_terminal: bool = False
+        self._client_capabilities: dict | None = None
+        self._client_info: dict | None = None
+        self._protocol_version: str | None = None
 
         # For simplicity, use the first agent as the primary agent
         # In the future, we could add routing logic to select different agents
@@ -151,11 +162,40 @@ class AgentACPServer(ACPAgent):
         Negotiates protocol version and advertises capabilities.
         """
         try:
+            # Store protocol version
+            self._protocol_version = params.protocolVersion
+
+            # Store client info
+            if params.clientInfo:
+                self._client_info = {
+                    "name": getattr(params.clientInfo, "name", "unknown"),
+                    "version": getattr(params.clientInfo, "version", "unknown"),
+                }
+                # Include title if available
+                if hasattr(params.clientInfo, "title"):
+                    self._client_info["title"] = params.clientInfo.title
+
             # Store client capabilities
             if params.clientCapabilities:
                 self._client_supports_terminal = bool(
                     getattr(params.clientCapabilities, "terminal", False)
                 )
+
+                # Convert capabilities to a dict for status reporting
+                self._client_capabilities = {}
+                if hasattr(params.clientCapabilities, "fs"):
+                    fs_caps = params.clientCapabilities.fs
+                    if fs_caps:
+                        self._client_capabilities["fs"] = dict(fs_caps) if isinstance(fs_caps, dict) else {}
+
+                if hasattr(params.clientCapabilities, "terminal") and params.clientCapabilities.terminal:
+                    self._client_capabilities["terminal"] = True
+
+                # Store _meta if present
+                if hasattr(params.clientCapabilities, "_meta"):
+                    meta = params.clientCapabilities._meta
+                    if meta:
+                        self._client_capabilities["_meta"] = dict(meta) if isinstance(meta, dict) else {}
 
             logger.info(
                 "ACP initialize request",
@@ -283,7 +323,14 @@ class AgentACPServer(ACPAgent):
                             )
 
         # Create slash command handler for this session
-        slash_handler = SlashCommandHandler(session_id, instance, self.primary_agent_name)
+        slash_handler = SlashCommandHandler(
+            session_id,
+            instance,
+            self.primary_agent_name,
+            client_info=self._client_info,
+            client_capabilities=self._client_capabilities,
+            protocol_version=self._protocol_version,
+        )
         self._session_slash_handlers[session_id] = slash_handler
 
         # Send available_commands_update notification
@@ -375,10 +422,16 @@ class AgentACPServer(ACPAgent):
                 role="user",
                 content=mcp_content_blocks,
             )
-            prompt_text = prompt_message.all_text() or ""
+
             # Check if this is a slash command
+            # Only process slash commands if the prompt is a single text block
+            # This ensures resources, images, and multi-part prompts are never treated as commands
             slash_handler = self._session_slash_handlers.get(session_id)
-            if slash_handler and slash_handler.is_slash_command(prompt_text):
+            is_single_text_block = (
+                len(mcp_content_blocks) == 1 and is_text_content(mcp_content_blocks[0])
+            )
+            prompt_text = prompt_message.all_text() or ""
+            if slash_handler and is_single_text_block and slash_handler.is_slash_command(prompt_text):
                 logger.info(
                     "Processing slash command",
                     name="acp_slash_command",
