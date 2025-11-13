@@ -343,54 +343,28 @@ class AgentACPServer(ACPAgent):
 
             # If client supports filesystem operations, inject ACP filesystem runtime
             if (self._client_supports_fs_read or self._client_supports_fs_write) and self._connection:
-                # Create ACPFilesystemRuntime for this session
+                # Create ACPFilesystemRuntime for this session with appropriate capabilities
                 filesystem_runtime = ACPFilesystemRuntime(
                     connection=self._connection,
                     session_id=session_id,
                     activation_reason="via ACP filesystem support",
+                    enable_read=self._client_supports_fs_read,
+                    enable_write=self._client_supports_fs_write,
                 )
                 self._session_filesystem_runtimes[session_id] = filesystem_runtime
 
-                # Register filesystem tools with each agent's aggregator
+                # Inject filesystem runtime into each agent
                 for agent_name, agent in instance.agents.items():
-                    if hasattr(agent, "_aggregator"):
-                        aggregator = agent._aggregator
-
-                        # Register read_text_file tool if client supports it
-                        if self._client_supports_fs_read:
-                            aggregator.add_tool(
-                                "acp_filesystem",
-                                filesystem_runtime.read_tool,
-                                filesystem_runtime.read_text_file,
-                            )
-                            logger.info(
-                                "ACP read_text_file tool registered",
-                                name="acp_fs_read_tool_registered",
-                                session_id=session_id,
-                                agent_name=agent_name,
-                            )
-
-                        # Register write_text_file tool if client supports it
-                        if self._client_supports_fs_write:
-                            aggregator.add_tool(
-                                "acp_filesystem",
-                                filesystem_runtime.write_tool,
-                                filesystem_runtime.write_text_file,
-                            )
-                            logger.info(
-                                "ACP write_text_file tool registered",
-                                name="acp_fs_write_tool_registered",
-                                session_id=session_id,
-                                agent_name=agent_name,
-                            )
-
-                logger.info(
-                    "ACP filesystem runtime created",
-                    name="acp_filesystem_runtime_created",
-                    session_id=session_id,
-                    read_enabled=self._client_supports_fs_read,
-                    write_enabled=self._client_supports_fs_write,
-                )
+                    if hasattr(agent, "set_filesystem_runtime"):
+                        agent.set_filesystem_runtime(filesystem_runtime)
+                        logger.info(
+                            "ACP filesystem runtime injected",
+                            name="acp_filesystem_injected",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                            read_enabled=self._client_supports_fs_read,
+                            write_enabled=self._client_supports_fs_write,
+                        )
 
         # Create slash command handler for this session
         slash_handler = SlashCommandHandler(

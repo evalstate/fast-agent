@@ -34,6 +34,8 @@ class ACPFilesystemRuntime:
         session_id: str,
         activation_reason: str,
         logger_instance=None,
+        enable_read: bool = True,
+        enable_write: bool = True,
     ):
         """
         Initialize the ACP filesystem runtime.
@@ -43,11 +45,15 @@ class ACPFilesystemRuntime:
             session_id: The ACP session ID for this runtime
             activation_reason: Human-readable reason for activation
             logger_instance: Optional logger instance
+            enable_read: Whether to enable the read_text_file tool
+            enable_write: Whether to enable the write_text_file tool
         """
         self.connection = connection
         self.session_id = session_id
         self.activation_reason = activation_reason
         self.logger = logger_instance or logger
+        self._enable_read = enable_read
+        self._enable_write = enable_write
 
         # Tool definition for reading text files
         self._read_tool = Tool(
@@ -117,8 +123,13 @@ class ACPFilesystemRuntime:
 
     @property
     def tools(self) -> list[Tool]:
-        """Get all filesystem tools."""
-        return [self._read_tool, self._write_tool]
+        """Get all enabled filesystem tools."""
+        tools = []
+        if self._enable_read:
+            tools.append(self._read_tool)
+        if self._enable_write:
+            tools.append(self._write_tool)
+        return tools
 
     async def read_text_file(self, arguments: dict[str, Any]) -> CallToolResult:
         """
@@ -284,9 +295,15 @@ class ACPFilesystemRuntime:
         Returns:
             Dict with runtime information
         """
+        enabled_tools = []
+        if self._enable_read:
+            enabled_tools.append("read_text_file")
+        if self._enable_write:
+            enabled_tools.append("write_text_file")
+
         return {
             "type": "acp_filesystem",
             "session_id": self.session_id,
             "activation_reason": self.activation_reason,
-            "tools": ["read_text_file", "write_text_file"],
+            "tools": enabled_tools,
         }

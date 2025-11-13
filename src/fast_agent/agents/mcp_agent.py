@@ -175,6 +175,9 @@ class McpAgent(ABC, ToolAgent):
         # Allow external runtime injection (e.g., for ACP terminal support)
         self._external_runtime = None
 
+        # Allow filesystem runtime injection (e.g., for ACP filesystem support)
+        self._filesystem_runtime = None
+
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
 
@@ -474,6 +477,22 @@ class McpAgent(ABC, ToolAgent):
             runtime_type=type(runtime).__name__,
         )
 
+    def set_filesystem_runtime(self, runtime) -> None:
+        """
+        Set a filesystem runtime (e.g., ACPFilesystemRuntime) to add filesystem tools.
+
+        This allows ACP mode to inject filesystem support that uses the client's
+        filesystem capabilities for reading and writing files.
+
+        Args:
+            runtime: Runtime instance with tools property and read_text_file/write_text_file methods
+        """
+        self._filesystem_runtime = runtime
+        self.logger.info(
+            f"Filesystem runtime injected: {type(runtime).__name__}",
+            runtime_type=type(runtime).__name__,
+        )
+
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
@@ -489,6 +508,16 @@ class McpAgent(ABC, ToolAgent):
         if self._external_runtime and hasattr(self._external_runtime, "tool"):
             if self._external_runtime.tool and name == self._external_runtime.tool.name:
                 return await self._external_runtime.execute(arguments)
+
+        # Check filesystem runtime (e.g., ACP filesystem)
+        if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
+            for tool in self._filesystem_runtime.tools:
+                if tool.name == name:
+                    # Route to the appropriate method based on tool name
+                    if name == "read_text_file":
+                        return await self._filesystem_runtime.read_text_file(arguments)
+                    elif name == "write_text_file":
+                        return await self._filesystem_runtime.write_text_file(arguments)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -1080,6 +1109,13 @@ class McpAgent(ABC, ToolAgent):
         elif self._bash_tool and self._bash_tool.name not in existing_names:
             merged_tools.append(self._bash_tool)
             existing_names.add(self._bash_tool.name)
+
+        # Add filesystem runtime tools (e.g., ACP filesystem) if available
+        if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
+            for fs_tool in self._filesystem_runtime.tools:
+                if fs_tool and fs_tool.name not in existing_names:
+                    merged_tools.append(fs_tool)
+                    existing_names.add(fs_tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)
