@@ -113,12 +113,28 @@ async def test_filesystem_runtime_tool_call():
 @pytest.mark.asyncio
 async def test_filesystem_runtime_tools_available_in_run_tools():
     """Test that filesystem tools are recognized as available in run_tools()."""
+    from unittest.mock import Mock
+    from fast_agent.config import Settings
+    from fast_agent.context import Context
+
+    # Create context with config that disables tool display to avoid console issues in CI
+    mock_settings = Mock(spec=Settings)
+    mock_settings.logger = Mock()
+    mock_settings.logger.show_tools = False
+
+    context = Mock(spec=Context)
+    context.config = mock_settings
+    context.executor = None
+
     config = AgentConfig(name="test-agent", servers=[])
 
-    async with McpAgent(config=config, connection_persistence=False) as agent:
+    async with McpAgent(config=config, connection_persistence=False, context=context) as agent:
         # Inject mock filesystem runtime
         fs_runtime = MockFilesystemRuntime()
         agent.set_filesystem_runtime(fs_runtime)
+
+        # Mock the display to avoid console size errors in CI
+        agent.display = MagicMock()
 
         # Create a prompt message with tool calls
         tool_calls = {
@@ -158,9 +174,22 @@ async def test_filesystem_runtime_tools_available_in_run_tools():
 @pytest.mark.asyncio
 async def test_external_runtime_tools_available_in_run_tools():
     """Test that external runtime tools (like terminal) are recognized as available."""
+    from unittest.mock import Mock
+    from fast_agent.config import Settings
+    from fast_agent.context import Context
+
+    # Create context with config that disables tool display to avoid console issues in CI
+    mock_settings = Mock(spec=Settings)
+    mock_settings.logger = Mock()
+    mock_settings.logger.show_tools = False
+
+    context = Mock(spec=Context)
+    context.config = mock_settings
+    context.executor = None
+
     config = AgentConfig(name="test-agent", servers=[])
 
-    async with McpAgent(config=config, connection_persistence=False) as agent:
+    async with McpAgent(config=config, connection_persistence=False, context=context) as agent:
         # Create mock external runtime (like ACPTerminalRuntime)
         external_runtime = MagicMock()
         external_runtime.tool = Tool(
