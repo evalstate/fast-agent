@@ -7,6 +7,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 
 import asyncio
 import uuid
+from importlib.metadata import version as get_version
 from typing import Awaitable, Callable
 
 from acp import Agent as ACPAgent
@@ -89,7 +90,7 @@ class AgentACPServer(ACPAgent):
         dispose_instance: Callable[[AgentInstance], Awaitable[None]],
         instance_scope: str,
         server_name: str = "fast-agent-acp",
-        server_version: str = "0.1.0",
+        server_version: str | None = None,
     ) -> None:
         """
         Initialize the ACP server.
@@ -100,7 +101,7 @@ class AgentACPServer(ACPAgent):
             dispose_instance: Function to dispose of agent instances
             instance_scope: How to scope instances ('shared', 'connection', or 'request')
             server_name: Name of the server for capability advertisement
-            server_version: Version of the server
+            server_version: Version of the server (defaults to fast-agent-mcp package version)
         """
         super().__init__()
 
@@ -109,6 +110,14 @@ class AgentACPServer(ACPAgent):
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
         self.server_name = server_name
+
+        # Get fast-agent version from package metadata if not provided
+        if server_version is None:
+            try:
+                server_version = get_version("fast-agent-mcp")
+            except Exception:
+                server_version = "unknown"
+
         self.server_version = server_version
 
         # Session management

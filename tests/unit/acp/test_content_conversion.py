@@ -206,6 +206,29 @@ class TestPromptConversion:
         assert isinstance(mcp_blocks[3], MCPImageContent)
         assert mcp_blocks[3].data == image_data
 
+    def test_resource_only_prompt(self):
+        """Test conversion of prompt with only a resource (no text blocks)."""
+        acp_prompt = [
+            EmbeddedResourceContentBlock(
+                type="resource",
+                resource=TextResourceContents(
+                    uri="file:///C:/Users/shaun/AppData/Roaming/Zed/settings.json",
+                    text="hello, world!",
+                ),
+            ),
+        ]
+
+        mcp_blocks = convert_acp_prompt_to_mcp_content_blocks(acp_prompt)
+
+        assert len(mcp_blocks) == 1
+        assert isinstance(mcp_blocks[0], MCPEmbeddedResource)
+        assert isinstance(mcp_blocks[0].resource, MCPTextResourceContents)
+        assert (
+            str(mcp_blocks[0].resource.uri)
+            == "file:///C:/Users/shaun/AppData/Roaming/Zed/settings.json"
+        )
+        assert mcp_blocks[0].resource.text == "hello, world!"
+
     def test_empty_prompt(self):
         """Test conversion of empty prompt."""
         acp_prompt = []

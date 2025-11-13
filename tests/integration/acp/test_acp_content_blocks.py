@@ -292,6 +292,56 @@ async def test_acp_mixed_content_blocks() -> None:
         assert last_update.sessionId == session_id
 
 
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_acp_resource_only_prompt() -> None:
+    """Test that a prompt with only a resource (no text blocks) works correctly."""
+    client = TestClient()
+
+    async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
+        # Initialize and create session
+        init_request = InitializeRequest(
+            protocolVersion=1,
+            clientCapabilities=ClientCapabilities(
+                fs={"readTextFile": True, "writeTextFile": True},
+                terminal=False,
+            ),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+        )
+        await connection.initialize(init_request)
+
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+
+        # Send prompt with only a resource (no text blocks)
+        prompt_blocks = [
+            EmbeddedResourceContentBlock(
+                type="resource",
+                resource=TextResourceContents(
+                    uri="file:///C:/Users/shaun/AppData/Roaming/Zed/settings.json",
+                    text="hello, world!",
+                ),
+            ),
+        ]
+
+        prompt_response = await connection.prompt(
+            PromptRequest(sessionId=session_id, prompt=prompt_blocks)
+        )
+
+        # Should complete successfully
+        assert prompt_response.stopReason == END_TURN
+
+        # Wait for notifications
+        await _wait_for_notifications(client)
+
+        # Verify we got a response
+        assert len(client.notifications) > 0
+        last_update = client.notifications[-1]
+        assert last_update.sessionId == session_id
+
+
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:
     """Wait for the ACP client to receive at least one sessionUpdate."""
     loop = asyncio.get_running_loop()
