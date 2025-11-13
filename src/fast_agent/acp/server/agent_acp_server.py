@@ -400,30 +400,6 @@ class AgentACPServer(ACPAgent):
         )
         self._session_slash_handlers[session_id] = slash_handler
 
-        # Send available_commands_update notification
-        if self._connection:
-            try:
-                available_commands = slash_handler.get_available_commands()
-                commands_update = {
-                    "sessionUpdate": "available_commands_update",
-                    "availableCommands": available_commands,
-                }
-                notification = session_notification(session_id, commands_update)
-                await self._connection.sessionUpdate(notification)
-
-                logger.info(
-                    "Sent available_commands_update",
-                    name="acp_available_commands_sent",
-                    session_id=session_id,
-                    command_count=len(available_commands),
-                )
-            except Exception as e:
-                logger.error(
-                    f"Error sending available_commands_update: {e}",
-                    name="acp_available_commands_error",
-                    exc_info=True,
-                )
-
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
@@ -432,6 +408,11 @@ class AgentACPServer(ACPAgent):
             terminal_enabled=session_id in self._session_terminal_runtimes,
             filesystem_enabled=session_id in self._session_filesystem_runtimes,
         )
+
+        # Schedule available_commands_update notification to be sent after response is returned
+        # This ensures the client receives session/new response before the session/update notification
+        if self._connection:
+            asyncio.create_task(self._send_available_commands_update(session_id, slash_handler))
 
         return NewSessionResponse(sessionId=session_id)
 
@@ -771,6 +752,40 @@ class AgentACPServer(ACPAgent):
         finally:
             # Clean up sessions
             await self._cleanup_sessions()
+
+    async def _send_available_commands_update(
+        self, session_id: str, slash_handler: SlashCommandHandler
+    ) -> None:
+        """
+        Send available_commands_update notification for a session.
+
+        This is called as a background task after NewSessionResponse is returned
+        to ensure the client receives the session/new response before the session/update.
+        """
+        if not self._connection:
+            return
+
+        try:
+            available_commands = slash_handler.get_available_commands()
+            commands_update = {
+                "sessionUpdate": "available_commands_update",
+                "availableCommands": available_commands,
+            }
+            notification = session_notification(session_id, commands_update)
+            await self._connection.sessionUpdate(notification)
+
+            logger.info(
+                "Sent available_commands_update",
+                name="acp_available_commands_sent",
+                session_id=session_id,
+                command_count=len(available_commands),
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending available_commands_update: {e}",
+                name="acp_available_commands_error",
+                exc_info=True,
+            )
 
     async def _cleanup_sessions(self) -> None:
         """Clean up all sessions and dispose of agent instances."""
