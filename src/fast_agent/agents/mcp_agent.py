@@ -830,9 +830,24 @@ class McpAgent(ABC, ToolAgent):
                 else tool_name
             )
 
+            # Check if tool is available from various sources
+            is_external_runtime_tool = (
+                self._external_runtime
+                and hasattr(self._external_runtime, "tool")
+                and self._external_runtime.tool
+                and tool_name == self._external_runtime.tool.name
+            )
+            is_filesystem_runtime_tool = (
+                self._filesystem_runtime
+                and hasattr(self._filesystem_runtime, "tools")
+                and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
+            )
+
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
                 or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or is_external_runtime_tool
+                or is_filesystem_runtime_tool
                 or namespaced_tool is not None
                 or local_tool is not None
                 or candidate_namespaced_tool is not None
@@ -855,6 +870,10 @@ class McpAgent(ABC, ToolAgent):
                 and tool_name == self._shell_runtime.tool.name
             ):
                 metadata = self._shell_runtime.metadata(tool_args.get("command"))
+            elif is_external_runtime_tool and hasattr(self._external_runtime, "metadata"):
+                metadata = self._external_runtime.metadata()
+            elif is_filesystem_runtime_tool and hasattr(self._filesystem_runtime, "metadata"):
+                metadata = self._filesystem_runtime.metadata()
 
             display_tool_name, bottom_items, highlight_index = self._prepare_tool_display(
                 tool_name=tool_name,
