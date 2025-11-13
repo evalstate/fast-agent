@@ -128,6 +128,9 @@ class AgentACPServer(ACPAgent):
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
 
+        # CWD tracking per session (for fs tools)
+        self._session_cwds: dict[str, str] = {}
+
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
 
@@ -294,6 +297,59 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Store CWD for this session (used by fs tools)
+            if params.cwd:
+                self._session_cwds[session_id] = params.cwd
+
+            # Inject ACP fs tools if client supports them
+            if self._client_capabilities and "fs" in self._client_capabilities and self._connection:
+                fs_caps = self._client_capabilities["fs"]
+                if fs_caps.get("readTextFile") or fs_caps.get("writeTextFile"):
+                    from fast_agent.acp.fs_tools import (
+                        create_acp_read_text_file_tool,
+                        create_acp_write_text_file_tool,
+                    )
+
+                    cwd = params.cwd or "/"  # Default to root if no CWD provided
+
+                    # Create fs tools with connection and session context
+                    fs_tools_to_inject = []
+                    if fs_caps.get("readTextFile"):
+                        read_tool = create_acp_read_text_file_tool(self._connection, session_id, cwd)
+                        fs_tools_to_inject.append(("fs__read_text_file", read_tool))
+
+                    if fs_caps.get("writeTextFile"):
+                        write_tool = create_acp_write_text_file_tool(
+                            self._connection, session_id, cwd
+                        )
+                        fs_tools_to_inject.append(("fs__write_text_file", write_tool))
+
+                    # Inject tools into each agent that supports tools
+                    for agent_name, agent in instance.agents.items():
+                        if hasattr(agent, "_execution_tools") and hasattr(agent, "_tool_schemas"):
+                            for tool_name, tool in fs_tools_to_inject:
+                                # Add to execution tools
+                                agent._execution_tools[tool_name] = tool
+
+                                # Add to tool schemas for LLM
+                                from mcp.types import Tool as MCPTool
+
+                                agent._tool_schemas.append(
+                                    MCPTool(
+                                        name=tool.name,
+                                        description=tool.description,
+                                        inputSchema=tool.parameters,
+                                    )
+                                )
+
+                            logger.info(
+                                "ACP fs tools injected",
+                                name="acp_fs_tools_injected",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                                tools=[t[0] for t in fs_tools_to_inject],
+                            )
 
             # Create tool progress manager for this session if connection is available
             if self._connection:
@@ -748,6 +804,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up CWD tracking
+            self._session_cwds.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
