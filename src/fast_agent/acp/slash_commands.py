@@ -202,7 +202,7 @@ class SlashCommandHandler:
 
         # Format the status response
         status_lines = [
-            "# fast-agent (fast-agent-mcp) status",
+            "# fast-agent ACP status",
             "",
             "## Version",
             f"fast-agent: {fa_version}",
@@ -468,8 +468,7 @@ class SlashCommandHandler:
             if summary.conversation_span_ms > 0:
                 span_seconds = summary.conversation_span_ms / 1000
                 stats.append(
-                    "- Conversation Runtime (LLM + tools, aka Conversation Duration): "
-                    f"{format_duration(span_seconds)}"
+                    f"- Conversation Runtime (LLM + tools): {format_duration(span_seconds)}"
                 )
 
             # Add tool breakdown if there were tool calls
