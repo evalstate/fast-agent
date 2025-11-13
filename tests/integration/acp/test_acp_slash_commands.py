@@ -267,3 +267,18 @@ async def test_slash_command_clear_last_when_empty() -> None:
 
     assert "clear last" in response.lower()
     assert "no messages" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_not_detected_for_comments() -> None:
+    """Test that text starting with "//" (like comments) is detected as a slash command."""
+    handler = _handler(StubAgentInstance())
+
+    # Double slash (comment-style) should still be detected as starting with "/"
+    assert handler.is_slash_command("//hello, world!")
+    assert handler.is_slash_command("// This is a comment")
+
+    # However, the integration test test_acp_resource_only_prompt_not_slash_command
+    # verifies that resource content with "//" is NOT treated as a slash command
+    # because the slash command check only applies to pure text content, not resources
