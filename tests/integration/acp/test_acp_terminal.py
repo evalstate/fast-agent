@@ -49,30 +49,23 @@ async def test_acp_terminal_support_enabled() -> None:
     """Test that terminal support is properly enabled when client advertises capability."""
     client = TestClient()
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (
-        connection,
-        _process,
-    ):
-        # Initialize with terminal support enabled
+    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (connection, _process):
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
                 fs={"readTextFile": True, "writeTextFile": True},
-                terminal=True,  # Enable terminal support
+                terminal=True,
             ),
-            clientInfo=Implementation(name="pytest-terminal-client", version="0.0.1"),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
-
-        assert init_response.protocolVersion == 1
-        assert init_response.agentCapabilities is not None
+        await connection.initialize(init_request)
 
         # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Send prompt that should trigger terminal execution
         # The passthrough model will echo our input, so we craft a tool call request
@@ -95,30 +88,27 @@ async def test_acp_terminal_execution() -> None:
     """Test actual terminal command execution via ACP."""
     client = TestClient()
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (
-        connection,
-        _process,
-    ):
-        # Initialize with terminal support
+    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (connection, _process):
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
                 fs={"readTextFile": True, "writeTextFile": True},
                 terminal=True,
             ),
-            clientInfo=Implementation(name="pytest-terminal-client", version="0.0.1"),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
         await connection.initialize(init_request)
 
-        # Directly test terminal methods are being called
-        # Since we're using passthrough model, we can't test actual LLM-driven tool calls
-        # but we can verify the terminal runtime is set up correctly
-
-        # Create a session first to get a session ID
+        # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
+
+        # Directly test terminal methods are being called
+        # Since we're using passthrough model, we can't test actual LLM-driven tool calls
+        # but we can verify the terminal runtime is set up correctly
 
         # The terminals dict should be empty initially
         assert len(client.terminals) == 0

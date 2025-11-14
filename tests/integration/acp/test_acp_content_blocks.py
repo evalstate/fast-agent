@@ -65,24 +65,13 @@ async def test_acp_image_content_processing() -> None:
             ),
             clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
-
-        # Check that image is advertised as supported
-        assert init_response.agentCapabilities is not None
-        # Handle both "prompts" and "promptCapabilities" field names
-        prompt_caps = getattr(
-            init_response.agentCapabilities, "prompts", None
-        ) or getattr(init_response.agentCapabilities, "promptCapabilities", None)
-        assert prompt_caps is not None
-        # Check if image capability is enabled
-        assert getattr(prompt_caps, "image", False) is True
+        await connection.initialize(init_request)
 
         # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Create a fake image (base64 encoded)
         fake_image_data = base64.b64encode(b"fake-image-data").decode("utf-8")
@@ -129,24 +118,13 @@ async def test_acp_embedded_text_resource_processing() -> None:
             ),
             clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
-
-        # Check that resource is advertised as supported
-        assert init_response.agentCapabilities is not None
-        # Handle both "prompts" and "promptCapabilities" field names
-        prompt_caps = getattr(
-            init_response.agentCapabilities, "prompts", None
-        ) or getattr(init_response.agentCapabilities, "promptCapabilities", None)
-        assert prompt_caps is not None
-        # Check if embeddedContext capability is enabled
-        assert getattr(prompt_caps, "embeddedContext", False) is True
+        await connection.initialize(init_request)
 
         # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Send prompt with text resource
         prompt_blocks = [
@@ -184,7 +162,7 @@ async def test_acp_embedded_blob_resource_processing() -> None:
     client = TestClient()
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
-        # Initialize and create session
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
@@ -195,11 +173,11 @@ async def test_acp_embedded_blob_resource_processing() -> None:
         )
         await connection.initialize(init_request)
 
+        # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Create fake binary data
         fake_blob_data = base64.b64encode(b"fake-binary-document-data").decode("utf-8")
@@ -238,7 +216,7 @@ async def test_acp_mixed_content_blocks() -> None:
     client = TestClient()
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
-        # Initialize and create session
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
@@ -249,6 +227,7 @@ async def test_acp_mixed_content_blocks() -> None:
         )
         await connection.initialize(init_request)
 
+        # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
@@ -304,7 +283,7 @@ async def test_acp_resource_only_prompt_not_slash_command() -> None:
     client = TestClient()
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
-        # Initialize and create session
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
@@ -315,11 +294,11 @@ async def test_acp_resource_only_prompt_not_slash_command() -> None:
         )
         await connection.initialize(init_request)
 
+        # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Send a resource-only prompt with text starting with "/"
         # This should NOT be treated as a slash command

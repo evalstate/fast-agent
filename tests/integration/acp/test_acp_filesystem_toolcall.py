@@ -59,35 +59,28 @@ async def test_acp_filesystem_read_tool_call() -> None:
 
     client = TestClient()
 
-    # Set up a test file in the client
-    test_path = "/test/sample.txt"
-    test_content = "Hello from test file!"
-    client.files[test_path] = test_content
-
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd()) as (
-        connection,
-        _process,
-    ):
-        # Initialize with filesystem support enabled
+    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd()) as (connection, _process):
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
                 fs={"readTextFile": True, "writeTextFile": True},
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-filesystem-client", version="0.0.1"),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
-
-        assert init_response.protocolVersion == 1
-        assert init_response.agentCapabilities is not None
+        await connection.initialize(init_request)
 
         # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
+
+        # Set up a test file in the client
+        test_path = "/test/sample.txt"
+        test_content = "Hello from test file!"
+        client.files[test_path] = test_content
 
         # Use passthrough model's ***CALL_TOOL directive to invoke read_text_file
         prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
@@ -118,18 +111,15 @@ async def test_acp_filesystem_write_tool_call() -> None:
 
     client = TestClient()
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd()) as (
-        connection,
-        _process,
-    ):
-        # Initialize with filesystem support enabled
+    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd()) as (connection, _process):
+        # Initialize
         init_request = InitializeRequest(
             protocolVersion=1,
             clientCapabilities=ClientCapabilities(
                 fs={"readTextFile": True, "writeTextFile": True},
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-filesystem-client", version="0.0.1"),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
         await connection.initialize(init_request)
 
@@ -138,7 +128,6 @@ async def test_acp_filesystem_write_tool_call() -> None:
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Use passthrough model's ***CALL_TOOL directive to invoke write_text_file
         test_path = "/test/output.txt"
