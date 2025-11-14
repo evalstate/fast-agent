@@ -54,3 +54,5 @@ mcp:
       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
     huggingface:
       url: "https://huggingface.co/mcp?login"
+      # headers:
+      # "Authorization": "Bearer ${ENV_VAR}"
