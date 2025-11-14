@@ -58,3 +58,5 @@ class AgentConfig:
         else:
             # Override the request params history setting if explicitly configured
             self.default_request_params.use_history = self.use_history
+            # Ensure instruction takes precedence over any existing systemPrompt
+            self.default_request_params.systemPrompt = self.instruction

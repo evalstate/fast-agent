@@ -244,6 +244,9 @@ class ModelDatabase:
         "gpt-5": OPENAI_GPT_5,
         "gpt-5-mini": OPENAI_GPT_5,
         "gpt-5-nano": OPENAI_GPT_5,
+        "gpt-5.1": OPENAI_GPT_5,
+        "gpt-5.1-mini": OPENAI_GPT_5,  # pre-emptive
+        "gpt-5.1-nano": OPENAI_GPT_5,  # pre-emptive
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
         "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
@@ -292,6 +295,7 @@ class ModelDatabase:
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
         "moonshotai/kimi-k2-instruct-0905": KIMI_MOONSHOT,
+        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
