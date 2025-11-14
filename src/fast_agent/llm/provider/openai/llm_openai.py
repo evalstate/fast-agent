@@ -34,8 +34,8 @@ from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
 
-DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
-DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_OPENAI_MODEL = "gpt-5-mini"
+DEFAULT_REASONING_EFFORT = "low"
 
 
 class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
