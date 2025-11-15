@@ -281,3 +281,158 @@ async def test_slash_command_not_detected_for_comments() -> None:
     # However, the integration test test_acp_resource_only_prompt_not_slash_command
     # verifies that resource content with "//" is NOT treated as a slash command
     # because the slash command check only applies to pure text content, not resources
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_shows_current_agent() -> None:
+    """Test that /status shows the currently selected agent (mode-aware)."""
+    stub_agent = StubAgent(message_history=[], _llm=None)
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance, agent_name="test-agent")
+
+    # Execute status command
+    response = await handler.execute_command("status", "")
+
+    # Should show current agent/mode section
+    assert "Current Agent/Mode" in response
+    assert "test-agent" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_shows_available_agents() -> None:
+    """Test that /status shows all available agents when multiple exist."""
+
+    @dataclass
+    class StubAgentWithConfig:
+        message_history: List[Any] = field(default_factory=list)
+        _llm: Any = None
+        _config: Any = None
+
+        @dataclass
+        class Config:
+            instruction: str = "Test instruction"
+
+    agent1 = StubAgentWithConfig(_config=StubAgentWithConfig.Config(instruction="Agent 1 instruction"))
+    agent2 = StubAgentWithConfig(_config=StubAgentWithConfig.Config(instruction="Agent 2 instruction"))
+
+    instance = StubAgentInstance(agents={"agent1": agent1, "agent2": agent2})
+
+    handler = _handler(instance, agent_name="agent1")
+
+    # Execute status command
+    response = await handler.execute_command("status", "")
+
+    # Should show available agents section
+    assert "Available Agents/Modes" in response
+    assert "agent1" in response
+    assert "agent2" in response
+    # Should show hint about /status <agent>
+    assert "/status <agent_name>" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_updates_with_mode_change() -> None:
+    """Test that /status reflects the current agent after mode changes."""
+    agent1 = StubAgent(message_history=[], _llm=None)
+    agent2 = StubAgent(message_history=[], _llm=None)
+
+    instance = StubAgentInstance(agents={"agent1": agent1, "agent2": agent2})
+
+    handler = _handler(instance, agent_name="agent1")
+
+    # Check initial status
+    response = await handler.execute_command("status", "")
+    assert "agent1" in response
+
+    # Simulate mode change
+    handler.set_current_agent("agent2")
+
+    # Check status after mode change
+    response = await handler.execute_command("status", "")
+    # Current agent should now be agent2
+    current_section = response.split("## Current Agent/Mode")[1].split("##")[0]
+    assert "agent2" in current_section
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_with_agent_argument() -> None:
+    """Test /status <agent> shows details for a specific agent."""
+
+    @dataclass
+    class StubAgentWithConfig:
+        message_history: List[Any] = field(default_factory=list)
+        _llm: Any = None
+        _config: Any = None
+
+        @dataclass
+        class Config:
+            instruction: str = ""
+
+    agent1 = StubAgentWithConfig(
+        _config=StubAgentWithConfig.Config(instruction="This is the first agent")
+    )
+    agent2 = StubAgentWithConfig(
+        _config=StubAgentWithConfig.Config(instruction="This is the second agent")
+    )
+
+    instance = StubAgentInstance(agents={"agent1": agent1, "agent2": agent2})
+
+    handler = _handler(instance, agent_name="agent1")
+
+    # Execute status with agent argument
+    response = await handler.execute_command("status", "agent2")
+
+    # Should show agent-specific heading
+    assert "Agent: agent2" in response
+    # Should show the agent's instruction
+    assert "This is the second agent" in response
+    # Should NOT show the general ACP status
+    assert "fast-agent ACP status" not in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_with_invalid_agent() -> None:
+    """Test /status <invalid_agent> shows helpful error."""
+    agent1 = StubAgent(message_history=[], _llm=None)
+
+    instance = StubAgentInstance(agents={"agent1": agent1})
+
+    handler = _handler(instance, agent_name="agent1")
+
+    # Execute status with invalid agent
+    response = await handler.execute_command("status", "nonexistent")
+
+    # Should show error message
+    assert "not found" in response
+    # Should list available agents
+    assert "agent1" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_marks_current_agent() -> None:
+    """Test /status <agent> marks the current agent when viewing it."""
+    agent1 = StubAgent(message_history=[], _llm=None)
+    agent2 = StubAgent(message_history=[], _llm=None)
+
+    instance = StubAgentInstance(agents={"agent1": agent1, "agent2": agent2})
+
+    handler = _handler(instance, agent_name="agent1")
+
+    # View the current agent
+    response = await handler.execute_command("status", "agent1")
+
+    # Should show (current) marker
+    assert "(current)" in response
+
+    # View a non-current agent
+    response = await handler.execute_command("status", "agent2")
+
+    # Should NOT show (current) marker
+    assert "(current)" not in response
