@@ -56,6 +56,7 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.core.logging.logger import get_logger
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -67,27 +68,40 @@ class StreamingNotAvailableError(RuntimeError):
     """Raised when streaming APIs are accessed before an LLM is attached."""
 
 
+logger = get_logger(__name__)
+
+
 class StreamingAgentMixin(StreamingAgentProtocol):
     """Mixin that forwards streaming listener registration to the attached LLM."""
 
     def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
-        try:
-            llm = self.llm
-        except AssertionError as exc:  # LLM not attached yet
-            raise StreamingNotAvailableError(
-                "LLM not attached; cannot register stream listener"
-            ) from exc
+        llm = getattr(self, "_llm", None)
+        if not llm:
+            logger.debug(
+                "Skipping stream listener registration because no LLM is attached",
+                name=getattr(self, "_name", "unknown"),
+            )
+
+            def remove_listener() -> None:
+                return None
+
+            return remove_listener
         return llm.add_stream_listener(listener)
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, Dict[str, Any] | None], None]
     ) -> Callable[[], None]:
-        try:
-            llm = self.llm
-        except AssertionError as exc:
-            raise StreamingNotAvailableError(
-                "LLM not attached; cannot register tool stream listener"
-            ) from exc
+        llm = getattr(self, "_llm", None)
+        if not llm:
+            logger.debug(
+                "Skipping tool stream listener registration because no LLM is attached",
+                name=getattr(self, "_name", "unknown"),
+            )
+
+            def remove_listener() -> None:
+                return None
+
+            return remove_listener
         return llm.add_tool_stream_listener(listener)
 
 

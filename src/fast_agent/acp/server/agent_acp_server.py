@@ -43,6 +43,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.workflow_telemetry import ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
 
@@ -196,11 +197,8 @@ class AgentACPServer(ACPAgent):
         self._client_info: dict | None = None
         self._protocol_version: str | None = None
 
-        # For simplicity, use the first agent as the primary agent
-        # In the future, we could add routing logic to select different agents
-        self.primary_agent_name = (
-            list(primary_instance.agents.keys())[0] if primary_instance.agents else None
-        )
+        # Determine primary agent using FastAgent default flag when available
+        self.primary_agent_name = self._select_primary_agent(primary_instance)
 
         logger.info(
             "AgentACPServer initialized",
@@ -414,6 +412,9 @@ class AgentACPServer(ACPAgent):
             if self._connection:
                 # Create a progress manager for this session
                 tool_handler = ACPToolProgressManager(self._connection, session_id)
+                workflow_telemetry = ToolHandlerWorkflowTelemetry(
+                    tool_handler, server_name=self.server_name
+                )
 
                 logger.info(
                     "ACP tool progress manager created for session",
@@ -433,6 +434,9 @@ class AgentACPServer(ACPAgent):
                             session_id=session_id,
                             agent_name=agent_name,
                         )
+
+                    if hasattr(agent, "workflow_telemetry"):
+                        agent.workflow_telemetry = workflow_telemetry
 
             # If client supports terminals and we have shell runtime enabled,
             # inject ACP terminal runtime to replace local ShellRuntime
@@ -594,6 +598,22 @@ class AgentACPServer(ACPAgent):
         )
 
         return SetSessionModeResponse()
+
+    def _select_primary_agent(self, instance: AgentInstance) -> str | None:
+        """
+        Pick the default agent to expose as the initial ACP mode.
+
+        Respects AgentConfig.default when set; otherwise falls back to the first agent.
+        """
+        if not instance.agents:
+            return None
+
+        for agent_name, agent in instance.agents.items():
+            config = getattr(agent, "config", None)
+            if config and getattr(config, "default", False):
+                return agent_name
+
+        return next(iter(instance.agents.keys()))
 
     async def prompt(self, params: PromptRequest) -> PromptResponse:
         """

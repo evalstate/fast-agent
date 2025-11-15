@@ -220,6 +220,12 @@ class FastAgent:
                 sys.exit(0)
         # --- End of wrapped logic ---
 
+        # Force quiet mode automatically when running ACP transport
+        transport = getattr(self.args, "transport", None)
+        if transport == "acp":
+            self._programmatic_quiet = True
+            setattr(self.args, "quiet", True)
+
         # Apply programmatic quiet setting (overrides CLI if both are set)
         if self._programmatic_quiet:
             self.args.quiet = True
@@ -938,6 +944,8 @@ class FastAgent:
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
+        if transport == "acp":
+            self.args.quiet = True
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
