@@ -691,6 +691,12 @@ class AgentACPServer(ACPAgent):
                     prompt_text=prompt_text[:100],  # Log first 100 chars
                 )
 
+                # Update slash handler with current agent before executing command
+                current_agent_name = self._session_current_agent.get(
+                    session_id, self.primary_agent_name
+                )
+                slash_handler.current_agent_name = current_agent_name
+
                 # Parse and execute the command
                 command_name, arguments = slash_handler.parse_command(prompt_text)
                 response_text = await slash_handler.execute_command(command_name, arguments)

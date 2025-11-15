@@ -36,6 +36,7 @@ class SlashCommandHandler:
         instance: AgentInstance,
         primary_agent_name: str,
         *,
+        current_agent_name: str | None = None,
         history_exporter: type[HistoryExporter] | HistoryExporter | None = None,
         client_info: dict | None = None,
         client_capabilities: dict | None = None,
@@ -48,6 +49,7 @@ class SlashCommandHandler:
             session_id: The ACP session ID
             instance: The agent instance for this session
             primary_agent_name: Name of the primary agent
+            current_agent_name: Name of the currently active agent (defaults to primary)
             history_exporter: Optional history exporter
             client_info: Client information from ACP initialize
             client_capabilities: Client capabilities from ACP initialize
@@ -56,6 +58,7 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
+        self.current_agent_name = current_agent_name or primary_agent_name
         self.history_exporter = history_exporter or HistoryExporter
         self._created_at = time.time()
         self.client_info = client_info
@@ -67,7 +70,7 @@ class SlashCommandHandler:
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input=None,
+                input=AvailableCommandInput(root=CommandInputHint(hint="[agent]")),
             ),
             "tools": AvailableCommand(
                 name="tools",
@@ -136,7 +139,7 @@ class SlashCommandHandler:
 
         # Route to specific command handler
         if command_name == "status":
-            return await self._handle_status()
+            return await self._handle_status(arguments)
         if command_name == "tools":
             return await self._handle_tools()
         if command_name == "save":
@@ -146,16 +149,36 @@ class SlashCommandHandler:
 
         return f"Command /{command_name} is not yet implemented."
 
-    async def _handle_status(self) -> str:
-        """Handle the /status command."""
+    async def _handle_status(self, arguments: str | None = None) -> str:
+        """
+        Handle the /status command.
+
+        Args:
+            arguments: Optional agent name to show detailed info for specific agent
+
+        Returns:
+            Status information as formatted markdown
+        """
+        # If arguments provided, show detailed agent info
+        agent_name_arg = arguments.strip() if arguments else None
+        if agent_name_arg:
+            return self._handle_status_agent(agent_name_arg)
+
+        # Otherwise show general status with mode awareness
+        return self._handle_status_general()
+
+    def _handle_status_general(self) -> str:
+        """Handle /status with no arguments - show general status with mode info."""
         # Get fast-agent version
         try:
             fa_version = get_version("fast-agent-mcp")
         except Exception:
             fa_version = "unknown"
 
-        # Get model information
-        agent = self.instance.agents.get(self.primary_agent_name)
+        # Get current agent
+        agent = self.instance.agents.get(self.current_agent_name)
+
+        # Get model information from current agent
         model_name = "unknown"
         model_provider = "unknown"
         model_provider_display = "unknown"
@@ -182,7 +205,7 @@ class SlashCommandHandler:
                 if capability_parts:
                     capabilities_line = f"Capabilities: {', '.join(capability_parts)}"
 
-        # Get conversation statistics
+        # Get conversation statistics for current agent
         summary_stats = self._get_conversation_stats(agent)
 
         # Format the status response
@@ -237,6 +260,11 @@ class SlashCommandHandler:
 
             status_lines.append("")
 
+        # Add mode information
+        status_lines.extend(self._get_mode_info())
+        status_lines.append("")
+
+        # Add active model information for current agent
         provider_line = f"{model_provider}"
         if model_provider_display != "unknown":
             provider_line = f"{model_provider_display} ({model_provider})"
@@ -260,6 +288,188 @@ class SlashCommandHandler:
         status_lines.extend(self._get_error_handling_report(agent))
 
         return "\n".join(status_lines)
+
+    def _handle_status_agent(self, agent_name: str) -> str:
+        """Handle /status <agent> - show detailed info for a specific agent."""
+        # Check if agent exists
+        if agent_name not in self.instance.agents:
+            available = ", ".join(self.instance.agents.keys())
+            return "\n".join([
+                f"# status {agent_name}",
+                "",
+                f"Agent '{agent_name}' not found.",
+                "",
+                f"Available agents: {available}",
+            ])
+
+        agent = self.instance.agents[agent_name]
+
+        # Get agent configuration
+        agent_config = getattr(agent, "_config", None) or getattr(agent, "config", None)
+        instruction = ""
+        agent_type = "unknown"
+        is_default = False
+        mcp_servers = []
+
+        if agent_config:
+            instruction = getattr(agent_config, "instruction", "")
+            agent_type = str(getattr(agent_config, "agent_type", "unknown"))
+            is_default = getattr(agent_config, "default", False)
+            mcp_servers = getattr(agent_config, "servers", [])
+
+        # Get model information
+        model_name = "unknown"
+        model_provider = "unknown"
+        model_provider_display = "unknown"
+        context_window = "unknown"
+        capabilities_line = "Capabilities: unknown"
+
+        if hasattr(agent, "_llm") and agent._llm:
+            model_info = ModelInfo.from_llm(agent._llm)
+            if model_info:
+                model_name = model_info.name
+                model_provider = str(model_info.provider.value)
+                model_provider_display = getattr(
+                    model_info.provider, "display_name", model_provider
+                )
+                if model_info.context_window:
+                    context_window = f"{model_info.context_window} tokens"
+                capability_parts = []
+                if model_info.supports_text:
+                    capability_parts.append("Text")
+                if model_info.supports_document:
+                    capability_parts.append("Document")
+                if model_info.supports_vision:
+                    capability_parts.append("Vision")
+                if capability_parts:
+                    capabilities_line = f"Capabilities: {', '.join(capability_parts)}"
+
+        # Get conversation statistics
+        summary_stats = self._get_conversation_stats(agent)
+
+        # Format agent name for display
+        formatted_name = self._format_agent_name_as_title(agent_name)
+
+        # Build response
+        status_lines = [
+            f"# status {agent_name}",
+            "",
+            f"**{formatted_name}**",
+            "",
+        ]
+
+        if is_default:
+            status_lines.append("*Default Agent*")
+            status_lines.append("")
+
+        if self.current_agent_name == agent_name:
+            status_lines.append("*Currently Active*")
+            status_lines.append("")
+
+        # Add agent configuration
+        status_lines.extend([
+            "## Configuration",
+            f"- Type: {agent_type}",
+        ])
+
+        if instruction:
+            # Show first line of instruction
+            first_line = instruction.split("\n")[0]
+            if len(first_line) > 100:
+                first_line = first_line[:97] + "..."
+            status_lines.append(f"- Instruction: {first_line}")
+
+        # Add model information
+        provider_line = f"{model_provider}"
+        if model_provider_display != "unknown":
+            provider_line = f"{model_provider_display} ({model_provider})"
+
+        status_lines.extend([
+            "",
+            "## Model",
+            f"- Provider: {provider_line}",
+            f"- Model: {model_name}",
+            f"- Context Window: {context_window}",
+            f"- {capabilities_line}",
+        ])
+
+        # Add MCP servers if any
+        if mcp_servers:
+            status_lines.extend([
+                "",
+                "## MCP Servers",
+            ])
+            for server in mcp_servers:
+                status_lines.append(f"- {server}")
+
+        # Add conversation statistics
+        status_lines.extend([
+            "",
+            "## Conversation Statistics",
+        ])
+        status_lines.extend(summary_stats)
+
+        # Add error handling report
+        status_lines.extend(["", "## Error Handling"])
+        status_lines.extend(self._get_error_handling_report(agent))
+
+        return "\n".join(status_lines)
+
+    def _get_mode_info(self) -> list[str]:
+        """Get current mode and available modes information."""
+        lines = ["## Session Modes"]
+
+        # Current mode
+        current_formatted = self._format_agent_name_as_title(self.current_agent_name)
+        lines.append(f"**Current Mode**: {current_formatted} (`{self.current_agent_name}`)")
+
+        # Available modes count
+        mode_count = len(self.instance.agents)
+        lines.append(f"**Available Modes**: {mode_count}")
+
+        if mode_count > 1:
+            lines.append("")
+            lines.append("### All Available Modes")
+            for agent_name in sorted(self.instance.agents.keys()):
+                formatted_name = self._format_agent_name_as_title(agent_name)
+
+                # Get agent description (first line of instruction)
+                agent = self.instance.agents[agent_name]
+                agent_config = getattr(agent, "_config", None) or getattr(agent, "config", None)
+                description = ""
+                if agent_config:
+                    instruction = getattr(agent_config, "instruction", "")
+                    if instruction:
+                        first_line = instruction.split("\n")[0].strip()
+                        if len(first_line) > 80:
+                            first_line = first_line[:77] + "..."
+                        description = first_line
+
+                # Mark current agent
+                marker = " *(active)*" if agent_name == self.current_agent_name else ""
+
+                if description:
+                    lines.append(f"- **{formatted_name}** (`{agent_name}`){marker}: {description}")
+                else:
+                    lines.append(f"- **{formatted_name}** (`{agent_name}`){marker}")
+
+        return lines
+
+    def _format_agent_name_as_title(self, agent_name: str) -> str:
+        """
+        Format agent name as title case for display.
+
+        Examples:
+            code_expert -> Code Expert
+            general_assistant -> General Assistant
+
+        Args:
+            agent_name: The agent name (typically snake_case)
+
+        Returns:
+            Title-cased version of the name
+        """
+        return agent_name.replace("_", " ").title()
 
     async def _handle_tools(self) -> str:
         """List available MCP tools for the primary agent."""
