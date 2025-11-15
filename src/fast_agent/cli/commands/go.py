@@ -195,6 +195,7 @@ async def _run_agent(
             fan_out=fan_out_agents,
             fan_in="aggregate",
             include_request=True,
+            default=True,
         )
         async def cli_agent():
             async with fast.run() as agent:
@@ -208,7 +209,7 @@ async def _run_agent(
                     display = ConsoleDisplay(config=None)
                     display.show_parallel_results(agent.parallel)
                 else:
-                    await agent.interactive(agent_name="parallel", pretty_print_parallel=True)
+                    await agent.interactive(pretty_print_parallel=True)
     else:
         # Single model - use original behavior
         # Define the agent with specified parameters
