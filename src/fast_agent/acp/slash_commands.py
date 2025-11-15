@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 
 from acp.schema import AvailableCommand, AvailableCommandInput, CommandInputHint
 
+from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.llm.model_info import ModelInfo
@@ -56,6 +57,7 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
+        self.current_agent_name = primary_agent_name  # Track current agent (can change via setSessionMode)
         self.history_exporter = history_exporter or HistoryExporter
         self._created_at = time.time()
         self.client_info = client_info
@@ -89,6 +91,17 @@ class SlashCommandHandler:
     def get_available_commands(self) -> list[AvailableCommand]:
         """Get the list of available commands for this session."""
         return list(self.commands.values())
+
+    def set_current_agent(self, agent_name: str) -> None:
+        """
+        Update the current agent for this session.
+
+        This is called when the user switches modes via setSessionMode.
+
+        Args:
+            agent_name: Name of the agent to use for slash commands
+        """
+        self.current_agent_name = agent_name
 
     def is_slash_command(self, prompt_text: str) -> bool:
         """Check if the prompt text is a slash command."""
@@ -154,15 +167,24 @@ class SlashCommandHandler:
         except Exception:
             fa_version = "unknown"
 
-        # Get model information
-        agent = self.instance.agents.get(self.primary_agent_name)
+        # Get model information from current agent (not primary)
+        agent = self.instance.agents.get(self.current_agent_name)
+
+        # Check if this is a PARALLEL agent
+        is_parallel_agent = (
+            agent
+            and hasattr(agent, "agent_type")
+            and agent.agent_type == AgentType.PARALLEL
+        )
+
+        # For non-parallel agents, extract standard model info
         model_name = "unknown"
         model_provider = "unknown"
         model_provider_display = "unknown"
         context_window = "unknown"
         capabilities_line = "Capabilities: unknown"
 
-        if agent and hasattr(agent, "_llm") and agent._llm:
+        if agent and not is_parallel_agent and hasattr(agent, "_llm") and agent._llm:
             model_info = ModelInfo.from_llm(agent._llm)
             if model_info:
                 model_name = model_info.name
@@ -190,7 +212,7 @@ class SlashCommandHandler:
             "# fast-agent ACP status",
             "",
             "## Version",
-            f"fast-agent: {fa_version}",
+            f"fast-agent-mcp: {fa_version} - https://fast-agent.ai/",
             "",
         ]
 
@@ -225,7 +247,7 @@ class SlashCommandHandler:
 
                 # Terminal capability
                 if "terminal" in self.client_capabilities:
-                    status_lines.append(f"Terminal: {self.client_capabilities['terminal']}")
+                    status_lines.append(f"  - Terminal: {self.client_capabilities['terminal']}")
 
                 # Meta capabilities
                 if "_meta" in self.client_capabilities:
@@ -237,21 +259,86 @@ class SlashCommandHandler:
 
             status_lines.append("")
 
-        provider_line = f"{model_provider}"
-        if model_provider_display != "unknown":
-            provider_line = f"{model_provider_display} ({model_provider})"
+        # Build model section based on agent type
+        if is_parallel_agent:
+            # Special handling for PARALLEL agents
+            status_lines.append("## Active Models (Parallel Mode)")
+            status_lines.append("")
 
-        status_lines.extend(
-            [
-                "## Active Model",
-                f"- Provider: {provider_line}",
-                f"- Model: {model_name}",
-                f"- Context Window: {context_window}",
-                f"- {capabilities_line}",
-                "",
-                "## Conversation Statistics",
-            ]
-        )
+            # Display fan-out agents
+            if hasattr(agent, "fan_out_agents") and agent.fan_out_agents:
+                status_lines.append(f"### Fan-Out Agents ({len(agent.fan_out_agents)})")
+                for idx, fan_out_agent in enumerate(agent.fan_out_agents, 1):
+                    agent_name = getattr(fan_out_agent, "name", f"agent-{idx}")
+                    status_lines.append(f"**{idx}. {agent_name}**")
+
+                    # Get model info for this fan-out agent
+                    if hasattr(fan_out_agent, "_llm") and fan_out_agent._llm:
+                        model_info = ModelInfo.from_llm(fan_out_agent._llm)
+                        if model_info:
+                            provider_display = getattr(
+                                model_info.provider, "display_name", str(model_info.provider.value)
+                            )
+                            status_lines.append(f"  - Provider: {provider_display}")
+                            status_lines.append(f"  - Model: {model_info.name}")
+                            if model_info.context_window:
+                                status_lines.append(
+                                    f"  - Context Window: {model_info.context_window} tokens"
+                                )
+                    else:
+                        status_lines.append("  - Model: unknown")
+
+                    status_lines.append("")
+            else:
+                status_lines.append("Fan-Out Agents: none configured")
+                status_lines.append("")
+
+            # Display fan-in agent
+            if hasattr(agent, "fan_in_agent") and agent.fan_in_agent:
+                fan_in_agent = agent.fan_in_agent
+                fan_in_name = getattr(fan_in_agent, "name", "aggregator")
+                status_lines.append(f"### Fan-In Agent: {fan_in_name}")
+
+                # Get model info for fan-in agent
+                if hasattr(fan_in_agent, "_llm") and fan_in_agent._llm:
+                    model_info = ModelInfo.from_llm(fan_in_agent._llm)
+                    if model_info:
+                        provider_display = getattr(
+                            model_info.provider, "display_name", str(model_info.provider.value)
+                        )
+                        status_lines.append(f"  - Provider: {provider_display}")
+                        status_lines.append(f"  - Model: {model_info.name}")
+                        if model_info.context_window:
+                            status_lines.append(
+                                f"  - Context Window: {model_info.context_window} tokens"
+                            )
+                else:
+                    status_lines.append("  - Model: unknown")
+
+                status_lines.append("")
+            else:
+                status_lines.append("Fan-In Agent: none configured")
+                status_lines.append("")
+
+        else:
+            # Standard single-model display
+            provider_line = f"{model_provider}"
+            if model_provider_display != "unknown":
+                provider_line = f"{model_provider_display} ({model_provider})"
+
+            status_lines.extend(
+                [
+                    "## Active Model",
+                    f"- Provider: {provider_line}",
+                    f"- Model: {model_name}",
+                    f"- Context Window: {context_window}",
+                    f"- {capabilities_line}",
+                    "",
+                ]
+            )
+
+        # Add conversation statistics
+        status_lines.append(f"## Conversation Statistics ({getattr(agent, 'name', self.current_agent_name) if agent else 'Unknown'})")
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
@@ -262,16 +349,16 @@ class SlashCommandHandler:
         return "\n".join(status_lines)
 
     async def _handle_tools(self) -> str:
-        """List available MCP tools for the primary agent."""
+        """List available MCP tools for the current agent."""
         heading = "# tools"
 
-        agent = self.instance.agents.get(self.primary_agent_name)
+        agent = self.instance.agents.get(self.current_agent_name)
         if not agent:
             return "\n".join(
                 [
                     heading,
                     "",
-                    f"Agent '{self.primary_agent_name}' not found for this session.",
+                    f"Agent '{self.current_agent_name}' not found for this session.",
                 ]
             )
 
@@ -377,13 +464,13 @@ class SlashCommandHandler:
         """Handle the /save command by persisting conversation history."""
         heading = "# save conversation"
 
-        agent = self.instance.agents.get(self.primary_agent_name)
+        agent = self.instance.agents.get(self.current_agent_name)
         if not agent:
             return "\n".join(
                 [
                     heading,
                     "",
-                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
                 ]
             )
 
@@ -420,13 +507,13 @@ class SlashCommandHandler:
     def _handle_clear_all(self) -> str:
         """Clear the entire conversation history."""
         heading = "# clear conversation"
-        agent = self.instance.agents.get(self.primary_agent_name)
+        agent = self.instance.agents.get(self.current_agent_name)
         if not agent:
             return "\n".join(
                 [
                     heading,
                     "",
-                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
                 ]
             )
 
@@ -479,13 +566,13 @@ class SlashCommandHandler:
     def _handle_clear_last(self) -> str:
         """Remove the most recent conversation message."""
         heading = "# clear last conversation turn"
-        agent = self.instance.agents.get(self.primary_agent_name)
+        agent = self.instance.agents.get(self.current_agent_name)
         if not agent:
             return "\n".join(
                 [
                     heading,
                     "",
-                    f"Unable to locate agent '{self.primary_agent_name}' for this session.",
+                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
                 ]
             )
 
