@@ -152,7 +152,7 @@ ignore=["E501"]
 
 [tool.uv.workspace]
 members = [
-    "examples/tensorzero/mcp_server",
+    "publish/fast-agent-acp",
 ]
 
 [tool.uv.sources]
