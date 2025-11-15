@@ -20,7 +20,7 @@ from acp import (
     PromptRequest,
     PromptResponse,
 )
-from acp.helpers import session_notification, update_agent_message_text, update_available_commands
+from acp.helpers import session_notification, update_agent_message_text
 from acp.schema import (
     AgentCapabilities,
     Implementation,
