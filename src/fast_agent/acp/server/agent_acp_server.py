@@ -671,6 +671,11 @@ class AgentACPServer(ACPAgent):
                 content=mcp_content_blocks,
             )
 
+            # Get current agent for this session (defaults to primary agent if not set)
+            current_agent_name = self._session_current_agent.get(
+                session_id, self.primary_agent_name
+            )
+
             # Check if this is a slash command
             # Only process slash commands if the prompt is a single text block
             # This ensures resources, images, and multi-part prompts are never treated as commands
@@ -690,6 +695,9 @@ class AgentACPServer(ACPAgent):
                     session_id=session_id,
                     prompt_text=prompt_text[:100],  # Log first 100 chars
                 )
+
+                # Update slash handler with current agent before executing command
+                slash_handler.set_current_agent(current_agent_name)
 
                 # Parse and execute the command
                 command_name, arguments = slash_handler.parse_command(prompt_text)
@@ -715,11 +723,6 @@ class AgentACPServer(ACPAgent):
 
                 # Return success
                 return PromptResponse(stopReason=END_TURN)
-
-            # Get current agent for this session (defaults to primary agent if not set)
-            current_agent_name = self._session_current_agent.get(
-                session_id, self.primary_agent_name
-            )
 
             logger.info(
                 "Sending prompt to fast-agent",

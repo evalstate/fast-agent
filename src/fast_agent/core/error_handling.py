@@ -23,3 +23,5 @@ def handle_error(e: Exception, error_type: str, suggestion: str | None = None) -
         print(e.details, file=sys.stderr)
     if suggestion:
         print(f"\n{suggestion}", file=sys.stderr)
+        print(file=sys.stderr)
+        print("Visit https://fast-agent.ai/ for more information", file=sys.stderr)
