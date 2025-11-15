@@ -172,9 +172,9 @@ class FastAgent:
             )
             parser.add_argument(
                 "--transport",
-                choices=["sse", "http", "stdio"],
+                choices=["sse", "http", "stdio", "acp"],
                 default="http",
-                help="Transport protocol to use when running as a server (sse or stdio)",
+                help="Transport protocol to use when running as a server (sse, http, stdio, or acp)",
             )
             parser.add_argument(
                 "--port",
