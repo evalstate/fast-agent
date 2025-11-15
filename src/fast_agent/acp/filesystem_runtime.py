@@ -17,6 +17,8 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
+    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+
 logger = get_logger(__name__)
 
 
@@ -37,6 +39,7 @@ class ACPFilesystemRuntime:
         logger_instance=None,
         enable_read: bool = True,
         enable_write: bool = True,
+        tool_handler: "ToolExecutionHandler | None" = None,
     ):
         """
         Initialize the ACP filesystem runtime.
@@ -48,6 +51,7 @@ class ACPFilesystemRuntime:
             logger_instance: Optional logger instance
             enable_read: Whether to enable the read_text_file tool
             enable_write: Whether to enable the write_text_file tool
+            tool_handler: Optional tool execution handler for telemetry
         """
         self.connection = connection
         self.session_id = session_id
@@ -55,6 +59,7 @@ class ACPFilesystemRuntime:
         self.logger = logger_instance or logger
         self._enable_read = enable_read
         self._enable_write = enable_write
+        self._tool_handler = tool_handler
 
         # Tool definition for reading text files
         self._read_tool = Tool(
@@ -166,6 +171,16 @@ class ACPFilesystemRuntime:
             path=path,
         )
 
+        # Notify tool handler that execution is starting
+        tool_call_id = None
+        if self._tool_handler:
+            try:
+                tool_call_id = await self._tool_handler.on_tool_start(
+                    "read_text_file", "acp_filesystem", arguments
+                )
+            except Exception as e:
+                self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
+
         try:
             # Build request using proper ACP schema
             request = ReadTextFileRequest(
@@ -186,10 +201,21 @@ class ACPFilesystemRuntime:
                 content_length=len(content),
             )
 
-            return CallToolResult(
+            result = CallToolResult(
                 content=[text_content(content)],
                 isError=False,
             )
+
+            # Notify tool handler of completion
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, True, result.content, None
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+            return result
 
         except Exception as e:
             self.logger.error(
@@ -198,6 +224,16 @@ class ACPFilesystemRuntime:
                 path=path,
                 exc_info=True,
             )
+
+            # Notify tool handler of error
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, False, None, str(e)
+                    )
+                except Exception as handler_error:
+                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+
             return CallToolResult(
                 content=[text_content(f"Error reading file: {e}")],
                 isError=True,
@@ -249,6 +285,16 @@ class ACPFilesystemRuntime:
             content_length=len(content),
         )
 
+        # Notify tool handler that execution is starting
+        tool_call_id = None
+        if self._tool_handler:
+            try:
+                tool_call_id = await self._tool_handler.on_tool_start(
+                    "write_text_file", "acp_filesystem", arguments
+                )
+            except Exception as e:
+                self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
+
         try:
             # Build request using proper ACP schema
             request = WriteTextFileRequest(
@@ -266,10 +312,21 @@ class ACPFilesystemRuntime:
                 path=path,
             )
 
-            return CallToolResult(
+            result = CallToolResult(
                 content=[text_content(f"Successfully wrote {len(content)} characters to {path}")],
                 isError=False,
             )
+
+            # Notify tool handler of completion
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, True, result.content, None
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+            return result
 
         except Exception as e:
             self.logger.error(
@@ -278,6 +335,16 @@ class ACPFilesystemRuntime:
                 path=path,
                 exc_info=True,
             )
+
+            # Notify tool handler of error
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, False, None, str(e)
+                    )
+                except Exception as handler_error:
+                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+
             return CallToolResult(
                 content=[text_content(f"Error writing file: {e}")],
                 isError=True,

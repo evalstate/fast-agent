@@ -17,6 +17,8 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
+    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+
 logger = get_logger(__name__)
 
 
@@ -41,6 +43,7 @@ class ACPTerminalRuntime:
         activation_reason: str,
         logger_instance=None,
         timeout_seconds: int = 90,
+        tool_handler: "ToolExecutionHandler | None" = None,
     ):
         """
         Initialize the ACP terminal runtime.
@@ -51,12 +54,14 @@ class ACPTerminalRuntime:
             activation_reason: Human-readable reason for activation
             logger_instance: Optional logger instance
             timeout_seconds: Default timeout for command execution
+            tool_handler: Optional tool execution handler for telemetry
         """
         self.connection = connection
         self.session_id = session_id
         self.activation_reason = activation_reason
         self.logger = logger_instance or logger
         self.timeout_seconds = timeout_seconds
+        self._tool_handler = tool_handler
 
         # Tool definition for LLM
         self._tool = Tool(
@@ -142,6 +147,16 @@ class ACPTerminalRuntime:
             command=command[:100],  # Log first 100 chars
         )
 
+        # Notify tool handler that execution is starting
+        tool_call_id = None
+        if self._tool_handler:
+            try:
+                tool_call_id = await self._tool_handler.on_tool_start(
+                    "execute", "acp_terminal", arguments
+                )
+            except Exception as e:
+                self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
+
         terminal_id = None  # Will be set by client in terminal/create response
 
         try:
@@ -217,7 +232,7 @@ class ACPTerminalRuntime:
                 # Release terminal
                 await self._release_terminal(terminal_id)
 
-                return CallToolResult(
+                timeout_result = CallToolResult(
                     content=[
                         text_content(
                             f"Command timed out after {self.timeout_seconds}s\n\n"
@@ -226,6 +241,20 @@ class ACPTerminalRuntime:
                     ],
                     isError=True,
                 )
+
+                # Notify tool handler of timeout error
+                if self._tool_handler and tool_call_id:
+                    try:
+                        await self._tool_handler.on_tool_complete(
+                            tool_call_id,
+                            False,
+                            None,
+                            f"Command timed out after {self.timeout_seconds}s",
+                        )
+                    except Exception as e:
+                        self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+                return timeout_result
 
             # Step 3: Get the output
             self.logger.debug(f"Retrieving output from terminal {terminal_id}")
@@ -257,10 +286,24 @@ class ACPTerminalRuntime:
                 truncated=truncated,
             )
 
-            return CallToolResult(
+            result = CallToolResult(
                 content=[text_content(result_text)],
                 isError=is_error,
             )
+
+            # Notify tool handler of completion
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id,
+                        not is_error,
+                        result.content if not is_error else None,
+                        result_text if is_error else None,
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+            return result
 
         except Exception as e:
             self.logger.error(
@@ -274,6 +317,15 @@ class ACPTerminalRuntime:
                     await self._release_terminal(terminal_id)
                 except Exception:
                     pass  # Best effort cleanup
+
+            # Notify tool handler of error
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, False, None, str(e)
+                    )
+                except Exception as handler_error:
+                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
 
             return CallToolResult(
                 content=[text_content(f"Terminal execution error: {e}")],
