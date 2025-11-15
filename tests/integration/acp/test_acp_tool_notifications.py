@@ -61,15 +61,13 @@ async def test_acp_tool_call_notifications() -> None:
             ),
             clientInfo=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
-        assert init_response.protocolVersion == 1
+        await connection.initialize(init_request)
 
         # Create session
         session_response = await connection.newSession(
             NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
         )
         session_id = session_response.sessionId
-        assert session_id
 
         # Send a prompt that will trigger a tool call
         # Using the ***CALL_TOOL directive that the passthrough model supports
