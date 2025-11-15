@@ -409,6 +409,7 @@ class AgentACPServer(ACPAgent):
             self.sessions[session_id] = instance
 
             # Create tool progress manager for this session if connection is available
+            tool_handler = None
             if self._connection:
                 # Create a progress manager for this session
                 tool_handler = ACPToolProgressManager(self._connection, session_id)
@@ -438,60 +439,58 @@ class AgentACPServer(ACPAgent):
                     if hasattr(agent, "workflow_telemetry"):
                         agent.workflow_telemetry = workflow_telemetry
 
-            # If client supports terminals and we have shell runtime enabled,
-            # inject ACP terminal runtime to replace local ShellRuntime
-            if self._client_supports_terminal and self._connection:
-                # Check if any agent has shell runtime enabled
-                for agent_name, agent in instance.agents.items():
-                    if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
-                        # Create ACPTerminalRuntime for this session
-                        terminal_runtime = ACPTerminalRuntime(
-                            connection=self._connection,
-                            session_id=session_id,
-                            activation_reason="via ACP terminal support",
-                            timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
-                            tool_handler=tool_handler if self._connection else None,
-                        )
-
-                        # Inject into agent
-                        if hasattr(agent, "set_external_runtime"):
-                            agent.set_external_runtime(terminal_runtime)
-                            self._session_terminal_runtimes[session_id] = terminal_runtime
-
-                            logger.info(
-                                "ACP terminal runtime injected",
-                                name="acp_terminal_injected",
+                # If client supports terminals and we have shell runtime enabled,
+                # inject ACP terminal runtime to replace local ShellRuntime
+                if self._client_supports_terminal:
+                    # Check if any agent has shell runtime enabled
+                    for agent_name, agent in instance.agents.items():
+                        if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
+                            # Create ACPTerminalRuntime for this session
+                            terminal_runtime = ACPTerminalRuntime(
+                                connection=self._connection,
                                 session_id=session_id,
-                                agent_name=agent_name,
+                                activation_reason="via ACP terminal support",
+                                timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
+                                tool_handler=tool_handler,
                             )
 
-            # If client supports filesystem operations, inject ACP filesystem runtime
-            if (
-                self._client_supports_fs_read or self._client_supports_fs_write
-            ) and self._connection:
-                # Create ACPFilesystemRuntime for this session with appropriate capabilities
-                filesystem_runtime = ACPFilesystemRuntime(
-                    connection=self._connection,
-                    session_id=session_id,
-                    activation_reason="via ACP filesystem support",
-                    enable_read=self._client_supports_fs_read,
-                    enable_write=self._client_supports_fs_write,
-                    tool_handler=tool_handler if self._connection else None,
-                )
-                self._session_filesystem_runtimes[session_id] = filesystem_runtime
+                            # Inject into agent
+                            if hasattr(agent, "set_external_runtime"):
+                                agent.set_external_runtime(terminal_runtime)
+                                self._session_terminal_runtimes[session_id] = terminal_runtime
 
-                # Inject filesystem runtime into each agent
-                for agent_name, agent in instance.agents.items():
-                    if hasattr(agent, "set_filesystem_runtime"):
-                        agent.set_filesystem_runtime(filesystem_runtime)
-                        logger.info(
-                            "ACP filesystem runtime injected",
-                            name="acp_filesystem_injected",
-                            session_id=session_id,
-                            agent_name=agent_name,
-                            read_enabled=self._client_supports_fs_read,
-                            write_enabled=self._client_supports_fs_write,
-                        )
+                                logger.info(
+                                    "ACP terminal runtime injected",
+                                    name="acp_terminal_injected",
+                                    session_id=session_id,
+                                    agent_name=agent_name,
+                                )
+
+                # If client supports filesystem operations, inject ACP filesystem runtime
+                if self._client_supports_fs_read or self._client_supports_fs_write:
+                    # Create ACPFilesystemRuntime for this session with appropriate capabilities
+                    filesystem_runtime = ACPFilesystemRuntime(
+                        connection=self._connection,
+                        session_id=session_id,
+                        activation_reason="via ACP filesystem support",
+                        enable_read=self._client_supports_fs_read,
+                        enable_write=self._client_supports_fs_write,
+                        tool_handler=tool_handler,
+                    )
+                    self._session_filesystem_runtimes[session_id] = filesystem_runtime
+
+                    # Inject filesystem runtime into each agent
+                    for agent_name, agent in instance.agents.items():
+                        if hasattr(agent, "set_filesystem_runtime"):
+                            agent.set_filesystem_runtime(filesystem_runtime)
+                            logger.info(
+                                "ACP filesystem runtime injected",
+                                name="acp_filesystem_injected",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                                read_enabled=self._client_supports_fs_read,
+                                write_enabled=self._client_supports_fs_write,
+                            )
 
         # Create slash command handler for this session
         slash_handler = SlashCommandHandler(
