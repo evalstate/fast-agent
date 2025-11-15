@@ -127,6 +127,11 @@ def run_acp(
 
 def main() -> None:
     """Console script entrypoint for `fast-agent-acp`."""
+    # Override Click's UsageError exit code from 2 to 1 for consistency
+    import click
+
+    click.exceptions.UsageError.exit_code = 1
+
     args = sys.argv[1:]
     if args and args[0] in ROOT_SUBCOMMANDS:
         from fast_agent.cli.__main__ import main as root_cli_main

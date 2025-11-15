@@ -338,7 +338,7 @@ class SlashCommandHandler:
             )
 
         # Add conversation statistics
-        status_lines.append(f"## Conversation Statistics ({agent.name if agent else 'Unknown'})")
+        status_lines.append(f"## Conversation Statistics ({getattr(agent, 'name', self.current_agent_name) if agent else 'Unknown'})")
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
