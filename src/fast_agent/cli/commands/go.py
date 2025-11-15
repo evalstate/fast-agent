@@ -286,8 +286,8 @@ def run_async_agent(
                 # Merge both lists
                 server_list.extend(list(url_servers.keys()))
         except ValueError as e:
-            print(f"Error parsing URLs: {e}")
-            return
+            print(f"Error parsing URLs: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Generate STDIO server configurations if provided
     stdio_servers = None
@@ -299,7 +299,7 @@ def run_async_agent(
             try:
                 parsed_command = shlex.split(stdio_cmd)
                 if not parsed_command:
-                    print(f"Error: Empty stdio command: {stdio_cmd}")
+                    print(f"Error: Empty stdio command: {stdio_cmd}", file=sys.stderr)
                     continue
 
                 command = parsed_command[0]
@@ -340,7 +340,7 @@ def run_async_agent(
                     server_list.append(server_name)
 
             except ValueError as e:
-                print(f"Error parsing stdio command '{stdio_cmd}': {e}")
+                print(f"Error parsing stdio command '{stdio_cmd}': {e}", file=sys.stderr)
                 continue
 
     # Check if we're already in an event loop
