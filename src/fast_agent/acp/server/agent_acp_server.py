@@ -60,7 +60,11 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
         return END_TURN
 
     # Use string keys to avoid hashing Enum members with custom equality logic
-    key = llm_stop_reason.value if isinstance(llm_stop_reason, LlmStopReason) else str(llm_stop_reason)
+    key = (
+        llm_stop_reason.value
+        if isinstance(llm_stop_reason, LlmStopReason)
+        else str(llm_stop_reason)
+    )
 
     mapping = {
         LlmStopReason.END_TURN.value: END_TURN,
@@ -208,14 +212,19 @@ class AgentACPServer(ACPAgent):
                     if fs_capabilities:
                         self._client_capabilities["fs"] = fs_capabilities
 
-                if hasattr(params.clientCapabilities, "terminal") and params.clientCapabilities.terminal:
+                if (
+                    hasattr(params.clientCapabilities, "terminal")
+                    and params.clientCapabilities.terminal
+                ):
                     self._client_capabilities["terminal"] = True
 
                 # Store _meta if present
                 if hasattr(params.clientCapabilities, "_meta"):
                     meta = params.clientCapabilities._meta
                     if meta:
-                        self._client_capabilities["_meta"] = dict(meta) if isinstance(meta, dict) else {}
+                        self._client_capabilities["_meta"] = (
+                            dict(meta) if isinstance(meta, dict) else {}
+                        )
 
             logger.info(
                 "ACP initialize request",
@@ -365,7 +374,9 @@ class AgentACPServer(ACPAgent):
                             )
 
             # If client supports filesystem operations, inject ACP filesystem runtime
-            if (self._client_supports_fs_read or self._client_supports_fs_write) and self._connection:
+            if (
+                self._client_supports_fs_read or self._client_supports_fs_write
+            ) and self._connection:
                 # Create ACPFilesystemRuntime for this session with appropriate capabilities
                 filesystem_runtime = ACPFilesystemRuntime(
                     connection=self._connection,
@@ -476,11 +487,15 @@ class AgentACPServer(ACPAgent):
             # Only process slash commands if the prompt is a single text block
             # This ensures resources, images, and multi-part prompts are never treated as commands
             slash_handler = self._session_slash_handlers.get(session_id)
-            is_single_text_block = (
-                len(mcp_content_blocks) == 1 and is_text_content(mcp_content_blocks[0])
+            is_single_text_block = len(mcp_content_blocks) == 1 and is_text_content(
+                mcp_content_blocks[0]
             )
             prompt_text = prompt_message.all_text() or ""
-            if slash_handler and is_single_text_block and slash_handler.is_slash_command(prompt_text):
+            if (
+                slash_handler
+                and is_single_text_block
+                and slash_handler.is_slash_command(prompt_text)
+            ):
                 logger.info(
                     "Processing slash command",
                     name="acp_slash_command",

@@ -103,15 +103,14 @@ async def test_slash_command_available_commands() -> None:
     commands = handler.get_available_commands()
 
     # Should include primary commands
-    command_names = {cmd["name"] for cmd in commands}
+    command_names = {cmd.name for cmd in commands}
     assert "status" in command_names
     assert "save" in command_names
     assert "clear" in command_names
 
     # Check status command structure
-    status_cmd = next(cmd for cmd in commands if cmd["name"] == "status")
-    assert "description" in status_cmd
-    assert status_cmd["description"]  # Should have a non-empty description
+    status_cmd = next(cmd for cmd in commands if cmd.name == "status")
+    assert status_cmd.description  # Should have a non-empty description
 
 
 @pytest.mark.integration
