@@ -19,12 +19,16 @@ from acp import (
     NewSessionResponse,
     PromptRequest,
     PromptResponse,
+    SetSessionModeRequest,
+    SetSessionModeResponse,
 )
 from acp.helpers import session_notification, update_agent_message_text
 from acp.schema import (
     AgentCapabilities,
     Implementation,
     PromptCapabilities,
+    SessionMode,
+    SessionModeState,
     StopReason,
 )
 from acp.stdio import stdio_streams
@@ -80,6 +84,38 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
     return mapping.get(key, END_TURN)
 
 
+def format_agent_name_for_mode(agent_name: str) -> str:
+    """
+    Format agent name for display as a mode name.
+
+    Examples:
+        code_expert -> Code Expert
+        general_assistant -> General Assistant
+        default -> Default
+    """
+    # Replace underscores with spaces and title case each word
+    return agent_name.replace("_", " ").title()
+
+
+def get_first_line(text: str, max_length: int = 200) -> str:
+    """
+    Get the first line of text, truncated to max_length.
+
+    Args:
+        text: The text to extract from
+        max_length: Maximum length of the returned string
+
+    Returns:
+        The first line, truncated if necessary
+    """
+    # Get first line
+    first_line = text.split("\n")[0].strip()
+    # Truncate to max_length
+    if len(first_line) > max_length:
+        first_line = first_line[: max_length - 3] + "..."
+    return first_line
+
+
 class AgentACPServer(ACPAgent):
     """
     Exposes FastAgent agents as an ACP agent through stdio.
@@ -132,6 +168,9 @@ class AgentACPServer(ACPAgent):
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
+
+        # Track current agent for each session (for mode switching)
+        self._session_current_agent: dict[str, str] = {}
 
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
@@ -411,6 +450,36 @@ class AgentACPServer(ACPAgent):
         )
         self._session_slash_handlers[session_id] = slash_handler
 
+        # Set initial current agent for this session (default to primary agent)
+        initial_agent_name = self.primary_agent_name
+        if initial_agent_name:
+            self._session_current_agent[session_id] = initial_agent_name
+
+        # Build modes from available agents
+        available_modes: list[SessionMode] = []
+        for agent_name, agent in instance.agents.items():
+            # Get agent instruction for description
+            description = ""
+            if hasattr(agent, "_instruction"):
+                instruction = agent._instruction
+                if instruction:
+                    description = get_first_line(instruction, max_length=200)
+
+            mode = SessionMode(
+                id=agent_name,
+                name=format_agent_name_for_mode(agent_name),
+                description=description if description else None,
+            )
+            available_modes.append(mode)
+
+        # Create mode state if we have agents
+        modes = None
+        if available_modes and initial_agent_name:
+            modes = SessionModeState(
+                availableModes=available_modes,
+                currentModeId=initial_agent_name,
+            )
+
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
@@ -418,6 +487,8 @@ class AgentACPServer(ACPAgent):
             total_sessions=len(self.sessions),
             terminal_enabled=session_id in self._session_terminal_runtimes,
             filesystem_enabled=session_id in self._session_filesystem_runtimes,
+            modes_count=len(available_modes),
+            current_mode=initial_agent_name,
         )
 
         # Schedule available_commands_update notification to be sent after response is returned
@@ -425,7 +496,7 @@ class AgentACPServer(ACPAgent):
         if self._connection:
             asyncio.create_task(self._send_available_commands_update(session_id, slash_handler))
 
-        return NewSessionResponse(sessionId=session_id)
+        return NewSessionResponse(sessionId=session_id, modes=modes)
 
     async def prompt(self, params: PromptRequest) -> PromptResponse:
         """
@@ -540,154 +611,170 @@ class AgentACPServer(ACPAgent):
             # Track the stop reason to return in PromptResponse
             acp_stop_reason: StopReason = END_TURN
             try:
-                if self.primary_agent_name:
+                # Get the current agent for this session (supports mode switching)
+                current_agent_name = self._session_current_agent.get(
+                    session_id, self.primary_agent_name
+                )
+
+                if current_agent_name and current_agent_name in instance.agents:
+                    agent = instance.agents[current_agent_name]
+                elif self.primary_agent_name:
+                    # Fallback to primary agent if current agent not found
                     agent = instance.agents[self.primary_agent_name]
+                    current_agent_name = self.primary_agent_name
+                else:
+                    logger.error("No agent available for session")
+                    return PromptResponse(stopReason=REFUSAL)
 
-                    # Set up streaming if connection is available and agent supports it
-                    stream_listener = None
-                    remove_listener: Callable[[], None] | None = None
-                    streaming_tasks: list[asyncio.Task] = []
-                    if self._connection and isinstance(agent, StreamingAgentProtocol):
-                        update_lock = asyncio.Lock()
+                logger.info(
+                    "Routing prompt to agent",
+                    name="acp_prompt_route",
+                    session_id=session_id,
+                    agent_name=current_agent_name,
+                )
 
-                        async def send_stream_update(chunk: str):
-                            """Send sessionUpdate with accumulated text so far."""
-                            if not chunk:
-                                return
-                            try:
-                                async with update_lock:
-                                    message_chunk = update_agent_message_text(chunk)
-                                    notification = session_notification(session_id, message_chunk)
-                                    await self._connection.sessionUpdate(notification)
-                            except Exception as e:
-                                logger.error(
-                                    f"Error sending stream update: {e}",
-                                    name="acp_stream_error",
-                                    exc_info=True,
-                                )
+                # Set up streaming if connection is available and agent supports it
+                stream_listener = None
+                remove_listener: Callable[[], None] | None = None
+                streaming_tasks: list[asyncio.Task] = []
+                if self._connection and isinstance(agent, StreamingAgentProtocol):
+                    update_lock = asyncio.Lock()
 
-                        def on_stream_chunk(chunk: str):
-                            """
-                            Sync callback from fast-agent streaming.
-                            Sends each chunk as it arrives to the ACP client.
-                            """
-                            logger.debug(
-                                f"Stream chunk received: {len(chunk)} chars",
-                                name="acp_stream_chunk",
-                                session_id=session_id,
-                                chunk_length=len(chunk),
-                            )
-
-                            # Send update asynchronously (don't await in sync callback)
-                            # Track task to ensure all chunks complete before returning PromptResponse
-                            task = asyncio.create_task(send_stream_update(chunk))
-                            streaming_tasks.append(task)
-
-                        # Register the stream listener and keep the cleanup function
-                        stream_listener = on_stream_chunk
-                        remove_listener = agent.add_stream_listener(stream_listener)
-
-                        logger.info(
-                            "Streaming enabled for prompt",
-                            name="acp_streaming_enabled",
-                            session_id=session_id,
-                        )
-
-                    try:
-                        # This will trigger streaming callbacks as chunks arrive
-                        result = await agent.generate(prompt_message)
-                        response_text = result.last_text() or "No content generated"
-
-                        # Map the LLM stop reason to ACP stop reason
+                    async def send_stream_update(chunk: str):
+                        """Send sessionUpdate with accumulated text so far."""
+                        if not chunk:
+                            return
                         try:
-                            acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
-                        except Exception as e:
-                            logger.error(
-                                f"Error mapping stop reason: {e}",
-                                name="acp_stop_reason_error",
-                                exc_info=True,
-                            )
-                            # Default to END_TURN on error
-                            acp_stop_reason = END_TURN
-
-                        logger.info(
-                            "Received complete response from fast-agent",
-                            name="acp_prompt_response",
-                            session_id=session_id,
-                            response_length=len(response_text),
-                            llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
-                            acp_stop_reason=acp_stop_reason,
-                        )
-
-                        # Wait for all streaming tasks to complete before sending final message
-                        # and returning PromptResponse. This ensures all chunks arrive before END_TURN.
-                        if streaming_tasks:
-                            try:
-                                await asyncio.gather(*streaming_tasks)
-                                logger.debug(
-                                    f"All {len(streaming_tasks)} streaming tasks completed",
-                                    name="acp_streaming_complete",
-                                    session_id=session_id,
-                                    task_count=len(streaming_tasks),
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"Error waiting for streaming tasks: {e}",
-                                    name="acp_streaming_wait_error",
-                                    exc_info=True,
-                                )
-
-                        # Only send final update if no streaming chunks were sent
-                        # When chunks were streamed, the final chunk already contains the complete response
-                        # This prevents duplicate messages from being sent to the client
-                        if not streaming_tasks and self._connection and response_text:
-                            try:
-                                message_chunk = update_agent_message_text(response_text)
+                            async with update_lock:
+                                message_chunk = update_agent_message_text(chunk)
                                 notification = session_notification(session_id, message_chunk)
                                 await self._connection.sessionUpdate(notification)
-                                logger.info(
-                                    "Sent final sessionUpdate with complete response (no streaming)",
-                                    name="acp_final_update",
-                                    session_id=session_id,
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"Error sending final update: {e}",
-                                    name="acp_final_update_error",
-                                    exc_info=True,
-                                )
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending stream update: {e}",
+                                name="acp_stream_error",
+                                exc_info=True,
+                            )
 
-                    except Exception as send_error:
-                        # Make sure listener is cleaned up even on error
-                        if stream_listener and remove_listener:
-                            try:
-                                remove_listener()
-                                logger.info(
-                                    "Removed stream listener after error",
-                                    name="acp_streaming_cleanup_error",
-                                    session_id=session_id,
-                                )
-                            except Exception:
-                                logger.exception("Failed to remove ACP stream listener after error")
-                        # Re-raise the original error
-                        raise send_error
+                    def on_stream_chunk(chunk: str):
+                        """
+                        Sync callback from fast-agent streaming.
+                        Sends each chunk as it arrives to the ACP client.
+                        """
+                        logger.debug(
+                            f"Stream chunk received: {len(chunk)} chars",
+                            name="acp_stream_chunk",
+                            session_id=session_id,
+                            chunk_length=len(chunk),
+                        )
 
-                    finally:
-                        # Clean up stream listener (if not already cleaned up in except)
-                        if stream_listener and remove_listener:
-                            try:
-                                remove_listener()
-                            except Exception:
-                                logger.exception("Failed to remove ACP stream listener")
-                            else:
-                                logger.info(
-                                    "Removed stream listener",
-                                    name="acp_streaming_cleanup",
-                                    session_id=session_id,
-                                )
+                        # Send update asynchronously (don't await in sync callback)
+                        # Track task to ensure all chunks complete before returning PromptResponse
+                        task = asyncio.create_task(send_stream_update(chunk))
+                        streaming_tasks.append(task)
 
-                else:
-                    logger.error("No primary agent available")
+                    # Register the stream listener and keep the cleanup function
+                    stream_listener = on_stream_chunk
+                    remove_listener = agent.add_stream_listener(stream_listener)
+
+                    logger.info(
+                        "Streaming enabled for prompt",
+                        name="acp_streaming_enabled",
+                        session_id=session_id,
+                    )
+
+                try:
+                    # This will trigger streaming callbacks as chunks arrive
+                    result = await agent.generate(prompt_message)
+                    response_text = result.last_text() or "No content generated"
+
+                    # Map the LLM stop reason to ACP stop reason
+                    try:
+                        acp_stop_reason = map_llm_stop_reason_to_acp(result.stop_reason)
+                    except Exception as e:
+                        logger.error(
+                            f"Error mapping stop reason: {e}",
+                            name="acp_stop_reason_error",
+                            exc_info=True,
+                        )
+                        # Default to END_TURN on error
+                        acp_stop_reason = END_TURN
+
+                    logger.info(
+                        "Received complete response from fast-agent",
+                        name="acp_prompt_response",
+                        session_id=session_id,
+                        response_length=len(response_text),
+                        llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
+                        acp_stop_reason=acp_stop_reason,
+                    )
+
+                    # Wait for all streaming tasks to complete before sending final message
+                    # and returning PromptResponse. This ensures all chunks arrive before END_TURN.
+                    if streaming_tasks:
+                        try:
+                            await asyncio.gather(*streaming_tasks)
+                            logger.debug(
+                                f"All {len(streaming_tasks)} streaming tasks completed",
+                                name="acp_streaming_complete",
+                                session_id=session_id,
+                                task_count=len(streaming_tasks),
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Error waiting for streaming tasks: {e}",
+                                name="acp_streaming_wait_error",
+                                exc_info=True,
+                            )
+
+                    # Only send final update if no streaming chunks were sent
+                    # When chunks were streamed, the final chunk already contains the complete response
+                    # This prevents duplicate messages from being sent to the client
+                    if not streaming_tasks and self._connection and response_text:
+                        try:
+                            message_chunk = update_agent_message_text(response_text)
+                            notification = session_notification(session_id, message_chunk)
+                            await self._connection.sessionUpdate(notification)
+                            logger.info(
+                                "Sent final sessionUpdate with complete response (no streaming)",
+                                name="acp_final_update",
+                                session_id=session_id,
+                            )
+                        except Exception as e:
+                            logger.error(
+                                f"Error sending final update: {e}",
+                                name="acp_final_update_error",
+                                exc_info=True,
+                            )
+
+                except Exception as send_error:
+                    # Make sure listener is cleaned up even on error
+                    if stream_listener and remove_listener:
+                        try:
+                            remove_listener()
+                            logger.info(
+                                "Removed stream listener after error",
+                                name="acp_streaming_cleanup_error",
+                                session_id=session_id,
+                            )
+                        except Exception:
+                            logger.exception("Failed to remove ACP stream listener after error")
+                    # Re-raise the original error
+                    raise send_error
+
+                finally:
+                    # Clean up stream listener (if not already cleaned up in except)
+                    if stream_listener and remove_listener:
+                        try:
+                            remove_listener()
+                        except Exception:
+                            logger.exception("Failed to remove ACP stream listener")
+                        else:
+                            logger.info(
+                                "Removed stream listener",
+                                name="acp_streaming_cleanup",
+                                session_id=session_id,
+                            )
             except Exception as e:
                 logger.error(
                     f"Error processing prompt: {e}",
@@ -714,6 +801,58 @@ class AgentACPServer(ACPAgent):
                 name="acp_prompt_complete",
                 session_id=session_id,
             )
+
+    async def setSessionMode(
+        self, params: SetSessionModeRequest
+    ) -> SetSessionModeResponse | None:
+        """
+        Handle session mode change request.
+
+        This allows clients to switch between different agents (modes) within a session.
+        """
+        session_id = params.sessionId
+        mode_id = params.modeId
+
+        logger.info(
+            "ACP set session mode request",
+            name="acp_set_session_mode",
+            session_id=session_id,
+            mode_id=mode_id,
+        )
+
+        async with self._session_lock:
+            # Validate session exists
+            instance = self.sessions.get(session_id)
+            if not instance:
+                logger.error(
+                    "ACP set session mode error: session not found",
+                    name="acp_set_session_mode_error",
+                    session_id=session_id,
+                )
+                return None  # Session not found
+
+            # Validate mode_id exists in instance.agents
+            if mode_id not in instance.agents:
+                logger.error(
+                    "ACP set session mode error: invalid mode",
+                    name="acp_set_session_mode_error",
+                    session_id=session_id,
+                    mode_id=mode_id,
+                    available_modes=list(instance.agents.keys()),
+                )
+                return None  # Invalid mode
+
+            # Update session state
+            self._session_current_agent[session_id] = mode_id
+
+            logger.info(
+                "ACP session mode changed",
+                name="acp_session_mode_changed",
+                session_id=session_id,
+                new_mode=mode_id,
+            )
+
+        return SetSessionModeResponse()
 
     async def run_async(self) -> None:
         """
@@ -835,6 +974,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up session current agent tracking
+            self._session_current_agent.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
