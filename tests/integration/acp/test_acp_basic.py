@@ -139,7 +139,9 @@ async def test_acp_session_modes_included_in_new_session() -> None:
 
         # Verify the current mode is in available modes
         available_mode_ids = [mode.id for mode in modes.availableModes]
-        assert modes.currentModeId in available_mode_ids, "Current mode should be in available modes"
+        assert modes.currentModeId in available_mode_ids, (
+            "Current mode should be in available modes"
+        )
 
 
 @pytest.mark.integration
