@@ -93,6 +93,48 @@ async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> N
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_acp_session_modes_included_in_new_session() -> None:
+    """Test that session/new response includes modes field."""
+    client = TestClient()
+
+    async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
+        # Initialize
+        init_request = InitializeRequest(
+            protocolVersion=1,
+            clientCapabilities=ClientCapabilities(
+                fs={"readTextFile": True, "writeTextFile": True},
+                terminal=False,
+            ),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+        )
+        init_response = await connection.initialize(init_request)
+        assert init_response.protocolVersion == 1
+
+        # Create session
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+        assert session_id
+
+        # Verify modes are included in the response
+        assert hasattr(session_response, "modes"), "NewSessionResponse should include modes field"
+        assert session_response.modes is not None, "Modes should not be None"
+
+        # Verify modes structure
+        modes = session_response.modes
+        assert hasattr(modes, "availableModes"), "SessionModeState should have availableModes"
+        assert hasattr(modes, "currentModeId"), "SessionModeState should have currentModeId"
+        assert len(modes.availableModes) > 0, "Should have at least one available mode"
+        assert modes.currentModeId, "Should have a current mode set"
+
+        # Verify the current mode is in available modes
+        available_mode_ids = [mode.id for mode in modes.availableModes]
+        assert modes.currentModeId in available_mode_ids, "Current mode should be in available modes"
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_acp_overlapping_prompts_are_refused() -> None:
     """
     Test that overlapping prompt requests for the same session are refused.

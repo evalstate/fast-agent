@@ -19,12 +19,16 @@ from acp import (
     NewSessionResponse,
     PromptRequest,
     PromptResponse,
+    SetSessionModeRequest,
+    SetSessionModeResponse,
 )
 from acp.helpers import session_notification, update_agent_message_text
 from acp.schema import (
     AgentCapabilities,
     Implementation,
     PromptCapabilities,
+    SessionMode,
+    SessionModeState,
     StopReason,
 )
 from acp.stdio import stdio_streams
@@ -80,6 +84,42 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
     return mapping.get(key, END_TURN)
 
 
+def format_agent_name_as_title(agent_name: str) -> str:
+    """
+    Format agent name as title case for display.
+
+    Examples:
+        code_expert -> Code Expert
+        general_assistant -> General Assistant
+
+    Args:
+        agent_name: The agent name (typically snake_case)
+
+    Returns:
+        Title-cased version of the name
+    """
+    return agent_name.replace("_", " ").title()
+
+
+def truncate_description(text: str, max_length: int = 200) -> str:
+    """
+    Truncate text to a maximum length, taking the first line only.
+
+    Args:
+        text: The text to truncate
+        max_length: Maximum length (default 200 chars per spec)
+
+    Returns:
+        Truncated text
+    """
+    # Take first line only
+    first_line = text.split("\n")[0]
+    # Truncate to max length
+    if len(first_line) > max_length:
+        return first_line[:max_length]
+    return first_line
+
+
 class AgentACPServer(ACPAgent):
     """
     Exposes FastAgent agents as an ACP agent through stdio.
@@ -132,6 +172,9 @@ class AgentACPServer(ACPAgent):
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
+
+        # Track current agent per session for ACP mode support
+        self._session_current_agent: dict[str, str] = {}
 
         # Terminal runtime tracking (for cleanup)
         self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
@@ -292,6 +335,50 @@ class AgentACPServer(ACPAgent):
 
         return normalized
 
+    def _build_session_modes(self, instance: AgentInstance) -> SessionModeState:
+        """
+        Build SessionModeState from an AgentInstance's agents.
+
+        Each agent in the instance becomes an available mode.
+
+        Args:
+            instance: The AgentInstance containing agents
+
+        Returns:
+            SessionModeState with available modes and current mode ID
+        """
+        available_modes: list[SessionMode] = []
+
+        # Create a SessionMode for each agent
+        for agent_name, agent in instance.agents.items():
+            # Get instruction from agent's config
+            instruction = ""
+            if hasattr(agent, "_config") and hasattr(agent._config, "instruction"):
+                instruction = agent._config.instruction
+            elif hasattr(agent, "instruction"):
+                instruction = agent.instruction
+
+            # Format description (first line, truncated to 200 chars)
+            description = truncate_description(instruction) if instruction else None
+
+            # Create the SessionMode
+            mode = SessionMode(
+                id=agent_name,
+                name=format_agent_name_as_title(agent_name),
+                description=description,
+            )
+            available_modes.append(mode)
+
+        # Current mode is the primary agent name
+        current_mode_id = self.primary_agent_name or (
+            list(instance.agents.keys())[0] if instance.agents else "default"
+        )
+
+        return SessionModeState(
+            availableModes=available_modes,
+            currentModeId=current_mode_id,
+        )
+
     async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
         """
         Handle new session request.
@@ -425,7 +512,88 @@ class AgentACPServer(ACPAgent):
         if self._connection:
             asyncio.create_task(self._send_available_commands_update(session_id, slash_handler))
 
-        return NewSessionResponse(sessionId=session_id)
+        # Build session modes from the instance's agents
+        session_modes = self._build_session_modes(instance)
+
+        # Initialize the current agent for this session
+        self._session_current_agent[session_id] = session_modes.currentModeId
+
+        logger.info(
+            "Session modes initialized",
+            name="acp_session_modes_init",
+            session_id=session_id,
+            current_mode=session_modes.currentModeId,
+            mode_count=len(session_modes.availableModes),
+        )
+
+        return NewSessionResponse(
+            sessionId=session_id,
+            modes=session_modes,
+        )
+
+    async def setSessionMode(self, params: SetSessionModeRequest) -> SetSessionModeResponse:
+        """
+        Handle session mode change request.
+
+        Updates the current agent for the session to route future prompts
+        to the selected mode (agent).
+
+        Args:
+            params: SetSessionModeRequest with sessionId and modeId
+
+        Returns:
+            SetSessionModeResponse (empty response on success)
+
+        Raises:
+            ValueError: If session not found or mode ID is invalid
+        """
+        session_id = params.sessionId
+        mode_id = params.modeId
+
+        logger.info(
+            "ACP set session mode request",
+            name="acp_set_session_mode",
+            session_id=session_id,
+            mode_id=mode_id,
+        )
+
+        # Get the agent instance for this session
+        async with self._session_lock:
+            instance = self.sessions.get(session_id)
+
+        if not instance:
+            logger.error(
+                "Session not found for setSessionMode",
+                name="acp_set_mode_error",
+                session_id=session_id,
+            )
+            raise ValueError(f"Session not found: {session_id}")
+
+        # Validate that the mode_id exists in the instance's agents
+        if mode_id not in instance.agents:
+            logger.error(
+                "Invalid mode ID for setSessionMode",
+                name="acp_set_mode_invalid",
+                session_id=session_id,
+                mode_id=mode_id,
+                available_modes=list(instance.agents.keys()),
+            )
+            raise ValueError(
+                f"Invalid mode ID '{mode_id}'. "
+                f"Available modes: {list(instance.agents.keys())}"
+            )
+
+        # Update the session's current agent
+        self._session_current_agent[session_id] = mode_id
+
+        logger.info(
+            "Session mode updated",
+            name="acp_set_session_mode_success",
+            session_id=session_id,
+            new_mode=mode_id,
+        )
+
+        return SetSessionModeResponse()
 
     async def prompt(self, params: PromptRequest) -> PromptResponse:
         """
@@ -528,11 +696,16 @@ class AgentACPServer(ACPAgent):
                 # Return success
                 return PromptResponse(stopReason=END_TURN)
 
+            # Get current agent for this session (defaults to primary agent if not set)
+            current_agent_name = self._session_current_agent.get(
+                session_id, self.primary_agent_name
+            )
+
             logger.info(
                 "Sending prompt to fast-agent",
                 name="acp_prompt_send",
                 session_id=session_id,
-                agent=self.primary_agent_name,
+                agent=current_agent_name,
                 content_blocks=len(mcp_content_blocks),
             )
 
@@ -540,8 +713,8 @@ class AgentACPServer(ACPAgent):
             # Track the stop reason to return in PromptResponse
             acp_stop_reason: StopReason = END_TURN
             try:
-                if self.primary_agent_name:
-                    agent = instance.agents[self.primary_agent_name]
+                if current_agent_name:
+                    agent = instance.agents[current_agent_name]
 
                     # Set up streaming if connection is available and agent supports it
                     stream_listener = None
@@ -835,6 +1008,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up session current agent mapping
+            self._session_current_agent.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
