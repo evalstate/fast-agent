@@ -13,18 +13,23 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import Any, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Optional, Protocol
 
 from mcp.types import ContentBlock, TextContent
 
-from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+if TYPE_CHECKING:
+    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 
 class WorkflowStepHandle(Protocol):
     """Represents a virtual workflow step that can emit progress and completion."""
 
     async def update(
-        self, *, message: str | None = None, progress: float | None = None, total: float | None = None
+        self,
+        *,
+        message: str | None = None,
+        progress: float | None = None,
+        total: float | None = None,
     ) -> None:
         """Send an incremental update about this workflow step."""
 
@@ -89,8 +94,7 @@ class WorkflowTelemetryProvider(Protocol):
         *,
         server_name: str = "workflow",
         arguments: dict[str, Any] | None = None,
-    ) -> WorkflowTelemetry:
-        ...
+    ) -> WorkflowTelemetry: ...
 
 
 class NoOpWorkflowTelemetryProvider:

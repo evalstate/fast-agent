@@ -44,6 +44,7 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.context import Context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
     AgentProtocol,
     FastAgentLLMProtocol,
@@ -56,7 +57,6 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
 from fast_agent.types import PromptMessageExtended, RequestParams
-from fast_agent.core.logging.logger import get_logger
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
