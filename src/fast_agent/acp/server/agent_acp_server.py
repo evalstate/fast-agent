@@ -19,12 +19,16 @@ from acp import (
     NewSessionResponse,
     PromptRequest,
     PromptResponse,
+    SetSessionModeRequest,
+    SetSessionModeResponse,
 )
 from acp.helpers import session_notification, update_agent_message_text
 from acp.schema import (
     AgentCapabilities,
     Implementation,
     PromptCapabilities,
+    SessionMode,
+    SessionModeState,
     StopReason,
 )
 from acp.stdio import stdio_streams
@@ -129,6 +133,9 @@ class AgentACPServer(ACPAgent):
         # Session management
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
+
+        # Track the current agent for each session (for mode switching)
+        self._session_current_agent: dict[str, str] = {}
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
@@ -272,6 +279,57 @@ class AgentACPServer(ACPAgent):
             print(f"ERROR in initialize: {e}", file=__import__("sys").stderr)
             raise
 
+    def _format_agent_name(self, agent_id: str) -> str:
+        """
+        Format an agent ID into a human-readable name.
+
+        Converts snake_case to Title Case.
+        E.g., "code_expert" -> "Code Expert"
+        """
+        return agent_id.replace("_", " ").title()
+
+    def _truncate_description(self, text: str, max_length: int = 200) -> str:
+        """
+        Truncate text to the specified length.
+
+        Takes the first line and truncates to max_length characters.
+        """
+        # Get first line
+        first_line = text.split("\n")[0].strip()
+        # Truncate to max_length
+        if len(first_line) > max_length:
+            return first_line[:max_length].rstrip()
+        return first_line
+
+    def _get_session_modes(self, instance: AgentInstance) -> SessionModeState:
+        """
+        Build SessionModeState from available agents.
+
+        Returns:
+            SessionModeState with all available agents as modes
+        """
+        available_modes = []
+        for agent_name, agent in instance.agents.items():
+            # Get instruction from agent if available
+            description = None
+            if hasattr(agent, "_instruction") and agent._instruction:
+                description = self._truncate_description(agent._instruction)
+
+            mode = SessionMode(
+                id=agent_name,
+                name=self._format_agent_name(agent_name),
+                description=description,
+            )
+            available_modes.append(mode)
+
+        # Use primary agent as current mode by default
+        current_mode_id = self.primary_agent_name or list(instance.agents.keys())[0]
+
+        return SessionModeState(
+            availableModes=available_modes,
+            currentModeId=current_mode_id,
+        )
+
     def _extract_fs_capabilities(self, fs_caps: Any) -> dict[str, bool]:
         """Normalize filesystem capabilities for status reporting."""
         normalized: dict[str, bool] = {}
@@ -322,6 +380,12 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+
+            # Initialize the current agent for this session
+            # Use the primary agent as the default
+            self._session_current_agent[session_id] = (
+                self.primary_agent_name or list(instance.agents.keys())[0]
+            )
 
             # Create tool progress manager for this session if connection is available
             if self._connection:
@@ -420,12 +484,80 @@ class AgentACPServer(ACPAgent):
             filesystem_enabled=session_id in self._session_filesystem_runtimes,
         )
 
+        # Build modes state for response
+        modes = self._get_session_modes(instance)
+
+        logger.info(
+            "ACP new session modes",
+            name="acp_new_session_modes",
+            session_id=session_id,
+            current_mode_id=modes.currentModeId,
+            available_modes_count=len(modes.availableModes),
+        )
+
         # Schedule available_commands_update notification to be sent after response is returned
         # This ensures the client receives session/new response before the session/update notification
         if self._connection:
             asyncio.create_task(self._send_available_commands_update(session_id, slash_handler))
 
-        return NewSessionResponse(sessionId=session_id)
+        return NewSessionResponse(
+            sessionId=session_id,
+            modes=modes,
+        )
+
+    async def setSessionMode(self, params: SetSessionModeRequest) -> SetSessionModeResponse:
+        """
+        Handle session mode change request.
+
+        Switches the active agent for the specified session.
+        """
+        session_id = params.sessionId
+        mode_id = params.modeId
+
+        logger.info(
+            "ACP set session mode request",
+            name="acp_set_session_mode",
+            session_id=session_id,
+            requested_mode_id=mode_id,
+        )
+
+        async with self._session_lock:
+            # Validate session exists
+            instance = self.sessions.get(session_id)
+            if not instance:
+                error_msg = f"Session not found: {session_id}"
+                logger.error(
+                    error_msg,
+                    name="acp_set_session_mode_error",
+                    session_id=session_id,
+                )
+                raise ValueError(error_msg)
+
+            # Validate mode_id exists in instance.agents
+            if mode_id not in instance.agents:
+                error_msg = f"Invalid mode ID: {mode_id}. Available modes: {list(instance.agents.keys())}"
+                logger.error(
+                    error_msg,
+                    name="acp_set_session_mode_error",
+                    session_id=session_id,
+                    requested_mode_id=mode_id,
+                    available_modes=list(instance.agents.keys()),
+                )
+                raise ValueError(error_msg)
+
+            # Update session state
+            old_mode = self._session_current_agent.get(session_id)
+            self._session_current_agent[session_id] = mode_id
+
+            logger.info(
+                "ACP session mode changed",
+                name="acp_session_mode_changed",
+                session_id=session_id,
+                old_mode=old_mode,
+                new_mode=mode_id,
+            )
+
+        return SetSessionModeResponse()
 
     async def prompt(self, params: PromptRequest) -> PromptResponse:
         """
@@ -528,11 +660,14 @@ class AgentACPServer(ACPAgent):
                 # Return success
                 return PromptResponse(stopReason=END_TURN)
 
+            # Get the current agent for this session
+            current_agent_name = self._session_current_agent.get(session_id, self.primary_agent_name)
+
             logger.info(
                 "Sending prompt to fast-agent",
                 name="acp_prompt_send",
                 session_id=session_id,
-                agent=self.primary_agent_name,
+                agent=current_agent_name,
                 content_blocks=len(mcp_content_blocks),
             )
 
@@ -540,8 +675,8 @@ class AgentACPServer(ACPAgent):
             # Track the stop reason to return in PromptResponse
             acp_stop_reason: StopReason = END_TURN
             try:
-                if self.primary_agent_name:
-                    agent = instance.agents[self.primary_agent_name]
+                if current_agent_name:
+                    agent = instance.agents[current_agent_name]
 
                     # Set up streaming if connection is available and agent supports it
                     stream_listener = None
@@ -835,6 +970,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up session current agent tracking
+            self._session_current_agent.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
