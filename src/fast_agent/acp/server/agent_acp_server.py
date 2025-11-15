@@ -450,6 +450,7 @@ class AgentACPServer(ACPAgent):
                             session_id=session_id,
                             activation_reason="via ACP terminal support",
                             timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
+                            tool_handler=tool_handler if self._connection else None,
                         )
 
                         # Inject into agent
@@ -475,6 +476,7 @@ class AgentACPServer(ACPAgent):
                     activation_reason="via ACP filesystem support",
                     enable_read=self._client_supports_fs_read,
                     enable_write=self._client_supports_fs_write,
+                    tool_handler=tool_handler if self._connection else None,
                 )
                 self._session_filesystem_runtimes[session_id] = filesystem_runtime
 
