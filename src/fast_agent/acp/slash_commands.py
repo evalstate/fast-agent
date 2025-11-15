@@ -57,7 +57,9 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
-        self.current_agent_name = primary_agent_name  # Track current agent (can change via setSessionMode)
+        self.current_agent_name = (
+            primary_agent_name  # Track current agent (can change via setSessionMode)
+        )
         self.history_exporter = history_exporter or HistoryExporter
         self._created_at = time.time()
         self.client_info = client_info
@@ -172,9 +174,7 @@ class SlashCommandHandler:
 
         # Check if this is a PARALLEL agent
         is_parallel_agent = (
-            agent
-            and hasattr(agent, "agent_type")
-            and agent.agent_type == AgentType.PARALLEL
+            agent and hasattr(agent, "agent_type") and agent.agent_type == AgentType.PARALLEL
         )
 
         # For non-parallel agents, extract standard model info
@@ -235,13 +235,10 @@ class SlashCommandHandler:
                 status_lines.append(f"ACP Protocol Version: {self.protocol_version}")
 
             if self.client_capabilities:
-                status_lines.extend(["", "### Client Capabilities"])
-
                 # Filesystem capabilities
                 if "fs" in self.client_capabilities:
                     fs_caps = self.client_capabilities["fs"]
                     if fs_caps:
-                        status_lines.append("Filesystem:")
                         for key, value in fs_caps.items():
                             status_lines.append(f"  - {key}: {value}")
 
@@ -338,7 +335,9 @@ class SlashCommandHandler:
             )
 
         # Add conversation statistics
-        status_lines.append(f"## Conversation Statistics ({getattr(agent, 'name', self.current_agent_name) if agent else 'Unknown'})")
+        status_lines.append(
+            f"## Conversation Statistics ({getattr(agent, 'name', self.current_agent_name) if agent else 'Unknown'})"
+        )
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
