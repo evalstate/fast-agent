@@ -590,6 +590,11 @@ class AgentACPServer(ACPAgent):
         # Update the session's current agent
         self._session_current_agent[session_id] = mode_id
 
+        # Update the slash command handler's current agent
+        slash_handler = self._session_slash_handlers.get(session_id)
+        if slash_handler:
+            slash_handler.set_current_agent(mode_id)
+
         logger.info(
             "Session mode updated",
             name="acp_set_session_mode_success",
