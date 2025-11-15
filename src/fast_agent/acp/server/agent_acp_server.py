@@ -895,9 +895,7 @@ class AgentACPServer(ACPAgent):
         This creates the stdio streams and sets up the ACP connection.
         """
         logger.info("Starting ACP server on stdio")
-        print(f"Starting FastAgent '{self.server_name}' in ACP mode", file=__import__("sys").stderr)
-        print(f"Instance scope: {self._instance_scope}", file=__import__("sys").stderr)
-        print("Press Ctrl+C to stop", file=__import__("sys").stderr)
+        # Startup messages are handled by fastagent.py to respect quiet mode and use correct stream
 
         try:
             # Get stdio streams
@@ -928,7 +926,7 @@ class AgentACPServer(ACPAgent):
                 await shutdown_event.wait()
             except (asyncio.CancelledError, KeyboardInterrupt):
                 logger.info("ACP server shutting down")
-                print("\nServer stopped (Ctrl+C)", file=__import__("sys").stderr)
+                # Shutdown message is handled by fastagent.py to respect quiet mode
             finally:
                 # Close the connection properly
                 await connection._conn.close()
