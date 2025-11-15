@@ -7,6 +7,8 @@ similar to how elicitation handlers work.
 
 from typing import Protocol, runtime_checkable
 
+from mcp.types import ContentBlock
+
 
 @runtime_checkable
 class ToolExecutionHandler(Protocol):
@@ -55,7 +57,7 @@ class ToolExecutionHandler(Protocol):
         self,
         tool_call_id: str,
         success: bool,
-        result_text: str | None,
+        content: list[ContentBlock] | None,
         error: str | None,
     ) -> None:
         """
@@ -64,13 +66,13 @@ class ToolExecutionHandler(Protocol):
         Args:
             tool_call_id: The tracking ID from on_tool_start
             success: Whether the tool executed successfully
-            result_text: Optional result text if successful
+            content: Optional content blocks (text, images, etc.) if successful
             error: Optional error message if failed
         """
         ...
 
 
-class NoOpToolExecutionHandler:
+class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
 
     async def on_tool_start(
@@ -94,7 +96,7 @@ class NoOpToolExecutionHandler:
         self,
         tool_call_id: str,
         success: bool,
-        result_text: str | None,
+        content: list[ContentBlock] | None,
         error: str | None,
     ) -> None:
         """No-op - does nothing."""

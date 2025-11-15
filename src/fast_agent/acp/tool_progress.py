@@ -13,8 +13,27 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from acp.contrib import ToolCallTracker
-from acp.helpers import session_notification, text_block, tool_content
-from acp.schema import ToolKind
+from acp.helpers import (
+    audio_block,
+    embedded_blob_resource,
+    embedded_text_resource,
+    image_block,
+    resource_link_block,
+    session_notification,
+    text_block,
+    tool_content,
+)
+from acp.schema import EmbeddedResourceContentBlock, ToolKind
+from mcp.types import (
+    AudioContent,
+    BlobResourceContents,
+    ContentBlock,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
+    TextContent,
+    TextResourceContents,
+)
 
 from fast_agent.core.logging.logger import get_logger
 
@@ -85,6 +104,93 @@ class ACPToolProgressManager:
             return "fetch"
 
         return "other"
+
+    def _convert_mcp_content_to_acp(self, content: list[ContentBlock] | None):
+        """
+        Convert MCP content blocks to ACP tool call content using SDK helpers.
+
+        Args:
+            content: List of MCP content blocks (TextContent, ImageContent, etc.)
+
+        Returns:
+            List of ContentToolCallContent blocks, or None if no content
+        """
+        if not content:
+            return None
+
+        acp_content = []
+
+        for block in content:
+            try:
+                if isinstance(block, TextContent):
+                    # MCP TextContent -> ACP TextContentBlock using SDK helper
+                    acp_content.append(tool_content(text_block(block.text)))
+
+                elif isinstance(block, ImageContent):
+                    # MCP ImageContent -> ACP ImageContentBlock using SDK helper
+                    acp_content.append(tool_content(image_block(block.data, block.mimeType)))
+
+                elif isinstance(block, AudioContent):
+                    # MCP AudioContent -> ACP AudioContentBlock using SDK helper
+                    acp_content.append(tool_content(audio_block(block.data, block.mimeType)))
+
+                elif isinstance(block, ResourceLink):
+                    # MCP ResourceLink -> ACP ResourceContentBlock using SDK helper
+                    # Note: ResourceLink has uri, mimeType but resource_link_block wants name
+                    # Use the URI as the name for now
+                    acp_content.append(
+                        tool_content(
+                            resource_link_block(
+                                name=str(block.uri),
+                                uri=str(block.uri),
+                                mime_type=block.mimeType if hasattr(block, "mimeType") else None,
+                            )
+                        )
+                    )
+
+                elif isinstance(block, EmbeddedResource):
+                    # MCP EmbeddedResource -> ACP EmbeddedResourceContentBlock
+                    resource = block.resource
+                    if isinstance(resource, TextResourceContents):
+                        embedded_res = embedded_text_resource(
+                            uri=str(resource.uri),
+                            text=resource.text,
+                            mime_type=resource.mimeType,
+                        )
+                        acp_content.append(
+                            tool_content(
+                                EmbeddedResourceContentBlock(
+                                    type="embedded_resource", resource=embedded_res
+                                )
+                            )
+                        )
+                    elif isinstance(resource, BlobResourceContents):
+                        embedded_res = embedded_blob_resource(
+                            uri=str(resource.uri),
+                            blob=resource.blob,
+                            mime_type=resource.mimeType,
+                        )
+                        acp_content.append(
+                            tool_content(
+                                EmbeddedResourceContentBlock(
+                                    type="embedded_resource", resource=embedded_res
+                                )
+                            )
+                        )
+                else:
+                    # Unknown content type - log warning and skip
+                    logger.warning(
+                        f"Unknown content type: {type(block).__name__}",
+                        name="acp_unknown_content_type",
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Error converting content block {type(block).__name__}: {e}",
+                    name="acp_content_conversion_error",
+                    exc_info=True,
+                )
+
+        return acp_content if acp_content else None
 
     async def on_tool_start(
         self,
@@ -198,7 +304,7 @@ class ACPToolProgressManager:
             except Exception as e:
                 logger.error(
                     f"Error creating progress update: {e}",
-                    name="acp_tool_progress_create_error",
+                    name="acp_progress_creation_error",
                     exc_info=True,
                 )
                 return
@@ -211,11 +317,9 @@ class ACPToolProgressManager:
             logger.debug(
                 f"Updated tool call progress: {tool_call_id}",
                 name="acp_tool_progress_update",
-                tool_call_id=tool_call_id,
-                external_id=external_id,
                 progress=progress,
                 total=total,
-                progress_message=message,
+                message=message,
             )
         except Exception as e:
             logger.error(
@@ -228,7 +332,7 @@ class ACPToolProgressManager:
         self,
         tool_call_id: str,
         success: bool,
-        result_text: str | None = None,
+        content: list[ContentBlock] | None = None,
         error: str | None = None,
     ) -> None:
         """
@@ -239,7 +343,7 @@ class ACPToolProgressManager:
         Args:
             tool_call_id: The tool call ID
             success: Whether the tool execution succeeded
-            result_text: Optional result text if successful
+            content: Optional content blocks (text, images, etc.) if successful
             error: Optional error message if failed
         """
         # Look up external_id from tool_call_id
@@ -252,31 +356,41 @@ class ACPToolProgressManager:
                 )
                 return
 
-            # Build content using SDK helpers
-            content = None
-            message = error if error else result_text
-            if message:
-                content = [tool_content(text_block(message))]
+        # Build content blocks
+        if error:
+            # Error case: convert error string to text content using SDK helper
+            content_blocks = [tool_content(text_block(error))]
+            raw_output = error
+        elif content:
+            # Success case with structured content: convert MCP content to ACP using SDK helpers
+            content_blocks = self._convert_mcp_content_to_acp(content)
+            # For rawOutput, extract just text content for backward compatibility
+            text_parts = [c.text for c in content if isinstance(c, TextContent)]
+            raw_output = "\n".join(text_parts) if text_parts else None
+        else:
+            # No content or error
+            content_blocks = None
+            raw_output = None
 
-            # Use SDK tracker to create completion update
-            status = "completed" if success else "failed"
-            try:
+        # Determine status
+        status = "completed" if success else "failed"
+
+        # Use SDK tracker to create completion update
+        try:
+            async with self._lock:
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status=status,
-                    content=content,
-                    raw_output=result_text if success else error,
+                    content=content_blocks,
+                    raw_output=raw_output,
                 )
-            except Exception as e:
-                logger.error(
-                    f"Error creating completion update: {e}",
-                    name="acp_tool_complete_create_error",
-                    exc_info=True,
-                )
-                # Clean up even on error
-                self._tracker.forget(external_id)
-                self._tool_call_id_to_external_id.pop(tool_call_id, None)
-                return
+        except Exception as e:
+            logger.error(
+                f"Error creating completion update: {e}",
+                name="acp_completion_creation_error",
+                exc_info=True,
+            )
+            return
 
         # Send completion notification
         try:
@@ -286,9 +400,8 @@ class ACPToolProgressManager:
             logger.info(
                 f"Completed tool call: {tool_call_id}",
                 name="acp_tool_call_complete",
-                tool_call_id=tool_call_id,
-                external_id=external_id,
                 status=status,
+                content_blocks=len(content_blocks) if content_blocks else 0,
             )
         except Exception as e:
             logger.error(
@@ -297,7 +410,7 @@ class ACPToolProgressManager:
                 exc_info=True,
             )
         finally:
-            # Clean up tracker
+            # Clean up tracker using SDK's forget method
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
@@ -309,11 +422,13 @@ class ACPToolProgressManager:
         Args:
             session_id: The session ID to clean up
         """
-        # Since this manager is already scoped to a single session (self._session_id),
-        # we just need to clear all tracked tool calls
+        # The SDK tracker doesn't maintain session associations,
+        # so we just clear our mapping
         async with self._lock:
             count = len(self._tool_call_id_to_external_id)
-            # Clear all mappings - SDK tracker cleanup is handled by forget()
+            # Forget all tracked tools
+            for external_id in list(self._tracker._tool_calls.keys()):
+                self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
 
         logger.debug(
