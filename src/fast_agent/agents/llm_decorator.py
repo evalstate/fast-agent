@@ -44,6 +44,7 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.context import Context
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
     AgentProtocol,
     FastAgentLLMProtocol,
@@ -67,27 +68,40 @@ class StreamingNotAvailableError(RuntimeError):
     """Raised when streaming APIs are accessed before an LLM is attached."""
 
 
+logger = get_logger(__name__)
+
+
 class StreamingAgentMixin(StreamingAgentProtocol):
     """Mixin that forwards streaming listener registration to the attached LLM."""
 
     def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
-        try:
-            llm = self.llm
-        except AssertionError as exc:  # LLM not attached yet
-            raise StreamingNotAvailableError(
-                "LLM not attached; cannot register stream listener"
-            ) from exc
+        llm = getattr(self, "_llm", None)
+        if not llm:
+            logger.debug(
+                "Skipping stream listener registration because no LLM is attached",
+                name=getattr(self, "_name", "unknown"),
+            )
+
+            def remove_listener() -> None:
+                return None
+
+            return remove_listener
         return llm.add_stream_listener(listener)
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, Dict[str, Any] | None], None]
     ) -> Callable[[], None]:
-        try:
-            llm = self.llm
-        except AssertionError as exc:
-            raise StreamingNotAvailableError(
-                "LLM not attached; cannot register tool stream listener"
-            ) from exc
+        llm = getattr(self, "_llm", None)
+        if not llm:
+            logger.debug(
+                "Skipping tool stream listener registration because no LLM is attached",
+                name=getattr(self, "_name", "unknown"),
+            )
+
+            def remove_listener() -> None:
+                return None
+
+            return remove_listener
         return llm.add_tool_stream_listener(listener)
 
 

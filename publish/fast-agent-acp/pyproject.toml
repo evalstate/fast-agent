@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fast-agent-acp"
-version = "0.3.21"
+version = "0.0.1"
 description = "Convenience launcher that pulls in fast-agent-mcp and exposes the ACP CLI entrypoint."
 readme = "../../README.md"
 authors = [
