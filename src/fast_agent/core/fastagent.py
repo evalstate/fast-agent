@@ -471,7 +471,15 @@ class FastAgent:
 
         # Handle quiet mode and CLI model override safely
         # Define these *before* they are used, checking if self.args exists and has the attributes
+        # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         quiet_mode = hasattr(self.args, "quiet") and self.args.quiet
+        if (
+            hasattr(self.args, "transport")
+            and self.args.transport in ["stdio", "acp"]
+            and hasattr(self.args, "server")
+            and self.args.server
+        ):
+            quiet_mode = True
         cli_model_override = (
             self.args.model if hasattr(self.args, "model") and self.args.model else None
         )  # Define cli_model_override here
@@ -935,9 +943,12 @@ class FastAgent:
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
+        # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
+        if transport in ["stdio", "acp"]:
+            self.args.quiet = True
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
