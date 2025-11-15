@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from acp import InitializeRequest, NewSessionRequest, PromptRequest
+from acp import InitializeRequest, NewSessionRequest, PromptRequest, SetSessionModeRequest
 from acp.helpers import text_block
 from acp.schema import ClientCapabilities, Implementation, StopReason
 from acp.stdio import spawn_agent_process
@@ -17,6 +17,7 @@ if str(TEST_DIR) not in sys.path:
 from test_client import TestClient  # noqa: E402
 
 CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
+MULTI_AGENT_SCRIPT = TEST_DIR / "multi_agent_test.py"
 END_TURN: StopReason = "end_turn"
 FAST_AGENT_CMD = (
     sys.executable,
@@ -31,6 +32,14 @@ FAST_AGENT_CMD = (
     "passthrough",
     "--name",
     "fast-agent-acp-test",
+)
+MULTI_AGENT_CMD = (
+    sys.executable,
+    str(MULTI_AGENT_SCRIPT),
+    "--transport",
+    "acp",
+    "--model",
+    "passthrough",
 )
 
 
@@ -130,7 +139,95 @@ async def test_acp_session_modes_included_in_new_session() -> None:
 
         # Verify the current mode is in available modes
         available_mode_ids = [mode.id for mode in modes.availableModes]
-        assert modes.currentModeId in available_mode_ids, "Current mode should be in available modes"
+        assert modes.currentModeId in available_mode_ids, (
+            "Current mode should be in available modes"
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_acp_set_session_mode_basic() -> None:
+    """Test that setSessionMode endpoint accepts valid mode changes."""
+    client = TestClient()
+
+    async with spawn_agent_process(lambda _: client, *MULTI_AGENT_CMD) as (connection, _process):
+        # Initialize
+        init_request = InitializeRequest(
+            protocolVersion=1,
+            clientCapabilities=ClientCapabilities(
+                fs={"readTextFile": True, "writeTextFile": True},
+                terminal=False,
+            ),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+        )
+        init_response = await connection.initialize(init_request)
+        assert init_response.protocolVersion == 1
+
+        # Create session
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+        assert session_id
+
+        # Verify we have multiple modes available
+        modes = session_response.modes
+        assert modes is not None
+        assert len(modes.availableModes) >= 2, "Multi-agent app should have at least 2 modes"
+
+        # Find a mode different from the current one
+        target_mode = None
+        for mode in modes.availableModes:
+            if mode.id != modes.currentModeId:
+                target_mode = mode.id
+                break
+
+        assert target_mode is not None, "Should have at least one alternative mode"
+
+        # Switch to the alternative mode
+        set_mode_response = await connection.setSessionMode(
+            SetSessionModeRequest(sessionId=session_id, modeId=target_mode)
+        )
+        # Should return successfully without raising an exception
+        assert set_mode_response is not None
+
+        # Optionally send a prompt to verify it doesn't crash after mode switch
+        prompt_response = await connection.prompt(
+            PromptRequest(sessionId=session_id, prompt=[text_block("test after mode switch")])
+        )
+        assert prompt_response.stopReason == END_TURN
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_acp_set_session_mode_invalid_mode() -> None:
+    """Test that setSessionMode rejects invalid mode IDs gracefully."""
+    client = TestClient()
+
+    async with spawn_agent_process(lambda _: client, *MULTI_AGENT_CMD) as (connection, _process):
+        # Initialize
+        init_request = InitializeRequest(
+            protocolVersion=1,
+            clientCapabilities=ClientCapabilities(
+                fs={"readTextFile": True, "writeTextFile": True},
+                terminal=False,
+            ),
+            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+        )
+        await connection.initialize(init_request)
+
+        # Create session
+        session_response = await connection.newSession(
+            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        )
+        session_id = session_response.sessionId
+
+        # Try to switch to a non-existent mode
+        # This should raise an exception (graceful error handling)
+        with pytest.raises(Exception):  # ValueError or ACP protocol error
+            await connection.setSessionMode(
+                SetSessionModeRequest(sessionId=session_id, modeId="nonexistent_agent_mode")
+            )
 
 
 @pytest.mark.integration
