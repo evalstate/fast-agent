@@ -477,10 +477,13 @@ class FastAgent:
 
         # Handle quiet mode and CLI model override safely
         # Define these *before* they are used, checking if self.args exists and has the attributes
-        quiet_mode = hasattr(self.args, "quiet") and self.args.quiet
-        cli_model_override = (
-            self.args.model if hasattr(self.args, "model") and self.args.model else None
-        )  # Define cli_model_override here
+        # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
+        quiet_mode = getattr(self.args, "quiet", False)
+        if getattr(self.args, "transport", None) in ["stdio", "acp"] and getattr(
+            self.args, "server", False
+        ):
+            quiet_mode = True
+        cli_model_override = getattr(self.args, "model", None)
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
             try:
@@ -941,10 +944,11 @@ class FastAgent:
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
+        # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
-        if transport == "acp":
+        if transport in ["stdio", "acp"]:
             self.args.quiet = True
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
