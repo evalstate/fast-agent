@@ -17,7 +17,7 @@ if str(TEST_DIR) not in sys.path:
 from test_client import TestClient  # noqa: E402
 
 CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
-MULTI_AGENT_CONFIG_PATH = TEST_DIR / "fastagent.multi_agent.config.yaml"
+MULTI_AGENT_SCRIPT = TEST_DIR / "multi_agent_test.py"
 END_TURN: StopReason = "end_turn"
 FAST_AGENT_CMD = (
     sys.executable,
@@ -35,17 +35,11 @@ FAST_AGENT_CMD = (
 )
 MULTI_AGENT_CMD = (
     sys.executable,
-    "-m",
-    "fast_agent.cli",
-    "serve",
-    "--config-path",
-    str(MULTI_AGENT_CONFIG_PATH),
+    str(MULTI_AGENT_SCRIPT),
     "--transport",
     "acp",
     "--model",
     "passthrough",
-    "--name",
-    "multi-agent-test",
 )
 
 
