@@ -40,9 +40,13 @@ from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt_templates import (
+    apply_template_variables,
+    enrich_with_environment_context,
+)
 from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.mcp.helpers.content_helpers import is_text_content
-from fast_agent.types import LlmStopReason, PromptMessageExtended
+from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
@@ -185,6 +189,9 @@ class AgentACPServer(ACPAgent):
 
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
+
+        # Late-binding prompt context by session (e.g., client-provided cwd)
+        self._session_prompt_context: dict[str, dict[str, str]] = {}
 
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
@@ -377,6 +384,24 @@ class AgentACPServer(ACPAgent):
             currentModeId=current_mode_id,
         )
 
+    def _build_session_request_params(self, agent: Any, session_id: str) -> RequestParams | None:
+        """
+        Apply late-binding template variables to an agent's instruction for this session.
+        """
+        context = self._session_prompt_context.get(session_id)
+        if not context:
+            return None
+
+        template = getattr(agent, "instruction", None)
+        if not template:
+            return None
+
+        resolved = apply_template_variables(template, context)
+        if resolved == template:
+            return None
+
+        return RequestParams(systemPrompt=resolved)
+
     async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
         """
         Handle new session request.
@@ -491,6 +516,11 @@ class AgentACPServer(ACPAgent):
                             write_enabled=self._client_supports_fs_write,
                         )
 
+        # Track per-session template variables (used for late instruction binding)
+        session_context: dict[str, str] = {}
+        enrich_with_environment_context(session_context, params.cwd, self._client_info)
+        self._session_prompt_context[session_id] = session_context
+
         # Create slash command handler for this session
         slash_handler = SlashCommandHandler(
             session_id,
@@ -583,8 +613,7 @@ class AgentACPServer(ACPAgent):
                 available_modes=list(instance.agents.keys()),
             )
             raise ValueError(
-                f"Invalid mode ID '{mode_id}'. "
-                f"Available modes: {list(instance.agents.keys())}"
+                f"Invalid mode ID '{mode_id}'. Available modes: {list(instance.agents.keys())}"
             )
 
         # Update the session's current agent
@@ -791,7 +820,12 @@ class AgentACPServer(ACPAgent):
 
                     try:
                         # This will trigger streaming callbacks as chunks arrive
-                        result = await agent.generate(prompt_message)
+                        session_request_params = self._build_session_request_params(
+                            agent, session_id
+                        )
+                        result = await agent.generate(
+                            prompt_message, request_params=session_request_params
+                        )
                         response_text = result.last_text() or "No content generated"
 
                         # Map the LLM stop reason to ACP stop reason
@@ -1032,6 +1066,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up session current agent mapping
             self._session_current_agent.clear()
+
+            # Clear stored prompt contexts
+            self._session_prompt_context.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:

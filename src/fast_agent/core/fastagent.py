@@ -73,6 +73,10 @@ from fast_agent.core.exceptions import (
     ServerInitializationError,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt_templates import (
+    apply_template_variables,
+    enrich_with_environment_context,
+)
 from fast_agent.core.validation import (
     validate_provider_keys_post_creation,
     validate_server_references,
@@ -539,6 +543,22 @@ class FastAgent:
                     managed_instances: list[AgentInstance] = []
                     instance_lock = asyncio.Lock()
 
+                    # Determine whether to apply global environment template variables.
+                    apply_global_prompt_context = not (
+                        getattr(self.args, "server", False)
+                        and getattr(self.args, "transport", None) == "acp"
+                    )
+                    global_prompt_context: dict[str, str] | None = None
+                    if apply_global_prompt_context:
+                        context_variables: dict[str, str] = {}
+                        client_info: dict[str, str] = {"name": self.name}
+                        cli_name = getattr(self.args, "name", None)
+                        if cli_name:
+                            client_info["title"] = cli_name
+                        enrich_with_environment_context(context_variables, str(Path.cwd()), client_info)
+                        if context_variables:
+                            global_prompt_context = context_variables
+
                     async def instantiate_agent_instance() -> AgentInstance:
                         async with instance_lock:
                             agents_map = await create_agents_in_dependency_order(
@@ -549,6 +569,8 @@ class FastAgent:
                             validate_provider_keys_post_creation(agents_map)
                             instance = AgentInstance(AgentApp(agents_map), agents_map)
                             managed_instances.append(instance)
+                            if global_prompt_context:
+                                self._apply_instruction_context(instance, global_prompt_context)
                             return instance
 
                     async def dispose_agent_instance(instance: AgentInstance) -> None:
@@ -774,6 +796,32 @@ class FastAgent:
                             await agent.shutdown()
                         except Exception:
                             pass
+
+    def _apply_instruction_context(
+        self, instance: AgentInstance, context_vars: dict[str, str]
+    ) -> None:
+        """Resolve late-binding placeholders for all agents in the provided instance."""
+        if not context_vars:
+            return
+
+        for agent in instance.agents.values():
+            template = getattr(agent, "instruction", None)
+            if not template:
+                continue
+
+            resolved = apply_template_variables(template, context_vars)
+            if resolved == template:
+                continue
+
+            agent.instruction = resolved
+
+            config = getattr(agent, "config", None)
+            if config is not None:
+                config.instruction = resolved
+
+            request_params = getattr(agent, "_default_request_params", None)
+            if request_params is not None:
+                request_params.systemPrompt = resolved
 
     def _apply_skills_to_agent_configs(self, default_skills: List[SkillManifest]) -> None:
         self._default_skill_manifests = list(default_skills)
