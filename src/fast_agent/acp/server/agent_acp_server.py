@@ -475,6 +475,23 @@ class AgentACPServer(ACPAgent):
                     if hasattr(agent, "workflow_telemetry"):
                         agent.workflow_telemetry = workflow_telemetry
 
+                    # Register tool handler as stream listener to get early tool start events
+                    if hasattr(agent, "llm") and hasattr(agent.llm, "add_tool_stream_listener"):
+                        try:
+                            agent.llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
+                            logger.info(
+                                "ACP tool handler registered as stream listener",
+                                name="acp_tool_stream_listener_registered",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to register tool stream listener: {e}",
+                                name="acp_tool_stream_listener_failed",
+                                exc_info=True,
+                            )
+
                 # If client supports terminals and we have shell runtime enabled,
                 # inject ACP terminal runtime to replace local ShellRuntime
                 if self._client_supports_terminal:

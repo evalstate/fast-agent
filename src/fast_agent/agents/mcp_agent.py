@@ -493,13 +493,16 @@ class McpAgent(ABC, ToolAgent):
             runtime_type=type(runtime).__name__,
         )
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+    async def call_tool(
+        self, name: str, arguments: Dict[str, Any] | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
 
         Args:
             name: Name of the tool to call
             arguments: Arguments to pass to the tool
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             Result of the tool call
@@ -530,7 +533,7 @@ class McpAgent(ABC, ToolAgent):
         if name in self._execution_tools:
             return await super().call_tool(name, arguments)
         else:
-            return await self._aggregator.call_tool(name, arguments)
+            return await self._aggregator.call_tool(name, arguments, tool_use_id)
 
     async def _call_human_input_tool(
         self, arguments: Dict[str, Any] | None = None
@@ -808,6 +811,7 @@ class McpAgent(ABC, ToolAgent):
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
+            # correlation_id is the tool_use_id from the LLM
 
             # Determine which tool we are calling (namespaced MCP, local, etc.)
             namespaced_tool = namespaced_tools.get(tool_name)
@@ -896,7 +900,7 @@ class McpAgent(ABC, ToolAgent):
             try:
                 # Track timing for tool execution
                 start_time = time.perf_counter()
-                result = await self.call_tool(tool_name, tool_args)
+                result = await self.call_tool(tool_name, tool_args, correlation_id)
                 end_time = time.perf_counter()
                 duration_ms = round((end_time - start_time) * 1000, 2)
 

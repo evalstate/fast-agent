@@ -68,7 +68,80 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
+        # Track tool_use_id from stream events to avoid duplicate notifications
+        self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         self._lock = asyncio.Lock()
+
+    def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
+        """
+        Handle tool stream events from the LLM during streaming.
+
+        This gets called when the LLM streams tool use blocks, BEFORE tool execution.
+        Sends early ACP notifications so clients see tool calls immediately.
+
+        Args:
+            event_type: Type of stream event ("start", "delta", "text", "stop")
+            info: Event payload containing tool_name, tool_use_id, etc.
+        """
+        if event_type == "start" and info:
+            tool_name = info.get("tool_name")
+            tool_use_id = info.get("tool_use_id")
+
+            if tool_name and tool_use_id:
+                # Schedule async notification sending
+                asyncio.create_task(self._send_stream_start_notification(tool_name, tool_use_id))
+
+    async def _send_stream_start_notification(self, tool_name: str, tool_use_id: str) -> None:
+        """
+        Send early ACP notification when tool stream starts.
+
+        Args:
+            tool_name: Name of the tool being called
+            tool_use_id: LLM's tool use ID
+        """
+        try:
+            # Generate external ID for SDK tracker
+            external_id = str(uuid.uuid4())
+
+            # Infer tool kind (without arguments yet)
+            kind = self._infer_tool_kind(tool_name, None)
+
+            # Create simple title (no server name or args yet)
+            title = tool_name
+
+            # Use SDK tracker to create the tool call start notification
+            async with self._lock:
+                # Track that we sent a stream notification for this tool_use_id
+                self._stream_tool_use_ids[tool_use_id] = external_id
+
+                tool_call_start = self._tracker.start(
+                    external_id=external_id,
+                    title=title,
+                    kind=kind,
+                    status="pending",
+                    raw_input=None,  # Don't have args yet
+                )
+                # Store mapping from ACP tool_call_id to external_id
+                self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+
+            # Send initial notification
+            notification = session_notification(self._session_id, tool_call_start)
+            await self._connection.sessionUpdate(notification)
+
+            logger.debug(
+                f"Sent early stream tool call notification: {tool_call_start.toolCallId}",
+                name="acp_tool_stream_start",
+                tool_call_id=tool_call_start.toolCallId,
+                external_id=external_id,
+                tool_name=tool_name,
+                tool_use_id=tool_use_id,
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending stream tool_call notification: {e}",
+                name="acp_tool_stream_error",
+                exc_info=True,
+            )
 
     def _infer_tool_kind(self, tool_name: str, arguments: dict[str, Any] | None) -> ToolKind:
         """
@@ -197,6 +270,7 @@ class ACPToolProgressManager:
         tool_name: str,
         server_name: str,
         arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
     ) -> str:
         """
         Called when a tool execution starts.
@@ -207,12 +281,16 @@ class ACPToolProgressManager:
             tool_name: Name of the tool being called
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             The tool call ID for tracking
         """
-        # Generate external ID for SDK tracker
-        external_id = str(uuid.uuid4())
+        # Check if we already sent a stream notification for this tool_use_id
+        existing_external_id = None
+        if tool_use_id:
+            async with self._lock:
+                existing_external_id = self._stream_tool_use_ids.get(tool_use_id)
 
         # Infer tool kind
         kind = self._infer_tool_kind(tool_name, arguments)
@@ -226,31 +304,56 @@ class ACPToolProgressManager:
                 arg_str = arg_str[:47] + "..."
             title = f"{title}({arg_str})"
 
-        # Use SDK tracker to create the tool call start notification
+        # Use SDK tracker to create or update the tool call notification
         async with self._lock:
-            tool_call_start = self._tracker.start(
-                external_id=external_id,
-                title=title,
-                kind=kind,
-                status="pending",
-                raw_input=arguments,
-            )
-            # Store mapping from ACP tool_call_id to external_id for later lookups
-            self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+            if existing_external_id:
+                # Update the existing stream notification with full details
+                tool_call_update = self._tracker.progress(
+                    external_id=existing_external_id,
+                    title=title,  # Update with server_name and args
+                    kind=kind,  # Re-infer with arguments
+                    status="in_progress",  # Move from pending to in_progress
+                    raw_input=arguments,  # Add arguments
+                )
+                tool_call_id = tool_call_update.toolCallId
 
-        # Send initial notification
+                logger.debug(
+                    f"Updated stream tool call with execution details: {tool_call_id}",
+                    name="acp_tool_execution_update",
+                    tool_call_id=tool_call_id,
+                    external_id=existing_external_id,
+                    tool_name=tool_name,
+                    server_name=server_name,
+                    tool_use_id=tool_use_id,
+                )
+            else:
+                # No stream notification - create new one (normal path)
+                external_id = str(uuid.uuid4())
+                tool_call_start = self._tracker.start(
+                    external_id=external_id,
+                    title=title,
+                    kind=kind,
+                    status="pending",
+                    raw_input=arguments,
+                )
+                # Store mapping from ACP tool_call_id to external_id for later lookups
+                self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+                tool_call_id = tool_call_start.toolCallId
+                tool_call_update = tool_call_start
+
+                logger.debug(
+                    f"Started tool call tracking: {tool_call_id}",
+                    name="acp_tool_call_start",
+                    tool_call_id=tool_call_id,
+                    external_id=external_id,
+                    tool_name=tool_name,
+                    server_name=server_name,
+                )
+
+        # Send notification (either new start or update)
         try:
-            notification = session_notification(self._session_id, tool_call_start)
+            notification = session_notification(self._session_id, tool_call_update)
             await self._connection.sessionUpdate(notification)
-
-            logger.debug(
-                f"Started tool call tracking: {tool_call_start.toolCallId}",
-                name="acp_tool_call_start",
-                tool_call_id=tool_call_start.toolCallId,
-                external_id=external_id,
-                tool_name=tool_name,
-                server_name=server_name,
-            )
         except Exception as e:
             logger.error(
                 f"Error sending tool_call notification: {e}",
@@ -259,7 +362,7 @@ class ACPToolProgressManager:
             )
 
         # Return the ACP tool_call_id for caller to track
-        return tool_call_start.toolCallId
+        return tool_call_id
 
     async def on_tool_progress(
         self,
