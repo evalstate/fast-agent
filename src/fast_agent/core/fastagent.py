@@ -89,11 +89,11 @@ from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
-    from fast_agent.context import Context
     from mcp.client.session import ElicitationFnT
     from pydantic import AnyUrl
 
     from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+    from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
