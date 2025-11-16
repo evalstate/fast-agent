@@ -20,7 +20,11 @@ class ToolExecutionHandler(Protocol):
     """
 
     async def on_tool_start(
-        self, tool_name: str, server_name: str, arguments: dict | None
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
     ) -> str:
         """
         Called when a tool execution starts.
@@ -29,6 +33,7 @@ class ToolExecutionHandler(Protocol):
             tool_name: Name of the tool being called
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             A unique tool_call_id for tracking this execution
@@ -76,7 +81,11 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
 
     async def on_tool_start(
-        self, tool_name: str, server_name: str, arguments: dict | None
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
     ) -> str:
         """Generate a simple UUID for tracking."""
         import uuid

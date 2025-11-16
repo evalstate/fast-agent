@@ -1214,9 +1214,16 @@ class MCPAggregator(ContextDependent):
         # For all other resource types, use the first server
         return (self.server_names[0] if self.server_names else None, name)
 
-    async def call_tool(self, name: str, arguments: dict | None = None) -> CallToolResult:
+    async def call_tool(
+        self, name: str, arguments: dict | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Call a namespaced tool, e.g., 'server_name__tool_name'.
+
+        Args:
+            name: Tool name (possibly namespaced)
+            arguments: Tool arguments
+            tool_use_id: LLM's tool use ID (for matching with stream events)
         """
         if not self.initialized:
             await self.load_servers()
@@ -1244,7 +1251,7 @@ class MCPAggregator(ContextDependent):
         # Notify tool handler that execution is starting
         try:
             tool_call_id = await self._tool_handler.on_tool_start(
-                local_tool_name, server_name, arguments
+                local_tool_name, server_name, arguments, tool_use_id
             )
         except Exception as e:
             logger.error(f"Error in tool start handler: {e}", exc_info=True)
