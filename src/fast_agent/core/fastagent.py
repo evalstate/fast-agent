@@ -4,6 +4,8 @@ This replaces the traditional FastAgent with a more streamlined approach that
 directly creates Agent instances without proxies.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import inspect
