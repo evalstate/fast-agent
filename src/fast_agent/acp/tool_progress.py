@@ -71,6 +71,8 @@ class ACPToolProgressManager:
         self._tool_call_id_to_external_id: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
+        # Track pending stream notification tasks
+        self._stream_tasks: dict[str, asyncio.Task] = {}  # tool_use_id → task
         self._lock = asyncio.Lock()
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
@@ -89,8 +91,10 @@ class ACPToolProgressManager:
             tool_use_id = info.get("tool_use_id")
 
             if tool_name and tool_use_id:
-                # Schedule async notification sending
-                asyncio.create_task(self._send_stream_start_notification(tool_name, tool_use_id))
+                # Schedule async notification sending and store the task
+                task = asyncio.create_task(self._send_stream_start_notification(tool_name, tool_use_id))
+                # Store task reference so we can await it in on_tool_start if needed
+                self._stream_tasks[tool_use_id] = task
 
     async def _send_stream_start_notification(self, tool_name: str, tool_use_id: str) -> None:
         """
@@ -155,6 +159,10 @@ class ACPToolProgressManager:
                 name="acp_tool_stream_error",
                 exc_info=True,
             )
+        finally:
+            # Clean up task reference
+            if tool_use_id in self._stream_tasks:
+                del self._stream_tasks[tool_use_id]
 
     def _infer_tool_kind(self, tool_name: str, arguments: dict[str, Any] | None) -> ToolKind:
         """
@@ -302,8 +310,40 @@ class ACPToolProgressManager:
         # Check if we already sent a stream notification for this tool_use_id
         existing_external_id = None
         if tool_use_id:
+            # If there's a pending stream task, await it first
+            pending_task = self._stream_tasks.get(tool_use_id)
+            if pending_task and not pending_task.done():
+                logger.debug(
+                    f"Waiting for pending stream notification task to complete: {tool_use_id}",
+                    name="acp_tool_await_stream_task",
+                    tool_use_id=tool_use_id,
+                )
+                try:
+                    await pending_task
+                except Exception as e:
+                    logger.warning(
+                        f"Stream notification task failed: {e}",
+                        name="acp_stream_task_failed",
+                        tool_use_id=tool_use_id,
+                        exc_info=True,
+                    )
+
             async with self._lock:
                 existing_external_id = self._stream_tool_use_ids.get(tool_use_id)
+                if existing_external_id:
+                    logger.debug(
+                        f"Found existing stream notification for tool_use_id: {tool_use_id}",
+                        name="acp_tool_execution_match",
+                        tool_use_id=tool_use_id,
+                        external_id=existing_external_id,
+                    )
+                else:
+                    logger.debug(
+                        f"No stream notification found for tool_use_id: {tool_use_id}",
+                        name="acp_tool_execution_no_match",
+                        tool_use_id=tool_use_id,
+                        available_ids=list(self._stream_tool_use_ids.keys()),
+                    )
 
         # Infer tool kind
         kind = self._infer_tool_kind(tool_name, arguments)
