@@ -510,7 +510,7 @@ class McpAgent(ABC, ToolAgent):
         # Check external runtime first (e.g., ACP terminal)
         if self._external_runtime and hasattr(self._external_runtime, "tool"):
             if self._external_runtime.tool and name == self._external_runtime.tool.name:
-                return await self._external_runtime.execute(arguments)
+                return await self._external_runtime.execute(arguments, tool_use_id)
 
         # Check filesystem runtime (e.g., ACP filesystem)
         if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
@@ -518,9 +518,9 @@ class McpAgent(ABC, ToolAgent):
                 if tool.name == name:
                     # Route to the appropriate method based on tool name
                     if name == "read_text_file":
-                        return await self._filesystem_runtime.read_text_file(arguments)
+                        return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
                     elif name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(arguments)
+                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
