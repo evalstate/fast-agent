@@ -20,7 +20,11 @@ class ToolExecutionHandler(Protocol):
     """
 
     async def on_tool_start(
-        self, tool_name: str, server_name: str, arguments: dict | None
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
     ) -> str:
         """
         Called when a tool execution starts.
@@ -29,6 +33,7 @@ class ToolExecutionHandler(Protocol):
             tool_name: Name of the tool being called
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
+            tool_use_id: Optional LLM tool use ID for correlation with early notifications
 
         Returns:
             A unique tool_call_id for tracking this execution
@@ -71,12 +76,40 @@ class ToolExecutionHandler(Protocol):
         """
         ...
 
+    async def on_tool_declared(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+    ) -> str:
+        """
+        Called when the LLM declares it will use a tool (before actual execution).
+
+        This is called after streaming completes but before the tool actually executes,
+        allowing early notification to ACP clients.
+
+        Args:
+            tool_use_id: The LLM's tool use ID for correlation
+            tool_name: Name of the tool that will be called
+            server_name: Name of the MCP server providing the tool
+            arguments: Tool arguments
+
+        Returns:
+            A unique tool_call_id for tracking this execution
+        """
+        ...
+
 
 class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
 
     async def on_tool_start(
-        self, tool_name: str, server_name: str, arguments: dict | None
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
     ) -> str:
         """Generate a simple UUID for tracking."""
         import uuid
@@ -101,3 +134,14 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> None:
         """No-op - does nothing."""
         pass
+
+    async def on_tool_declared(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+    ) -> str:
+        """No-op - just generate a UUID for tracking."""
+        import uuid
+        return str(uuid.uuid4())

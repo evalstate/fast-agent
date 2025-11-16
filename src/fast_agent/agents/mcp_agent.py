@@ -493,13 +493,19 @@ class McpAgent(ABC, ToolAgent):
             runtime_type=type(runtime).__name__,
         )
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+    async def call_tool(
+        self,
+        name: str,
+        arguments: Dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+    ) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
 
         Args:
             name: Name of the tool to call
             arguments: Arguments to pass to the tool
+            tool_use_id: Optional LLM tool use ID for correlation with early notifications
 
         Returns:
             Result of the tool call
@@ -530,7 +536,7 @@ class McpAgent(ABC, ToolAgent):
         if name in self._execution_tools:
             return await super().call_tool(name, arguments)
         else:
-            return await self._aggregator.call_tool(name, arguments)
+            return await self._aggregator.call_tool(name, arguments, tool_use_id=tool_use_id)
 
     async def _call_human_input_tool(
         self, arguments: Dict[str, Any] | None = None
@@ -804,6 +810,27 @@ class McpAgent(ABC, ToolAgent):
         # Cache namespaced tools for routing/metadata
         namespaced_tools = self._aggregator._namespaced_tool_map
 
+        # Send early notifications to ACP clients for declared tools (before execution)
+        if hasattr(self._aggregator, "_tool_handler"):
+            for correlation_id, tool_request in request.tool_calls.items():
+                tool_name = tool_request.params.name
+                tool_args = tool_request.params.arguments or {}
+
+                # Try to determine server name by looking up in namespaced tools
+                namespaced_tool = namespaced_tools.get(tool_name)
+                if namespaced_tool:
+                    server_name = namespaced_tool.server_name
+                    local_tool_name = namespaced_tool.tool.name
+                    try:
+                        await self._aggregator._tool_handler.on_tool_declared(
+                            tool_use_id=correlation_id,
+                            tool_name=local_tool_name,
+                            server_name=server_name,
+                            arguments=tool_args,
+                        )
+                    except Exception as e:
+                        self.logger.debug(f"Error in on_tool_declared: {e}")
+
         # Process each tool call using our aggregator
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
@@ -896,7 +923,7 @@ class McpAgent(ABC, ToolAgent):
             try:
                 # Track timing for tool execution
                 start_time = time.perf_counter()
-                result = await self.call_tool(tool_name, tool_args)
+                result = await self.call_tool(tool_name, tool_args, tool_use_id=correlation_id)
                 end_time = time.perf_counter()
                 duration_ms = round((end_time - start_time) * 1000, 2)
 

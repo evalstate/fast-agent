@@ -68,6 +68,8 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
+        # Map LLM tool_use_id → ACP tool_call_id for early notifications
+        self._tool_use_id_to_call_id: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     def _infer_tool_kind(self, tool_name: str, arguments: dict[str, Any] | None) -> ToolKind:
@@ -197,6 +199,7 @@ class ACPToolProgressManager:
         tool_name: str,
         server_name: str,
         arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
     ) -> str:
         """
         Called when a tool execution starts.
@@ -204,6 +207,115 @@ class ACPToolProgressManager:
         Implements ToolExecutionHandler.on_tool_start protocol method.
 
         Args:
+            tool_name: Name of the tool being called
+            server_name: Name of the MCP server providing the tool
+            arguments: Tool arguments
+            tool_use_id: Optional LLM tool use ID for correlation with early notifications
+
+        Returns:
+            The tool call ID for tracking
+        """
+        # Check if we already sent an early notification for this tool
+        async with self._lock:
+            existing_tool_call_id = self._tool_use_id_to_call_id.get(tool_use_id) if tool_use_id else None
+
+        if existing_tool_call_id:
+            # We already sent a "pending" notification via on_tool_declared
+            # Update it to "in_progress" now that execution is actually starting
+            async with self._lock:
+                external_id = self._tool_call_id_to_external_id.get(existing_tool_call_id)
+                if external_id:
+                    try:
+                        update_data = self._tracker.progress(
+                            external_id=external_id,
+                            status="in_progress",
+                        )
+                        notification = session_notification(self._session_id, update_data)
+                        await self._connection.sessionUpdate(notification)
+
+                        logger.debug(
+                            f"Updated tool call to in_progress: {existing_tool_call_id}",
+                            name="acp_tool_call_in_progress",
+                            tool_call_id=existing_tool_call_id,
+                            external_id=external_id,
+                            tool_use_id=tool_use_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            f"Error updating tool_call to in_progress: {e}",
+                            name="acp_tool_progress_error",
+                            exc_info=True,
+                        )
+
+            return existing_tool_call_id
+
+        # No early notification - create a new one (for tools called outside LLM flow)
+        # Generate external ID for SDK tracker
+        external_id = str(uuid.uuid4())
+
+        # Infer tool kind
+        kind = self._infer_tool_kind(tool_name, arguments)
+
+        # Create title
+        title = f"{server_name}/{tool_name}"
+        if arguments:
+            # Include key argument info in title
+            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
+            if len(arg_str) > 50:
+                arg_str = arg_str[:47] + "..."
+            title = f"{title}({arg_str})"
+
+        # Use SDK tracker to create the tool call start notification
+        async with self._lock:
+            tool_call_start = self._tracker.start(
+                external_id=external_id,
+                title=title,
+                kind=kind,
+                status="in_progress",  # Start as in_progress since execution is beginning
+                raw_input=arguments,
+            )
+            # Store mapping from ACP tool_call_id to external_id for later lookups
+            self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+
+        # Send initial notification
+        try:
+            notification = session_notification(self._session_id, tool_call_start)
+            await self._connection.sessionUpdate(notification)
+
+            logger.debug(
+                f"Started tool call tracking: {tool_call_start.toolCallId}",
+                name="acp_tool_call_start",
+                tool_call_id=tool_call_start.toolCallId,
+                external_id=external_id,
+                tool_name=tool_name,
+                server_name=server_name,
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending tool_call notification: {e}",
+                name="acp_tool_call_error",
+                exc_info=True,
+            )
+
+        # Return the ACP tool_call_id for caller to track
+        return tool_call_start.toolCallId
+
+    async def on_tool_declared(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Called when the LLM declares it will use a tool (before actual execution).
+
+        This sends an early notification to ACP clients with "pending" status,
+        improving responsiveness by notifying clients as soon as the LLM declares
+        the tool use (after streaming), rather than waiting for actual execution.
+
+        Args:
+            tool_use_id: The LLM's tool use ID for correlation
             tool_name: Name of the tool being called
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
@@ -237,6 +349,8 @@ class ACPToolProgressManager:
             )
             # Store mapping from ACP tool_call_id to external_id for later lookups
             self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+            # Store mapping from LLM tool_use_id to ACP tool_call_id
+            self._tool_use_id_to_call_id[tool_use_id] = tool_call_start.toolCallId
 
         # Send initial notification
         try:
@@ -244,17 +358,18 @@ class ACPToolProgressManager:
             await self._connection.sessionUpdate(notification)
 
             logger.debug(
-                f"Started tool call tracking: {tool_call_start.toolCallId}",
-                name="acp_tool_call_start",
+                f"Declared tool call (early notification): {tool_call_start.toolCallId}",
+                name="acp_tool_call_declared",
                 tool_call_id=tool_call_start.toolCallId,
                 external_id=external_id,
+                tool_use_id=tool_use_id,
                 tool_name=tool_name,
                 server_name=server_name,
             )
         except Exception as e:
             logger.error(
-                f"Error sending tool_call notification: {e}",
-                name="acp_tool_call_error",
+                f"Error sending tool_call declared notification: {e}",
+                name="acp_tool_declared_error",
                 exc_info=True,
             )
 
@@ -414,6 +529,14 @@ class ACPToolProgressManager:
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
+                # Also clean up tool_use_id mapping if present
+                tool_use_id_to_remove = None
+                for tuid, tcid in self._tool_use_id_to_call_id.items():
+                    if tcid == tool_call_id:
+                        tool_use_id_to_remove = tuid
+                        break
+                if tool_use_id_to_remove:
+                    self._tool_use_id_to_call_id.pop(tool_use_id_to_remove, None)
 
     async def cleanup_session_tools(self, session_id: str) -> None:
         """
@@ -430,6 +553,7 @@ class ACPToolProgressManager:
             for external_id in list(self._tracker._tool_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
+            self._tool_use_id_to_call_id.clear()
 
         logger.debug(
             f"Cleaned up {count} tool trackers for session {session_id}",
