@@ -467,6 +467,8 @@ class AgentACPServer(ACPAgent):
                     if hasattr(agent, "_aggregator"):
                         aggregator = agent._aggregator
                         aggregator._tool_handler = tool_handler
+                        # Register aggregator with tool handler for server name lookups
+                        tool_handler.register_aggregator(aggregator)
 
                         logger.info(
                             "ACP tool handler registered",

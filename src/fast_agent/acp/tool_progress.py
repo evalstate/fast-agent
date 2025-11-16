@@ -70,7 +70,45 @@ class ACPToolProgressManager:
         self._tool_call_id_to_external_id: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
+        # Store aggregators for looking up server names during stream events
+        self._aggregators: list[Any] = []  # List of MCPAggregator instances
         self._lock = asyncio.Lock()
+
+    def register_aggregator(self, aggregator: Any) -> None:
+        """
+        Register an aggregator for server name lookups during stream events.
+
+        Args:
+            aggregator: MCPAggregator instance to register
+        """
+        if aggregator not in self._aggregators:
+            self._aggregators.append(aggregator)
+
+    def _lookup_server_name(self, tool_name: str) -> str | None:
+        """
+        Look up the server name for a tool by checking registered aggregators.
+
+        Args:
+            tool_name: Name of the tool to look up
+
+        Returns:
+            Server name if found, None otherwise
+        """
+        for aggregator in self._aggregators:
+            if not hasattr(aggregator, "_namespaced_tool_map"):
+                continue
+
+            # Check if tool_name is already namespaced (e.g., "server__tool")
+            if tool_name in aggregator._namespaced_tool_map:
+                namespaced_tool = aggregator._namespaced_tool_map[tool_name]
+                return namespaced_tool.server_name
+
+            # Check if any tool has this name as its base name
+            for namespaced_name, namespaced_tool in aggregator._namespaced_tool_map.items():
+                if namespaced_tool.tool.name == tool_name:
+                    return namespaced_tool.server_name
+
+        return None
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -106,8 +144,14 @@ class ACPToolProgressManager:
             # Infer tool kind (without arguments yet)
             kind = self._infer_tool_kind(tool_name, None)
 
-            # Create simple title (no server name or args yet)
-            title = tool_name
+            # Try to look up server name from aggregators
+            server_name = self._lookup_server_name(tool_name)
+
+            # Create title with server name if available
+            if server_name:
+                title = f"{server_name}/{tool_name}"
+            else:
+                title = tool_name
 
             # Use SDK tracker to create the tool call start notification
             async with self._lock:
@@ -134,6 +178,7 @@ class ACPToolProgressManager:
                 tool_call_id=tool_call_start.toolCallId,
                 external_id=external_id,
                 tool_name=tool_name,
+                server_name=server_name,
                 tool_use_id=tool_use_id,
             )
         except Exception as e:
