@@ -144,6 +144,7 @@ class AgentACPServer(ACPAgent):
         instance_scope: str,
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
+        skills_directory_override: str | None = None,
     ) -> None:
         """
         Initialize the ACP server.
@@ -155,6 +156,7 @@ class AgentACPServer(ACPAgent):
             instance_scope: How to scope instances ('shared', 'connection', or 'request')
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
+            skills_directory_override: Optional skills directory override (relative to session cwd)
         """
         super().__init__()
 
@@ -163,6 +165,7 @@ class AgentACPServer(ACPAgent):
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
         self.server_name = server_name
+        self._skills_directory_override = skills_directory_override
         # Use provided version or get fast-agent version
         if server_version is None:
             try:
@@ -530,7 +533,9 @@ class AgentACPServer(ACPAgent):
 
         # Track per-session template variables (used for late instruction binding)
         session_context: dict[str, str] = {}
-        enrich_with_environment_context(session_context, params.cwd, self._client_info)
+        enrich_with_environment_context(
+            session_context, params.cwd, self._client_info, self._skills_directory_override
+        )
         self._session_prompt_context[session_id] = session_context
 
         # Cache resolved instructions for this session (without mutating shared instances)
