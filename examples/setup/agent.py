@@ -9,8 +9,9 @@ fast = FastAgent("fast-agent example")
 default_instruction = """You are a helpful AI Agent.
 
 {{serverInstructions}}
-
 {{agentSkills}}
+
+{{env}}
 
 The current date is {{currentDate}}."""
 

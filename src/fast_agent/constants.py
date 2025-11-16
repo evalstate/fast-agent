@@ -20,4 +20,6 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 {{agentSkills}}
 
+{{env}}
+
 The current date is {{currentDate}}."""
