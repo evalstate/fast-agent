@@ -41,6 +41,7 @@ class SlashCommandHandler:
         client_info: dict | None = None,
         client_capabilities: dict | None = None,
         protocol_version: str | None = None,
+        session_instructions: dict[str, str] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -65,6 +66,7 @@ class SlashCommandHandler:
         self.client_info = client_info
         self.client_capabilities = client_capabilities
         self.protocol_version = protocol_version
+        self._session_instructions = session_instructions or {}
 
         # Register available commands using SDK's AvailableCommand type
         self.commands: dict[str, AvailableCommand] = {
@@ -368,7 +370,9 @@ class SlashCommandHandler:
             )
 
         # Get the system prompt from the agent's instruction attribute
-        system_prompt = getattr(agent, "instruction", None)
+        system_prompt = self._session_instructions.get(
+            getattr(agent, "name", self.current_agent_name), getattr(agent, "instruction", None)
+        )
         if not system_prompt:
             return "\n".join(
                 [

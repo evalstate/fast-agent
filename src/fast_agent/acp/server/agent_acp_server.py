@@ -193,6 +193,9 @@ class AgentACPServer(ACPAgent):
         # Late-binding prompt context by session (e.g., client-provided cwd)
         self._session_prompt_context: dict[str, dict[str, str]] = {}
 
+        # Per-session resolved instructions (do not mutate shared Agent instances)
+        self._session_resolved_instructions: dict[str, dict[str, str]] = {}
+
         # Connection reference (set during run_async)
         self._connection: AgentSideConnection | None = None
 
@@ -340,7 +343,9 @@ class AgentACPServer(ACPAgent):
 
         return normalized
 
-    def _build_session_modes(self, instance: AgentInstance) -> SessionModeState:
+    def _build_session_modes(
+        self, instance: AgentInstance, session_id: str | None = None
+    ) -> SessionModeState:
         """
         Build SessionModeState from an AgentInstance's agents.
 
@@ -354,11 +359,16 @@ class AgentACPServer(ACPAgent):
         """
         available_modes: list[SessionMode] = []
 
+        resolved_cache = self._session_resolved_instructions.get(session_id or "", {})
+
         # Create a SessionMode for each agent
         for agent_name, agent in instance.agents.items():
             # Get instruction from agent's config
             instruction = ""
-            if hasattr(agent, "_config") and hasattr(agent._config, "instruction"):
+            resolved_instruction = resolved_cache.get(agent_name)
+            if resolved_instruction:
+                instruction = resolved_instruction
+            elif hasattr(agent, "_config") and hasattr(agent._config, "instruction"):
                 instruction = agent._config.instruction
             elif hasattr(agent, "instruction"):
                 instruction = agent.instruction
@@ -388,18 +398,19 @@ class AgentACPServer(ACPAgent):
         """
         Apply late-binding template variables to an agent's instruction for this session.
         """
-        context = self._session_prompt_context.get(session_id)
-        if not context:
-            return None
-
-        template = getattr(agent, "instruction", None)
-        if not template:
-            return None
-
-        resolved = apply_template_variables(template, context)
-        if resolved == template:
-            return None
-
+        # Prefer cached resolved instructions to avoid reprocessing templates
+        resolved_cache = self._session_resolved_instructions.get(session_id, {})
+        resolved = resolved_cache.get(getattr(agent, "name", ""), None)
+        if not resolved:
+            context = self._session_prompt_context.get(session_id)
+            if not context:
+                return None
+            template = getattr(agent, "instruction", None)
+            if not template:
+                return None
+            resolved = apply_template_variables(template, context)
+            if resolved == template:
+                return None
         return RequestParams(systemPrompt=resolved)
 
     async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
@@ -522,7 +533,21 @@ class AgentACPServer(ACPAgent):
         enrich_with_environment_context(session_context, params.cwd, self._client_info)
         self._session_prompt_context[session_id] = session_context
 
+        # Cache resolved instructions for this session (without mutating shared instances)
+        resolved_for_session: dict[str, str] = {}
+        for agent_name, agent in instance.agents.items():
+            template = getattr(agent, "instruction", None)
+            if not template:
+                continue
+            resolved = apply_template_variables(template, session_context)
+            if resolved:
+                resolved_for_session[agent_name] = resolved
+        if resolved_for_session:
+            self._session_resolved_instructions[session_id] = resolved_for_session
+
         # Create slash command handler for this session
+        resolved_prompts = self._session_resolved_instructions.get(session_id, {})
+
         slash_handler = SlashCommandHandler(
             session_id,
             instance,
@@ -530,6 +555,7 @@ class AgentACPServer(ACPAgent):
             client_info=self._client_info,
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
+            session_instructions=resolved_prompts,
         )
         self._session_slash_handlers[session_id] = slash_handler
 
@@ -548,7 +574,7 @@ class AgentACPServer(ACPAgent):
             asyncio.create_task(self._send_available_commands_update(session_id, slash_handler))
 
         # Build session modes from the instance's agents
-        session_modes = self._build_session_modes(instance)
+        session_modes = self._build_session_modes(instance, session_id)
 
         # Initialize the current agent for this session
         self._session_current_agent[session_id] = session_modes.currentModeId
@@ -1070,6 +1096,7 @@ class AgentACPServer(ACPAgent):
 
             # Clear stored prompt contexts
             self._session_prompt_context.clear()
+            self._session_resolved_instructions.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
