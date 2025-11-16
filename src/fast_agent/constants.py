@@ -17,9 +17,8 @@ DEFAULT_MAX_ITERATIONS = 99
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 {{serverInstructions}}
-
 {{agentSkills}}
-
+{{file_silent:AGENTS.md}}
 {{env}}
 
 The current date is {{currentDate}}."""

@@ -112,6 +112,9 @@ def _apply_templates(text: str) -> str:
         {{currentDate}} - Current date in format "24 July 2025"
         {{url:https://...}} - Content fetched from the specified URL
 
+    Note: File templates ({{file:...}} and {{file_silent:...}}) are resolved later
+    during runtime to ensure they're relative to the workspaceRoot.
+
     Args:
         text: The text to process
 
@@ -183,9 +186,12 @@ def _decorator_impl(
     tools: Optional[Dict[str, List[str]]] = None,
     resources: Optional[Dict[str, List[str]]] = None,
     prompts: Optional[Dict[str, List[str]]] = None,
-    skills: SkillManifest | SkillRegistry | Path | str | List[
-        SkillManifest | SkillRegistry | Path | str | None
-    ] | None = None,
+    skills: SkillManifest
+    | SkillRegistry
+    | Path
+    | str
+    | List[SkillManifest | SkillRegistry | Path | str | None]
+    | None = None,
     **extra_kwargs,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
