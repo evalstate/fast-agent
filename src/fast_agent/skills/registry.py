@@ -59,7 +59,20 @@ class SkillRegistry:
         self._errors = []
         if not self._directory:
             return []
-        return self._load_directory(self._directory, self._errors)
+        manifests = self._load_directory(self._directory, self._errors)
+
+        # Recompute relative paths to be from base_dir (workspace root) instead of skills directory
+        adjusted_manifests: List[SkillManifest] = []
+        for manifest in manifests:
+            try:
+                relative_path = manifest.path.relative_to(self._base_dir)
+                adjusted_manifest = replace(manifest, relative_path=relative_path)
+                adjusted_manifests.append(adjusted_manifest)
+            except ValueError:
+                # If we can't compute relative path, keep the original
+                adjusted_manifests.append(manifest)
+
+        return adjusted_manifests
 
     def load_manifests_with_errors(self) -> tuple[List[SkillManifest], List[dict[str, str]]]:
         manifests = self.load_manifests()
