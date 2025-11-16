@@ -33,7 +33,6 @@ import yaml
 from opentelemetry import trace
 
 from fast_agent import config
-from fast_agent.context import Context
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.direct_decorators import (
@@ -90,6 +89,7 @@ from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
+    from fast_agent.context import Context
     from mcp.client.session import ElicitationFnT
     from pydantic import AnyUrl
 
@@ -557,7 +557,9 @@ class FastAgent:
                         cli_name = getattr(self.args, "name", None)
                         if cli_name:
                             client_info["title"] = cli_name
-                        enrich_with_environment_context(context_variables, str(Path.cwd()), client_info)
+                        enrich_with_environment_context(
+                            context_variables, str(Path.cwd()), client_info
+                        )
                         if context_variables:
                             global_prompt_context = context_variables
 
