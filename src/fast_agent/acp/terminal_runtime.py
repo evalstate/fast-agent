@@ -113,12 +113,13 @@ class ACPTerminalRuntime:
         """Get the execute tool definition."""
         return self._tool
 
-    async def execute(self, arguments: dict[str, Any]) -> CallToolResult:
+    async def execute(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
         """
         Execute a command using ACP terminal support.
 
         Args:
             arguments: Tool arguments containing 'command' key
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             CallToolResult with command output and exit status
@@ -152,7 +153,7 @@ class ACPTerminalRuntime:
         if self._tool_handler:
             try:
                 tool_call_id = await self._tool_handler.on_tool_start(
-                    "execute", "acp_terminal", arguments
+                    "execute", "acp_terminal", arguments, tool_use_id
                 )
             except Exception as e:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)

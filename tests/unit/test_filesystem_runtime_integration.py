@@ -60,7 +60,7 @@ class SimpleFilesystemRuntime:
         )
         self.tools = [self.read_tool, self.write_tool]
 
-    async def read_text_file(self, arguments):
+    async def read_text_file(self, arguments, tool_use_id=None):
         try:
             path = arguments["path"]
             file_path = Path(path)
@@ -75,7 +75,7 @@ class SimpleFilesystemRuntime:
                 isError=True,
             )
 
-    async def write_text_file(self, arguments):
+    async def write_text_file(self, arguments, tool_use_id=None):
         try:
             path = arguments["path"]
             content = arguments["content"]

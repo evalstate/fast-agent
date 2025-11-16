@@ -137,12 +137,13 @@ class ACPFilesystemRuntime:
             tools.append(self._write_tool)
         return tools
 
-    async def read_text_file(self, arguments: dict[str, Any]) -> CallToolResult:
+    async def read_text_file(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
         """
         Read a text file using ACP filesystem support.
 
         Args:
             arguments: Tool arguments containing 'path' and optionally 'line' and 'limit'
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             CallToolResult with file contents
@@ -176,7 +177,7 @@ class ACPFilesystemRuntime:
         if self._tool_handler:
             try:
                 tool_call_id = await self._tool_handler.on_tool_start(
-                    "read_text_file", "acp_filesystem", arguments
+                    "read_text_file", "acp_filesystem", arguments, tool_use_id
                 )
             except Exception as e:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
@@ -239,12 +240,13 @@ class ACPFilesystemRuntime:
                 isError=True,
             )
 
-    async def write_text_file(self, arguments: dict[str, Any]) -> CallToolResult:
+    async def write_text_file(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
         """
         Write a text file using ACP filesystem support.
 
         Args:
             arguments: Tool arguments containing 'path' and 'content'
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             CallToolResult indicating success or failure
@@ -290,7 +292,7 @@ class ACPFilesystemRuntime:
         if self._tool_handler:
             try:
                 tool_call_id = await self._tool_handler.on_tool_start(
-                    "write_text_file", "acp_filesystem", arguments
+                    "write_text_file", "acp_filesystem", arguments, tool_use_id
                 )
             except Exception as e:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
