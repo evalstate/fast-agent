@@ -41,6 +41,7 @@ class SlashCommandHandler:
         client_info: dict | None = None,
         client_capabilities: dict | None = None,
         protocol_version: str | None = None,
+        session_instructions: dict[str, str] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -65,13 +66,14 @@ class SlashCommandHandler:
         self.client_info = client_info
         self.client_capabilities = client_capabilities
         self.protocol_version = protocol_version
+        self._session_instructions = session_instructions or {}
 
         # Register available commands using SDK's AvailableCommand type
         self.commands: dict[str, AvailableCommand] = {
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input=None,
+                input=AvailableCommandInput(root=CommandInputHint(hint="[system]")),
             ),
             "tools": AvailableCommand(
                 name="tools",
@@ -151,7 +153,7 @@ class SlashCommandHandler:
 
         # Route to specific command handler
         if command_name == "status":
-            return await self._handle_status()
+            return await self._handle_status(arguments)
         if command_name == "tools":
             return await self._handle_tools()
         if command_name == "save":
@@ -161,8 +163,13 @@ class SlashCommandHandler:
 
         return f"Command /{command_name} is not yet implemented."
 
-    async def _handle_status(self) -> str:
+    async def _handle_status(self, arguments: str | None = None) -> str:
         """Handle the /status command."""
+        # Check if the user wants to see the system prompt
+        normalized = (arguments or "").strip().lower()
+        if normalized == "system":
+            return self._handle_status_system()
+
         # Get fast-agent version
         try:
             fa_version = get_version("fast-agent-mcp")
@@ -346,6 +353,46 @@ class SlashCommandHandler:
         status_lines.extend(self._get_error_handling_report(agent))
 
         return "\n".join(status_lines)
+
+    def _handle_status_system(self) -> str:
+        """Handle the /status system command to show the system prompt."""
+        heading = "# system prompt"
+
+        # Get the current agent
+        agent = self.instance.agents.get(self.current_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Agent '{self.current_agent_name}' not found for this session.",
+                ]
+            )
+
+        # Get the system prompt from the agent's instruction attribute
+        system_prompt = self._session_instructions.get(
+            getattr(agent, "name", self.current_agent_name), getattr(agent, "instruction", None)
+        )
+        if not system_prompt:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No system prompt available for this agent.",
+                ]
+            )
+
+        # Format the response
+        agent_name = getattr(agent, "name", self.current_agent_name)
+        lines = [
+            heading,
+            "",
+            f"**Agent:** {agent_name}",
+            "",
+            system_prompt,
+        ]
+
+        return "\n".join(lines)
 
     async def _handle_tools(self) -> str:
         """List available MCP tools for the current agent."""

@@ -4,6 +4,8 @@ This replaces the traditional FastAgent with a more streamlined approach that
 directly creates Agent instances without proxies.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import inspect
@@ -31,7 +33,6 @@ import yaml
 from opentelemetry import trace
 
 from fast_agent import config
-from fast_agent.context import Context
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.direct_decorators import (
@@ -92,6 +93,7 @@ if TYPE_CHECKING:
     from pydantic import AnyUrl
 
     from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+    from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -555,7 +557,9 @@ class FastAgent:
                         cli_name = getattr(self.args, "name", None)
                         if cli_name:
                             client_info["title"] = cli_name
-                        enrich_with_environment_context(context_variables, str(Path.cwd()), client_info)
+                        enrich_with_environment_context(
+                            context_variables, str(Path.cwd()), client_info
+                        )
                         if context_variables:
                             global_prompt_context = context_variables
 

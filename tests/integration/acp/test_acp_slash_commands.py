@@ -170,6 +170,50 @@ async def test_slash_command_status_reports_error_channel_entries() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_slash_command_status_system() -> None:
+    """Test the /status system command to show system prompt."""
+
+    @dataclass
+    class AgentWithInstruction(StubAgent):
+        name: str = "test-agent"
+        instruction: str = "You are a helpful assistant that provides excellent support."
+
+    stub_agent = AgentWithInstruction(message_history=[], _llm=None)
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    # Execute status system command
+    response = await handler.execute_command("status", "system")
+
+    # Should contain system prompt heading
+    assert "system prompt" in response.lower()
+    # Should contain the agent name
+    assert "test-agent" in response.lower()
+    # Should contain the instruction/system prompt
+    assert stub_agent.instruction in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_status_system_without_instruction() -> None:
+    """Test /status system when agent has no instruction attribute."""
+    stub_agent = StubAgent(message_history=[], _llm=None)
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    # Execute status system command
+    response = await handler.execute_command("status", "system")
+
+    # Should contain system prompt heading
+    assert "system prompt" in response.lower()
+    # Should indicate no system prompt is available
+    assert "no system prompt" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_slash_command_save_conversation() -> None:
     """Test that /save saves history and reports the filename."""
 
