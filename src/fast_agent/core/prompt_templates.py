@@ -7,7 +7,10 @@ from __future__ import annotations
 import platform
 import re
 from pathlib import Path
-from typing import Mapping, MutableMapping
+from typing import TYPE_CHECKING, Mapping, MutableMapping
+
+if TYPE_CHECKING:
+    from fast_agent.skills import SkillManifest
 
 
 def apply_template_variables(
@@ -93,11 +96,54 @@ def apply_template_variables(
     return resolved
 
 
+def load_skills_for_context(
+    workspace_root: str | None, skills_directory_override: str | None = None
+) -> list["SkillManifest"]:
+    """
+    Load skill manifests from the workspace root or override directory.
+
+    Args:
+        workspace_root: The workspace root directory
+        skills_directory_override: Optional override for skills directory (relative to workspace_root)
+
+    Returns:
+        List of SkillManifest objects
+    """
+    from fast_agent.skills.registry import SkillRegistry
+
+    if not workspace_root:
+        return []
+
+    base_dir = Path(workspace_root)
+
+    # If override is provided, treat it as relative to workspace_root
+    override_dir = None
+    if skills_directory_override:
+        override_path = Path(skills_directory_override)
+        # If it's absolute, use as-is; otherwise make relative to workspace_root
+        if override_path.is_absolute():
+            override_dir = override_path
+        else:
+            override_dir = base_dir / override_path
+
+    registry = SkillRegistry(base_dir=base_dir, override_directory=override_dir)
+    return registry.load_manifests()
+
+
 def enrich_with_environment_context(
-    context: MutableMapping[str, str], cwd: str | None, client_info: Mapping[str, str] | None
+    context: MutableMapping[str, str],
+    cwd: str | None,
+    client_info: Mapping[str, str] | None,
+    skills_directory_override: str | None = None,
 ) -> None:
     """
     Populate the provided context mapping with environment details used for template replacement.
+
+    Args:
+        context: The context mapping to populate
+        cwd: The current working directory (workspace root)
+        client_info: Client information mapping
+        skills_directory_override: Optional override for skills directory
     """
     if cwd:
         context["workspaceRoot"] = cwd
@@ -109,6 +155,14 @@ def enrich_with_environment_context(
     if server_platform:
         context["hostPlatform"] = server_platform
     context["pythonVer"] = python_version
+
+    # Load and format agent skills
+    if cwd:
+        from fast_agent.skills.registry import format_skills_for_prompt
+
+        skill_manifests = load_skills_for_context(cwd, skills_directory_override)
+        skills_text = format_skills_for_prompt(skill_manifests)
+        context["agentSkills"] = skills_text
 
     env_lines: list[str] = []
     if cwd:

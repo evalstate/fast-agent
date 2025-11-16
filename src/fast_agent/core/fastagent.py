@@ -557,8 +557,16 @@ class FastAgent:
                         cli_name = getattr(self.args, "name", None)
                         if cli_name:
                             client_info["title"] = cli_name
+
+                        # Pass skills directory override if configured
+                        skills_override = (
+                            str(self._skills_directory_override)
+                            if self._skills_directory_override
+                            else None
+                        )
+
                         enrich_with_environment_context(
-                            context_variables, str(Path.cwd()), client_info
+                            context_variables, str(Path.cwd()), client_info, skills_override
                         )
                         if context_variables:
                             global_prompt_context = context_variables
@@ -636,12 +644,21 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
+
+                                # Pass skills directory override if configured
+                                skills_override = (
+                                    str(self._skills_directory_override)
+                                    if self._skills_directory_override
+                                    else None
+                                )
+
                                 acp_server = AgentACPServer(
                                     primary_instance=primary_instance,
                                     create_instance=self._server_instance_factory,
                                     dispose_instance=self._server_instance_dispose,
                                     instance_scope=instance_scope,
                                     server_name=server_name or f"{self.name}",
+                                    skills_directory_override=skills_override,
                                 )
 
                                 # Run the ACP server (this is a blocking call)

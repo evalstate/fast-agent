@@ -59,7 +59,20 @@ class SkillRegistry:
         self._errors = []
         if not self._directory:
             return []
-        return self._load_directory(self._directory, self._errors)
+        manifests = self._load_directory(self._directory, self._errors)
+
+        # Recompute relative paths to be from base_dir (workspace root) instead of skills directory
+        adjusted_manifests: List[SkillManifest] = []
+        for manifest in manifests:
+            try:
+                relative_path = manifest.path.relative_to(self._base_dir)
+                adjusted_manifest = replace(manifest, relative_path=relative_path)
+                adjusted_manifests.append(adjusted_manifest)
+            except ValueError:
+                # If we can't compute relative path, keep the original
+                adjusted_manifests.append(manifest)
+
+        return adjusted_manifests
 
     def load_manifests_with_errors(self) -> tuple[List[SkillManifest], List[dict[str, str]]]:
         manifests = self.load_manifests()
@@ -183,9 +196,9 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
         "relevant to the Users task, intent or would increase effectiveness. \n"
-        "The 'execute' tool gives you direct shell access to the current working directory (agent workspace) "
-        "and outputted files are visible to the User.\n"
+        "Use 'execute' for shell commands in the agent workspace. Any files you create will be visible to the user."
         "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
+        "Paths in skill documentation are relative to the skill's directory, not the workspace root. Use the full path from workspace root when executing."
         "Only use skills listed in <available_skills> below.\n\n"
     )
     formatted_parts: List[str] = []
