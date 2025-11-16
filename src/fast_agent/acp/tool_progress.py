@@ -36,6 +36,7 @@ from mcp.types import (
 )
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -70,45 +71,7 @@ class ACPToolProgressManager:
         self._tool_call_id_to_external_id: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
-        # Store aggregators for looking up server names during stream events
-        self._aggregators: list[Any] = []  # List of MCPAggregator instances
         self._lock = asyncio.Lock()
-
-    def register_aggregator(self, aggregator: Any) -> None:
-        """
-        Register an aggregator for server name lookups during stream events.
-
-        Args:
-            aggregator: MCPAggregator instance to register
-        """
-        if aggregator not in self._aggregators:
-            self._aggregators.append(aggregator)
-
-    def _lookup_server_name(self, tool_name: str) -> str | None:
-        """
-        Look up the server name for a tool by checking registered aggregators.
-
-        Args:
-            tool_name: Name of the tool to look up
-
-        Returns:
-            Server name if found, None otherwise
-        """
-        for aggregator in self._aggregators:
-            if not hasattr(aggregator, "_namespaced_tool_map"):
-                continue
-
-            # Check if tool_name is already namespaced (e.g., "server__tool")
-            if tool_name in aggregator._namespaced_tool_map:
-                namespaced_tool = aggregator._namespaced_tool_map[tool_name]
-                return namespaced_tool.server_name
-
-            # Check if any tool has this name as its base name
-            for namespaced_name, namespaced_tool in aggregator._namespaced_tool_map.items():
-                if namespaced_tool.tool.name == tool_name:
-                    return namespaced_tool.server_name
-
-        return None
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -134,24 +97,29 @@ class ACPToolProgressManager:
         Send early ACP notification when tool stream starts.
 
         Args:
-            tool_name: Name of the tool being called
+            tool_name: Name of the tool being called (may be namespaced like "server__tool")
             tool_use_id: LLM's tool use ID
         """
         try:
             # Generate external ID for SDK tracker
             external_id = str(uuid.uuid4())
 
-            # Infer tool kind (without arguments yet)
-            kind = self._infer_tool_kind(tool_name, None)
+            # Parse the tool name if it's namespaced (e.g., "acp_filesystem__write_text_file")
+            if is_namespaced_name(tool_name):
+                server_name = get_server_name(tool_name)
+                base_tool_name = get_resource_name(tool_name)
+            else:
+                server_name = None
+                base_tool_name = tool_name
 
-            # Try to look up server name from aggregators
-            server_name = self._lookup_server_name(tool_name)
+            # Infer tool kind (without arguments yet)
+            kind = self._infer_tool_kind(base_tool_name, None)
 
             # Create title with server name if available
             if server_name:
-                title = f"{server_name}/{tool_name}"
+                title = f"{server_name}/{base_tool_name}"
             else:
-                title = tool_name
+                title = base_tool_name
 
             # Use SDK tracker to create the tool call start notification
             async with self._lock:
@@ -177,7 +145,7 @@ class ACPToolProgressManager:
                 name="acp_tool_stream_start",
                 tool_call_id=tool_call_start.toolCallId,
                 external_id=external_id,
-                tool_name=tool_name,
+                base_tool_name=base_tool_name,
                 server_name=server_name,
                 tool_use_id=tool_use_id,
             )
