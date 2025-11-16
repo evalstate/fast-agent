@@ -115,3 +115,109 @@ def test_file_silent_rejects_absolute_paths(tmp_path):
 
     with pytest.raises(ValueError, match="File template paths must be relative"):
         apply_template_variables(template, variables)
+
+
+def test_enrich_with_environment_context_loads_skills(tmp_path):
+    """enrich_with_environment_context should load and format skills."""
+    # Create a skills directory structure
+    skills_dir = tmp_path / ".fast-agent" / "skills" / "test-skill"
+    skills_dir.mkdir(parents=True)
+
+    skill_file = skills_dir / "SKILL.md"
+    skill_file.write_text(
+        """---
+name: test-skill
+description: A test skill for unit testing
+---
+
+This is the skill body content.
+""",
+        encoding="utf-8",
+    )
+
+    context: dict[str, str] = {}
+    client_info = {"name": "test-client"}
+
+    enrich_with_environment_context(context, str(tmp_path), client_info)
+
+    # Verify skills were loaded
+    assert "agentSkills" in context
+    assert "test-skill" in context["agentSkills"]
+    assert "A test skill for unit testing" in context["agentSkills"]
+    # Verify path is relative to workspace root, not skills directory
+    assert ".fast-agent/skills/test-skill/SKILL.md" in context["agentSkills"]
+
+
+def test_enrich_with_environment_context_respects_skills_override(tmp_path):
+    """enrich_with_environment_context should use skills override directory."""
+    # Create default skills directory
+    default_skills_dir = tmp_path / ".fast-agent" / "skills" / "default-skill"
+    default_skills_dir.mkdir(parents=True)
+    (default_skills_dir / "SKILL.md").write_text(
+        """---
+name: default-skill
+description: Default skill
+---
+""",
+        encoding="utf-8",
+    )
+
+    # Create custom skills directory
+    custom_skills_dir = tmp_path / "custom-skills" / "custom-skill"
+    custom_skills_dir.mkdir(parents=True)
+    (custom_skills_dir / "SKILL.md").write_text(
+        """---
+name: custom-skill
+description: Custom skill from override
+---
+""",
+        encoding="utf-8",
+    )
+
+    context: dict[str, str] = {}
+    client_info = {"name": "test-client"}
+
+    # Use the override
+    enrich_with_environment_context(
+        context, str(tmp_path), client_info, "custom-skills"
+    )
+
+    # Should have custom skill, not default
+    assert "agentSkills" in context
+    assert "custom-skill" in context["agentSkills"]
+    assert "default-skill" not in context["agentSkills"]
+    # Verify path uses custom directory relative to workspace root
+    assert "custom-skills/custom-skill/SKILL.md" in context["agentSkills"]
+
+
+def test_load_skills_for_context_handles_missing_directory(tmp_path):
+    """load_skills_for_context should handle missing skills directory gracefully."""
+    from fast_agent.core.prompt_templates import load_skills_for_context
+
+    # No skills directory exists
+    manifests = load_skills_for_context(str(tmp_path), None)
+
+    # Should return empty list, not error
+    assert manifests == []
+
+
+def test_load_skills_for_context_with_relative_override(tmp_path):
+    """load_skills_for_context should resolve relative override paths."""
+    from fast_agent.core.prompt_templates import load_skills_for_context
+
+    # Create custom skills directory
+    custom_skills_dir = tmp_path / "my-skills" / "skill1"
+    custom_skills_dir.mkdir(parents=True)
+    (custom_skills_dir / "SKILL.md").write_text(
+        """---
+name: skill1
+description: Skill 1
+---
+""",
+        encoding="utf-8",
+    )
+
+    manifests = load_skills_for_context(str(tmp_path), "my-skills")
+
+    assert len(manifests) == 1
+    assert manifests[0].name == "skill1"
