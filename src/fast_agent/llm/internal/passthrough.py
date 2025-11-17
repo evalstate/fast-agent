@@ -133,5 +133,20 @@ class PassthroughLLM(FastAgentLLM):
 
         return result
 
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[Any]:
+        """
+        Convert PromptMessageExtended list to provider format.
+        For PassthroughLLM, we don't actually make API calls, so this just returns empty list.
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            Empty list (passthrough doesn't use provider-specific messages)
+        """
+        return []
+
     def is_tool_call(self, message: PromptMessageExtended) -> bool:
         return message.first_text().startswith(CALL_TOOL_INDICATOR)

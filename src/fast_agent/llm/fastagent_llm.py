@@ -633,6 +633,46 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         raise NotImplementedError("Must be implemented by subclass")
 
+    def _convert_to_provider_format(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[MessageParamT]:
+        """
+        Convert _message_history to provider-specific format.
+        Called fresh on EVERY API call - no caching.
+
+        This method ensures that templates are always included at the beginning
+        of the conversation, regardless of use_history setting.
+
+        Args:
+            messages: List of PromptMessageExtended from _message_history
+
+        Returns:
+            List of provider-specific message objects
+        """
+        # Include templates + conversation history
+        if self._template_messages:
+            all_messages = self._template_messages + messages
+        else:
+            all_messages = messages
+
+        return self._convert_extended_messages_to_provider(all_messages)
+
+    @abstractmethod
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[MessageParamT]:
+        """
+        Convert PromptMessageExtended list to provider-specific format.
+        Must be implemented by each provider.
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of provider-specific message parameter objects
+        """
+        raise NotImplementedError("Must be implemented by subclass")
+
     async def show_prompt_loaded(
         self,
         prompt_name: str,

@@ -698,7 +698,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
 
-        messages.extend(self.history.get(include_completion_history=request_params.use_history))
+        # Convert fresh from _message_history if use_history is enabled
+        if request_params.use_history:
+            messages.extend(self._convert_to_provider_format(self._message_history))
         if message is not None:
             messages.extend(message)
 
@@ -821,17 +823,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             stop_reason = LlmStopReason.SAFETY
             self.logger.debug(" Stopping because finish_reason is 'content_filter'")
 
-        if request_params.use_history:
-            # Get current prompt messages
-            prompt_messages = self.history.get(include_completion_history=False)
-
-            # Calculate new conversation messages (excluding prompts)
-            new_messages = messages[len(prompt_messages) :]
-
-            if system_prompt:
-                new_messages = new_messages[1:]
-
-            self.history.set(new_messages)
+        # Update diagnostic snapshot (never read again)
+        # This provides a snapshot of what was sent to the provider for debugging
+        self.history.set(messages)
 
         self._log_chat_finished(model=self.default_request_params.model)
 
@@ -896,20 +890,15 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
+        """
+        Provider-specific prompt application.
+        Note: Templates are now stored in _template_messages by base class,
+        and will be automatically prepended by _convert_to_provider_format().
+        """
         # Determine effective params to respect use_history for this turn
         req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
-
-        # Prepare prior messages (everything before the last user message), or all if last is assistant
-        messages_to_add = (
-            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
-        )
-
-        converted_prior: List[ChatCompletionMessageParam] = []
-        for msg in messages_to_add:
-            # convert_to_openai now returns a list of messages
-            converted_prior.extend(OpenAIConverter.convert_to_openai(msg))
 
         # If the last message is from the assistant, no inference required
         if last_message.role == "assistant":
@@ -921,16 +910,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Fallback for empty conversion
             converted_last = [{"role": "user", "content": ""}]
 
-        # History-aware vs stateless turn construction
-        if req_params.use_history:
-            # Persist prior context to provider memory; send only the last message for this turn
-            self.history.extend(converted_prior, is_prompt=is_template)
-            turn_messages = converted_last
-        else:
-            # Do NOT persist; inline the full turn context to the provider call
-            turn_messages = converted_prior + converted_last
-
-        return await self._openai_completion(turn_messages, req_params, tools)
+        # No need to manually manage history - conversion happens in _openai_completion
+        # via _convert_to_provider_format()
+        return await self._openai_completion(converted_last, req_params, tools)
 
     def _prepare_api_request(
         self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams
@@ -962,6 +944,27 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
         return arguments
+
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[ChatCompletionMessageParam]:
+        """
+        Convert PromptMessageExtended list to OpenAI ChatCompletionMessageParam format.
+        This is called fresh on every API call from _convert_to_provider_format().
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of OpenAI ChatCompletionMessageParam objects
+        """
+        converted: List[ChatCompletionMessageParam] = []
+
+        for msg in messages:
+            # convert_to_openai returns a list of messages
+            converted.extend(OpenAIConverter.convert_to_openai(msg))
+
+        return converted
 
     def adjust_schema(self, inputSchema: Dict) -> Dict:
         # return inputSchema

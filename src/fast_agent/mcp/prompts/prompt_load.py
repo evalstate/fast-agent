@@ -156,3 +156,28 @@ def load_prompt_as_get_prompt_result(file: Path):
 
     # Convert to GetPromptResult (loses extended fields)
     return to_get_prompt_result(messages)
+
+
+def load_history_into_agent(agent, file_path: Path) -> None:
+    """
+    Load conversation history directly into agent without triggering LLM call.
+
+    This function restores saved conversation state by directly setting the
+    agent's _message_history. No LLM API calls are made.
+
+    Args:
+        agent: Agent instance to restore history into (FastAgentLLM or subclass)
+        file_path: Path to saved history file (JSON or template format)
+
+    Note:
+        - The agent's history is cleared before loading
+        - Provider diagnostic history will be updated on the next API call
+        - Templates are NOT cleared by this function
+    """
+    messages = load_prompt(file_path)
+
+    # Direct restoration - no LLM call
+    agent.clear(clear_prompts=True)
+    agent._message_history = messages
+
+    # Note: Provider diagnostic history will be updated on next API call

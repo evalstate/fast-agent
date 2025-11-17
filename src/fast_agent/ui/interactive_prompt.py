@@ -291,22 +291,16 @@ class InteractivePrompt:
 
                         filename = command_dict.get("filename")
                         try:
-                            from fast_agent.mcp.prompts.prompt_load import load_prompt
-
-                            # Load the messages from the file
-                            messages = load_prompt(Path(filename))
+                            from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 
                             # Get the agent object
                             agent_obj = prompt_provider._agent(agent)
 
-                            # Clear the agent's history first
-                            agent_obj.clear()
+                            # Load history directly without triggering LLM call
+                            load_history_into_agent(agent_obj, Path(filename))
 
-                            # Load the messages into the agent's history
-                            # We use generate() to properly process the loaded history
-                            await agent_obj.generate(messages)
-
-                            rich_print(f"[green]History loaded from {filename}[/green]")
+                            msg_count = len(agent_obj.message_history)
+                            rich_print(f"[green]Loaded {msg_count} messages from {filename}[/green]")
                         except FileNotFoundError:
                             rich_print(f"[red]File not found: {filename}[/red]")
                         except Exception as e:
