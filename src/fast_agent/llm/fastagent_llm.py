@@ -26,7 +26,7 @@ from openai import NotGiven
 from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
 from pydantic_core import from_json
 
-from fast_agent.constants import FAST_AGENT_TIMING
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_TIMING
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -177,7 +177,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             maxTokens=max_tokens,
             systemPrompt=self.instruction,
             parallel_tool_calls=True,
-            max_iterations=20,
+            max_iterations=DEFAULT_MAX_ITERATIONS,
             use_history=True,
         )
 
@@ -209,6 +209,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 filename: str = parts[1].strip()
             else:
                 from datetime import datetime
+
                 timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
                 filename = f"{timestamp}-conversation.json"
             await self._save_history(filename)
@@ -238,9 +239,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 "end_time": end_time,
                 "duration_ms": duration_ms,
             }
-            channels[FAST_AGENT_TIMING] = [
-                TextContent(type="text", text=json.dumps(timing_data))
-            ]
+            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
             assistant_response.channels = channels
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
@@ -322,9 +321,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 "end_time": end_time,
                 "duration_ms": duration_ms,
             }
-            channels[FAST_AGENT_TIMING] = [
-                TextContent(type="text", text=json.dumps(timing_data))
-            ]
+            channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
             assistant_response.channels = channels
 
         self._message_history.append(assistant_response)
