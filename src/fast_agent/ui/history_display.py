@@ -522,39 +522,31 @@ def _render_statistics(
     turns = min(summary.user_message_count, summary.assistant_message_count)
 
     # Format timing values
-    llm_time = format_time(summary.total_elapsed_time_ms) if summary.total_elapsed_time_ms > 0 else "-"
+    llm_time = (
+        format_time(summary.total_elapsed_time_ms) if summary.total_elapsed_time_ms > 0 else "-"
+    )
     runtime = format_time(summary.conversation_span_ms) if summary.conversation_span_ms > 0 else "-"
 
     # Build compact statistics lines
     stats_lines = []
 
-    # Line 1: Turns and Messages
-    line1 = Text("  ", style="dim")
-    line1.append("Turns: ", style="dim")
-    line1.append(str(turns), style="default")
-    line1.append("  •  ", style="dim")
-    line1.append("Messages: ", style="dim")
-    line1.append(f"{summary.message_count}", style="default")
-    line1.append(f" (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})", style="dim")
-    stats_lines.append(line1)
-
-    # Line 2: Tool Calls
-    line2 = Text("  ", style="dim")
-    line2.append("Tool Calls: ", style="dim")
-    line2.append(str(summary.tool_calls), style="default")
-    if summary.tool_calls > 0:
-        line2.append(f" (successes: {summary.tool_successes}, errors: {summary.tool_errors})", style="dim")
-    stats_lines.append(line2)
-
-    # Line 3: Timing
     if summary.total_elapsed_time_ms > 0 or summary.conversation_span_ms > 0:
-        line3 = Text("  ", style="dim")
-        line3.append("LLM Time: ", style="dim")
-        line3.append(llm_time, style="default")
-        line3.append("  •  ", style="dim")
-        line3.append("Runtime: ", style="dim")
-        line3.append(runtime, style="default")
-        stats_lines.append(line3)
+        timing_line = Text("  ", style="dim")
+        timing_line.append("LLM Time: ", style="dim")
+        timing_line.append(llm_time, style="default")
+        timing_line.append("  •  ", style="dim")
+        timing_line.append("Runtime: ", style="dim")
+        timing_line.append(runtime, style="default")
+        stats_lines.append(timing_line)
+
+    tool_counts = Text("  ", style="dim")
+    tool_counts.append("Tool Calls: ", style="dim")
+    tool_counts.append(str(summary.tool_calls), style="default")
+    if summary.tool_calls > 0:
+        tool_counts.append(
+            f" (successes: {summary.tool_successes}, errors: {summary.tool_errors})", style="dim"
+        )
+    stats_lines.append(tool_counts)
 
     # Tool Usage Breakdown (if tools were used)
     if summary.tool_calls > 0 and summary.tool_call_map:
@@ -562,15 +554,15 @@ def _render_statistics(
         sorted_tools = sorted(summary.tool_call_map.items(), key=lambda x: x[1], reverse=True)
 
         # Show compact breakdown
-        line4 = Text("  ", style="dim")
-        line4.append("Top Tools: ", style="dim")
+        tool_details = Text("  ", style="dim")
+        tool_details.append("Tools: ", style="dim")
 
         tool_parts = []
         for tool_name, count in sorted_tools[:5]:  # Show max 5 tools
             tool_parts.append(f"{tool_name} ({count})")
 
-        line4.append(", ".join(tool_parts), style=Colours.TOOL_DETAIL)
-        stats_lines.append(line4)
+        tool_details.append(", ".join(tool_parts), style=Colours.TOOL_DETAIL)
+        stats_lines.append(tool_details)
 
     # Print all statistics lines
     for line in stats_lines:
