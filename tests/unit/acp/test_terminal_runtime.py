@@ -1,33 +1,55 @@
 """Unit tests for ACPTerminalRuntime."""
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
+from types import SimpleNamespace
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+
+class RecordingConnection:
+    """Simple async connection that records requests and returns preset responses."""
+
+    def __init__(self, responses: list[dict]):
+        self._responses = list(responses)
+        self.calls: list[tuple[str, dict]] = []
+
+    async def send_request(self, method: str, params: dict | None = None) -> dict:
+        self.calls.append((method, params or {}))
+        if self._responses:
+            return self._responses.pop(0)
+        return {}
+
+
+def build_runtime(
+    responses: list[dict],
+    session_id: str = "test-session",
+    default_limit: int | None = None,
+):
+    """Create a runtime wired to a recording connection."""
+    conn = RecordingConnection(responses)
+    runtime = ACPTerminalRuntime(
+        connection=SimpleNamespace(_conn=conn),
+        session_id=session_id,
+        activation_reason="test",
+        timeout_seconds=90,
+        default_output_byte_limit=default_limit
+        if default_limit is not None
+        else DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    )
+    return runtime, conn
 
 
 @pytest.mark.asyncio
 async def test_env_parameter_transformation_from_object():
     """Test that env parameter is transformed from object to array format."""
-    # Setup mock connection
-    mock_conn = MagicMock()
-    mock_conn._conn = AsyncMock()
-    mock_conn._conn.send_request = AsyncMock()
-
-    # Mock terminal responses
-    mock_conn._conn.send_request.side_effect = [
-        {"terminalId": "terminal-1"},  # terminal/create
-        {"exitCode": 0, "signal": None},  # terminal/wait_for_exit
-        {"output": "test output", "truncated": False, "exitCode": 0},  # terminal/output
-        {},  # terminal/release
-    ]
-
-    runtime = ACPTerminalRuntime(
-        connection=mock_conn,
-        session_id="test-session",
-        activation_reason="test",
-        timeout_seconds=90,
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},  # terminal/create
+            {"exitCode": 0, "signal": None},  # terminal/wait_for_exit
+            {"output": "test output", "truncated": False, "exitCode": 0},  # terminal/output
+            {},  # terminal/release
+        ]
     )
 
     # Execute command with env as object (LLM-friendly format)
@@ -43,9 +65,8 @@ async def test_env_parameter_transformation_from_object():
     await runtime.execute(arguments)
 
     # Verify terminal/create was called with transformed env (array format)
-    create_call = mock_conn._conn.send_request.call_args_list[0]
-    assert create_call[0][0] == "terminal/create"
-    create_params = create_call[0][1]
+    method, create_params = conn.calls[0]
+    assert method == "terminal/create"
 
     # Check that env was transformed to array format
     assert "env" in create_params
@@ -62,24 +83,13 @@ async def test_env_parameter_transformation_from_object():
 @pytest.mark.asyncio
 async def test_env_parameter_passthrough_for_array():
     """Test that env parameter in array format is passed through unchanged."""
-    # Setup mock connection
-    mock_conn = MagicMock()
-    mock_conn._conn = AsyncMock()
-    mock_conn._conn.send_request = AsyncMock()
-
-    # Mock terminal responses
-    mock_conn._conn.send_request.side_effect = [
-        {"terminalId": "terminal-1"},  # terminal/create
-        {"exitCode": 0, "signal": None},  # terminal/wait_for_exit
-        {"output": "test output", "truncated": False, "exitCode": 0},  # terminal/output
-        {},  # terminal/release
-    ]
-
-    runtime = ACPTerminalRuntime(
-        connection=mock_conn,
-        session_id="test-session",
-        activation_reason="test",
-        timeout_seconds=90,
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},  # terminal/create
+            {"exitCode": 0, "signal": None},  # terminal/wait_for_exit
+            {"output": "test output", "truncated": False, "exitCode": 0},  # terminal/output
+            {},  # terminal/release
+        ]
     )
 
     # Execute command with env already in array format
@@ -95,8 +105,7 @@ async def test_env_parameter_passthrough_for_array():
     await runtime.execute(arguments)
 
     # Verify terminal/create was called with env unchanged
-    create_call = mock_conn._conn.send_request.call_args_list[0]
-    create_params = create_call[0][1]
+    _, create_params = conn.calls[0]
 
     assert create_params["env"] == env_array
 
@@ -104,24 +113,13 @@ async def test_env_parameter_passthrough_for_array():
 @pytest.mark.asyncio
 async def test_optional_parameters_passed_correctly():
     """Test that all optional parameters are passed to terminal/create."""
-    # Setup mock connection
-    mock_conn = MagicMock()
-    mock_conn._conn = AsyncMock()
-    mock_conn._conn.send_request = AsyncMock()
-
-    # Mock terminal responses
-    mock_conn._conn.send_request.side_effect = [
-        {"terminalId": "terminal-1"},
-        {"exitCode": 0, "signal": None},
-        {"output": "test output", "truncated": False, "exitCode": 0},
-        {},
-    ]
-
-    runtime = ACPTerminalRuntime(
-        connection=mock_conn,
-        session_id="test-session",
-        activation_reason="test",
-        timeout_seconds=90,
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "test output", "truncated": False, "exitCode": 0},
+            {},
+        ]
     )
 
     # Execute command with all optional parameters
@@ -136,8 +134,7 @@ async def test_optional_parameters_passed_correctly():
     await runtime.execute(arguments)
 
     # Verify all parameters were passed to terminal/create
-    create_call = mock_conn._conn.send_request.call_args_list[0]
-    create_params = create_call[0][1]
+    _, create_params = conn.calls[0]
 
     assert create_params["command"] == "ls"
     assert create_params["args"] == ["-la", "/tmp"]
@@ -147,26 +144,54 @@ async def test_optional_parameters_passed_correctly():
 
 
 @pytest.mark.asyncio
+async def test_default_output_byte_limit_used_when_missing():
+    """Ensure a sensible default output limit is applied."""
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "test output", "truncated": False, "exitCode": 0},
+            {},
+        ]
+    )
+
+    await runtime.execute({"command": "echo default"})
+
+    _, create_params = conn.calls[0]
+    assert create_params["outputByteLimit"] == DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_custom_default_output_byte_limit_overrides_baseline():
+    """Verify callers can override the default terminal output limit."""
+    custom_limit = 12345
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-override"},
+            {"exitCode": 0, "signal": None},
+            {"output": "test output", "truncated": False, "exitCode": 0},
+            {},
+        ],
+        default_limit=custom_limit,
+    )
+
+    await runtime.execute({"command": "echo custom"})
+
+    _, create_params = conn.calls[0]
+    assert create_params["outputByteLimit"] == custom_limit
+
+
+@pytest.mark.asyncio
 async def test_session_id_in_all_terminal_requests():
     """Test that sessionId IS included in all terminal method parameters (per ACP spec)."""
-    # Setup mock connection
-    mock_conn = MagicMock()
-    mock_conn._conn = AsyncMock()
-    mock_conn._conn.send_request = AsyncMock()
-
-    # Mock terminal responses
-    mock_conn._conn.send_request.side_effect = [
-        {"terminalId": "terminal-1"},
-        {"exitCode": 0, "signal": None},
-        {"output": "test output", "truncated": False, "exitCode": 0},
-        {},
-    ]
-
-    runtime = ACPTerminalRuntime(
-        connection=mock_conn,
+    runtime, conn = build_runtime(
+        responses=[
+            {"terminalId": "terminal-1"},
+            {"exitCode": 0, "signal": None},
+            {"output": "test output", "truncated": False, "exitCode": 0},
+            {},
+        ],
         session_id="test-session-123",
-        activation_reason="test",
-        timeout_seconds=90,
     )
 
     await runtime.execute({"command": "echo test"})
@@ -180,17 +205,12 @@ async def test_session_id_in_all_terminal_requests():
         ("terminal/release", True),
     ]
 
-    assert len(mock_conn._conn.send_request.call_args_list) == 4
+    assert len(conn.calls) == 4
 
-    for i, (expected_method, should_have_session) in enumerate(expected_calls):
-        call = mock_conn._conn.send_request.call_args_list[i]
-        method_name = call[0][0]
-        params = call[0][1]
-
-        assert method_name == expected_method, f"Call {i}: expected {expected_method}, got {method_name}"
-
+    for (expected_method, should_have_session), (method_name, params) in zip(expected_calls, conn.calls):
+        assert method_name == expected_method
         if should_have_session:
-            assert "sessionId" in params, f"sessionId should be in {method_name} params per ACP spec"
+            assert "sessionId" in params
             assert params["sessionId"] == "test-session-123"
 
 
