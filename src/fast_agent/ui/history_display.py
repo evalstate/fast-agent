@@ -12,6 +12,7 @@ from rich.text import Text
 
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.types.conversation_summary import ConversationSummary
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from rich.console import Console
@@ -510,6 +511,64 @@ def _render_header_line(agent_name: str, *, console: Console | None, printer) ->
     printer("")
 
 
+def _render_statistics(
+    summary: ConversationSummary,
+    *,
+    console: Console | None,
+    printer,
+) -> None:
+    """Render compact conversation statistics section."""
+
+    # Format timing values
+    llm_time = (
+        format_time(summary.total_elapsed_time_ms) if summary.total_elapsed_time_ms > 0 else "-"
+    )
+    runtime = format_time(summary.conversation_span_ms) if summary.conversation_span_ms > 0 else "-"
+
+    # Build compact statistics lines
+    stats_lines = []
+
+    if summary.total_elapsed_time_ms > 0 or summary.conversation_span_ms > 0:
+        timing_line = Text("  ", style="dim")
+        timing_line.append("LLM Time: ", style="dim")
+        timing_line.append(llm_time, style="default")
+        timing_line.append("  •  ", style="dim")
+        timing_line.append("Runtime: ", style="dim")
+        timing_line.append(runtime, style="default")
+        stats_lines.append(timing_line)
+
+    tool_counts = Text("  ", style="dim")
+    tool_counts.append("Tool Calls: ", style="dim")
+    tool_counts.append(str(summary.tool_calls), style="default")
+    if summary.tool_calls > 0:
+        tool_counts.append(
+            f" (successes: {summary.tool_successes}, errors: {summary.tool_errors})", style="dim"
+        )
+    stats_lines.append(tool_counts)
+
+    # Tool Usage Breakdown (if tools were used)
+    if summary.tool_calls > 0 and summary.tool_call_map:
+        # Get top tools sorted by count
+        sorted_tools = sorted(summary.tool_call_map.items(), key=lambda x: x[1], reverse=True)
+
+        # Show compact breakdown
+        tool_details = Text("  ", style="dim")
+        tool_details.append("Tools: ", style="dim")
+
+        tool_parts = []
+        for tool_name, count in sorted_tools[:5]:  # Show max 5 tools
+            tool_parts.append(f"{tool_name} ({count})")
+
+        tool_details.append(", ".join(tool_parts), style=Colours.TOOL_DETAIL)
+        stats_lines.append(tool_details)
+
+    # Print all statistics lines
+    for line in stats_lines:
+        printer(line)
+
+    printer("")
+
+
 def display_history_overview(
     agent_name: str,
     history: Sequence[PromptMessageExtended],
@@ -524,6 +583,9 @@ def display_history_overview(
 
     printer = console.print if console else rich_print
 
+    # Create conversation summary for statistics
+    summary = ConversationSummary(messages=list(history))
+
     rows = _build_history_rows(history)
     timeline_entries = _aggregate_timeline_entries(rows)
 
@@ -537,6 +599,9 @@ def display_history_overview(
     context_bar, context_detail = _build_context_bar_line(current_tokens, window)
 
     _render_header_line(agent_name, console=console, printer=printer)
+
+    # Render conversation statistics
+    _render_statistics(summary, console=console, printer=printer)
 
     gap = Text("   ")
     combined_line = Text()

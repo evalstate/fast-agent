@@ -176,14 +176,6 @@ async def configure_logger(config: "Settings") -> None:
     )
 
 
-async def configure_usage_telemetry(_config: "Settings") -> None:
-    """
-    Configure usage telemetry based on the application config.
-    TODO: saqadri - implement usage tracking
-    """
-    pass
-
-
 async def configure_executor(config: "Settings"):
     """
     Configure the executor based on the application config.
@@ -218,7 +210,6 @@ async def initialize_context(
     # Configure logging and telemetry
     await configure_otel(config)
     await configure_logger(config)
-    await configure_usage_telemetry(config)
 
     # Configure the executor
     context.executor = await configure_executor(config)

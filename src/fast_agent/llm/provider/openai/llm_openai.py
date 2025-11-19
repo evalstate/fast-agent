@@ -405,7 +405,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if len(lowered) % len(candidate) == 0:
                 repetitions = len(lowered) // len(candidate)
                 if candidate * repetitions == lowered:
-                    self.logger.warning(
+                    self.logger.info(
                         "Collapsing repeated role value from provider",
                         data={
                             "original_role": role,
