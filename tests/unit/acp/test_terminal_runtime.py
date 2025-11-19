@@ -1,7 +1,8 @@
 """Unit tests for ACPTerminalRuntime."""
 
-import pytest
 from types import SimpleNamespace
+
+import pytest
 
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
