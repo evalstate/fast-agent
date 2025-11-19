@@ -12,6 +12,7 @@ from rich.text import Text
 
 from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.types.conversation_summary import ConversationSummary
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from rich.console import Console
@@ -510,6 +511,74 @@ def _render_header_line(agent_name: str, *, console: Console | None, printer) ->
     printer("")
 
 
+def _render_statistics(
+    summary: ConversationSummary,
+    *,
+    console: Console | None,
+    printer,
+) -> None:
+    """Render compact conversation statistics section."""
+    # Calculate turns (user + assistant message pairs)
+    turns = min(summary.user_message_count, summary.assistant_message_count)
+
+    # Format timing values
+    llm_time = format_time(summary.total_elapsed_time_ms) if summary.total_elapsed_time_ms > 0 else "-"
+    runtime = format_time(summary.conversation_span_ms) if summary.conversation_span_ms > 0 else "-"
+
+    # Build compact statistics lines
+    stats_lines = []
+
+    # Line 1: Turns and Messages
+    line1 = Text("  ", style="dim")
+    line1.append("Turns: ", style="dim")
+    line1.append(str(turns), style="default")
+    line1.append("  •  ", style="dim")
+    line1.append("Messages: ", style="dim")
+    line1.append(f"{summary.message_count}", style="default")
+    line1.append(f" (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})", style="dim")
+    stats_lines.append(line1)
+
+    # Line 2: Tool Calls
+    line2 = Text("  ", style="dim")
+    line2.append("Tool Calls: ", style="dim")
+    line2.append(str(summary.tool_calls), style="default")
+    if summary.tool_calls > 0:
+        line2.append(f" (successes: {summary.tool_successes}, errors: {summary.tool_errors})", style="dim")
+    stats_lines.append(line2)
+
+    # Line 3: Timing
+    if summary.total_elapsed_time_ms > 0 or summary.conversation_span_ms > 0:
+        line3 = Text("  ", style="dim")
+        line3.append("LLM Time: ", style="dim")
+        line3.append(llm_time, style="default")
+        line3.append("  •  ", style="dim")
+        line3.append("Runtime: ", style="dim")
+        line3.append(runtime, style="default")
+        stats_lines.append(line3)
+
+    # Tool Usage Breakdown (if tools were used)
+    if summary.tool_calls > 0 and summary.tool_call_map:
+        # Get top tools sorted by count
+        sorted_tools = sorted(summary.tool_call_map.items(), key=lambda x: x[1], reverse=True)
+
+        # Show compact breakdown
+        line4 = Text("  ", style="dim")
+        line4.append("Top Tools: ", style="dim")
+
+        tool_parts = []
+        for tool_name, count in sorted_tools[:5]:  # Show max 5 tools
+            tool_parts.append(f"{tool_name} ({count})")
+
+        line4.append(", ".join(tool_parts), style=Colours.TOOL_DETAIL)
+        stats_lines.append(line4)
+
+    # Print all statistics lines
+    for line in stats_lines:
+        printer(line)
+
+    printer("")
+
+
 def display_history_overview(
     agent_name: str,
     history: Sequence[PromptMessageExtended],
@@ -524,6 +593,9 @@ def display_history_overview(
 
     printer = console.print if console else rich_print
 
+    # Create conversation summary for statistics
+    summary = ConversationSummary(messages=list(history))
+
     rows = _build_history_rows(history)
     timeline_entries = _aggregate_timeline_entries(rows)
 
@@ -537,6 +609,9 @@ def display_history_overview(
     context_bar, context_detail = _build_context_bar_line(current_tokens, window)
 
     _render_header_line(agent_name, console=console, printer=printer)
+
+    # Render conversation statistics
+    _render_statistics(summary, console=console, printer=printer)
 
     gap = Text("   ")
     combined_line = Text()
