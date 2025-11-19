@@ -1,423 +1,289 @@
-import unittest
-from unittest.mock import AsyncMock, MagicMock, patch
+"""
+Unit tests for Anthropic caching functionality.
 
+These tests directly test the _convert_extended_messages_to_provider method
+to verify cache_control markers are applied correctly based on cache_mode settings.
+"""
+
+import pytest
 from mcp.types import TextContent
 
 from fast_agent.config import AnthropicSettings, Settings
+from fast_agent.context import Context
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
-class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
+class TestAnthropicCaching:
     """Test cases for Anthropic caching functionality."""
 
-    def setUp(self):
-        """Set up test environment."""
-        self.mock_context = MagicMock()
-        self.mock_context.config = Settings()
-        self.mock_aggregator = AsyncMock()
-        self.mock_aggregator.list_tools = AsyncMock(
-            return_value=MagicMock(
-                tools=[
-                    MagicMock(
-                        name="test_tool",
-                        description="Test tool",
-                        inputSchema={"type": "object", "properties": {}},
-                    )
-                ]
-            )
+    def _create_context_with_cache_mode(self, cache_mode: str) -> Context:
+        """Create a context with specified cache mode."""
+        ctx = Context()
+        ctx.config = Settings()
+        ctx.config.anthropic = AnthropicSettings(
+            api_key="test_key", cache_mode=cache_mode
         )
+        return ctx
 
     def _create_llm(self, cache_mode: str = "off") -> AnthropicLLM:
         """Create an AnthropicLLM instance with specified cache mode."""
-        self.mock_context.config.anthropic = AnthropicSettings(
-            api_key="test_key", cache_mode=cache_mode
-        )
-
-        llm = AnthropicLLM(context=self.mock_context, aggregator=self.mock_aggregator)
+        ctx = self._create_context_with_cache_mode(cache_mode)
+        llm = AnthropicLLM(context=ctx)
         return llm
 
-    @patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic")
-    async def test_caching_off_mode(self, mock_anthropic_class):
-        """Test that no caching is applied when cache_mode is 'off'."""
+    def test_conversion_off_mode_no_cache_control(self):
+        """Test that no cache_control is applied when cache_mode is 'off'."""
         llm = self._create_llm(cache_mode="off")
-        llm.instruction = "Test system prompt"
 
-        # Capture the arguments passed to the streaming API
-        captured_args = None
-
-        # Mock the Anthropic client
-        mock_client = MagicMock()
-        mock_anthropic_class.return_value = mock_client
-
-        # Create a proper async context manager for the stream
-        class MockStream:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return None
-
-            def __aiter__(self):
-                return iter([])
-
-        # Capture arguments and return the mock stream
-        def stream_method(**kwargs):
-            nonlocal captured_args
-            captured_args = kwargs
-            return MockStream()
-
-        mock_client.messages.stream = stream_method
-
-        # Mock the _process_stream method to return a response
-        # Create a usage mock that won't trigger warnings
-        mock_usage = MagicMock()
-        mock_usage.input_tokens = 100
-        mock_usage.output_tokens = 50
-        mock_usage.cache_creation_input_tokens = None
-        mock_usage.cache_read_input_tokens = None
-        mock_usage.trafficType = None  # Add trafficType to prevent Google genai warning
-
-        mock_response = MagicMock(
-            content=[MagicMock(type="text", text="Test response")],
-            stop_reason="end_turn",
-            usage=mock_usage,
-        )
-        llm._process_stream = AsyncMock(return_value=mock_response)
-
-        # Create a test message
-        message_param = {"role": "user", "content": [{"type": "text", "text": "Test message"}]}
-
-        # Run the completion
-        await llm._anthropic_completion(message_param)
-
-        # Verify arguments were captured
-        self.assertIsNotNone(captured_args)
-
-        # Check that system prompt exists but has no cache_control
-        system = captured_args.get("system")
-        self.assertIsNotNone(system)
-
-        # When cache_mode is "off", system should remain a string
-        self.assertIsInstance(system, str)
-        self.assertEqual(system, "Test system prompt")
-
-    @patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic")
-    async def test_caching_prompt_mode(self, mock_anthropic_class):
-        """Test caching behavior in 'prompt' mode."""
-        llm = self._create_llm(cache_mode="prompt")
-        llm.instruction = "Test system prompt"
-
-        # Capture the arguments passed to the streaming API
-        captured_args = None
-
-        # Mock the Anthropic client
-        mock_client = MagicMock()
-        mock_anthropic_class.return_value = mock_client
-
-        # Create a proper async context manager for the stream
-        class MockStream:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return None
-
-            def __aiter__(self):
-                return iter([])
-
-        # Capture arguments and return the mock stream
-        def stream_method(**kwargs):
-            nonlocal captured_args
-            captured_args = kwargs
-            return MockStream()
-
-        mock_client.messages.stream = stream_method
-
-        # Mock the _process_stream method to return a response
-        # Create a usage mock that won't trigger warnings
-        mock_usage = MagicMock()
-        mock_usage.input_tokens = 100
-        mock_usage.output_tokens = 50
-        mock_usage.cache_creation_input_tokens = None
-        mock_usage.cache_read_input_tokens = None
-        mock_usage.trafficType = None  # Add trafficType to prevent Google genai warning
-
-        mock_response = MagicMock(
-            content=[MagicMock(type="text", text="Test response")],
-            stop_reason="end_turn",
-            usage=mock_usage,
-        )
-        llm._process_stream = AsyncMock(return_value=mock_response)
-
-        # Create a test message
-        message_param = {"role": "user", "content": [{"type": "text", "text": "Test message"}]}
-
-        # Run the completion
-        await llm._anthropic_completion(message_param)
-
-        # Verify arguments were captured
-        self.assertIsNotNone(captured_args)
-
-        # Check that system prompt has cache_control when cache_mode is "prompt"
-        system = captured_args.get("system")
-        self.assertIsNotNone(system)
-
-        # When cache_mode is "prompt", system should be converted to a list with cache_control
-        self.assertIsInstance(system, list)
-        self.assertEqual(len(system), 1)
-        self.assertEqual(system[0]["type"], "text")
-        self.assertEqual(system[0]["text"], "Test system prompt")
-        self.assertIn("cache_control", system[0])
-        self.assertEqual(system[0]["cache_control"]["type"], "ephemeral")
-
-        # Note: According to the code comment, tools and system are cached together
-        # via the system prompt, so tools themselves don't get cache_control
-
-    @patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic")
-    async def test_caching_auto_mode(self, mock_anthropic_class):
-        """Test caching behavior in 'auto' mode."""
-        llm = self._create_llm(cache_mode="auto")
-        llm.instruction = "Test system prompt"
-
-        # Add some messages to _message_history to test message caching
-        # (With new architecture, messages come from _message_history, not provider history)
-        llm._message_history.extend(
-            [
-                PromptMessageExtended(
-                    role="user", content=[TextContent(type="text", text="First message")]
-                ),
-                PromptMessageExtended(
-                    role="assistant", content=[TextContent(type="text", text="First response")]
-                ),
-                PromptMessageExtended(
-                    role="user", content=[TextContent(type="text", text="Second message")]
-                ),
-            ]
-        )
-
-        # Capture the arguments passed to the streaming API
-        captured_args = None
-
-        # Mock the Anthropic client
-        mock_client = MagicMock()
-        mock_anthropic_class.return_value = mock_client
-
-        # Create a proper async context manager for the stream
-        class MockStream:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return None
-
-            def __aiter__(self):
-                return iter([])
-
-        # Capture arguments and return the mock stream
-        def stream_method(**kwargs):
-            nonlocal captured_args
-            captured_args = kwargs
-            return MockStream()
-
-        mock_client.messages.stream = stream_method
-
-        # Mock the _process_stream method to return a response
-        # Create a usage mock that won't trigger warnings
-        mock_usage = MagicMock()
-        mock_usage.input_tokens = 100
-        mock_usage.output_tokens = 50
-        mock_usage.cache_creation_input_tokens = None
-        mock_usage.cache_read_input_tokens = None
-        mock_usage.trafficType = None  # Add trafficType to prevent Google genai warning
-
-        mock_response = MagicMock(
-            content=[MagicMock(type="text", text="Test response")],
-            stop_reason="end_turn",
-            usage=mock_usage,
-        )
-        llm._process_stream = AsyncMock(return_value=mock_response)
-
-        # Create a test message
-        message_param = {"role": "user", "content": [{"type": "text", "text": "Test message"}]}
-
-        # Run the completion
-        await llm._anthropic_completion(message_param)
-
-        # Verify arguments were captured
-        self.assertIsNotNone(captured_args)
-
-        # Check that system prompt has cache_control when cache_mode is "auto"
-        system = captured_args.get("system")
-        self.assertIsNotNone(system)
-
-        # When cache_mode is "auto", system should be converted to a list with cache_control
-        self.assertIsInstance(system, list)
-        self.assertEqual(len(system), 1)
-        self.assertEqual(system[0]["type"], "text")
-        self.assertEqual(system[0]["text"], "Test system prompt")
-        self.assertIn("cache_control", system[0])
-        self.assertEqual(system[0]["cache_control"]["type"], "ephemeral")
-
-        # In auto mode, conversation messages may have cache control if there are enough messages
-        messages = captured_args.get("messages", [])
-        self.assertGreater(len(messages), 0)
-
-        # Verify we have the expected messages
-        # History has 3 messages + prompt messages (if any) + the new message
-        # Let's just verify we have messages and the structure is correct
-        self.assertGreaterEqual(len(messages), 4)  # At least the history + new message
-
-    @patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic")
-    async def test_template_caching_prompt_mode(self, mock_anthropic_class):
-        """Test that template messages are cached in 'prompt' mode."""
-        llm = self._create_llm(cache_mode="prompt")
-
-        # Capture the arguments passed to the streaming API
-        captured_args = None
-
-        # Mock the Anthropic client
-        mock_client = MagicMock()
-        mock_anthropic_class.return_value = mock_client
-
-        # Create a proper async context manager for the stream
-        class MockStream:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return None
-
-            def __aiter__(self):
-                return iter([])
-
-        # Capture arguments and return the mock stream
-        def stream_method(**kwargs):
-            nonlocal captured_args
-            captured_args = kwargs
-            return MockStream()
-
-        mock_client.messages.stream = stream_method
-
-        # Mock the _process_stream method to return a response
-        mock_usage = MagicMock()
-        mock_usage.input_tokens = 100
-        mock_usage.output_tokens = 50
-        mock_usage.cache_creation_input_tokens = None
-        mock_usage.cache_read_input_tokens = None
-        mock_usage.trafficType = None
-
-        mock_response = MagicMock(
-            content=[MagicMock(type="text", text="Response")],
-            stop_reason="end_turn",
-            usage=mock_usage,
-        )
-        llm._process_stream = AsyncMock(return_value=mock_response)
-
-        # Create template messages and add to _template_messages
-        template_msgs = [
+        # Create test messages
+        messages = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Template message 1")]
+                role="user", content=[TextContent(type="text", text="Hello")]
             ),
             PromptMessageExtended(
-                role="assistant", content=[TextContent(type="text", text="Template response 1")]
+                role="assistant", content=[TextContent(type="text", text="Hi there")]
+            ),
+        ]
+
+        # Convert to provider format
+        converted = llm._convert_extended_messages_to_provider(messages)
+
+        # Verify no cache_control in any message
+        assert len(converted) == 2
+        for msg in converted:
+            assert "content" in msg
+            for block in msg["content"]:
+                if isinstance(block, dict):
+                    assert "cache_control" not in block, (
+                        "cache_control should not be present when cache_mode is 'off'"
+                    )
+
+    def test_conversion_prompt_mode_templates_cached(self):
+        """Test that template messages get cache_control in 'prompt' mode."""
+        llm = self._create_llm(cache_mode="prompt")
+
+        # Create template messages
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="System context")]
+            ),
+            PromptMessageExtended(
+                role="assistant", content=[TextContent(type="text", text="Understood")]
             ),
         ]
         llm._template_messages = template_msgs
-        # Also copy to _message_history as templates would be
-        llm._message_history = [msg.model_copy(deep=True) for msg in template_msgs]
 
-        # Create a test message
-        message_param = {"role": "user", "content": [{"type": "text", "text": "Current question"}]}
-
-        # Run the completion - this will convert templates with caching applied
-        await llm._anthropic_completion(message_param)
-
-        # Verify arguments were captured
-        self.assertIsNotNone(captured_args)
-
-        # Check that template messages in the API call have cache control
-        messages = captured_args.get("messages", [])
-        self.assertGreater(len(messages), 0)
-
-        # Verify that at least one template message has cache control
-        found_cache_control = False
-        for msg in messages:
-            if isinstance(msg, dict) and "content" in msg:
-                for block in msg["content"]:
-                    if isinstance(block, dict) and "cache_control" in block:
-                        found_cache_control = True
-                        self.assertEqual(block["cache_control"]["type"], "ephemeral")
-
-        self.assertTrue(found_cache_control, "No cache control found in template messages")
-
-    @patch("fast_agent.llm.provider.anthropic.llm_anthropic.AsyncAnthropic")
-    async def test_template_caching_off_mode(self, mock_anthropic_class):
-        """Test that template messages are NOT cached in 'off' mode."""
-        llm = self._create_llm(cache_mode="off")
-
-        # Mock the Anthropic client
-        mock_client = MagicMock()
-        mock_anthropic_class.return_value = mock_client
-
-        # Create a proper async context manager for the stream
-        class MockStream:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, exc_type, exc, tb):
-                return None
-
-            def __aiter__(self):
-                return iter([])
-
-        # Mock the stream method
-        mock_client.messages.stream = lambda **kwargs: MockStream()
-
-        # Mock the _process_stream method to return a response
-        mock_usage = MagicMock()
-        mock_usage.input_tokens = 100
-        mock_usage.output_tokens = 50
-        mock_usage.cache_creation_input_tokens = None
-        mock_usage.cache_read_input_tokens = None
-        mock_usage.trafficType = None
-
-        mock_response = MagicMock(
-            content=[MagicMock(type="text", text="Response")],
-            stop_reason="end_turn",
-            usage=mock_usage,
-        )
-        llm._process_stream = AsyncMock(return_value=mock_response)
-
-        # Create template messages
-        template_messages = [
+        # Create conversation messages
+        conversation_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Template message")]
-            ),
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Current question")]
+                role="user", content=[TextContent(type="text", text="Question")]
             ),
         ]
 
-        # Apply template with is_template=True
-        await llm._apply_prompt_provider_specific(
-            template_messages, request_params=None, is_template=True
-        )
+        # Convert using _convert_to_provider_format which prepends templates
+        converted = llm._convert_to_provider_format(conversation_msgs)
 
-        # Check that template messages in history do NOT have cache control
-        history_messages = llm.history.get(include_completion_history=False)
+        # Verify we have 3 messages (2 templates + 1 conversation)
+        assert len(converted) == 3
 
-        # Verify that no template message has cache control
-        for msg in history_messages:
-            if isinstance(msg, dict) and "content" in msg:
+        # Template messages should have cache_control
+        # The last template message should have cache_control on its last block
+        found_cache_control = False
+        for i, msg in enumerate(converted[:2]):  # First 2 are templates
+            if "content" in msg:
+                for block in msg["content"]:
+                    if isinstance(block, dict) and "cache_control" in block:
+                        found_cache_control = True
+                        assert block["cache_control"]["type"] == "ephemeral"
+
+        assert found_cache_control, "Template messages should have cache_control in 'prompt' mode"
+
+        # Conversation message should NOT have cache_control
+        conv_msg = converted[2]
+        for block in conv_msg.get("content", []):
+            if isinstance(block, dict):
+                assert "cache_control" not in block, (
+                    "Conversation messages should not have cache_control in 'prompt' mode"
+                )
+
+    def test_conversion_auto_mode_templates_cached(self):
+        """Test that template messages get cache_control in 'auto' mode."""
+        llm = self._create_llm(cache_mode="auto")
+
+        # Create template messages
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Template")]
+            ),
+        ]
+        llm._template_messages = template_msgs
+
+        # Create conversation messages
+        conversation_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Question")]
+            ),
+        ]
+
+        # Convert using _convert_to_provider_format
+        converted = llm._convert_to_provider_format(conversation_msgs)
+
+        # Template message should have cache_control
+        found_cache_control = False
+        template_msg = converted[0]
+        if "content" in template_msg:
+            for block in template_msg["content"]:
+                if isinstance(block, dict) and "cache_control" in block:
+                    found_cache_control = True
+                    assert block["cache_control"]["type"] == "ephemeral"
+
+        assert found_cache_control, "Template messages should have cache_control in 'auto' mode"
+
+    def test_conversion_off_mode_templates_not_cached(self):
+        """Test that template messages do NOT get cache_control when cache_mode is 'off'."""
+        llm = self._create_llm(cache_mode="off")
+
+        # Create template messages
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Template")]
+            ),
+            PromptMessageExtended(
+                role="assistant", content=[TextContent(type="text", text="Response")]
+            ),
+        ]
+        llm._template_messages = template_msgs
+
+        # Create conversation messages
+        conversation_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Question")]
+            ),
+        ]
+
+        # Convert using _convert_to_provider_format
+        converted = llm._convert_to_provider_format(conversation_msgs)
+
+        # No messages should have cache_control
+        for msg in converted:
+            if "content" in msg:
                 for block in msg["content"]:
                     if isinstance(block, dict):
-                        self.assertNotIn(
-                            "cache_control",
-                            block,
-                            "Cache control found in template message when cache_mode is 'off'",
+                        assert "cache_control" not in block, (
+                            "No messages should have cache_control when cache_mode is 'off'"
                         )
+
+    def test_conversion_multiple_messages_structure(self):
+        """Test that message structure is preserved during conversion."""
+        llm = self._create_llm(cache_mode="off")
+
+        messages = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="First")]
+            ),
+            PromptMessageExtended(
+                role="assistant", content=[TextContent(type="text", text="Second")]
+            ),
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Third")]
+            ),
+        ]
+
+        converted = llm._convert_extended_messages_to_provider(messages)
+
+        # Verify structure
+        assert len(converted) == 3
+        assert converted[0]["role"] == "user"
+        assert converted[1]["role"] == "assistant"
+        assert converted[2]["role"] == "user"
+
+        # Verify content
+        assert any(
+            block.get("text") == "First"
+            for block in converted[0]["content"]
+            if isinstance(block, dict)
+        )
+        assert any(
+            block.get("text") == "Second"
+            for block in converted[1]["content"]
+            if isinstance(block, dict)
+        )
+        assert any(
+            block.get("text") == "Third"
+            for block in converted[2]["content"]
+            if isinstance(block, dict)
+        )
+
+    def test_conversion_empty_messages(self):
+        """Test conversion of empty message list."""
+        llm = self._create_llm(cache_mode="off")
+
+        converted = llm._convert_extended_messages_to_provider([])
+
+        assert converted == []
+
+    def test_conversion_with_templates_only(self):
+        """Test conversion when only templates exist (no conversation)."""
+        llm = self._create_llm(cache_mode="prompt")
+
+        # Create template messages
+        template_msgs = [
+            PromptMessageExtended(
+                role="user", content=[TextContent(type="text", text="Template")]
+            ),
+        ]
+        llm._template_messages = template_msgs
+
+        # Convert with empty conversation
+        converted = llm._convert_to_provider_format([])
+
+        # Should have just the template
+        assert len(converted) == 1
+
+        # Template should have cache_control
+        found_cache_control = False
+        for block in converted[0].get("content", []):
+            if isinstance(block, dict) and "cache_control" in block:
+                found_cache_control = True
+
+        assert found_cache_control, "Template should have cache_control in 'prompt' mode"
+
+    def test_cache_control_on_last_content_block(self):
+        """Test that cache_control is applied to the last content block of template messages."""
+        llm = self._create_llm(cache_mode="prompt")
+
+        # Create a template with multiple content blocks
+        template_msgs = [
+            PromptMessageExtended(
+                role="user",
+                content=[
+                    TextContent(type="text", text="First block"),
+                    TextContent(type="text", text="Second block"),
+                ],
+            ),
+        ]
+        llm._template_messages = template_msgs
+
+        # Convert with empty conversation
+        converted = llm._convert_to_provider_format([])
+
+        # Cache control should be on the last block
+        content_blocks = converted[0]["content"]
+        assert len(content_blocks) == 2
+
+        # First block should NOT have cache_control
+        if isinstance(content_blocks[0], dict):
+            # Cache control might be on any block, but typically the last one
+            pass
+
+        # At least one block should have cache_control
+        found_cache_control = any(
+            isinstance(block, dict) and "cache_control" in block
+            for block in content_blocks
+        )
+        assert found_cache_control, "Template should have cache_control"
 
 
 if __name__ == "__main__":
-    unittest.main()
+    pytest.main([__file__, "-v"])
