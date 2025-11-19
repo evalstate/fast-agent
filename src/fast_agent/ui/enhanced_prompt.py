@@ -392,6 +392,15 @@ class AgentCompleter(Completer):
         # Complete commands
         if text.startswith("/"):
             cmd = text[1:]
+
+            # Check for file completion after /load_history or /load command
+            for load_cmd in ["load_history ", "load "]:
+                if cmd.startswith(load_cmd):
+                    # Get the original case partial from the actual text
+                    original_partial = document.text_before_cursor[1 + len(load_cmd):]
+                    yield from self._get_file_completions(original_partial, [".json", ".md"])
+                    return
+
             # Simple command completion - match beginning of command
             for command, description in self.commands.items():
                 if command.lower().startswith(cmd):
@@ -415,6 +424,60 @@ class AgentCompleter(Completer):
                         display=agent,
                         display_meta=agent_type,
                     )
+
+    def _get_file_completions(self, partial: str, extensions: list):
+        """Generate file completions for the given partial path and extensions."""
+        try:
+            # Determine the directory and prefix to search
+            if "/" in partial or "\\" in partial:
+                # User is typing a path
+                partial_path = Path(partial)
+                if partial.endswith("/") or partial.endswith("\\"):
+                    search_dir = partial_path
+                    prefix = ""
+                else:
+                    search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                    prefix = partial_path.name
+            else:
+                search_dir = Path(".")
+                prefix = partial
+
+            # Handle absolute vs relative paths
+            if not search_dir.is_absolute():
+                search_dir = Path.cwd() / search_dir
+
+            if not search_dir.exists() or not search_dir.is_dir():
+                return
+
+            # Find matching files and directories
+            for item in search_dir.iterdir():
+                name = item.name
+
+                # Skip hidden files unless user is explicitly looking for them
+                if name.startswith(".") and not prefix.startswith("."):
+                    continue
+
+                if name.lower().startswith(prefix.lower()):
+                    if item.is_dir():
+                        # Offer directory with trailing slash
+                        completion_text = name + "/"
+                        yield Completion(
+                            completion_text,
+                            start_position=-len(partial),
+                            display=name + "/",
+                            display_meta="Directory",
+                        )
+                    elif item.is_file() and any(name.endswith(ext) for ext in extensions):
+                        # Offer matching files
+                        yield Completion(
+                            name,
+                            start_position=-len(partial),
+                            display=name,
+                            display_meta=item.suffix[1:].upper() if item.suffix else "File",
+                        )
+        except (OSError, PermissionError):
+            # Handle any filesystem errors gracefully
+            pass
 
 
 # Helper function to open text in an external editor
