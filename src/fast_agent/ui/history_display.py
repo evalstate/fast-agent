@@ -518,8 +518,6 @@ def _render_statistics(
     printer,
 ) -> None:
     """Render compact conversation statistics section."""
-    # Calculate turns (user + assistant message pairs)
-    turns = min(summary.user_message_count, summary.assistant_message_count)
 
     # Format timing values
     llm_time = (
