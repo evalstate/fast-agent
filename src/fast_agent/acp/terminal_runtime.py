@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from mcp.types import CallToolResult, Tool
 
+from fast_agent.constants import DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 
@@ -44,6 +45,7 @@ class ACPTerminalRuntime:
         logger_instance=None,
         timeout_seconds: int = 90,
         tool_handler: "ToolExecutionHandler | None" = None,
+        default_output_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     ):
         """
         Initialize the ACP terminal runtime.
@@ -62,6 +64,7 @@ class ACPTerminalRuntime:
         self.logger = logger_instance or logger
         self.timeout_seconds = timeout_seconds
         self._tool_handler = tool_handler
+        self._default_output_byte_limit = default_output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
         # Tool definition for LLM
         self._tool = Tool(
@@ -188,8 +191,10 @@ class ACPTerminalRuntime:
                     create_params["env"] = env
             if cwd := arguments.get("cwd"):
                 create_params["cwd"] = cwd
-            if output_limit := arguments.get("outputByteLimit"):
-                create_params["outputByteLimit"] = output_limit
+            if "outputByteLimit" in arguments and arguments["outputByteLimit"] is not None:
+                create_params["outputByteLimit"] = arguments["outputByteLimit"]
+            else:
+                create_params["outputByteLimit"] = self._default_output_byte_limit
 
             create_result = await self.connection._conn.send_request("terminal/create", create_params)
             terminal_id = create_result.get("terminalId")

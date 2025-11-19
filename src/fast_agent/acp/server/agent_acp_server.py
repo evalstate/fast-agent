@@ -38,6 +38,11 @@ from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
+from fast_agent.constants import (
+    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    TERMINAL_AVG_BYTES_PER_TOKEN,
+    TERMINAL_OUTPUT_TOKEN_RATIO,
+)
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import (
@@ -45,6 +50,7 @@ from fast_agent.core.prompt_templates import (
     enrich_with_environment_context,
 )
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ToolHandlerWorkflowTelemetry
@@ -220,6 +226,25 @@ class AgentACPServer(ACPAgent):
             instance_scope=instance_scope,
             primary_agent=self.primary_agent_name,
         )
+
+    def _calculate_terminal_output_limit(self, agent: Any) -> int:
+        """
+        Determine a default terminal output byte limit based on the agent's model.
+
+        Args:
+            agent: Agent instance that may expose an llm with model metadata.
+        """
+        model_name = getattr(getattr(agent, "llm", None), "model_name", None)
+        if not model_name:
+            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+        max_tokens = ModelDatabase.get_max_output_tokens(model_name)
+        if not max_tokens:
+            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+        estimated_tokens = max(int(max_tokens * TERMINAL_OUTPUT_TOKEN_RATIO), 1)
+        estimated_bytes = int(estimated_tokens * TERMINAL_AVG_BYTES_PER_TOKEN)
+        return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, estimated_bytes)
 
     async def initialize(self, params: InitializeRequest) -> InitializeResponse:
         """
@@ -502,12 +527,14 @@ class AgentACPServer(ACPAgent):
                     for agent_name, agent in instance.agents.items():
                         if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
                             # Create ACPTerminalRuntime for this session
+                            default_limit = self._calculate_terminal_output_limit(agent)
                             terminal_runtime = ACPTerminalRuntime(
                                 connection=self._connection,
                                 session_id=session_id,
                                 activation_reason="via ACP terminal support",
                                 timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                                 tool_handler=tool_handler,
+                                default_output_byte_limit=default_limit,
                             )
 
                             # Inject into agent
@@ -520,6 +547,7 @@ class AgentACPServer(ACPAgent):
                                     name="acp_terminal_injected",
                                     session_id=session_id,
                                     agent_name=agent_name,
+                                    default_output_limit=default_limit,
                                 )
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
