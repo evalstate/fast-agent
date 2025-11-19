@@ -836,9 +836,10 @@ class FastAgent:
 
             agent.instruction = resolved
 
-            config = getattr(agent, "config", None)
-            if config is not None:
-                config.instruction = resolved
+            # Note: We intentionally do NOT modify config.instruction here.
+            # The config should preserve the original template so that
+            # downstream logic (like MCP display) can check for template
+            # variables like {{serverInstructions}}.
 
             request_params = getattr(agent, "_default_request_params", None)
             if request_params is not None:
