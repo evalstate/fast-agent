@@ -18,6 +18,7 @@ def import_from_path(module_name: str, file_path: Path):
     return module
 
 
+@pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_tensorzero_image_demo_smoke(project_root, chdir_to_tensorzero_example):
     """

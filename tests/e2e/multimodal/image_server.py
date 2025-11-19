@@ -22,8 +22,14 @@ app = FastMCP(name="ImageToolServer", debug=True)
 image_path = "image.png"
 
 
-@app.tool(name="get_image", description="Returns the sample image with some descriptive text")
-async def get_image(image_name: str = "default", ctx: Context = None) -> list[TextContent | ImageContent]:
+@app.tool(
+    name="get_image",
+    description="Returns the sample image with some descriptive text",
+    structured_output=False,
+)
+async def get_image(
+    image_name: str = "default", ctx: Context = None
+) -> list[TextContent | ImageContent]:
     try:
         # Use the global image path
         return [
@@ -38,6 +44,7 @@ async def get_image(image_name: str = "default", ctx: Context = None) -> list[Te
 @app.tool(
     name="get_pdf",
     description="Returns 'sample.pdf' - use when the User requests a sample PDF file",
+    structured_output=False,
 )
 async def get_pdf() -> list[TextContent | EmbeddedResource]:
     try:

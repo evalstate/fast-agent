@@ -1,6 +1,6 @@
 import asyncio
 
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 agents = FastAgent(name="Enhanced Researcher")
 

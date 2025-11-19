@@ -1,0 +1,200 @@
+from fast_agent.agents.agent_types import AgentConfig
+from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
+from fast_agent.context import Context
+from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+
+
+def test_model_database_context_windows():
+    """Test that ModelDatabase returns expected context windows"""
+    # Test known models
+    assert ModelDatabase.get_context_window("claude-sonnet-4-0") == 200000
+    assert ModelDatabase.get_context_window("gpt-4o") == 128000
+    assert ModelDatabase.get_context_window("gemini-2.0-flash") == 1048576
+
+    # Test unknown model
+    assert ModelDatabase.get_context_window("unknown-model") is None
+
+
+def test_model_database_max_tokens():
+    """Test that ModelDatabase returns expected max tokens"""
+    # Test known models with different max_output_tokens (no cap)
+    assert ModelDatabase.get_default_max_tokens("claude-sonnet-4-0") == 64000  # ANTHROPIC_SONNET
+    assert ModelDatabase.get_default_max_tokens("gpt-4o") == 16384  # OPENAI_STANDARD
+    assert ModelDatabase.get_default_max_tokens("o1") == 100000  # High max_output_tokens
+
+    # Test fallbacks
+    assert ModelDatabase.get_default_max_tokens("unknown-model") == 2048
+    assert ModelDatabase.get_default_max_tokens(None) == 2048
+
+
+def test_model_database_tokenizes():
+    """Test that ModelDatabase returns expected tokenization types"""
+    # Test multimodal model
+    claude_tokenizes = ModelDatabase.get_tokenizes("claude-sonnet-4-0")
+    assert "text/plain" in claude_tokenizes
+    assert "image/jpeg" in claude_tokenizes
+    assert "application/pdf" in claude_tokenizes
+
+    # Test unknown model
+    assert ModelDatabase.get_tokenizes("unknown-model") is None
+
+
+def test_model_database_supports_mime_basic():
+    """Test MIME support lookups with normalization and aliases."""
+    # Known multimodal model supports images and pdf
+    assert ModelDatabase.supports_mime("claude-sonnet-4-0", "image/png")
+    assert ModelDatabase.supports_mime(
+        "claude-sonnet-4-0", "document/pdf"
+    )  # alias -> application/pdf
+
+    # Text-only models should not support images
+    assert not ModelDatabase.supports_mime("deepseek-chat", "image/png")
+    assert not ModelDatabase.supports_mime("deepseek-chat", "pdf")
+
+    # Wildcard checks
+    assert ModelDatabase.supports_mime("gpt-4o", "image/*")
+    # Bare extensions
+    assert ModelDatabase.supports_mime("gpt-4o", "png")
+
+
+def test_llm_uses_model_database_for_max_tokens():
+    """Test that LLM instances use ModelDatabase for maxTokens defaults"""
+
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+    # Test with a model that has 8192 max_output_tokens (should get full amount)
+    factory = ModelFactory.create_factory("claude-sonnet-4-0")
+    llm = factory(agent=agent)
+    assert llm.default_request_params.maxTokens == 64000
+
+    # Test with a model that has high max_output_tokens (should get full amount)
+    factory2 = ModelFactory.create_factory("o1")
+    llm2 = factory2(agent=agent)
+    assert llm2.default_request_params.maxTokens == 100000
+
+    # Test with passthrough model (should get its configured max tokens)
+    factory3 = ModelFactory.create_factory("passthrough")
+    llm3 = factory3(agent=agent)
+    expected_max_tokens = ModelDatabase.get_default_max_tokens("passthrough")
+    assert llm3.default_request_params.maxTokens == expected_max_tokens
+
+
+def test_llm_usage_tracking_uses_model_database():
+    """Test that usage tracking uses ModelDatabase for context windows"""
+    factory = ModelFactory.create_factory("passthrough")
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+    llm = factory(agent=agent, model="claude-sonnet-4-0")
+
+    # The usage_accumulator should be able to get context window from ModelDatabase
+    # when it has a model set (this happens when turns are added)
+    llm.usage_accumulator.model = "claude-sonnet-4-0"
+    assert llm.usage_accumulator.context_window_size == 200000
+    assert llm.default_request_params.maxTokens == 64000  # Should match ModelDatabase default
+
+    # Test with unknown model
+    llm.usage_accumulator.model = "unknown-model"
+    assert llm.usage_accumulator.context_window_size is None
+
+
+def test_openai_provider_preserves_all_settings():
+    """Test that OpenAI provider doesn't lose any original settings"""
+    factory = ModelFactory.create_factory("gpt-4o")
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+
+    llm = factory(agent=agent, instruction="You are a helpful assistant")
+
+    # Verify all the original OpenAI settings are preserved
+    params = llm.default_request_params
+    assert params.model == "gpt-4o"
+    assert params.parallel_tool_calls  # Should come from base
+    assert (
+        params.max_iterations == DEFAULT_MAX_ITERATIONS
+    )  # Should come from default setting    assert params.use_history  # Should come from base
+    assert (
+        params.systemPrompt == "You are a helpful assistant"
+    )  # Should come from base (self.instruction)
+    assert params.maxTokens == 16384  # Model-aware from ModelDatabase (gpt-4o)
+
+
+def test_model_database_stream_modes():
+    """Ensure models can opt into manual streaming mode."""
+    assert ModelDatabase.get_stream_mode("gpt-4o") == "openai"
+    assert ModelDatabase.get_stream_mode("minimaxai/minimax-m2") == "manual"
+    assert ModelDatabase.get_stream_mode("unknown-model") == "openai"
+
+
+def test_model_database_reasoning_modes():
+    """Ensure reasoning types are tracked per model."""
+    assert ModelDatabase.get_reasoning("o1") == "openai"
+    assert ModelDatabase.get_reasoning("o3-mini") == "openai"
+    assert ModelDatabase.get_reasoning("gpt-5") == "openai"
+    assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "tags"
+    assert ModelDatabase.get_reasoning("gpt-4o") is None
+
+
+def test_openai_llm_normalizes_repeated_roles():
+    """Verify role normalization collapses repeated role strings."""
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+    factory = ModelFactory.create_factory("gpt-4o")
+    llm = factory(agent=agent)
+
+    assert llm._normalize_role("assistantassistant") == "assistant"
+    assert llm._normalize_role("assistantASSISTANTassistant") == "assistant"
+    assert llm._normalize_role("user") == "user"
+    assert llm._normalize_role(None) == "assistant"
+
+
+def test_openai_llm_uses_model_database_reasoning_flag():
+    """Ensure reasoning detection honors ModelDatabase capabilities."""
+    agent = LlmAgent(AgentConfig(name="Test Agent"))
+
+    reasoning_llm = ModelFactory.create_factory("o1")(agent=agent)
+    assert reasoning_llm._reasoning
+    assert getattr(reasoning_llm, "_reasoning_mode", None) == "openai"
+
+    standard_llm = ModelFactory.create_factory("gpt-4o")(agent=agent)
+    assert not standard_llm._reasoning
+    assert getattr(standard_llm, "_reasoning_mode", None) is None
+
+
+def _hf_request_args(llm: HuggingFaceLLM):
+    messages = [{"role": "user", "content": "hi"}]
+    return llm._prepare_api_request(messages, None, llm.default_request_params)
+
+
+def _make_hf_llm(model: str, hf_settings: HuggingFaceSettings | None = None) -> HuggingFaceLLM:
+    settings = Settings(hf=hf_settings or HuggingFaceSettings())
+    context = Context(config=settings)
+    return HuggingFaceLLM(context=context, model=model, name="test-agent")
+
+
+def test_huggingface_appends_default_provider_from_config():
+    llm = _make_hf_llm(
+        "moonshotai/kimi-k2-instruct", HuggingFaceSettings(default_provider="fireworks-ai")
+    )
+
+    assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "moonshotai/kimi-k2-instruct:fireworks-ai"
+
+
+def test_huggingface_env_default_provider(monkeypatch):
+    monkeypatch.setenv("HF_DEFAULT_PROVIDER", "router")
+    llm = _make_hf_llm("moonshotai/kimi-k2-instruct")
+
+    args = _hf_request_args(llm)
+    assert args["model"] == "moonshotai/kimi-k2-instruct:router"
+
+
+def test_huggingface_explicit_provider_overrides_default():
+    llm = _make_hf_llm(
+        "moonshotai/kimi-k2-instruct:custom", HuggingFaceSettings(default_provider="router")
+    )
+
+    assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
+    args = _hf_request_args(llm)
+    assert args["model"] == "moonshotai/kimi-k2-instruct:custom"

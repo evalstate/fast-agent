@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 # Create the FastMCP server
 app = FastMCP(name="An MCP Server", instructions="Here is how to use this server")
 
+@app.prompt(
+    name="check_weather_prompt",
+    description="Asks for the weather in a specified location.",
+)
+def check_weather_prompt(location: str) -> str:
+    """The location to check"""
+    return f"Check the weather in {location}"
 
 @app.tool(
     name="check_weather",

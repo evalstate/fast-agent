@@ -2,10 +2,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-if TYPE_CHECKING:
-    from a2a_types.types import AgentCard, AgentSkill
+from fast_agent.mcp import SEP
 
-    from mcp_agent.agents.agent import Agent
+if TYPE_CHECKING:
+    from a2a.types import AgentCard, AgentSkill
+
+    from fast_agent.agents import McpAgent
 
 
 @pytest.mark.integration
@@ -17,7 +19,7 @@ async def test_get_agent_card_and_tools(fast_agent):
     async def agent_function():
         async with fast.run() as app:
             # Simulate some agent operations
-            agent: Agent = app["test"]
+            agent: McpAgent = app["test"]
             card: AgentCard = await agent.agent_card()
 
             assert "test" == card.name
@@ -26,7 +28,7 @@ async def test_get_agent_card_and_tools(fast_agent):
             assert 3 == len(card.skills)
 
             skill: AgentSkill = card.skills[0]
-            assert "card_test-check_weather" == skill.id
+            assert f"card_test{SEP}check_weather" == skill.id
             assert "check_weather" == skill.name
             assert "Returns the weather for a specified location."
             assert skill.tags

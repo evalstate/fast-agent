@@ -161,7 +161,7 @@ examples/**/*.secrets.yaml
 !examples/**/*.secrets.yaml.example
 
 # Build-generated resources (copied from examples/ during build)
-src/mcp_agent/resources/examples/
+src/fast_agent/resources/
 
 # Test data files
 examples/mcp_root_test/test_data/*.png
@@ -179,8 +179,6 @@ project_contents.md
 
 # example logs
 examples/**/*.jsonl
-mcp_agent.config.yaml
-mcp_agent.secrets.yaml
 fastagent.secrets.yaml
 CLAUDE.md
 example-outputs/
@@ -202,3 +200,4 @@ fastagent.jsonl
 
 tests/e2e/smoke/base/weather_location.txt
 tests/integration/roots/fastagent.jsonl
+.fast-agent/

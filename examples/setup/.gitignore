@@ -1,0 +1,30 @@
+# Secrets
+fastagent.secrets.yaml
+
+# Python cache/bytecode
+__pycache__/
+*.py[cod]
+
+# Local env and virtualenvs
+.env
+.venv/
+venv/
+env/
+
+# OS cruft
+.DS_Store
+Thumbs.db
+
+# Logs/artifacts
+fastagent.jsonl
+*.jsonl
+
+# Editors (optional)
+.idea/
+.vscode/
+
+# Packaging metadata
+*.dist-info/
+*.egg-info/
+dist/
+build/

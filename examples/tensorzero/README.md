@@ -13,6 +13,7 @@
 
 ## Quickstart guide
 
+- Install `fast-agent` with the `[tensorzero]` dependency e.g. `uv pip install -U fast-agent-mcp[tensorzero]`
 - Build and activate the `uv` `fast-agent` environment
 - Ensure that ports `3000`, `4000`, `8000`, `9000`, and `9001` are unallocated before running this demo.
 - Run `cp .env.sample .env` and then drop in at least one of `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`. Make sure the accounts are funded.

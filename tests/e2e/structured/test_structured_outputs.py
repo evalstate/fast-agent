@@ -1,13 +1,11 @@
-# integration_tests/mcp_agent/test_agent_with_image.py
-
 from typing import Annotated
 
 import pytest
 from pydantic import BaseModel, Field
 
-from mcp_agent.core.prompt import Prompt
-from mcp_agent.core.request_params import RequestParams
-from mcp_agent.mcp.helpers.content_helpers import split_thinking_content
+from fast_agent.core.prompt import Prompt
+from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.helpers.content_helpers import split_thinking_content
 
 
 class FormattedResponse(BaseModel):

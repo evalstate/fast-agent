@@ -6,10 +6,11 @@ Demonstrates router's ability to either:
 """
 
 import asyncio
+import sys
 
 from rich.console import Console
 
-from mcp_agent.core.fastagent import FastAgent
+from fast_agent import FastAgent
 
 # Create the application
 fast = FastAgent(
@@ -26,11 +27,13 @@ SAMPLE_REQUESTS = [
 
 @fast.agent(
     name="fetcher",
+    model="haiku",
     instruction="""You are an agent, with a tool enabling you to fetch URLs.""",
     servers=["fetch"],
 )
 @fast.agent(
     name="code_expert",
+    model="haiku",
     instruction="""You are an expert in code analysis and software engineering.
     When asked about code, architecture, or development practices,
     you provide thorough and practical insights.""",
@@ -38,16 +41,18 @@ SAMPLE_REQUESTS = [
 )
 @fast.agent(
     name="general_assistant",
+    model="haiku",
     instruction="""You are a knowledgeable assistant that provides clear,
     well-reasoned responses about general topics, concepts, and principles.""",
 )
 @fast.router(
     name="route",
-    model="gpt-4.1",
+    model="sonnet",
+    default=True,
     agents=["code_expert", "general_assistant", "fetcher"],
 )
 async def main() -> None:
-    console = Console()
+    console = Console(file=sys.stderr)
     console.print(
         "\n[bright_red]Router Workflow Demo[/bright_red]\n\n"
         "Enter a request to route it to the appropriate agent.\nEnter [bright_red]STOP[/bright_red] to run the demo, [bright_red]EXIT[/bright_red] to leave"
@@ -57,6 +62,7 @@ async def main() -> None:
         await agent.interactive(agent_name="route")
         for request in SAMPLE_REQUESTS:
             await agent.route(request)
+        await agent.interactive()
 
 
 if __name__ == "__main__":

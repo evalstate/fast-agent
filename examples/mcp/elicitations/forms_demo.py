@@ -13,8 +13,8 @@ import asyncio
 from rich.console import Console
 from rich.panel import Panel
 
-from mcp_agent.core.fastagent import FastAgent
-from mcp_agent.mcp.helpers.content_helpers import get_resource_text
+from fast_agent import FastAgent
+from fast_agent.mcp.helpers.content_helpers import get_resource_text
 
 fast = FastAgent("Elicitation Forms Demo", quiet=True)
 console = Console()
@@ -38,7 +38,7 @@ async def main():
         console.print(
             "[dim]Demonstrates: string validation, email format, URL format, date format[/dim]"
         )
-        result = await agent.get_resource("elicitation://event-registration")
+        result = await agent["forms-demo"].get_resource("elicitation://event-registration")
 
         if result_text := get_resource_text(result):
             panel = Panel(
