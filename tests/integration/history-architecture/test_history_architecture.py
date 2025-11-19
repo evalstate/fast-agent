@@ -8,12 +8,11 @@ These tests verify that:
 4. Templates are correctly handled
 """
 
-import json
-
 import pytest
 
 from fast_agent.core.prompt import Prompt
-from fast_agent.mcp.prompts.prompt_load import load_history_into_agent, load_prompt
+from fast_agent.mcp.prompt_serialization import save_messages
+from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 
 
 @pytest.mark.integration
@@ -29,34 +28,36 @@ async def test_load_history_no_llm_call(fast_agent, tmp_path):
     # Create a temporary history file with a simple conversation
     history_file = tmp_path / "test_history.json"
     messages = [
-        {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
-        {"role": "assistant", "content": [{"type": "text", "text": "Hi there!"}]},
-        {"role": "user", "content": [{"type": "text", "text": "How are you?"}]},
+        Prompt.user("Hello"),
+        Prompt.assistant("Hi there!"),
+        Prompt.user("How are you?"),
     ]
 
-    # Save as JSON (using the PromptMessageExtended serialization format)
-    with open(history_file, "w") as f:
-        json.dump(messages, f)
+    # Save using the proper serialization format
+    save_messages(messages, str(history_file))
 
-    @fast.agent()
+    @fast.agent(model="passthrough")
     async def agent_function():
         async with fast.run() as agent:
+            # Get the underlying LLM
+            llm = agent.default._llm
+
             # Get initial message count
-            initial_count = len(agent.default.message_history)
+            initial_count = len(llm.message_history)
             assert initial_count == 0, "Agent should start with no history"
 
             # Load history - this should NOT make an LLM call
-            load_history_into_agent(agent.default, history_file)
+            load_history_into_agent(llm, history_file)
 
             # Verify history was loaded
-            loaded_count = len(agent.default.message_history)
+            loaded_count = len(llm.message_history)
             assert loaded_count == 3, f"Expected 3 messages, got {loaded_count}"
 
             # Verify content
-            assert agent.default.message_history[0].role == "user"
-            assert "Hello" in agent.default.message_history[0].first_text()
-            assert agent.default.message_history[1].role == "assistant"
-            assert "Hi there!" in agent.default.message_history[1].first_text()
+            assert llm.message_history[0].role == "user"
+            assert "Hello" in llm.message_history[0].first_text()
+            assert llm.message_history[1].role == "assistant"
+            assert "Hi there!" in llm.message_history[1].first_text()
 
     await agent_function()
 
@@ -71,16 +72,22 @@ async def test_message_history_source_of_truth(fast_agent):
     """
     fast = fast_agent
 
-    @fast.agent()
+    @fast.agent(model="passthrough")
     async def agent_function():
         async with fast.run() as agent:
-            # Add messages to message history
-            user_msg = Prompt.user("Test message")
-            agent.default._message_history.append(user_msg)
+            # Get the underlying LLM
+            llm = agent.default._llm
+
+            # Start with empty histories
+            assert len(llm.message_history) == 0
+
+            # Manually add a message to _message_history
+            test_msg = Prompt.user("Test message")
+            llm._message_history.append(test_msg)
 
             # Verify message is in message history
-            assert len(agent.default.message_history) == 1
-            assert agent.default.message_history[0].first_text() == "Test message"
+            assert len(llm.message_history) == 1
+            assert llm.message_history[0].first_text() == "Test message"
 
             # Provider history should still be empty (no API call yet)
             # This verifies that message_history is independent of provider history
@@ -90,53 +97,52 @@ async def test_message_history_source_of_truth(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_template_persistence_after_clear(fast_agent, tmp_path):
+async def test_template_persistence_after_clear(fast_agent):
     """
     Verify that template messages are preserved after clear() but removed after clear(clear_prompts=True).
     """
     fast = fast_agent
 
-    # Create a simple template file
-    template_file = tmp_path / "template.md"
-    template_content = """user: You are a helpful assistant.
-
-assistant: I understand."""
-    template_file.write_text(template_content)
-
-    @fast.agent()
+    @fast.agent(model="passthrough")
     async def agent_function():
         async with fast.run() as agent:
-            # Load template messages
-            template_msgs = load_prompt(template_file)
-            agent.default._template_messages = template_msgs
-            agent.default._message_history = [msg.model_copy(deep=True) for msg in template_msgs]
+            # Get the underlying LLM
+            llm = agent.default._llm
+
+            # Create template messages directly
+            template_msgs = [
+                Prompt.user("You are a helpful assistant."),
+                Prompt.assistant("I understand."),
+            ]
+            llm._template_messages = [msg.model_copy(deep=True) for msg in template_msgs]
+            llm._message_history = [msg.model_copy(deep=True) for msg in template_msgs]
 
             # Verify template is loaded
-            assert len(agent.default._template_messages) == 2
-            assert len(agent.default.message_history) == 2
+            assert len(llm._template_messages) == 2
+            assert len(llm.message_history) == 2
 
             # Add a user message
             user_msg = Prompt.user("New message")
-            agent.default._message_history.append(user_msg)
-            assert len(agent.default.message_history) == 3
+            llm._message_history.append(user_msg)
+            assert len(llm.message_history) == 3
 
             # Clear without clearing prompts
-            agent.default.clear()
+            llm.clear()
 
             # Templates should be restored, new message should be gone
-            assert len(agent.default.message_history) == 2
-            assert len(agent.default._template_messages) == 2
+            assert len(llm.message_history) == 2
+            assert len(llm._template_messages) == 2
 
             # Add another message
-            agent.default._message_history.append(user_msg)
-            assert len(agent.default.message_history) == 3
+            llm._message_history.append(user_msg)
+            assert len(llm.message_history) == 3
 
             # Clear with clear_prompts=True
-            agent.default.clear(clear_prompts=True)
+            llm.clear(clear_prompts=True)
 
             # Everything should be gone
-            assert len(agent.default.message_history) == 0
-            assert len(agent.default._template_messages) == 0
+            assert len(llm.message_history) == 0
+            assert len(llm._template_messages) == 0
 
     await agent_function()
 
@@ -151,18 +157,21 @@ async def test_provider_history_diagnostic_only(fast_agent):
     """
     fast = fast_agent
 
-    @fast.agent()
+    @fast.agent(model="passthrough")
     async def agent_function():
         async with fast.run() as agent:
+            # Get the underlying LLM
+            llm = agent.default._llm
+
             # Start with empty histories
-            assert len(agent.default.message_history) == 0
+            assert len(llm.message_history) == 0
 
             # Manually add a message to _message_history
             test_msg = Prompt.user("Test")
-            agent.default._message_history.append(test_msg)
+            llm._message_history.append(test_msg)
 
             # Verify it's in _message_history
-            assert len(agent.default.message_history) == 1
+            assert len(llm.message_history) == 1
 
             # Provider history should still be empty (until an API call is made)
             # This confirms that _message_history is independent of provider history
