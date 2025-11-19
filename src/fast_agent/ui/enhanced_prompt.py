@@ -392,6 +392,33 @@ class AgentCompleter(Completer):
         # Complete commands
         if text.startswith("/"):
             cmd = text[1:]
+
+            # Check for sub-completion: /load_history <filename> or /save_history <filename>
+            for history_cmd in ["load_history", "save_history", "load", "save"]:
+                if cmd.startswith(history_cmd + " "):
+                    # Extract the partial filename after the command
+                    partial_filename = cmd[len(history_cmd) + 1:]
+                    # Get original case from the actual text
+                    original_text = document.text_before_cursor
+                    original_partial = original_text[len("/" + history_cmd) + 1:]
+
+                    # Find matching .json and .md files
+                    from pathlib import Path
+                    cwd = Path.cwd()
+                    extensions = [".json", ".md"]
+
+                    for ext in extensions:
+                        for filepath in cwd.glob(f"*{ext}"):
+                            filename = filepath.name
+                            if filename.lower().startswith(partial_filename):
+                                yield Completion(
+                                    filename,
+                                    start_position=-len(original_partial),
+                                    display=filename,
+                                    display_meta=f"History file ({ext})",
+                                )
+                    return
+
             # Simple command completion - match beginning of command
             for command, description in self.commands.items():
                 if command.lower().startswith(cmd):
