@@ -180,12 +180,19 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
         llm = self._create_llm(cache_mode="auto")
         llm.instruction = "Test system prompt"
 
-        # Add some messages to history to test message caching
-        llm.history.extend(
+        # Add some messages to _message_history to test message caching
+        # (With new architecture, messages come from _message_history, not provider history)
+        llm._message_history.extend(
             [
-                {"role": "user", "content": [{"type": "text", "text": "First message"}]},
-                {"role": "assistant", "content": [{"type": "text", "text": "First response"}]},
-                {"role": "user", "content": [{"type": "text", "text": "Second message"}]},
+                PromptMessageExtended(
+                    role="user", content=[TextContent(type="text", text="First message")]
+                ),
+                PromptMessageExtended(
+                    role="assistant", content=[TextContent(type="text", text="First response")]
+                ),
+                PromptMessageExtended(
+                    role="user", content=[TextContent(type="text", text="Second message")]
+                ),
             ]
         )
 
@@ -266,6 +273,9 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
         """Test that template messages are cached in 'prompt' mode."""
         llm = self._create_llm(cache_mode="prompt")
 
+        # Capture the arguments passed to the streaming API
+        captured_args = None
+
         # Mock the Anthropic client
         mock_client = MagicMock()
         mock_anthropic_class.return_value = mock_client
@@ -281,8 +291,13 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
             def __aiter__(self):
                 return iter([])
 
-        # Mock the stream method
-        mock_client.messages.stream = lambda **kwargs: MockStream()
+        # Capture arguments and return the mock stream
+        def stream_method(**kwargs):
+            nonlocal captured_args
+            captured_args = kwargs
+            return MockStream()
+
+        mock_client.messages.stream = stream_method
 
         # Mock the _process_stream method to return a response
         mock_usage = MagicMock()
@@ -299,30 +314,35 @@ class TestAnthropicCaching(unittest.IsolatedAsyncioTestCase):
         )
         llm._process_stream = AsyncMock(return_value=mock_response)
 
-        # Create template messages
-        template_messages = [
+        # Create template messages and add to _template_messages
+        template_msgs = [
             PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text="Template message 1")]
             ),
             PromptMessageExtended(
                 role="assistant", content=[TextContent(type="text", text="Template response 1")]
             ),
-            PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Current question")]
-            ),
         ]
+        llm._template_messages = template_msgs
+        # Also copy to _message_history as templates would be
+        llm._message_history = [msg.model_copy(deep=True) for msg in template_msgs]
 
-        # Apply template with is_template=True
-        await llm._apply_prompt_provider_specific(
-            template_messages, request_params=None, tools=None, is_template=True
-        )
+        # Create a test message
+        message_param = {"role": "user", "content": [{"type": "text", "text": "Current question"}]}
 
-        # Check that template messages in history have cache control
-        history_messages = llm.history.get(include_completion_history=False)
+        # Run the completion - this will convert templates with caching applied
+        await llm._anthropic_completion(message_param)
+
+        # Verify arguments were captured
+        self.assertIsNotNone(captured_args)
+
+        # Check that template messages in the API call have cache control
+        messages = captured_args.get("messages", [])
+        self.assertGreater(len(messages), 0)
 
         # Verify that at least one template message has cache control
         found_cache_control = False
-        for msg in history_messages:
+        for msg in messages:
             if isinstance(msg, dict) and "content" in msg:
                 for block in msg["content"]:
                     if isinstance(block, dict) and "cache_control" in block:
