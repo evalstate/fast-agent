@@ -80,7 +80,7 @@ async def event_registration() -> ReadResourceResult:
             description="Select workshops to attend (2-4 required)",
             min_length=2,
             max_length=4,
-            json_schema_extra={"items": {"anyOf": _create_enum_schema_options(workshop_names)}},
+            json_schema_extra={"items": {"type": "string", "anyOf": _create_enum_schema_options(workshop_names)}},
         )
         dietary_requirements: Optional[str] = Field(
             None, description="Any dietary requirements? (optional)", max_length=200
