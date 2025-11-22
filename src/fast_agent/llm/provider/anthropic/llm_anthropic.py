@@ -28,6 +28,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.cancellation import CancellationError, CancellationToken
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
@@ -240,7 +241,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         return LlmStopReason.END_TURN, [structured_content]
 
-    async def _process_stream(self, stream: AsyncMessageStream, model: str) -> Message:
+    async def _process_stream(
+        self,
+        stream: AsyncMessageStream,
+        model: str,
+        cancellation_token: CancellationToken | None = None,
+    ) -> Message:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
@@ -249,6 +255,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         try:
             # Process the raw event stream to get token counts
             async for event in stream:
+                # Check for cancellation before processing each event
+                if cancellation_token and cancellation_token.is_cancelled:
+                    logger.info("Stream cancelled by user")
+                    raise CancellationError(cancellation_token.cancel_reason or "cancelled")
                 if (
                     event.type == "content_block_start"
                     and hasattr(event, "content_block")
@@ -461,6 +471,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_model: Type[ModelT] | None = None,
         tools: List[Tool] | None = None,
         pre_messages: List[MessageParam] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -541,7 +552,14 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         try:
             async with anthropic.messages.stream(**arguments) as stream:
                 # Process the stream
-                response = await self._process_stream(stream, model)
+                response = await self._process_stream(stream, model, cancellation_token)
+        except CancellationError as e:
+            logger.info(f"Anthropic completion cancelled: {e.reason}")
+            # Return a response indicating cancellation
+            return Prompt.assistant(
+                TextContent(type="text", text=""),
+                stop_reason=LlmStopReason.CANCELLED,
+            )
         except APIError as error:
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
             return self._stream_failure_response(error, model)
@@ -627,6 +645,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         # Effective params for this turn
         params = self.get_request_params(request_params)
@@ -671,7 +690,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             logger.debug("Last message in prompt is from user, generating assistant response")
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
             return await self._anthropic_completion(
-                message_param, request_params, tools=tools, pre_messages=pre_messages
+                message_param,
+                request_params,
+                tools=tools,
+                pre_messages=pre_messages,
+                cancellation_token=cancellation_token,
             )
         else:
             # For assistant messages: Return the last message content as text

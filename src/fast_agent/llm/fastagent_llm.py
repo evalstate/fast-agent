@@ -35,6 +35,7 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     ModelT,
 )
+from fast_agent.llm.cancellation import CancellationError, CancellationToken
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
@@ -186,6 +187,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a completion using normalized message lists.
@@ -197,9 +199,13 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             messages: List of PromptMessageExtended objects
             request_params: Optional parameters to configure the LLM request
             tools: Optional list of tools available to the LLM
+            cancellation_token: Optional token to cancel the operation
 
         Returns:
             A PromptMessageExtended containing the Assistant response
+
+        Raises:
+            CancellationError: If the operation is cancelled via the token
         """
         # TODO -- create a "fast-agent" control role rather than magic strings
 
@@ -225,7 +231,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Track timing for this generation
         start_time = time.perf_counter()
         assistant_response: PromptMessageExtended = await self._apply_prompt_provider_specific(
-            messages, request_params, tools
+            messages, request_params, tools, cancellation_token=cancellation_token
         )
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
@@ -259,6 +265,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Provider-specific implementation of apply_prompt_template.
@@ -268,6 +275,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         Args:
             multipart_messages: List of PromptMessageExtended objects parsed from the prompt template
+            request_params: Optional parameters to configure the LLM request
+            tools: Optional list of tools available to the LLM
+            is_template: Whether this is a template application
+            cancellation_token: Optional token to cancel the operation
 
         Returns:
             String representation of the assistant's response if generated,

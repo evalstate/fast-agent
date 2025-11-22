@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable
 from acp import Agent as ACPAgent
 from acp import (
     AgentSideConnection,
+    CancelNotification,
     InitializeRequest,
     InitializeResponse,
     NewSessionRequest,
@@ -50,6 +51,7 @@ from fast_agent.core.prompt_templates import (
     enrich_with_environment_context,
 )
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
@@ -90,6 +92,7 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
         LlmStopReason.ERROR.value: REFUSAL,  # Errors are mapped to refusal
         LlmStopReason.TIMEOUT.value: REFUSAL,  # Timeouts are mapped to refusal
         LlmStopReason.SAFETY.value: REFUSAL,  # Safety triggers are mapped to refusal
+        LlmStopReason.CANCELLED.value: "cancelled",  # User cancellation
     }
 
     return mapping.get(key, END_TURN)
@@ -186,6 +189,9 @@ class AgentACPServer(ACPAgent):
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
+
+        # Track cancellation tokens per session for cancel support
+        self._session_cancellation_tokens: dict[str, CancellationToken] = {}
 
         # Track current agent per session for ACP mode support
         self._session_current_agent: dict[str, str] = {}
@@ -753,6 +759,10 @@ class AgentACPServer(ACPAgent):
             # Mark this session as having an active prompt
             self._active_prompts.add(session_id)
 
+            # Create a cancellation token for this prompt
+            cancellation_token = CancellationToken()
+            self._session_cancellation_tokens[session_id] = cancellation_token
+
         # Use try/finally to ensure session is always removed from active prompts
         try:
             # Get the agent instance for this session
@@ -901,7 +911,9 @@ class AgentACPServer(ACPAgent):
                             agent, session_id
                         )
                         result = await agent.generate(
-                            prompt_message, request_params=session_request_params
+                            prompt_message,
+                            request_params=session_request_params,
+                            cancellation_token=cancellation_token,
                         )
                         response_text = result.last_text() or "No content generated"
 
@@ -1013,14 +1025,48 @@ class AgentACPServer(ACPAgent):
                 stopReason=acp_stop_reason,
             )
         finally:
-            # Always remove session from active prompts, even on error
+            # Always remove session from active prompts and cleanup cancellation token
             async with self._session_lock:
                 self._active_prompts.discard(session_id)
+                self._session_cancellation_tokens.pop(session_id, None)
             logger.debug(
                 "Removed session from active prompts",
                 name="acp_prompt_complete",
                 session_id=session_id,
             )
+
+    async def cancel(self, params: CancelNotification) -> None:
+        """
+        Handle session/cancel notification from the client.
+
+        This cancels any in-progress prompt for the specified session.
+        Per ACP protocol, we should stop all LLM requests and tool invocations
+        as soon as possible.
+        """
+        session_id = params.sessionId
+
+        logger.info(
+            "ACP cancel request received",
+            name="acp_cancel",
+            session_id=session_id,
+        )
+
+        # Get the cancellation token for this session and signal cancellation
+        async with self._session_lock:
+            cancellation_token = self._session_cancellation_tokens.get(session_id)
+            if cancellation_token:
+                cancellation_token.cancel("user_cancelled")
+                logger.info(
+                    "Cancellation signaled for session",
+                    name="acp_cancel_signaled",
+                    session_id=session_id,
+                )
+            else:
+                logger.warning(
+                    "No active prompt to cancel for session",
+                    name="acp_cancel_no_active",
+                    session_id=session_id,
+                )
 
     async def run_async(self) -> None:
         """
@@ -1143,6 +1189,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up session current agent mapping
             self._session_current_agent.clear()
+
+            # Clear cancellation tokens
+            self._session_cancellation_tokens.clear()
 
             # Clear stored prompt contexts
             self._session_prompt_context.clear()

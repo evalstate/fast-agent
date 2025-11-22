@@ -24,6 +24,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
+from fast_agent.llm.cancellation import CancellationError, CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
@@ -202,7 +203,12 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 },
             )
 
-    async def _process_stream(self, stream, model: str):
+    async def _process_stream(
+        self,
+        stream,
+        model: str,
+        cancellation_token: CancellationToken | None = None,
+    ):
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
@@ -215,7 +221,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             Provider.GOOGLE_OAI,
         ]
         if stream_mode == "manual" or provider_requires_manual:
-            return await self._process_stream_manual(stream, model)
+            return await self._process_stream_manual(stream, model, cancellation_token)
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
         state = ChatCompletionStreamState()
@@ -227,6 +233,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Process the stream chunks
         async for chunk in stream:
+            # Check for cancellation before processing each chunk
+            if cancellation_token and cancellation_token.is_cancelled:
+                _logger.info("Stream cancelled by user")
+                raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
@@ -422,7 +433,12 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     # TODO - as per other comment this needs to go in another class. There are a number of "special" cases dealt with
     # here to deal with OpenRouter idiosyncrasies between e.g. Anthropic and Gemini models.
-    async def _process_stream_manual(self, stream, model: str):
+    async def _process_stream_manual(
+        self,
+        stream,
+        model: str,
+        cancellation_token: CancellationToken | None = None,
+    ):
         """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
 
         from openai.types.chat import ChatCompletionMessageToolCall
@@ -445,6 +461,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Process the stream chunks manually
         async for chunk in stream:
+            # Check for cancellation before processing each chunk
+            if cancellation_token and cancellation_token.is_cancelled:
+                self.logger.info("Stream cancelled by user")
+                raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+
             # Process streaming events for tool calls
             if chunk.choices:
                 choice = chunk.choices[0]
@@ -680,6 +701,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         message: List[OpenAIMessage] | None,
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -737,7 +759,14 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             async with self._openai_client() as client:
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
-                response = await self._process_stream(stream, model_name)
+                response = await self._process_stream(stream, model_name, cancellation_token)
+        except CancellationError as e:
+            self.logger.info(f"OpenAI completion cancelled: {e.reason}")
+            # Return a response indicating cancellation
+            return Prompt.assistant(
+                TextContent(type="text", text=""),
+                stop_reason=LlmStopReason.CANCELLED,
+            )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
             return self._stream_failure_response(error, model_name)
@@ -895,6 +924,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         # Determine effective params to respect use_history for this turn
         req_params = self.get_request_params(request_params)
@@ -930,7 +960,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Do NOT persist; inline the full turn context to the provider call
             turn_messages = converted_prior + converted_last
 
-        return await self._openai_completion(turn_messages, req_params, tools)
+        return await self._openai_completion(
+            turn_messages, req_params, tools, cancellation_token
+        )
 
     def _prepare_api_request(
         self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams

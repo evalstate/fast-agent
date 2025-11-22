@@ -22,6 +22,7 @@ class LlmStopReason(str, Enum):
 
     # Custom extensions for fast-agent
     ERROR = "error"  # Used when there's an error in generation
+    CANCELLED = "cancelled"  # Used when generation is cancelled by user
 
     TIMEOUT = "timeout"  # Used when generation times out
     SAFETY = "safety"  # a safety or content warning was triggered
