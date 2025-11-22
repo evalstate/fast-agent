@@ -45,6 +45,11 @@ from fast_agent.constants import (
 )
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.ui.cancellation import (
+    CancellationToken,
+    register_cancellation_token,
+    unregister_cancellation_token,
+)
 from fast_agent.core.prompt_templates import (
     apply_template_variables,
     enrich_with_environment_context,
@@ -59,6 +64,7 @@ logger = get_logger(__name__)
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
+CANCELLED: StopReason = "cancelled"
 
 
 def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopReason:
@@ -186,6 +192,9 @@ class AgentACPServer(ACPAgent):
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
+
+        # Cancellation tokens for active prompts
+        self._cancellation_tokens: dict[str, CancellationToken] = {}
 
         # Track current agent per session for ACP mode support
         self._session_current_agent: dict[str, str] = {}
@@ -753,6 +762,11 @@ class AgentACPServer(ACPAgent):
             # Mark this session as having an active prompt
             self._active_prompts.add(session_id)
 
+            # Create cancellation token for this prompt
+            cancellation_token = CancellationToken()
+            self._cancellation_tokens[session_id] = cancellation_token
+            await register_cancellation_token(session_id, cancellation_token)
+
         # Use try/finally to ensure session is always removed from active prompts
         try:
             # Get the agent instance for this session
@@ -900,10 +914,33 @@ class AgentACPServer(ACPAgent):
                         session_request_params = self._build_session_request_params(
                             agent, session_id
                         )
-                        result = await agent.generate(
-                            prompt_message, request_params=session_request_params
+
+                        # Create a task for the generate call so we can cancel it
+                        generate_task = asyncio.create_task(
+                            agent.generate(
+                                prompt_message, request_params=session_request_params
+                            )
                         )
-                        response_text = result.last_text() or "No content generated"
+
+                        # Set up cancellation callback
+                        def cancel_generate():
+                            if not generate_task.done():
+                                generate_task.cancel()
+
+                        cancellation_token.on_cancel(cancel_generate)
+
+                        # Wait for the task to complete
+                        try:
+                            result = await generate_task
+                            response_text = result.last_text() or "No content generated"
+                        except asyncio.CancelledError:
+                            logger.info(
+                                "Prompt cancelled by client",
+                                name="acp_prompt_cancelled",
+                                session_id=session_id,
+                            )
+                            # Return cancelled stop reason
+                            return PromptResponse(stopReason=CANCELLED)
 
                         # Map the LLM stop reason to ACP stop reason
                         try:
@@ -1013,12 +1050,46 @@ class AgentACPServer(ACPAgent):
                 stopReason=acp_stop_reason,
             )
         finally:
-            # Always remove session from active prompts, even on error
+            # Always remove session from active prompts and clean up cancellation token
             async with self._session_lock:
                 self._active_prompts.discard(session_id)
+                self._cancellation_tokens.pop(session_id, None)
+            await unregister_cancellation_token(session_id)
             logger.debug(
                 "Removed session from active prompts",
                 name="acp_prompt_complete",
+                session_id=session_id,
+            )
+
+    async def cancel(self, session_id: str) -> None:
+        """
+        Handle session/cancel notification from client.
+
+        Per ACP protocol, this cancels an ongoing prompt for the session.
+
+        Args:
+            session_id: The session ID to cancel
+        """
+        logger.info(
+            "Received cancel request",
+            name="acp_cancel_request",
+            session_id=session_id,
+        )
+
+        async with self._session_lock:
+            token = self._cancellation_tokens.get(session_id)
+
+        if token:
+            token.cancel()
+            logger.info(
+                "Cancelled active prompt",
+                name="acp_prompt_cancelled_by_client",
+                session_id=session_id,
+            )
+        else:
+            logger.debug(
+                "No active prompt to cancel",
+                name="acp_cancel_no_active",
                 session_id=session_id,
             )
 

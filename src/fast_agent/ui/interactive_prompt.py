@@ -28,6 +28,7 @@ from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import PromptMessageExtended
+from fast_agent.ui.cancellation import CancellationToken, run_with_cancellation
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_argument_input,
@@ -330,8 +331,19 @@ class InteractivePrompt:
                 if user_input == "":
                     continue
 
-            # Send the message to the agent
-            result = await send_func(user_input, agent)
+            # Send the message to the agent with ESC cancellation support
+            token = CancellationToken()
+            result, was_cancelled = await run_with_cancellation(
+                send_func(user_input, agent),
+                token=token,
+                enable_esc_monitor=True,
+            )
+
+            if was_cancelled:
+                rich_print("\n[yellow]Operation cancelled[/yellow]")
+                result = result or ""
+            elif result is None:
+                result = ""
 
         return result
 
