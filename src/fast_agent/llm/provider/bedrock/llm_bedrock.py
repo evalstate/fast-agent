@@ -1238,8 +1238,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # Convert fresh from _message_history if use_history is enabled
         if params.use_history:
-            messages.extend(self._convert_to_provider_format(self._message_history))
-        messages.append(message_param)
+            messages.extend(self._convert_to_provider_format(self._conversation_history()))
+        if not params.use_history:
+            messages.append(message_param)
 
         # Get available tools (no resolver gating; fallback logic will decide wiring)
         tool_list = None

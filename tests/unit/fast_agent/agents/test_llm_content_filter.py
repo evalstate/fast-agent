@@ -16,23 +16,33 @@ from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FAST_AGENT_REMOVED_METADATA_CHANNEL,
 )
+from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.provider_types import Provider
 from fast_agent.types import PromptMessageExtended, text_content
 
 
-class RecordingStubLLM:
+class RecordingStubLLM(FastAgentLLMProtocol):
     """Minimal FastAgentLLMProtocol implementation for testing."""
 
     def __init__(self, model_name: str = "passthrough") -> None:
-        self.model_name = model_name
-        self.provider = Provider.FAST_AGENT
+        self._model_name = model_name
+        self._provider = Provider.FAST_AGENT
         self.generated_messages: list[PromptMessageExtended] | None = None
         self._message_history: list[PromptMessageExtended] = []
-        self.usage_accumulator = None
+
+    #        self.usage_accumulator = None
+
+    @property
+    def model_name(self) -> str | None:
+        return self._model_name
+
+    @property
+    def provider(self) -> Provider:
+        return self._provider
 
     async def generate(self, messages, request_params=None, tools=None):
         self.generated_messages = messages
-        self._message_history.extend(messages)
+        self._message_history = messages
         return PromptMessageExtended(
             role="assistant",
             content=[TextContent(type="text", text="ok")],
@@ -166,9 +176,7 @@ async def test_metadata_clears_when_supported_content_only():
     channels = (stub.generated_messages or [])[0].channels or {}
     assert FAST_AGENT_REMOVED_METADATA_CHANNEL in channels
 
-    second_message = PromptMessageExtended(
-        role="user", content=[text_content("Next turn")]
-    )
+    second_message = PromptMessageExtended(role="user", content=[text_content("Next turn")])
     await decorator.generate_impl([second_message])
 
     assert stub.generated_messages is not None

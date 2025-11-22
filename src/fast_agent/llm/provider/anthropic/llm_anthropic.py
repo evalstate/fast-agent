@@ -454,6 +454,31 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             stop_reason=LlmStopReason.ERROR,
         )
 
+    def _build_request_messages(
+        self,
+        params: RequestParams,
+        message_param: MessageParam,
+        pre_messages: List[MessageParam] | None = None,
+    ) -> List[MessageParam]:
+        """
+        Build the list of Anthropic message parameters for the next request.
+
+        Ensures that the current user message is only included once when history
+        is enabled, which prevents duplicate tool_result blocks from being sent.
+        """
+        messages: List[MessageParam] = list(pre_messages) if pre_messages else []
+
+        history_messages: List[MessageParam] = []
+        if params.use_history:
+            history_messages = self._convert_to_provider_format(self._conversation_history())
+            messages.extend(history_messages)
+
+        include_current = not params.use_history or not history_messages
+        if include_current:
+            messages.append(message_param)
+
+        return messages
+
     async def _anthropic_completion(
         self,
         message_param,
@@ -474,18 +499,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         try:
             anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
-            messages: List[MessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
+            messages = self._build_request_messages(params, message_param, pre_messages)
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid Anthropic API key",
                 "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
             ) from e
-
-        # Convert fresh from _message_history if use_history is enabled
-        if params.use_history:
-            messages.extend(self._convert_to_provider_format(self._message_history))
-        messages.append(message_param)  # message_param is the current user turn
 
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()

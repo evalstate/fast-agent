@@ -9,6 +9,7 @@ from mcp.server.fastmcp.prompts.base import (
 from mcp.types import PromptMessage, TextContent
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
@@ -158,7 +159,7 @@ def load_prompt_as_get_prompt_result(file: Path):
     return to_get_prompt_result(messages)
 
 
-def load_history_into_agent(agent, file_path: Path) -> None:
+def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> None:
     """
     Load conversation history directly into agent without triggering LLM call.
 
@@ -178,6 +179,6 @@ def load_history_into_agent(agent, file_path: Path) -> None:
 
     # Direct restoration - no LLM call
     agent.clear(clear_prompts=True)
-    agent._message_history = messages
+    agent.message_history.extend(messages)
 
     # Note: Provider diagnostic history will be updated on next API call

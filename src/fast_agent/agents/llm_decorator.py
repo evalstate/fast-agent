@@ -150,6 +150,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._tracer = trace.get_tracer(__name__)
         self.instruction = self.config.instruction
 
+        # Agent-owned conversation state (PromptMessageExtended only)
+        self._message_history: List[PromptMessageExtended] = []
+        self._template_messages: List[PromptMessageExtended] = []
+
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
 
@@ -225,6 +229,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm = llm_factory(
             agent=self, request_params=effective_params, context=self._context, **additional_kwargs
         )
+        if hasattr(self._llm, "_history_owned"):
+            self._llm._history_owned = False
+        if hasattr(self._llm, "_message_history"):
+            self._llm._message_history = self._message_history
+        if hasattr(self._llm, "_template_messages"):
+            self._llm._template_messages = self._template_messages
 
         return self._llm
 
@@ -338,7 +348,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             String representation of the assistant's response if generated
         """
+        from fast_agent.types import PromptMessageExtended
+
         assert self._llm
+
+        multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
+        self._template_messages = [msg.model_copy(deep=True) for msg in multipart_messages]
+        self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
+
         return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
     async def apply_prompt(
@@ -375,6 +392,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if not self._llm:
             return
         self._llm.clear(clear_prompts=clear_prompts)
+        if clear_prompts:
+            self._template_messages = []
+            self._message_history = []
+        else:
+            self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
 
     async def structured(
         self,
@@ -446,7 +468,28 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     ) -> Tuple[PromptMessageExtended, RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        response = await self._llm.generate(sanitized_messages, request_params, tools)
+        final_request_params = self._llm.get_request_params(request_params)
+
+        use_history = final_request_params.use_history if final_request_params else True
+        persist_history = use_history
+        call_params = final_request_params.model_copy() if final_request_params else None
+        if call_params and not call_params.use_history:
+            # We still need to send the provided templates + turn to the provider
+            call_params.use_history = True
+
+        if use_history:
+            full_history = [msg.model_copy(deep=True) for msg in self._message_history]
+            full_history.extend(sanitized_messages)
+        else:
+            full_history = [msg.model_copy(deep=True) for msg in self._template_messages]
+            full_history.extend(sanitized_messages)
+
+        response = await self._llm.generate(full_history, call_params, tools)
+
+        if persist_history and not sanitized_messages[-1].first_text().startswith("***SAVE_HISTORY"):
+            history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
+            self._message_history.extend(history_messages)
+            self._message_history.append(response)
         return response, summary
 
     async def _structured_with_summary(
@@ -457,8 +500,42 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     ) -> Tuple[Tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        structured_result = await self._llm.structured(sanitized_messages, model, request_params)
+        final_request_params = self._llm.get_request_params(request_params)
+
+        use_history = final_request_params.use_history if final_request_params else True
+        persist_history = use_history
+        call_params = final_request_params.model_copy() if final_request_params else None
+        if call_params and not call_params.use_history:
+            call_params.use_history = True
+
+        if use_history:
+            full_history = [msg.model_copy(deep=True) for msg in self._message_history]
+            full_history.extend(sanitized_messages)
+        else:
+            full_history = [msg.model_copy(deep=True) for msg in self._template_messages]
+            full_history.extend(sanitized_messages)
+
+        structured_result = await self._llm.structured(full_history, model, call_params)
+
+        if persist_history and sanitized_messages and not sanitized_messages[-1].first_text().startswith("***SAVE_HISTORY"):
+            try:
+                _, assistant_message = structured_result
+                history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
+                self._message_history.extend(history_messages)
+                self._message_history.append(assistant_message)
+            except Exception:
+                pass
         return structured_result, summary
+
+    @staticmethod
+    def _strip_removed_metadata(message: PromptMessageExtended) -> PromptMessageExtended:
+        """Remove per-turn removed-content metadata before persisting to history."""
+        msg_copy = message.model_copy(deep=True)
+        if msg_copy.channels and FAST_AGENT_REMOVED_METADATA_CHANNEL in msg_copy.channels:
+            channels = dict(msg_copy.channels)
+            channels.pop(FAST_AGENT_REMOVED_METADATA_CHANNEL, None)
+            msg_copy.channels = channels if channels else None
+        return msg_copy
 
     def _sanitize_messages_for_llm(
         self, messages: List[PromptMessageExtended]
@@ -761,9 +838,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             List of PromptMessageExtended objects representing the conversation history
         """
-        if self._llm:
-            return self._llm.message_history
-        return []
+        return self._message_history
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""

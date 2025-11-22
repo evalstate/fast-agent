@@ -56,7 +56,7 @@ def get_test_models():
             "kimigroq",
             "kimi",
             "glm",
-            "qwen3",
+            "qwen3:together",
             "deepseek31",
             #            "responses.gpt-5-mini",
             #     "generic.qwen3:8b",

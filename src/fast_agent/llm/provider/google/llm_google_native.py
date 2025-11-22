@@ -338,9 +338,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         # Convert fresh from _message_history if use_history is enabled
         conversation_history: List[types.Content] = []
         if request_params.use_history:
-            conversation_history.extend(self._convert_to_provider_format(self._message_history))
+            conversation_history.extend(self._convert_to_provider_format(self._conversation_history()))
         # Add the provided turn message(s) if present
-        if message:
+        if message and not request_params.use_history:
             conversation_history.extend(message)
 
         self.logger.debug(f"Google completion requested with messages: {conversation_history}")
@@ -508,7 +508,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             # Map correlation IDs back to tool names using the last assistant tool_calls
             # found in our high-level message history
             id_to_name: Dict[str, str] = {}
-            for prev in reversed(self._message_history):
+            for prev in reversed(self._conversation_history()):
                 if prev.role == "assistant" and prev.tool_calls:
                     for call_id, call in prev.tool_calls.items():
                         try:

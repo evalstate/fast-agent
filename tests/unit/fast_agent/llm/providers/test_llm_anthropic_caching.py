@@ -6,12 +6,14 @@ to verify cache_control markers are applied correctly based on cache_mode settin
 """
 
 import pytest
-from mcp.types import TextContent
+from mcp.types import CallToolResult, TextContent
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
+from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+from fast_agent.types import RequestParams
 
 
 class TestAnthropicCaching:
@@ -198,22 +200,54 @@ class TestAnthropicCaching:
         assert converted[1]["role"] == "assistant"
         assert converted[2]["role"] == "user"
 
-        # Verify content
-        assert any(
-            block.get("text") == "First"
-            for block in converted[0]["content"]
-            if isinstance(block, dict)
+    def test_build_request_messages_avoids_duplicate_tool_results(self):
+        """Ensure tool_result blocks are only included once per tool use."""
+        llm = self._create_llm()
+        tool_id = "toolu_test"
+        tool_result = CallToolResult(
+            content=[TextContent(type="text", text="result payload")], isError=False
         )
-        assert any(
-            block.get("text") == "Second"
-            for block in converted[1]["content"]
-            if isinstance(block, dict)
-        )
-        assert any(
-            block.get("text") == "Third"
-            for block in converted[2]["content"]
-            if isinstance(block, dict)
-        )
+        user_msg = PromptMessageExtended(role="user", content=[], tool_results={tool_id: tool_result})
+        llm._message_history = [user_msg]
+
+        params = llm.get_request_params(RequestParams(use_history=True))
+        message_param = AnthropicConverter.convert_to_anthropic(user_msg)
+
+        prepared = llm._build_request_messages(params, message_param)
+
+        tool_blocks = [
+            block
+            for msg in prepared
+            for block in msg.get("content", [])
+            if isinstance(block, dict) and block.get("type") == "tool_result"
+        ]
+
+        assert len(tool_blocks) == 1
+        assert tool_blocks[0]["tool_use_id"] == tool_id
+
+    def test_build_request_messages_includes_current_when_history_empty(self):
+        """Fallback to the current message if history produced no entries."""
+        llm = self._create_llm()
+        params = llm.get_request_params(RequestParams(use_history=True))
+        msg = PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")])
+        llm._message_history = []
+        message_param = AnthropicConverter.convert_to_anthropic(msg)
+
+        prepared = llm._build_request_messages(params, message_param)
+
+        assert prepared[-1] == message_param
+
+    def test_build_request_messages_without_history(self):
+        """When history is disabled, always send the current message."""
+        llm = self._create_llm()
+        params = llm.get_request_params(RequestParams(use_history=False))
+        msg = PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")])
+        llm._message_history = [msg]
+        message_param = AnthropicConverter.convert_to_anthropic(msg)
+
+        prepared = llm._build_request_messages(params, message_param)
+
+        assert prepared == [message_param]
 
     def test_conversion_empty_messages(self):
         """Test conversion of empty message list."""

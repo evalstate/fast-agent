@@ -700,7 +700,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Convert fresh from _message_history if use_history is enabled
         if request_params.use_history:
-            messages.extend(self._convert_to_provider_format(self._message_history))
+            messages.extend(self._convert_to_provider_format(self._conversation_history()))
         if message is not None:
             messages.extend(message)
 
@@ -904,11 +904,16 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if last_message.role == "assistant":
             return last_message
 
-        # Convert the last user message
-        converted_last = OpenAIConverter.convert_to_openai(last_message)
-        if not converted_last:
-            # Fallback for empty conversion
-            converted_last = [{"role": "user", "content": ""}]
+        # Convert the last user message only when history is disabled.
+        # When history is enabled, _convert_to_provider_format will convert the entire
+        # _message_history (which already includes last_message via _precall), so we avoid
+        # duplicating the final turn.
+        converted_last: List[OpenAIMessage] | None = None
+        if not req_params.use_history:
+            converted_last = OpenAIConverter.convert_to_openai(last_message)
+            if not converted_last:
+                # Fallback for empty conversion
+                converted_last = [{"role": "user", "content": ""}]
 
         # No need to manually manage history - conversion happens in _openai_completion
         # via _convert_to_provider_format()
