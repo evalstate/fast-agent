@@ -131,6 +131,17 @@ class RemovedContentSummary:
     message: str
 
 
+@dataclass
+class _CallContext:
+    """Internal helper for assembling an LLM call."""
+
+    full_history: List[PromptMessageExtended]
+    call_params: RequestParams | None
+    persist_history: bool
+    sanitized_messages: List[PromptMessageExtended]
+    summary: RemovedContentSummary | None
+
+
 class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     """
     A pure delegation wrapper around LlmAgent instances.
@@ -471,32 +482,16 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         tools: List[Tool] | None = None,
     ) -> Tuple[PromptMessageExtended, RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
-        sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        final_request_params = self._llm.get_request_params(request_params)
+        call_ctx = self._prepare_llm_call(messages, request_params)
 
-        use_history = final_request_params.use_history if final_request_params else True
-        persist_history = use_history
-        call_params = final_request_params.model_copy() if final_request_params else None
-        if call_params and not call_params.use_history:
-            # We still need to send the provided templates + turn to the provider
-            call_params.use_history = True
+        response = await self._llm.generate(
+            call_ctx.full_history, call_ctx.call_params, tools
+        )
 
-        if use_history:
-            full_history = [msg.model_copy(deep=True) for msg in self._message_history]
-            full_history.extend(sanitized_messages)
-        else:
-            full_history = [msg.model_copy(deep=True) for msg in self._template_messages]
-            full_history.extend(sanitized_messages)
+        if call_ctx.persist_history:
+            self._persist_history(call_ctx.sanitized_messages, response)
 
-        response = await self._llm.generate(full_history, call_params, tools)
-
-        if persist_history and not sanitized_messages[-1].first_text().startswith(
-            CONTROL_MESSAGE_SAVE_HISTORY
-        ):
-            history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
-            self._message_history.extend(history_messages)
-            self._message_history.append(response)
-        return response, summary
+        return response, call_ctx.summary
 
     async def _structured_with_summary(
         self,
@@ -505,37 +500,58 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         request_params: RequestParams | None = None,
     ) -> Tuple[Tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
+        call_ctx = self._prepare_llm_call(messages, request_params)
+
+        structured_result = await self._llm.structured(
+            call_ctx.full_history, model, call_ctx.call_params
+        )
+
+        if call_ctx.persist_history:
+            try:
+                _, assistant_message = structured_result
+                self._persist_history(call_ctx.sanitized_messages, assistant_message)
+            except Exception:
+                pass
+        return structured_result, call_ctx.summary
+
+    def _prepare_llm_call(
+        self, messages: List[PromptMessageExtended], request_params: RequestParams | None = None
+    ) -> _CallContext:
+        """Normalize template/history handling for both generate and structured."""
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
         final_request_params = self._llm.get_request_params(request_params)
 
         use_history = final_request_params.use_history if final_request_params else True
-        persist_history = use_history
         call_params = final_request_params.model_copy() if final_request_params else None
         if call_params and not call_params.use_history:
             call_params.use_history = True
 
-        if use_history:
-            full_history = [msg.model_copy(deep=True) for msg in self._message_history]
-            full_history.extend(sanitized_messages)
-        else:
-            full_history = [msg.model_copy(deep=True) for msg in self._template_messages]
-            full_history.extend(sanitized_messages)
+        base_history = self._message_history if use_history else self._template_messages
+        full_history = [msg.model_copy(deep=True) for msg in base_history]
+        full_history.extend(sanitized_messages)
 
-        structured_result = await self._llm.structured(full_history, model, call_params)
+        return _CallContext(
+            full_history=full_history,
+            call_params=call_params,
+            persist_history=use_history,
+            sanitized_messages=sanitized_messages,
+            summary=summary,
+        )
 
-        if (
-            persist_history
-            and sanitized_messages
-            and not sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY)
-        ):
-            try:
-                _, assistant_message = structured_result
-                history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
-                self._message_history.extend(history_messages)
-                self._message_history.append(assistant_message)
-            except Exception:
-                pass
-        return structured_result, summary
+    def _persist_history(
+        self,
+        sanitized_messages: List[PromptMessageExtended],
+        assistant_message: PromptMessageExtended,
+    ) -> None:
+        """Persist the last turn unless explicitly disabled by control text."""
+        if not sanitized_messages:
+            return
+        if sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):
+            return
+
+        history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
+        self._message_history.extend(history_messages)
+        self._message_history.append(assistant_message)
 
     @staticmethod
     def _strip_removed_metadata(message: PromptMessageExtended) -> PromptMessageExtended:

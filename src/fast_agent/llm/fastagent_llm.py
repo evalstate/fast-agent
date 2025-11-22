@@ -298,8 +298,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
-        use_history = final_request_params.use_history if final_request_params else True
-
         full_history = messages
 
         # Track timing for this structured generation
