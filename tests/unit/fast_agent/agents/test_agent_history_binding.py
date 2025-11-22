@@ -44,9 +44,6 @@ class FakeLLM(FastAgentLLM[PromptMessageExtended, PromptMessageExtended]):
 async def test_templates_sent_when_history_disabled():
     agent = LlmAgent(AgentConfig("test-agent"))
     llm = FakeLLM()
-    llm._history_owned = False
-    llm._message_history = agent._message_history
-    llm._template_messages = agent._template_messages
     agent._llm = llm
 
     # Seed a template baseline and make sure history mirrors it

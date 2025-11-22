@@ -335,13 +335,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         request_params = self.get_request_params(request_params=request_params)
         responses: List[ContentBlock] = []
 
-        # Convert fresh from _message_history if use_history is enabled
-        conversation_history: List[types.Content] = []
-        if request_params.use_history:
-            conversation_history.extend(self._convert_to_provider_format(self._conversation_history()))
-        # Add the provided turn message(s) if present
-        if message and not request_params.use_history:
-            conversation_history.extend(message)
+        # Caller supplies the full set of messages to send (history + turn)
+        conversation_history: List[types.Content] = list(message or [])
 
         self.logger.debug(f"Google completion requested with messages: {conversation_history}")
         self._log_chat_progress(self.chat_turn(), model=request_params.model)
@@ -487,8 +482,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     ) -> PromptMessageExtended:
         """
         Provider-specific prompt application.
-        Note: Templates are now stored in _template_messages by base class,
-        and will be automatically prepended by _convert_to_provider_format().
+        Templates are handled by the agent; messages already include them.
         """
         request_params = self.get_request_params(request_params=request_params)
 
@@ -508,7 +502,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             # Map correlation IDs back to tool names using the last assistant tool_calls
             # found in our high-level message history
             id_to_name: Dict[str, str] = {}
-            for prev in reversed(self._conversation_history()):
+            for prev in reversed(multipart_messages):
                 if prev.role == "assistant" and prev.tool_calls:
                     for call_id, call in prev.tool_calls.items():
                         try:
@@ -537,11 +531,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if not turn_messages:
             turn_messages.append(types.Content(role="user", parts=[types.Part.from_text("")]))
 
-        # Delegate to the native completion with explicit turn messages
-        # History conversion happens automatically in _google_completion via _convert_to_provider_format()
-        return await self._google_completion(
-            turn_messages, request_params=request_params, tools=tools
-        )
+        conversation_history: List[types.Content] = []
+        if request_params.use_history and len(multipart_messages) > 1:
+            conversation_history.extend(
+                self._convert_to_provider_format(multipart_messages[:-1])
+            )
+        conversation_history.extend(turn_messages)
+
+        return await self._google_completion(conversation_history, request_params=request_params, tools=tools)
 
     def _convert_extended_messages_to_provider(
         self, messages: List[PromptMessageExtended]

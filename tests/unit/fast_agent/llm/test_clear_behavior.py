@@ -25,21 +25,21 @@ def _make_user_message(text: str) -> PromptMessageExtended:
 @pytest.mark.asyncio
 async def test_llm_clear_retains_templates():
     ctx = Context()
+    agent = LlmAgent(config=AgentConfig(name="agent-under-test"), context=ctx)
     llm = PassthroughLLM(provider=Provider.FAST_AGENT, context=ctx)
+    agent._llm = llm
 
-    await llm.apply_prompt_template(_make_template_prompt("template context"), "demo")
-    assert [msg.first_text() for msg in llm.message_history] == ["template context"]
+    await agent.apply_prompt_template(_make_template_prompt("template context"), "demo")
+    assert [msg.first_text() for msg in agent.message_history] == ["template context"]
 
-    await llm.generate([_make_user_message("hello")])
-    assert len(llm.message_history) >= 3  # template + user + assistant
+    await agent.generate(_make_user_message("hello"))
+    assert len(agent.message_history) >= 3  # template + user + assistant
 
-    llm.clear()
-    assert [msg.first_text() for msg in llm.message_history] == ["template context"]
-    assert len(llm.history.get()) == 1
+    agent.clear()
+    assert [msg.first_text() for msg in agent.message_history] == ["template context"]
 
-    llm.clear(clear_prompts=True)
-    assert llm.message_history == []
-    assert llm.history.get() == []
+    agent.clear(clear_prompts=True)
+    assert agent.message_history == []
 
 
 @pytest.mark.asyncio

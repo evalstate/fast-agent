@@ -1320,9 +1320,8 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             List of PromptMessageExtended objects representing the conversation history
         """
-        if self._llm:
-            return self._llm.message_history
-        return []
+        # Conversation history is maintained at the agent layer; LLM history is diagnostic only.
+        return super().message_history
 
     @property
     def usage_accumulator(self) -> Optional["UsageAccumulator"]:

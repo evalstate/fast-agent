@@ -42,7 +42,11 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
+from fast_agent.constants import (
+    CONTROL_MESSAGE_SAVE_HISTORY,
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_REMOVED_METADATA_CHANNEL,
+)
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
@@ -229,12 +233,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._llm = llm_factory(
             agent=self, request_params=effective_params, context=self._context, **additional_kwargs
         )
-        if hasattr(self._llm, "_history_owned"):
-            self._llm._history_owned = False
-        if hasattr(self._llm, "_message_history"):
-            self._llm._message_history = self._message_history
-        if hasattr(self._llm, "_template_messages"):
-            self._llm._template_messages = self._template_messages
 
         return self._llm
 
@@ -355,6 +353,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
         self._template_messages = [msg.model_copy(deep=True) for msg in multipart_messages]
         self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
+
+        if hasattr(self._llm, "record_templates"):
+            try:
+                self._llm.record_templates(self._template_messages)
+            except Exception:
+                pass
 
         return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
@@ -486,7 +490,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         response = await self._llm.generate(full_history, call_params, tools)
 
-        if persist_history and not sanitized_messages[-1].first_text().startswith("***SAVE_HISTORY"):
+        if persist_history and not sanitized_messages[-1].first_text().startswith(
+            CONTROL_MESSAGE_SAVE_HISTORY
+        ):
             history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
             self._message_history.extend(history_messages)
             self._message_history.append(response)
@@ -517,7 +523,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         structured_result = await self._llm.structured(full_history, model, call_params)
 
-        if persist_history and sanitized_messages and not sanitized_messages[-1].first_text().startswith("***SAVE_HISTORY"):
+        if (
+            persist_history
+            and sanitized_messages
+            and not sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY)
+        ):
             try:
                 _, assistant_message = structured_result
                 history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]

@@ -1213,6 +1213,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         pre_messages: List[BedrockMessageParam] | None = None,
+        history: List[PromptMessageExtended] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Bedrock and available tools.
@@ -1236,10 +1237,10 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     f"Error accessing Bedrock: {error_msg}",
                 ) from e
 
-        # Convert fresh from _message_history if use_history is enabled
-        if params.use_history:
-            messages.extend(self._convert_to_provider_format(self._conversation_history()))
-        if not params.use_history:
+        # Convert supplied history/messages directly
+        if history:
+            messages.extend(self._convert_to_provider_format(history))
+        else:
             messages.append(message_param)
 
         # Get available tools (no resolver gating; fallback logic will decide wiring)
@@ -1863,8 +1864,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
     ) -> PromptMessageExtended:
         """
         Provider-specific prompt application.
-        Note: Templates are now stored in _template_messages by base class,
-        and will be automatically prepended by _convert_to_provider_format().
+        Templates are handled by the agent; messages already include them.
         """
         if not multipart_messages:
             return PromptMessageExtended(role="user", content=[])
@@ -1883,7 +1883,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         # No need to pass pre_messages - conversion happens in _bedrock_completion
         # via _convert_to_provider_format()
         return await self._bedrock_completion(
-            message_param, request_params, tools, pre_messages=None
+            message_param, request_params, tools, pre_messages=None, history=multipart_messages
         )
 
     def _generate_simplified_schema(self, model: Type[ModelT]) -> str:

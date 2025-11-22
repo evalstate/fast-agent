@@ -208,12 +208,12 @@ class TestAnthropicCaching:
             content=[TextContent(type="text", text="result payload")], isError=False
         )
         user_msg = PromptMessageExtended(role="user", content=[], tool_results={tool_id: tool_result})
-        llm._message_history = [user_msg]
+        history = [user_msg]
 
         params = llm.get_request_params(RequestParams(use_history=True))
         message_param = AnthropicConverter.convert_to_anthropic(user_msg)
 
-        prepared = llm._build_request_messages(params, message_param)
+        prepared = llm._build_request_messages(params, message_param, history=history)
 
         tool_blocks = [
             block
@@ -230,10 +230,9 @@ class TestAnthropicCaching:
         llm = self._create_llm()
         params = llm.get_request_params(RequestParams(use_history=True))
         msg = PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")])
-        llm._message_history = []
         message_param = AnthropicConverter.convert_to_anthropic(msg)
 
-        prepared = llm._build_request_messages(params, message_param)
+        prepared = llm._build_request_messages(params, message_param, history=[])
 
         assert prepared[-1] == message_param
 
@@ -242,10 +241,9 @@ class TestAnthropicCaching:
         llm = self._create_llm()
         params = llm.get_request_params(RequestParams(use_history=False))
         msg = PromptMessageExtended(role="user", content=[TextContent(type="text", text="hi")])
-        llm._message_history = [msg]
         message_param = AnthropicConverter.convert_to_anthropic(msg)
 
-        prepared = llm._build_request_messages(params, message_param)
+        prepared = llm._build_request_messages(params, message_param, history=[])
 
         assert prepared == [message_param]
 

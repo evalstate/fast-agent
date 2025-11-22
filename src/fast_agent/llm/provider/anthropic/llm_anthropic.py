@@ -69,6 +69,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     def __init__(self, *args, **kwargs) -> None:
         # Initialize logger - keep it simple without name reference
         super().__init__(*args, provider=Provider.ANTHROPIC, **kwargs)
+        self._template_messages: List[PromptMessageExtended] = []
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""
@@ -459,6 +460,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         params: RequestParams,
         message_param: MessageParam,
         pre_messages: List[MessageParam] | None = None,
+        history: List[PromptMessageExtended] | None = None,
     ) -> List[MessageParam]:
         """
         Build the list of Anthropic message parameters for the next request.
@@ -469,8 +471,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         messages: List[MessageParam] = list(pre_messages) if pre_messages else []
 
         history_messages: List[MessageParam] = []
-        if params.use_history:
-            history_messages = self._convert_to_provider_format(self._conversation_history())
+        if params.use_history and history:
+            history_messages = self._convert_to_provider_format(history)
             messages.extend(history_messages)
 
         include_current = not params.use_history or not history_messages
@@ -486,6 +488,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_model: Type[ModelT] | None = None,
         tools: List[Tool] | None = None,
         pre_messages: List[MessageParam] | None = None,
+        history: List[PromptMessageExtended] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -500,7 +503,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         try:
             anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
             params = self.get_request_params(request_params)
-            messages = self._build_request_messages(params, message_param, pre_messages)
+            messages = self._build_request_messages(params, message_param, pre_messages, history=history)
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid Anthropic API key",
@@ -647,8 +650,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     ) -> PromptMessageExtended:
         """
         Provider-specific prompt application.
-        Note: Templates are now stored in _template_messages by base class,
-        and will be automatically prepended by _convert_to_provider_format().
+        Templates are handled by the agent; messages already include them.
         """
         # Check the last message role
         last_message = multipart_messages[-1]
@@ -659,7 +661,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # No need to pass pre_messages - conversion happens in _anthropic_completion
             # via _convert_to_provider_format()
             return await self._anthropic_completion(
-                message_param, request_params, tools=tools, pre_messages=None
+                message_param, request_params, tools=tools, pre_messages=None, history=multipart_messages
             )
         else:
             # For assistant messages: Return the last message content as text
@@ -688,7 +690,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             # Call _anthropic_completion with the structured model
             result: PromptMessageExtended = await self._anthropic_completion(
-                message_param, request_params, structured_model=model
+                message_param, request_params, structured_model=model, history=multipart_messages
             )
 
             for content in result.content:
@@ -727,18 +729,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         for i, msg in enumerate(messages):
             anthropic_msg = AnthropicConverter.convert_to_anthropic(msg)
 
-            # Apply caching to template messages if they're marked as templates
-            # Template messages are the ones in _template_messages, which are always
-            # at the beginning of the list passed to this method
-            is_template = (
-                self._template_messages and i < len(self._template_messages)
-            )
-            if is_template and cache_mode in ["prompt", "auto"] and anthropic_msg.get("content"):
+            if cache_mode in ["prompt", "auto"] and anthropic_msg.get("content"):
                 content_list = anthropic_msg["content"]
                 if isinstance(content_list, list) and content_list:
                     # Apply cache control to the last content block
                     last_block = content_list[-1]
-                    if isinstance(last_block, dict):
+                    if isinstance(last_block, dict) and (
+                        not self._template_messages
+                        or i < len(self._template_messages)
+                    ):
                         last_block["cache_control"] = {"type": "ephemeral"}
                         logger.debug(
                             f"Applied cache_control to template message with role {anthropic_msg.get('role')}"
@@ -747,6 +746,41 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             converted.append(anthropic_msg)
 
         return converted
+
+    def _convert_to_provider_format(self, messages: List[PromptMessageExtended]) -> List[MessageParam]:
+        """
+        Combine stored templates with provided messages while avoiding duplicates.
+
+        Agents now own the authoritative history, but the LLM still keeps a copy of
+        applied templates so we can:
+        - prepend them when tests (or direct LLM usage) supply only conversation turns
+        - identify which messages should receive cache_control markers
+        """
+        if not getattr(self, "_template_messages", None):
+            return super()._convert_to_provider_format(messages)
+
+        if not messages:
+            source_messages = self._template_messages
+        else:
+            tmpl_len = len(self._template_messages)
+            prefix = messages[:tmpl_len]
+
+            # Detect whether the incoming messages already start with the templates
+            try:
+                templates_match = len(prefix) == tmpl_len and all(
+                    prefix[i].model_dump() == self._template_messages[i].model_dump()
+                    for i in range(tmpl_len)
+                )
+            except Exception:
+                templates_match = False
+
+            if templates_match:
+                source_messages = messages
+            else:
+                source_messages = [msg.model_copy(deep=True) for msg in self._template_messages]
+                source_messages.extend(messages)
+
+        return super()._convert_to_provider_format(source_messages)
 
     @classmethod
     def convert_message_to_message_param(cls, message: Message, **kwargs) -> MessageParam:
@@ -790,3 +824,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if self.usage_accumulator.cache_hit_rate:
             print(f"Cache hit rate: {self.usage_accumulator.cache_hit_rate:.1f}%")
         print("===========================\n")
+    def record_templates(self, templates: List[PromptMessageExtended]) -> None:
+        """Store templates for cache-control application."""
+        self._template_messages = [msg.model_copy(deep=True) for msg in templates]

@@ -698,10 +698,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
 
-        # Convert fresh from _message_history if use_history is enabled
-        if request_params.use_history:
-            messages.extend(self._convert_to_provider_format(self._conversation_history()))
-        if message is not None:
+        # The caller supplies the full history; convert it directly
+        if message:
             messages.extend(message)
 
         available_tools: List[ChatCompletionToolParam] | None = [
@@ -892,10 +890,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     ) -> PromptMessageExtended:
         """
         Provider-specific prompt application.
-        Note: Templates are now stored in _template_messages by base class,
-        and will be automatically prepended by _convert_to_provider_format().
+        Templates are handled by the agent; messages already include them.
         """
-        # Determine effective params to respect use_history for this turn
+        # Determine effective params
         req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
@@ -904,20 +901,12 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if last_message.role == "assistant":
             return last_message
 
-        # Convert the last user message only when history is disabled.
-        # When history is enabled, _convert_to_provider_format will convert the entire
-        # _message_history (which already includes last_message via _precall), so we avoid
-        # duplicating the final turn.
-        converted_last: List[OpenAIMessage] | None = None
-        if not req_params.use_history:
-            converted_last = OpenAIConverter.convert_to_openai(last_message)
-            if not converted_last:
-                # Fallback for empty conversion
-                converted_last = [{"role": "user", "content": ""}]
+        # Convert the supplied history/messages directly
+        converted_messages = self._convert_to_provider_format(multipart_messages)
+        if not converted_messages:
+            converted_messages = [{"role": "user", "content": ""}]
 
-        # No need to manually manage history - conversion happens in _openai_completion
-        # via _convert_to_provider_format()
-        return await self._openai_completion(converted_last, req_params, tools)
+        return await self._openai_completion(converted_messages, req_params, tools)
 
     def _prepare_api_request(
         self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams

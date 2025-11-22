@@ -8,6 +8,16 @@ from fast_agent.llm.request_params import RequestParams
 from fast_agent.types import PromptMessageExtended
 
 
+class CapturingOpenAI(OpenAILLM):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.captured = None
+
+    async def _openai_completion(self, message, request_params=None, tools=None):
+        self.captured = message
+        return Prompt.assistant("ok")
+
+
 def _build_tool_messages():
     tool_call = CallToolRequest(
         method="tools/call",
@@ -28,45 +38,31 @@ def _build_tool_messages():
 
 
 @pytest.mark.asyncio
-async def test_apply_prompt_avoids_duplicate_last_message_when_using_history(monkeypatch):
+async def test_apply_prompt_avoids_duplicate_last_message_when_using_history():
     context = Context()
-    llm = OpenAILLM(context=context)
+    llm = CapturingOpenAI(context=context)
 
     assistant_tool_call, tool_result_msg = _build_tool_messages()
-    llm._message_history = [assistant_tool_call, tool_result_msg]
+    history = [assistant_tool_call, tool_result_msg]
 
-    captured = {"message": "unset"}
+    await llm._apply_prompt_provider_specific(history, None, None)
 
-    async def fake_completion(message, request_params, tools):
-        captured["message"] = message
-        return Prompt.assistant("ok")
-
-    monkeypatch.setattr(llm, "_openai_completion", fake_completion)
-
-    await llm._apply_prompt_provider_specific([tool_result_msg], None, None)
-
-    assert captured["message"] is None
+    assert isinstance(llm.captured, list)
+    assert llm.captured[0]["role"] == "assistant"
+    # Tool result conversion should follow the assistant tool_calls
+    assert any(msg.get("role") == "tool" for msg in llm.captured)
 
 
 @pytest.mark.asyncio
-async def test_apply_prompt_converts_last_message_when_history_disabled(monkeypatch):
+async def test_apply_prompt_converts_last_message_when_history_disabled():
     context = Context()
-    llm = OpenAILLM(context=context)
+    llm = CapturingOpenAI(context=context)
 
-    assistant_tool_call, tool_result_msg = _build_tool_messages()
-    llm._message_history = [assistant_tool_call, tool_result_msg]
-
-    captured = {"message": None}
-
-    async def fake_completion(message, request_params, tools):
-        captured["message"] = message
-        return Prompt.assistant("ok")
-
-    monkeypatch.setattr(llm, "_openai_completion", fake_completion)
+    _, tool_result_msg = _build_tool_messages()
 
     await llm._apply_prompt_provider_specific(
         [tool_result_msg], RequestParams(use_history=False), None
     )
 
-    assert isinstance(captured["message"], list)
-    assert any(msg.get("role") == "tool" for msg in captured["message"])
+    assert isinstance(llm.captured, list)
+    assert llm.captured  # should send something to completion when history is off

@@ -17,6 +17,8 @@ Usage:
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
 
+from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
+
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
 
@@ -278,7 +280,9 @@ class InteractivePrompt:
                             rich_print(f"[green]History saved to {saved_path}[/green]")
                         except Exception:
                             # Fallback to magic string path for maximum compatibility
-                            control = "***SAVE_HISTORY" + (f" {filename}" if filename else "")
+                            control = CONTROL_MESSAGE_SAVE_HISTORY + (
+                                f" {filename}" if filename else ""
+                            )
                             result = await send_func(control, agent)
                             if result:
                                 rich_print(f"[green]{result}[/green]")
