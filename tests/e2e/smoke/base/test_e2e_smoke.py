@@ -1,6 +1,6 @@
 import os
 from enum import Enum
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import pytest
 from pydantic import BaseModel, Field
@@ -176,7 +176,7 @@ class WeatherForecast(BaseModel):
 
     location: str = Field(..., description="City and country")
     unit: TemperatureUnit = Field(..., description="Temperature unit")
-    forecast: List[DailyForecast] = Field(..., description="Daily forecasts")
+    forecast: list[DailyForecast] = Field(..., description="Daily forecasts")
     summary: str = Field(..., description="Brief summary of the overall forecast")
 
 

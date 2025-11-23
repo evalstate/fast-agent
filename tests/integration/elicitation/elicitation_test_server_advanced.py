@@ -4,7 +4,6 @@ Advanced test server for comprehensive elicitation functionality
 
 import logging
 import sys
-from typing import Optional
 
 from mcp import (
     ReadResourceResult,
@@ -129,7 +128,7 @@ async def user_profile() -> ReadResourceResult:
                 ],
             },
         )
-        email: Optional[str] = Field(
+        email: str | None = Field(
             None, description="Your email address (optional)", json_schema_extra={"format": "email"}
         )
         subscribe_newsletter: bool = Field(False, description="Subscribe to our newsletter?")
@@ -210,7 +209,7 @@ async def feedback() -> ReadResourceResult:
         overall_rating: int = Field(description="Overall rating (1-5)", ge=1, le=5)
         ease_of_use: float = Field(description="Ease of use (0.0-10.0)", ge=0.0, le=10.0)
         would_recommend: bool = Field(description="Would you recommend to others?")
-        comments: Optional[str] = Field(None, description="Additional comments", max_length=500)
+        comments: str | None = Field(None, description="Additional comments", max_length=500)
 
     result = await mcp.get_context().elicit("We'd love your feedback!", schema=Feedback)
 

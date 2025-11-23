@@ -1,4 +1,3 @@
-from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -70,7 +69,7 @@ def test_base_url_uses_default_when_config_missing(mock_agent):
 @patch("fast_agent.llm.provider.openai.llm_openai.OpenAILLM._prepare_api_request")
 def test_prepare_api_request_with_template_vars(mock_super_prepare, t0_llm):
     """Tests injection of template_vars into a new system message."""
-    messages: List[ChatCompletionMessageParam] = []
+    messages: list[ChatCompletionMessageParam] = []
     # The super call's return value has its own 'messages' list. We ignore it.
     mock_super_prepare.return_value = {"model": "test_chat", "messages": []}
     request_params = RequestParams(template_vars={"var1": "value1"})
@@ -91,7 +90,7 @@ def test_prepare_api_request_merges_metadata(mock_super_prepare, t0_llm):
     initial_system_message = ChatCompletionSystemMessageParam(
         role="system", content=[{"var1": "original"}]
     )
-    messages: List[ChatCompletionMessageParam] = [initial_system_message]
+    messages: list[ChatCompletionMessageParam] = [initial_system_message]
     mock_super_prepare.return_value = {"model": "test_chat", "messages": messages}
     request_params = RequestParams(metadata={"tensorzero_arguments": {"var2": "metadata_val"}})
 
@@ -120,7 +119,7 @@ def test_prepare_api_request_all_features(mock_super_prepare, t0_llm):
     initial_system_message = ChatCompletionSystemMessageParam(
         role="system", content="Original prompt"
     )
-    messages: List[ChatCompletionMessageParam] = [initial_system_message]
+    messages: list[ChatCompletionMessageParam] = [initial_system_message]
     mock_super_prepare.return_value = {
         "model": "test_chat",
         "messages": messages,

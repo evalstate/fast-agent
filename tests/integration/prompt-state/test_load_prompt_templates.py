@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import pytest
 from mcp.types import ImageContent
@@ -26,7 +26,7 @@ async def test_load_simple_conversation_from_file(fast_agent):
     @fast.agent()
     async def agent_function():
         async with fast.run() as agent:
-            loaded: List[PromptMessageExtended] = load_prompt(Path("conv1_simple.md"))
+            loaded: list[PromptMessageExtended] = load_prompt(Path("conv1_simple.md"))
             assert 4 == len(loaded)
             assert "user" == loaded[0].role
             assert "assistant" == loaded[1].role

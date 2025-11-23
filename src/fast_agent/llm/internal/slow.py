@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, List
+from typing import Any
 
 from mcp import Tool
 
@@ -26,7 +26,7 @@ class SlowLLM(PassthroughLLM):
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,

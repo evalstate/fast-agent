@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Collection, Dict, List, Literal, Optional, Set, TypedDict, cast
+from typing import Collection, Literal, TypedDict, cast
 
 # Lightweight, runtime-only loader for AWS Bedrock models.
 # - Fetches once per process via boto3 (region from session; env override supported)
@@ -22,18 +22,18 @@ class ModelSummary(TypedDict, total=False):
     modelId: str
     modelName: str
     providerName: str
-    inputModalities: List[Modality]
-    outputModalities: List[Modality]
+    inputModalities: list[Modality]
+    outputModalities: list[Modality]
     responseStreamingSupported: bool
-    customizationsSupported: List[str]
-    inferenceTypesSupported: List[InferenceType]
-    modelLifecycle: Dict[str, Lifecycle]
+    customizationsSupported: list[str]
+    inferenceTypesSupported: list[InferenceType]
+    modelLifecycle: dict[str, Lifecycle]
 
 
-_MODELS_CACHE_BY_REGION: Dict[str, Dict[str, ModelSummary]] = {}
+_MODELS_CACHE_BY_REGION: dict[str, dict[str, ModelSummary]] = {}
 
 
-def _resolve_region(region: Optional[str]) -> str:
+def _resolve_region(region: str | None) -> str:
     if region:
         return region
     import os
@@ -57,7 +57,7 @@ def _strip_prefix(model_id: str, prefix: str) -> str:
     return model_id[len(prefix) :] if prefix and model_id.startswith(prefix) else model_id
 
 
-def _ensure_loaded(region: Optional[str] = None) -> Dict[str, ModelSummary]:
+def _ensure_loaded(region: str | None = None) -> dict[str, ModelSummary]:
     resolved_region = _resolve_region(region)
     cache = _MODELS_CACHE_BY_REGION.get(resolved_region)
     if cache is not None:
@@ -69,7 +69,7 @@ def _ensure_loaded(region: Optional[str] = None) -> Dict[str, ModelSummary]:
     try:
         client = boto3.client("bedrock", region_name=resolved_region)
         resp = client.list_foundation_models()
-        summaries: List[ModelSummary] = resp.get("modelSummaries", [])  # type: ignore[assignment]
+        summaries: list[ModelSummary] = resp.get("modelSummaries", [])  # type: ignore[assignment]
     except Exception as exc:  # keep error simple and actionable
         raise RuntimeError(
             f"Failed to list Bedrock foundation models in region '{resolved_region}'. "
@@ -82,27 +82,27 @@ def _ensure_loaded(region: Optional[str] = None) -> Dict[str, ModelSummary]:
     return cache
 
 
-def refresh_bedrock_models(region: Optional[str] = None) -> None:
+def refresh_bedrock_models(region: str | None = None) -> None:
     resolved_region = _resolve_region(region)
     # drop and reload on next access
     _MODELS_CACHE_BY_REGION.pop(resolved_region, None)
     _ensure_loaded(resolved_region)
 
 
-def _matches_modalities(model_modalities: List[Modality], requested: Collection[Modality]) -> bool:
+def _matches_modalities(model_modalities: list[Modality], requested: Collection[Modality]) -> bool:
     # include if all requested are present in the model's modalities
     return set(requested).issubset(set(model_modalities))
 
 
 def all_model_summaries(
-    input_modalities: Optional[Collection[Modality]] = None,
-    output_modalities: Optional[Collection[Modality]] = None,
+    input_modalities: Collection[Modality] | None = None,
+    output_modalities: Collection[Modality] | None = None,
     include_legacy: bool = False,
-    providers: Optional[Collection[str]] = None,
-    inference_types: Optional[Collection[InferenceType]] = None,
+    providers: Collection[str] | None = None,
+    inference_types: Collection[InferenceType] | None = None,
     direct_invocation_only: bool = True,
-    region: Optional[str] = None,
-) -> List[ModelSummary]:
+    region: str | None = None,
+) -> list[ModelSummary]:
     """Return filtered Bedrock model summaries.
 
     Defaults: input_modalities={"TEXT"}, output_modalities={"TEXT"}, include_legacy=False,
@@ -110,16 +110,16 @@ def all_model_summaries(
     """
 
     cache = _ensure_loaded(region)
-    results: List[ModelSummary] = []
+    results: list[ModelSummary] = []
 
-    effective_output: Set[Modality] = (
+    effective_output: set[Modality] = (
         set(output_modalities) if output_modalities is not None else {cast("Modality", "TEXT")}
     )
-    effective_input: Optional[Set[Modality]] = (
+    effective_input: set[Modality] | None = (
         set(input_modalities) if input_modalities is not None else {cast("Modality", "TEXT")}
     )
-    provider_filter: Optional[Set[str]] = set(providers) if providers is not None else None
-    effective_inference: Set[InferenceType] = (
+    provider_filter: set[str] | None = set(providers) if providers is not None else None
+    effective_inference: set[InferenceType] = (
         set(inference_types)
         if inference_types is not None
         else {cast("InferenceType", "ON_DEMAND")}
@@ -140,8 +140,8 @@ def all_model_summaries(
                 continue
 
         # modalities
-        model_inputs: List[Modality] = summary.get("inputModalities", [])  # type: ignore[assignment]
-        model_outputs: List[Modality] = summary.get("outputModalities", [])  # type: ignore[assignment]
+        model_inputs: list[Modality] = summary.get("inputModalities", [])  # type: ignore[assignment]
+        model_outputs: list[Modality] = summary.get("outputModalities", [])  # type: ignore[assignment]
 
         if effective_input is not None and not _matches_modalities(model_inputs, effective_input):
             continue
@@ -149,7 +149,7 @@ def all_model_summaries(
             continue
 
         # inference types
-        model_inference: List[InferenceType] = summary.get("inferenceTypesSupported", [])  # type: ignore[assignment]
+        model_inference: list[InferenceType] = summary.get("inferenceTypesSupported", [])  # type: ignore[assignment]
         if effective_inference and not set(effective_inference).issubset(set(model_inference)):
             continue
 
@@ -159,15 +159,15 @@ def all_model_summaries(
 
 
 def all_bedrock_models(
-    input_modalities: Optional[Collection[Modality]] = None,
-    output_modalities: Optional[Collection[Modality]] = None,
+    input_modalities: Collection[Modality] | None = None,
+    output_modalities: Collection[Modality] | None = None,
     include_legacy: bool = False,
-    providers: Optional[Collection[str]] = None,
+    providers: Collection[str] | None = None,
     prefix: str = "bedrock.",
-    inference_types: Optional[Collection[InferenceType]] = None,
+    inference_types: Collection[InferenceType] | None = None,
     direct_invocation_only: bool = True,
-    region: Optional[str] = None,
-) -> List[str]:
+    region: str | None = None,
+) -> list[str]:
     """Return model IDs (optionally prefixed) filtered by the given criteria.
 
     Defaults: output_modalities={"TEXT"}, exclude LEGACY,
@@ -183,7 +183,7 @@ def all_bedrock_models(
         direct_invocation_only=direct_invocation_only,
         region=region,
     )
-    ids: List[str] = []
+    ids: list[str] = []
     for s in summaries:
         mid = s.get("modelId")
         if mid:
@@ -193,14 +193,14 @@ def all_bedrock_models(
     return ids
 
 
-def get_model_metadata(model_id: str, region: Optional[str] = None) -> Optional[ModelSummary]:
+def get_model_metadata(model_id: str, region: str | None = None) -> ModelSummary | None:
     cache = _ensure_loaded(region)
     # Accept either prefixed or plain model IDs
     plain_id = _strip_prefix(model_id, "bedrock.")
     return cache.get(plain_id)
 
 
-def list_providers(region: Optional[str] = None) -> List[str]:
+def list_providers(region: str | None = None) -> list[str]:
     cache = _ensure_loaded(region)
     providers = {s.get("providerName") for s in cache.values() if s.get("providerName")}
     return sorted(providers)  # type: ignore[arg-type]

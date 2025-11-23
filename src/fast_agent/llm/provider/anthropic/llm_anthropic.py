@@ -1,5 +1,5 @@
 import json
-from typing import Any, List, Tuple, Type, Union, cast
+from typing import Any, Type, Union, cast
 
 from anthropic import APIError, AsyncAnthropic, AuthenticationError
 from anthropic.lib.streaming import AsyncMessageStream
@@ -46,7 +46,7 @@ DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 
 # Type alias for system field - can be string or list of text blocks with cache control
-SystemParam = Union[str, List[TextBlockParam]]
+SystemParam = Union[str, list[TextBlockParam]]
 
 logger = get_logger(__name__)
 
@@ -96,8 +96,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return cache_mode
 
     async def _prepare_tools(
-        self, structured_model: Type[ModelT] | None = None, tools: List[Tool] | None = None
-    ) -> List[ToolParam]:
+        self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
+    ) -> list[ToolParam]:
         """Prepare tools based on whether we're in structured output mode."""
         if structured_model:
             return [
@@ -159,7 +159,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         return False
 
-    def _is_structured_output_request(self, tool_uses: List[Any]) -> bool:
+    def _is_structured_output_request(self, tool_uses: list[Any]) -> bool:
         """
         Check if the tool uses contain a structured output request.
 
@@ -171,7 +171,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         """
         return any(tool.name == STRUCTURED_OUTPUT_TOOL_NAME for tool in tool_uses)
 
-    def _build_tool_calls_dict(self, tool_uses: List[ToolUseBlock]) -> dict[str, CallToolRequest]:
+    def _build_tool_calls_dict(self, tool_uses: list[ToolUseBlock]) -> dict[str, CallToolRequest]:
         """
         Convert Anthropic tool use blocks into our CallToolRequest.
 
@@ -197,8 +197,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self,
         tool_use_block: ToolUseBlock,
         structured_model: Type[ModelT],
-        messages: List[MessageParam],
-    ) -> Tuple[LlmStopReason, List[ContentBlock]]:
+        messages: list[MessageParam],
+    ) -> tuple[LlmStopReason, list[ContentBlock]]:
         """
         Handle a structured output tool response from Anthropic.
 
@@ -451,18 +451,18 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self,
         params: RequestParams,
         message_param: MessageParam,
-        pre_messages: List[MessageParam] | None = None,
-        history: List[PromptMessageExtended] | None = None,
-    ) -> List[MessageParam]:
+        pre_messages: list[MessageParam] | None = None,
+        history: list[PromptMessageExtended] | None = None,
+    ) -> list[MessageParam]:
         """
         Build the list of Anthropic message parameters for the next request.
 
         Ensures that the current user message is only included once when history
         is enabled, which prevents duplicate tool_result blocks from being sent.
         """
-        messages: List[MessageParam] = list(pre_messages) if pre_messages else []
+        messages: list[MessageParam] = list(pre_messages) if pre_messages else []
 
-        history_messages: List[MessageParam] = []
+        history_messages: list[MessageParam] = []
         if params.use_history and history:
             history_messages = self._convert_to_provider_format(history)
             messages.extend(history_messages)
@@ -478,9 +478,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         message_param,
         request_params: RequestParams | None = None,
         structured_model: Type[ModelT] | None = None,
-        tools: List[Tool] | None = None,
-        pre_messages: List[MessageParam] | None = None,
-        history: List[PromptMessageExtended] | None = None,
+        tools: list[Tool] | None = None,
+        pre_messages: list[MessageParam] | None = None,
+        history: list[PromptMessageExtended] | None = None,
         current_extended: PromptMessageExtended | None = None,
     ) -> PromptMessageExtended:
         """
@@ -509,7 +509,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         available_tools = await self._prepare_tools(structured_model, tools)
 
-        response_content_blocks: List[ContentBlock] = []
+        response_content_blocks: list[ContentBlock] = []
         tool_calls: dict[str, CallToolRequest] | None = None
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
@@ -544,7 +544,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         planner = AnthropicCachePlanner(
             self.CONVERSATION_CACHE_WALK_DISTANCE, self.MAX_CONVERSATION_CACHE_BLOCKS
         )
-        plan_messages: List[PromptMessageExtended] = []
+        plan_messages: list[PromptMessageExtended] = []
         include_current = not params.use_history or not history
         if params.use_history and history:
             plan_messages.extend(history)
@@ -641,9 +641,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """
@@ -673,10 +673,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
     async def _apply_prompt_provider_specific_structured(
         self,
-        multipart_messages: List[PromptMessageExtended],
+        multipart_messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:  # noqa: F821
+    ) -> tuple[ModelT | None, PromptMessageExtended]:  # noqa: F821
         """
         Provider-specific structured output implementation.
         Note: Message history is managed by base class and converted via
@@ -718,8 +718,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             return None, last_message
 
     def _convert_extended_messages_to_provider(
-        self, messages: List[PromptMessageExtended]
-    ) -> List[MessageParam]:
+        self, messages: list[PromptMessageExtended]
+    ) -> list[MessageParam]:
         """
         Convert PromptMessageExtended list to Anthropic MessageParam format.
         This is called fresh on every API call from _convert_to_provider_format().

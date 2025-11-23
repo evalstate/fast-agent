@@ -8,7 +8,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
-from typing import Callable, List, Optional, Tuple
+from typing import Callable
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -79,12 +79,12 @@ class LlmAgent(LlmDecorator):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional[Text] = None,
+        additional_message: Text | None = None,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -99,7 +99,7 @@ class LlmAgent(LlmDecorator):
         """
 
         # Determine display content based on stop reason if not provided
-        additional_segments: List[Text] = []
+        additional_segments: list[Text] = []
 
         # Generate additional message based on stop reason
         match message.stop_reason:
@@ -234,13 +234,13 @@ class LlmAgent(LlmDecorator):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Enhanced generate implementation that resets tool call tracking.
-        Messages are already normalized to List[PromptMessageExtended].
+        Messages are already normalized to list[PromptMessageExtended].
         """
         if "user" == messages[-1].role:
             self.show_user_message(message=messages[-1])
@@ -296,10 +296,10 @@ class LlmAgent(LlmDecorator):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         if "user" == messages[-1].role:
             self.show_user_message(message=messages[-1])
 

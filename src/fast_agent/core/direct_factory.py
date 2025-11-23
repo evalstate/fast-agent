@@ -4,7 +4,7 @@ Implements type-safe factories with improved error handling.
 """
 
 from functools import partial
-from typing import Any, Dict, List, Optional, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -31,8 +31,8 @@ from fast_agent.mcp.ui_agent import McpAgentWithUI
 from fast_agent.types import RequestParams
 
 # Type aliases for improved readability and IDE support
-AgentDict = Dict[str, AgentProtocol]
-AgentConfigDict = Dict[str, Dict[str, Any]]
+AgentDict = dict[str, AgentProtocol]
+AgentConfigDict = dict[str, dict[str, Any]]
 T = TypeVar("T")  # For generic types
 
 
@@ -75,18 +75,18 @@ class AgentCreatorProtocol(Protocol):
         app_instance: Core,
         agents_dict: AgentConfigDict,
         agent_type: AgentType,
-        active_agents: Optional[AgentDict] = None,
-        model_factory_func: Optional[ModelFactoryFunctionProtocol] = None,
+        active_agents: AgentDict | None = None,
+        model_factory_func: ModelFactoryFunctionProtocol | None = None,
         **kwargs: Any,
     ) -> AgentDict: ...
 
 
 def get_model_factory(
     context,
-    model: Optional[str] = None,
-    request_params: Optional[RequestParams] = None,
-    default_model: Optional[str] = None,
-    cli_model: Optional[str] = None,
+    model: str | None = None,
+    request_params: RequestParams | None = None,
+    default_model: str | None = None,
+    cli_model: str | None = None,
 ) -> LLMFactoryProtocol:
     """
     Get model factory using specified or default model.
@@ -128,7 +128,7 @@ async def create_agents_by_type(
     agents_dict: AgentConfigDict,
     agent_type: AgentType,
     model_factory_func: ModelFactoryFunctionProtocol,
-    active_agents: Optional[AgentDict] = None,
+    active_agents: AgentDict | None = None,
     **kwargs: Any,
 ) -> AgentDict:
     """
@@ -396,7 +396,7 @@ async def active_agents_in_dependency_group(
     app_instance: Core,
     agents_dict: AgentConfigDict,
     model_factory_func: ModelFactoryFunctionProtocol,
-    group: List[str],
+    group: list[str],
     active_agents: AgentDict,
 ):
     """

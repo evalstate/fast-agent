@@ -1,6 +1,5 @@
 import base64
 from pathlib import Path
-from typing import List, Optional, Tuple
 
 from mcp.types import (
     BlobResourceContents,
@@ -15,10 +14,10 @@ import fast_agent.mcp.mime_utils as mime_utils
 HTTP_TIMEOUT = 10  # Default timeout for HTTP requests
 
 # Define a type alias for resource content results
-ResourceContent = Tuple[str, str, bool]
+ResourceContent = tuple[str, str, bool]
 
 
-def find_resource_file(resource_path: str, prompt_files: List[Path]) -> Optional[Path]:
+def find_resource_file(resource_path: str, prompt_files: list[Path]) -> Path | None:
     """Find a resource file relative to one of the prompt files"""
     for prompt_file in prompt_files:
         potential_path = prompt_file.parent / resource_path
@@ -27,7 +26,7 @@ def find_resource_file(resource_path: str, prompt_files: List[Path]) -> Optional
     return None
 
 
-def load_resource_content(resource_path: str, prompt_files: List[Path]) -> ResourceContent:
+def load_resource_content(resource_path: str, prompt_files: list[Path]) -> ResourceContent:
     """
     Load a resource's content and determine its mime type
 

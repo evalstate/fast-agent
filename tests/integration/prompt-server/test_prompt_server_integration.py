@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -109,7 +109,7 @@ async def test_agent_interface_returns_prompts_list(fast_agent):
     @fast.agent(name="test", servers=["prompts"])
     async def agent_function():
         async with fast.run() as agent:
-            prompts: Dict[str, List[Prompt]] = await agent.test.list_prompts()
+            prompts: dict[str, list[Prompt]] = await agent.test.list_prompts()
             assert 5 == len(prompts["prompts"])
 
     await agent_function()

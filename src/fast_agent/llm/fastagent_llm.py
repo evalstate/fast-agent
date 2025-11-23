@@ -6,13 +6,10 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
     Generic,
-    List,
-    Optional,
-    Tuple,
     Type,
     TypeVar,
+    Union,
     cast,
 )
 
@@ -56,10 +53,10 @@ if TYPE_CHECKING:
 
 
 # Context variable for storing MCP metadata
-_mcp_metadata_var: ContextVar[Dict[str, Any] | None] = ContextVar("mcp_metadata", default=None)
+_mcp_metadata_var: ContextVar[dict[str, Any] | None] = ContextVar("mcp_metadata", default=None)
 
 
-def deep_merge(dict1: Dict[Any, Any], dict2: Dict[Any, Any]) -> Dict[Any, Any]:
+def deep_merge(dict1: dict[Any, Any], dict2: dict[Any, Any]) -> dict[Any, Any]:
     """
     Recursively merges `dict2` into `dict1` in place.
 
@@ -110,9 +107,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         instruction: str | None = None,
         name: str | None = None,
         request_params: RequestParams | None = None,
-        context: Optional["Context"] = None,
-        model: Optional[str] = None,
-        api_key: Optional[str] = None,
+        context: Union["Context", None] = None,
+        model: str | None = None,
+        api_key: str | None = None,
         **kwargs: dict[str, Any],
     ) -> None:
         """
@@ -155,7 +152,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             )
 
         # Cache effective model name for type-safe access
-        self._model_name: Optional[str] = getattr(self.default_request_params, "model", None)
+        self._model_name: str | None = getattr(self.default_request_params, "model", None)
 
         self.verb = kwargs.get("verb")
 
@@ -164,7 +161,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
         self._stream_listeners: set[Callable[[str], None]] = set()
-        self._tool_stream_listeners: set[Callable[[str, Dict[str, Any] | None], None]] = set()
+        self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -184,15 +181,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     async def generate(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a completion using normalized message lists.
 
         This is the primary LLM interface that works directly with
-        List[PromptMessageExtended] for efficient internal usage.
+        list[PromptMessageExtended] for efficient internal usage.
 
         Args:
             messages: List of PromptMessageExtended objects
@@ -251,9 +248,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     @abstractmethod
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """
@@ -272,15 +269,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     async def structured(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Generate a structured response using normalized message lists.
 
         This is the primary LLM interface for structured output that works directly with
-        List[PromptMessageExtended] for efficient internal usage.
+        list[PromptMessageExtended] for efficient internal usage.
 
         Args:
             messages: List of PromptMessageExtended objects
@@ -363,10 +360,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     async def _apply_prompt_provider_specific_structured(
         self,
-        multipart_messages: List[PromptMessageExtended],
+        multipart_messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """Base class attempts to parse JSON - subclasses can use provider specific functionality"""
 
         request_params = self.get_request_params(request_params)
@@ -383,7 +380,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     def _structured_from_multipart(
         self, message: PromptMessageExtended, model: Type[ModelT]
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """Parse the content of a PromptMessage and return the structured model and message itself"""
         try:
             text = get_text(message.content[-1]) or ""
@@ -400,11 +397,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """Hook for subclasses to adjust structured output text before parsing."""
         return text
 
-    def record_templates(self, templates: List[PromptMessageExtended]) -> None:
+    def record_templates(self, templates: list[PromptMessageExtended]) -> None:
         """Hook for providers that need template visibility (e.g., caching)."""
         return
 
-    def _precall(self, multipart_messages: List[PromptMessageExtended]) -> None:
+    def _precall(self, multipart_messages: list[PromptMessageExtended]) -> None:
         """Pre-call hook to modify the message before sending it to the provider."""
         # No-op placeholder; history is managed by the agent
 
@@ -503,7 +500,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._usage_accumulator.add_turn(turn_usage)
 
     def _log_chat_progress(
-        self, chat_turn: Optional[int] = None, model: Optional[str] = None
+        self, chat_turn: int | None = None, model: str | None = None
     ) -> None:
         """Log a chat progress event"""
         # Determine action type based on verb
@@ -582,7 +579,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 self.logger.exception("Stream listener raised an exception")
 
     def add_tool_stream_listener(
-        self, listener: Callable[[str, Dict[str, Any] | None], None]
+        self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]:
         """Register a callback invoked with tool streaming events.
 
@@ -601,7 +598,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         return remove
 
     def _notify_tool_stream_listeners(
-        self, event_type: str, payload: Dict[str, Any] | None = None
+        self, event_type: str, payload: dict[str, Any] | None = None
     ) -> None:
         """Notify listeners about tool streaming lifecycle events."""
 
@@ -612,7 +609,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             except Exception:
                 self.logger.exception("Tool stream listener raised an exception")
 
-    def _log_chat_finished(self, model: Optional[str] = None) -> None:
+    def _log_chat_finished(self, model: str | None = None) -> None:
         """Log a chat finished event"""
         data = {
             "progress_action": ProgressAction.READY,
@@ -621,7 +618,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         }
         self.logger.debug("Chat finished", data=data)
 
-    def _convert_prompt_messages(self, prompt_messages: List[PromptMessage]) -> List[MessageParamT]:
+    def _convert_prompt_messages(self, prompt_messages: list[PromptMessage]) -> list[MessageParamT]:
         """
         Convert prompt messages to this LLM's specific message format.
         To be implemented by concrete LLM classes.
@@ -629,8 +626,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         raise NotImplementedError("Must be implemented by subclass")
 
     def _convert_to_provider_format(
-        self, messages: List[PromptMessageExtended]
-    ) -> List[MessageParamT]:
+        self, messages: list[PromptMessageExtended]
+    ) -> list[MessageParamT]:
         """
         Convert provided messages to provider-specific format.
         Called fresh on EVERY API call - no caching.
@@ -645,8 +642,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
     @abstractmethod
     def _convert_extended_messages_to_provider(
-        self, messages: List[PromptMessageExtended]
-    ) -> List[MessageParamT]:
+        self, messages: list[PromptMessageExtended]
+    ) -> list[MessageParamT]:
         """
         Convert PromptMessageExtended list to provider-specific format.
         Must be implemented by each provider.
@@ -662,9 +659,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     async def show_prompt_loaded(
         self,
         prompt_name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         message_count: int = 0,
-        arguments: Optional[dict[str, str]] = None,
+        arguments: dict[str, str] | None = None,
     ) -> None:
         """
         Display information about a loaded prompt template.
@@ -721,7 +718,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         )
         return result.first_text()
 
-    async def _save_history(self, filename: str, messages: List[PromptMessageExtended]) -> None:
+    async def _save_history(self, filename: str, messages: list[PromptMessageExtended]) -> None:
         """
         Save the Message History to a file in a format determined by the file extension.
 
@@ -741,7 +738,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         save_messages(filtered, filename)
 
     @property
-    def message_history(self) -> List[PromptMessageExtended]:
+    def message_history(self) -> list[PromptMessageExtended]:
         """
         Return the agent's message history as PromptMessageExtended objects.
 

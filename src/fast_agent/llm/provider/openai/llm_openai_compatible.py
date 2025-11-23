@@ -1,4 +1,4 @@
-from typing import List, Tuple, Type
+from typing import Type
 
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.model_database import ModelDatabase
@@ -22,10 +22,10 @@ IMPORTANT RULES:
 
     async def _apply_prompt_provider_specific_structured(
         self,
-        multipart_messages: List[PromptMessageExtended],
+        multipart_messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         if not self._supports_structured_prompt():
             return await super()._apply_prompt_provider_specific_structured(
                 multipart_messages, model, request_params

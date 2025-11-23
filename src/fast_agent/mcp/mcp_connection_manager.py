@@ -5,13 +5,7 @@ Manages the lifecycle of multiple MCP server connections.
 import asyncio
 import traceback
 from datetime import timedelta
-from typing import (
-    TYPE_CHECKING,
-    AsyncGenerator,
-    Callable,
-    Dict,
-    Optional,
-)
+from typing import TYPE_CHECKING, AsyncGenerator, Callable, Union
 
 from anyio import Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
@@ -69,7 +63,7 @@ def _add_none_to_context(context_manager):
 
 def _prepare_headers_and_auth(
     server_config: MCPServerSettings,
-) -> tuple[dict[str, str], Optional["OAuthClientProvider"], set[str]]:
+) -> tuple[dict[str, str], Union["OAuthClientProvider", None], set[str]]:
     """
     Prepare request headers and determine if OAuth authentication should be used.
 
@@ -359,11 +353,11 @@ class MCPConnectionManager(ContextDependent):
     """
 
     def __init__(
-        self, server_registry: "ServerRegistry", context: Optional["Context"] = None
+        self, server_registry: "ServerRegistry", context: Union["Context", None] = None
     ) -> None:
         super().__init__(context=context)
         self.server_registry = server_registry
-        self.running_servers: Dict[str, ServerConnection] = {}
+        self.running_servers: dict[str, ServerConnection] = {}
         self._lock = Lock()
         # Manage our own task group - independent of task context
         self._task_group = None

@@ -1,5 +1,5 @@
 import base64
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 # Import necessary types from google.genai
 from google.genai import types
@@ -30,7 +30,7 @@ class GoogleConverter:
     Converts between fast-agent and google.genai data structures.
     """
 
-    def _clean_schema_for_google(self, schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _clean_schema_for_google(self, schema: dict[str, Any]) -> dict[str, Any]:
         """
         Recursively removes unsupported JSON schema keywords for google.genai.types.Schema.
         Specifically removes 'additionalProperties', '$schema', 'exclusiveMaximum', and 'exclusiveMinimum'.
@@ -79,7 +79,7 @@ class GoogleConverter:
                 cleaned_schema[key] = value
         return cleaned_schema
 
-    def _resolve_refs(self, schema: Dict[str, Any], root_schema: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_refs(self, schema: dict[str, Any], root_schema: dict[str, Any]) -> dict[str, Any]:
         """
         Resolve $ref references in a JSON schema by inlining the referenced definitions.
 
@@ -128,15 +128,15 @@ class GoogleConverter:
         return resolved
 
     def convert_to_google_content(
-        self, messages: List[PromptMessageExtended]
-    ) -> List[types.Content]:
+        self, messages: list[PromptMessageExtended]
+    ) -> list[types.Content]:
         """
         Converts a list of fast-agent PromptMessageExtended to google.genai types.Content.
         Handles different roles and content types (text, images, etc.).
         """
-        google_contents: List[types.Content] = []
+        google_contents: list[types.Content] = []
         for message in messages:
-            parts: List[types.Part] = []
+            parts: list[types.Part] = []
             for part_content in message.content:  # renamed part to part_content to avoid conflict
                 if is_text_content(part_content):
                     parts.append(types.Part.from_text(text=get_text(part_content) or ""))
@@ -184,11 +184,11 @@ class GoogleConverter:
                 google_contents.append(types.Content(role=google_role, parts=parts))
         return google_contents
 
-    def convert_to_google_tools(self, tools: List[Tool]) -> List[types.Tool]:
+    def convert_to_google_tools(self, tools: list[Tool]) -> list[types.Tool]:
         """
         Converts a list of fast-agent ToolDefinition to google.genai types.Tool.
         """
-        google_tools: List[types.Tool] = []
+        google_tools: list[types.Tool] = []
         for tool in tools:
             cleaned_input_schema = self._clean_schema_for_google(tool.inputSchema)
             function_declaration = types.FunctionDeclaration(
@@ -201,12 +201,12 @@ class GoogleConverter:
 
     def convert_from_google_content(
         self, content: types.Content
-    ) -> List[ContentBlock | CallToolRequestParams]:
+    ) -> list[ContentBlock | CallToolRequestParams]:
         """
         Converts google.genai types.Content from a model response to a list of
         fast-agent content types or tool call requests.
         """
-        fast_agent_parts: List[ContentBlock | CallToolRequestParams] = []
+        fast_agent_parts: list[ContentBlock | CallToolRequestParams] = []
 
         if content is None or not hasattr(content, "parts") or content.parts is None:
             return []  # Google API response 'content' object is None. Cannot extract parts.
@@ -238,17 +238,17 @@ class GoogleConverter:
         )
 
     def convert_function_results_to_google(
-        self, tool_results: List[Tuple[str, CallToolResult]]
-    ) -> List[types.Content]:
+        self, tool_results: list[tuple[str, CallToolResult]]
+    ) -> list[types.Content]:
         """
         Converts a list of fast-agent tool results to google.genai types.Content
         with role 'tool'. Handles multimodal content in tool results.
         """
-        google_tool_response_contents: List[types.Content] = []
+        google_tool_response_contents: list[types.Content] = []
         for tool_name, tool_result in tool_results:
-            current_content_parts: List[types.Part] = []
-            textual_outputs: List[str] = []
-            media_parts: List[types.Part] = []
+            current_content_parts: list[types.Part] = []
+            textual_outputs: list[str] = []
+            media_parts: list[types.Part] = []
 
             for item in tool_result.content:
                 if is_text_content(item):
@@ -294,7 +294,7 @@ class GoogleConverter:
                             )
                 # Add handling for other content types if needed, for now they are skipped or become unhandled resource text
 
-            function_response_payload: Dict[str, Any] = {"tool_name": tool_name}
+            function_response_payload: dict[str, Any] = {"tool_name": tool_name}
             if textual_outputs:
                 function_response_payload["text_content"] = "\n".join(textual_outputs)
 
@@ -325,7 +325,7 @@ class GoogleConverter:
         """
         Converts fast-agent RequestParams to google.genai types.GenerateContentConfig.
         """
-        config_args: Dict[str, Any] = {}
+        config_args: dict[str, Any] = {}
         if request_params.temperature is not None:
             config_args["temperature"] = request_params.temperature
         if request_params.maxTokens is not None:
@@ -351,8 +351,8 @@ class GoogleConverter:
         return types.GenerateContentConfig(**config_args)
 
     def convert_from_google_content_list(
-        self, contents: List[types.Content]
-    ) -> List[PromptMessageExtended]:
+        self, contents: list[types.Content]
+    ) -> list[PromptMessageExtended]:
         """
         Converts a list of google.genai types.Content to a list of fast-agent PromptMessageExtended.
         """
@@ -369,7 +369,7 @@ class GoogleConverter:
         if content.role == "model" and any(part.function_call for part in content.parts):
             return PromptMessageExtended(role="assistant", content=[])
 
-        fast_agent_parts: List[ContentBlock | CallToolRequestParams] = []
+        fast_agent_parts: list[ContentBlock | CallToolRequestParams] = []
         for part in content.parts:
             if part.text:
                 fast_agent_parts.append(TextContent(type="text", text=part.text))

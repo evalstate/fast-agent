@@ -21,10 +21,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
-    Dict,
-    List,
     Literal,
-    Optional,
     ParamSpec,
     TypeVar,
 )
@@ -135,10 +132,10 @@ class FastAgent:
         self._skills_directory_override = (
             Path(skills_directory).expanduser() if skills_directory else None
         )
-        self._default_skill_manifests: List[SkillManifest] = []
+        self._default_skill_manifests: list[SkillManifest] = []
         self._server_instance_factory = None
         self._server_instance_dispose = None
-        self._server_managed_instances: List[AgentInstance] = []
+        self._server_managed_instances: list[AgentInstance] = []
 
         # --- Wrap argument parsing logic ---
         if parse_cli_args:
@@ -281,7 +278,7 @@ class FastAgent:
             raise SystemExit(1)
 
         # Dictionary to store agent configurations from decorators
-        self.agents: Dict[str, Dict[str, Any]] = {}
+        self.agents: dict[str, dict[str, Any]] = {}
 
     def _load_config(self) -> None:
         """Load configuration from YAML file including secrets using get_settings
@@ -324,20 +321,20 @@ class FastAgent:
         def agent(
             self,
             name: str = "default",
-            instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+            instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
-            servers: List[str] = [],
-            tools: Optional[Dict[str, List[str]]] = None,
-            resources: Optional[Dict[str, List[str]]] = None,
-            prompts: Optional[Dict[str, List[str]]] = None,
-            skills: Optional[List[SkillManifest | SkillRegistry | Path | str | None]] = None,
-            model: Optional[str] = None,
+            servers: list[str] = [],
+            tools: dict[str, list[str]] | None = None,
+            resources: dict[str, list[str]] | None = None,
+            prompts: dict[str, list[str]] | None = None,
+            skills: list[SkillManifest | SkillRegistry | Path | str | None] | None = None,
+            model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
             human_input: bool = False,
             default: bool = False,
-            elicitation_handler: Optional[ElicitationFnT] = None,
+            elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
         ) -> Callable[
             [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
@@ -347,19 +344,19 @@ class FastAgent:
             self,
             cls,
             name: str = "default",
-            instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+            instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = "You are a helpful agent.",
-            servers: List[str] = [],
-            tools: Optional[Dict[str, List[str]]] = None,
-            resources: Optional[Dict[str, List[str]]] = None,
-            prompts: Optional[Dict[str, List[str]]] = None,
-            model: Optional[str] = None,
+            servers: list[str] = [],
+            tools: dict[str, list[str]] | None = None,
+            resources: dict[str, list[str]] | None = None,
+            prompts: dict[str, list[str]] | None = None,
+            model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
             human_input: bool = False,
             default: bool = False,
-            elicitation_handler: Optional[ElicitationFnT] = None,
+            elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -367,11 +364,11 @@ class FastAgent:
             self,
             name: str,
             *,
-            agents: List[str],
+            agents: list[str],
             instruction: str
             | Path
             | AnyUrl = "You are an expert planner. Given an objective task and a list of Agents\n(which are collections of capabilities), your job is to break down the objective\ninto a series of steps, which can be performed by these agents.\n",
-            model: Optional[str] = None,
+            model: str | None = None,
             request_params: RequestParams | None = None,
             use_history: bool = False,
             human_input: bool = False,
@@ -385,9 +382,9 @@ class FastAgent:
             self,
             name: str,
             *,
-            agents: List[str],
+            agents: list[str],
             instruction: str | Path | AnyUrl = "You are an expert planner. Plan iteratively.",
-            model: Optional[str] = None,
+            model: str | None = None,
             request_params: RequestParams | None = None,
             plan_iterations: int = -1,
             default: bool = False,
@@ -398,18 +395,18 @@ class FastAgent:
             self,
             name: str,
             *,
-            agents: List[str],
-            instruction: Optional[str | Path | AnyUrl] = None,
-            servers: List[str] = [],
-            tools: Optional[Dict[str, List[str]]] = None,
-            resources: Optional[Dict[str, List[str]]] = None,
-            prompts: Optional[Dict[str, List[str]]] = None,
-            model: Optional[str] = None,
+            agents: list[str],
+            instruction: str | Path | AnyUrl | None = None,
+            servers: list[str] = [],
+            tools: dict[str, list[str]] | None = None,
+            resources: dict[str, list[str]] | None = None,
+            prompts: dict[str, list[str]] | None = None,
+            model: str | None = None,
             use_history: bool = False,
             request_params: RequestParams | None = None,
             human_input: bool = False,
             default: bool = False,
-            elicitation_handler: Optional[ElicitationFnT] = None,
+            elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -417,8 +414,8 @@ class FastAgent:
             self,
             name: str,
             *,
-            sequence: List[str],
-            instruction: Optional[str | Path | AnyUrl] = None,
+            sequence: list[str],
+            instruction: str | Path | AnyUrl | None = None,
             cumulative: bool = False,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
@@ -427,9 +424,9 @@ class FastAgent:
             self,
             name: str,
             *,
-            fan_out: List[str],
+            fan_out: list[str],
             fan_in: str | None = None,
-            instruction: Optional[str | Path | AnyUrl] = None,
+            instruction: str | Path | AnyUrl | None = None,
             include_request: bool = True,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
@@ -440,7 +437,7 @@ class FastAgent:
             *,
             generator: str,
             evaluator: str,
-            instruction: Optional[str | Path | AnyUrl] = None,
+            instruction: str | Path | AnyUrl | None = None,
             min_rating: str = "GOOD",
             max_refinements: int = 3,
             default: bool = False,
@@ -477,7 +474,7 @@ class FastAgent:
         Context manager for running the application.
         Initializes all registered agents.
         """
-        active_agents: Dict[str, AgentProtocol] = {}
+        active_agents: dict[str, AgentProtocol] = {}
         had_error = False
         await self.app.initialize()
 
@@ -503,7 +500,7 @@ class FastAgent:
                         self.context.skill_registry = override_registry
                         registry = override_registry
 
-                    default_skills: List[SkillManifest] = []
+                    default_skills: list[SkillManifest] = []
                     if registry:
                         default_skills = registry.load_manifests()
 
@@ -733,7 +730,7 @@ class FastAgent:
 
                     if hasattr(self.args, "prompt_file") and self.args.prompt_file:
                         agent_name = self.args.agent
-                        prompt: List[PromptMessageExtended] = load_prompt(
+                        prompt: list[PromptMessageExtended] = load_prompt(
                             Path(self.args.prompt_file)
                         )
                         if agent_name not in active_agents:
@@ -845,7 +842,7 @@ class FastAgent:
             if request_params is not None:
                 request_params.systemPrompt = resolved
 
-    def _apply_skills_to_agent_configs(self, default_skills: List[SkillManifest]) -> None:
+    def _apply_skills_to_agent_configs(self, default_skills: list[SkillManifest]) -> None:
         self._default_skill_manifests = list(default_skills)
 
         for agent_data in self.agents.values():
@@ -867,13 +864,13 @@ class FastAgent:
         | SkillRegistry
         | Path
         | str
-        | List[SkillManifest | SkillRegistry | Path | str | None]
+        | list[SkillManifest | SkillRegistry | Path | str | None]
         | None,
-    ) -> List[SkillManifest]:
+    ) -> list[SkillManifest]:
         if entry is None:
             return []
         if isinstance(entry, list):
-            manifests: List[SkillManifest] = []
+            manifests: list[SkillManifest] = []
             for item in entry:
                 manifests.extend(self._resolve_skills(item))
             return manifests
@@ -900,15 +897,15 @@ class FastAgent:
         return []
 
     @staticmethod
-    def _deduplicate_skills(manifests: List[SkillManifest]) -> List[SkillManifest]:
-        unique: Dict[str, SkillManifest] = {}
+    def _deduplicate_skills(manifests: list[SkillManifest]) -> list[SkillManifest]:
+        unique: dict[str, SkillManifest] = {}
         for manifest in manifests:
             key = manifest.name.lower()
             if key not in unique:
                 unique[key] = manifest
         return list(unique.values())
 
-    def _handle_error(self, e: Exception, error_type: Optional[str] = None) -> None:
+    def _handle_error(self, e: Exception, error_type: str | None = None) -> None:
         """
         Handle errors with consistent formatting and messaging.
 
@@ -975,9 +972,9 @@ class FastAgent:
         transport: str = "http",
         host: str = "0.0.0.0",
         port: int = 8000,
-        server_name: Optional[str] = None,
-        server_description: Optional[str] = None,
-        tool_description: Optional[str] = None,
+        server_name: str | None = None,
+        server_description: str | None = None,
+        tool_description: str | None = None,
         instance_scope: str = "shared",
     ) -> None:
         """
@@ -1038,9 +1035,9 @@ class FastAgent:
         transport: str = "sse",
         host: str = "0.0.0.0",
         port: int = 8000,
-        server_name: Optional[str] = None,
-        server_description: Optional[str] = None,
-        tool_description: Optional[str] = None,
+        server_name: str | None = None,
+        server_description: str | None = None,
+        tool_description: str | None = None,
         instance_scope: str = "shared",
     ) -> None:
         """
@@ -1100,7 +1097,7 @@ class FastAgent:
 @dataclass
 class AgentInstance:
     app: AgentApp
-    agents: Dict[str, "AgentProtocol"]
+    agents: dict[str, "AgentProtocol"]
 
     async def shutdown(self) -> None:
         for agent in self.agents.values():

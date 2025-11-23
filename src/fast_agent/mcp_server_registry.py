@@ -7,7 +7,6 @@ supports dynamic registration of initialization hooks, and provides methods for
 server initialization.
 """
 
-from typing import Dict
 
 from fast_agent.config import (
     MCPServerSettings,
@@ -25,10 +24,10 @@ class ServerRegistry:
 
     Attributes:
         config_path (str): Path to the YAML configuration file.
-        registry (Dict[str, MCPServerSettings]): Loaded server configurations.
+        registry (dict[str, MCPServerSettings]): Loaded server configurations.
     """
 
-    registry: Dict[str, MCPServerSettings] = {}
+    registry: dict[str, MCPServerSettings] = {}
 
     def __init__(
         self,
@@ -47,12 +46,12 @@ class ServerRegistry:
     ## TODO-- leaving this here to support more file formats to add servers
     def load_registry_from_file(
         self, config_path: str | None = None
-    ) -> Dict[str, MCPServerSettings]:
+    ) -> dict[str, MCPServerSettings]:
         """
         Load the YAML configuration file and validate it.
 
         Returns:
-            Dict[str, MCPServerSettings]: A dictionary of server configurations.
+            dict[str, MCPServerSettings]: A dictionary of server configurations.
 
         Raises:
             ValueError: If the configuration is invalid.

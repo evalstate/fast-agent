@@ -7,7 +7,6 @@ from datetime import timedelta
 from typing import (
     AsyncContextManager,
     Callable,
-    Optional,
     Protocol,
     runtime_checkable,
 )
@@ -44,16 +43,16 @@ class MCPConnectionManagerProtocol(Protocol):
     async def get_server(
         self,
         server_name: str,
-        client_session_factory: Optional[
+        client_session_factory: 
             Callable[
                 [
                     MemoryObjectReceiveStream,
                     MemoryObjectSendStream,
-                    Optional[timedelta],
+                    timedelta | None,
                 ],
                 ClientSession,
             ]
-        ] = None,
+         | None = None,
     ) -> "ServerConnection": ...
 
     async def disconnect_server(self, server_name: str) -> None: ...
@@ -71,16 +70,16 @@ class ServerRegistryProtocol(Protocol):
     def initialize_server(
         self,
         server_name: str,
-        client_session_factory: Optional[
+        client_session_factory: 
             Callable[
                 [
                     MemoryObjectReceiveStream,
                     MemoryObjectSendStream,
-                    Optional[timedelta],
+                    timedelta | None,
                 ],
                 ClientSession,
             ]
-        ] = None,
+         | None = None,
     ) -> AsyncContextManager[ClientSession]:
         """Initialize a server and yield a client session."""
         ...

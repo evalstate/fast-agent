@@ -3,7 +3,6 @@ Simplified converter between MCP sampling types and PromptMessageExtended.
 This replaces the more complex provider-specific converters with direct conversions.
 """
 
-from typing import List, Optional
 
 from mcp.types import (
     CreateMessageRequestParams,
@@ -62,7 +61,7 @@ class SamplingConverter:
         )
 
     @staticmethod
-    def error_result(error_message: str, model: Optional[str] = None) -> CreateMessageResult:
+    def error_result(error_message: str, model: str | None = None) -> CreateMessageResult:
         """
         Create an error result.
 
@@ -82,8 +81,8 @@ class SamplingConverter:
 
     @staticmethod
     def convert_messages(
-        messages: List[SamplingMessage],
-    ) -> List[PromptMessageExtended]:
+        messages: list[SamplingMessage],
+    ) -> list[PromptMessageExtended]:
         """
         Convert multiple SamplingMessages to PromptMessageExtended objects.
 

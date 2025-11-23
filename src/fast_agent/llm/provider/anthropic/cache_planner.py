@@ -1,4 +1,3 @@
-from typing import List
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -16,15 +15,15 @@ class AnthropicCachePlanner:
         self.max_conversation_blocks = max_conversation_blocks
         self.max_total_blocks = max_total_blocks
 
-    def _template_prefix_count(self, messages: List[PromptMessageExtended]) -> int:
+    def _template_prefix_count(self, messages: list[PromptMessageExtended]) -> int:
         return sum(msg.is_template for msg in messages)
 
     def plan_indices(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         cache_mode: str,
         system_cache_blocks: int = 0,
-    ) -> List[int]:
+    ) -> list[int]:
         """Return message indices that should receive cache_control."""
 
         if cache_mode == "off" or not messages:
@@ -35,13 +34,13 @@ class AnthropicCachePlanner:
             return []
 
         template_prefix = self._template_prefix_count(messages)
-        template_indices: List[int] = []
+        template_indices: list[int] = []
 
         if cache_mode in ("prompt", "auto") and template_prefix:
             template_indices = list(range(min(template_prefix, budget)))
             budget -= len(template_indices)
 
-        conversation_indices: List[int] = []
+        conversation_indices: list[int] = []
         if cache_mode == "auto" and budget > 0:
             conv_count = max(0, len(messages) - template_prefix)
             if conv_count >= self.walk_distance:

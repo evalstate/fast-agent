@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Optional, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
@@ -24,8 +24,8 @@ class Core:
     def __init__(
         self,
         name: str = "fast-agent",
-        settings: Optional[Settings] | str = None,
-        signal_notification: Optional[SignalWaitCallback] = None,
+        settings: Settings | None | str = None,
+        signal_notification: SignalWaitCallback | None = None,
     ) -> None:
         """
         Initialize the core.
@@ -43,7 +43,7 @@ class Core:
 
         self._logger = None
         # Use forward reference for type to avoid runtime import
-        self._context: Optional["Context"] = None
+        self._context: "Context" | None = None
         self._initialized = False
 
     @property

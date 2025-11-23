@@ -5,7 +5,7 @@ Provides functions to parse URLs and determine MCP server configurations.
 
 import hashlib
 import re
-from typing import Dict, List, Literal, Tuple
+from typing import Literal
 from urllib.parse import urlparse
 
 from fast_agent.mcp.hf_auth import add_hf_auth_header
@@ -13,7 +13,7 @@ from fast_agent.mcp.hf_auth import add_hf_auth_header
 
 def parse_server_url(
     url: str,
-) -> Tuple[str, Literal["http", "sse"], str]:
+) -> tuple[str, Literal["http", "sse"], str]:
     """
     Parse a server URL and determine the transport type and server name.
 
@@ -103,7 +103,7 @@ def generate_server_name(url: str) -> str:
 
 def parse_server_urls(
     urls_param: str, auth_token: str | None = None
-) -> List[Tuple[str, Literal["http", "sse"], str, Dict[str, str] | None]]:
+) -> list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]]:
     """
     Parse a comma-separated list of URLs into server configurations.
 
@@ -142,8 +142,8 @@ def parse_server_urls(
 
 
 def generate_server_configs(
-    parsed_urls: List[Tuple[str, Literal["http", "sse"], str, Dict[str, str] | None]],
-) -> Dict[str, Dict[str, str | Dict[str, str]]]:
+    parsed_urls: list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]],
+) -> dict[str, dict[str, str | dict[str, str]]]:
     """
     Generate server configurations from parsed URLs.
 
@@ -153,7 +153,7 @@ def generate_server_configs(
     Returns:
         Dictionary of server configurations
     """
-    server_configs: Dict[str, Dict[str, str | Dict[str, str]]] = {}
+    server_configs: dict[str, dict[str, str | dict[str, str]]] = {}
     # Keep track of server name occurrences to handle collisions
     name_counts = {}
 
@@ -176,7 +176,7 @@ def generate_server_configs(
                 final_name = f"{server_name}_{suffix}"
                 name_counts[server_name] += 1
 
-        config: Dict[str, str | Dict[str, str]] = {
+        config: dict[str, str | dict[str, str]] = {
             "transport": transport_type,
             "url": url,
         }
