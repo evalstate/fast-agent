@@ -12,7 +12,7 @@ import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from typing import Coroutine, Any, TypeVar
+    from typing import Any, Coroutine, TypeVar
     T = TypeVar('T')
 
 # ESC key code
