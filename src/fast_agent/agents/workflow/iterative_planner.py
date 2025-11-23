@@ -24,6 +24,11 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.workflow_telemetry import (
+    NoOpPlanTelemetryProvider,
+    PlanEntry,
+    PlanTelemetryProvider,
+)
 
 logger = get_logger(__name__)
 
@@ -195,6 +200,18 @@ class IterativePlanner(LlmAgent):
         super().__init__(config, context=context, **kwargs)
 
         self.plan_iterations = plan_iterations
+        self._plan_telemetry_provider: PlanTelemetryProvider = NoOpPlanTelemetryProvider()
+
+    @property
+    def plan_telemetry(self) -> PlanTelemetryProvider:
+        """Telemetry provider for emitting plan updates."""
+        return self._plan_telemetry_provider
+
+    @plan_telemetry.setter
+    def plan_telemetry(self, provider: PlanTelemetryProvider | None) -> None:
+        if provider is None:
+            provider = NoOpPlanTelemetryProvider()
+        self._plan_telemetry_provider = provider
 
     async def initialize(self) -> None:
         """Initialize the orchestrator agent and worker agents."""
@@ -310,6 +327,9 @@ class IterativePlanner(LlmAgent):
         terminate_plan: str | None = None
         plan_result = PlanResult(objective=objective, step_results=[])
 
+        # Track plan entries for telemetry
+        plan_entries: list[PlanEntry] = []
+
         while not objective_met and not terminate_plan:
             next_step: PlanningStep | None = await self._get_next_step(
                 objective, plan_result, request_params
@@ -325,6 +345,10 @@ class IterativePlanner(LlmAgent):
             if next_step.is_complete:
                 objective_met = True
                 terminate_plan = "Plan completed successfully"
+                # Mark all entries as completed
+                for entry in plan_entries:
+                    entry.status = "completed"
+                await self.plan_telemetry.update_plan(plan_entries)
                 break
 
             plan = Plan(steps=[next_step], is_complete=next_step.is_complete)
@@ -336,9 +360,22 @@ class IterativePlanner(LlmAgent):
                 )
                 break
 
+            # Add step as new plan entry
+            step_entry = PlanEntry(
+                content=next_step.description,
+                priority="high",
+                status="in_progress",
+            )
+            plan_entries.append(step_entry)
+            await self.plan_telemetry.update_plan(plan_entries)
+
             for step in plan.steps:  # this will only be one for iterative (change later)
                 step_result = await self._execute_step(step, plan_result)
                 plan_result.add_step_result(step_result)
+
+                # Mark step as completed
+                step_entry.status = "completed"
+                await self.plan_telemetry.update_plan(plan_entries)
 
             # Store plan in result
             plan_result.plan = plan

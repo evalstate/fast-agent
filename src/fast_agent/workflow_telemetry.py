@@ -12,13 +12,42 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from mcp.types import ContentBlock, TextContent
 
 if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+
+
+# Plan entry types for ACP plan mode
+PlanEntryStatus = Literal["pending", "in_progress", "completed"]
+PlanEntryPriority = Literal["high", "medium", "low"]
+
+
+@dataclass
+class PlanEntry:
+    """A task within a plan."""
+
+    content: str
+    priority: PlanEntryPriority
+    status: PlanEntryStatus
+
+
+class PlanTelemetryProvider(Protocol):
+    """Provider capable of sending plan updates."""
+
+    async def update_plan(self, entries: list[PlanEntry]) -> None:
+        """Send a plan update with the current list of plan entries."""
+        ...
+
+
+class NoOpPlanTelemetryProvider:
+    """Provider that does nothing with plan updates."""
+
+    async def update_plan(self, entries: list[PlanEntry]) -> None:
+        pass
 
 
 class WorkflowStepHandle(Protocol):
@@ -198,3 +227,39 @@ class ToolHandlerWorkflowTelemetry(NoOpWorkflowTelemetryProvider):
             server_name=effective_server,
             arguments=arguments,
         )
+
+
+class ACPPlanTelemetryProvider:
+    """
+    Telemetry provider that sends plan updates via ACP session/update notifications.
+    """
+
+    def __init__(self, connection: Any, session_id: str) -> None:
+        self._connection = connection
+        self._session_id = session_id
+
+    async def update_plan(self, entries: list[PlanEntry]) -> None:
+        """Send a plan update with the current list of plan entries."""
+        if not self._connection:
+            return
+
+        # Import here to avoid circular imports
+        from acp.helpers import session_notification
+
+        # Convert PlanEntry to dict format expected by ACP
+        plan_entries = [
+            {
+                "content": entry.content,
+                "priority": entry.priority,
+                "status": entry.status,
+            }
+            for entry in entries
+        ]
+
+        plan_update = {
+            "sessionUpdate": "plan",
+            "entries": plan_entries,
+        }
+
+        notification = session_notification(self._session_id, plan_update)
+        await self._connection.sessionUpdate(notification)

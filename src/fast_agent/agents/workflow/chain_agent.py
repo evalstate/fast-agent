@@ -9,6 +9,7 @@ from typing import Any, List, Optional, Tuple, Type
 
 from mcp import Tool
 from mcp.types import TextContent
+from opentelemetry import trace
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
@@ -70,61 +71,83 @@ class ChainAgent(LlmAgent):
         Returns:
             The response from the final agent in the chain
         """
-        # Get the original user message (last message in the list)
-        user_message = messages[-1]
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"Chain: '{self._name}' generate"):
+            # Get the original user message (last message in the list)
+            user_message = messages[-1]
 
-        if not self.cumulative:
-            response: PromptMessageExtended = await self.agents[0].generate(
-                messages, request_params
+            if not self.cumulative:
+                # First agent in chain
+                async with self.workflow_telemetry.start_step(
+                    "chain.step",
+                    server_name=self.name,
+                    arguments={"agent": self.agents[0].name, "step": 1, "total": len(self.agents)},
+                ) as step:
+                    response: PromptMessageExtended = await self.agents[0].generate(
+                        messages, request_params
+                    )
+                    await step.finish(True, text=f"{self.agents[0].name} completed step 1/{len(self.agents)}")
+
+                # Process the rest of the agents in the chain
+                for i, agent in enumerate(self.agents[1:], start=2):
+                    async with self.workflow_telemetry.start_step(
+                        "chain.step",
+                        server_name=self.name,
+                        arguments={"agent": agent.name, "step": i, "total": len(self.agents)},
+                    ) as step:
+                        next_message = Prompt.user(*response.content)
+                        response = await agent.generate([next_message], request_params)
+                        await step.finish(True, text=f"{agent.name} completed step {i}/{len(self.agents)}")
+
+                return response
+
+            # Track all responses in the chain
+            all_responses: List[PromptMessageExtended] = []
+
+            # Initialize list for storing formatted results
+            final_results: List[str] = []
+
+            # Add the original request with XML tag
+            request_text = (
+                f"<fastagent:request>{user_message.all_text() or '<no response>'}</fastagent:request>"
             )
-            # Process the rest of the agents in the chain
-            for agent in self.agents[1:]:
-                next_message = Prompt.user(*response.content)
-                response = await agent.generate([next_message], request_params)
+            final_results.append(request_text)
 
-            return response
+            # Process through each agent in sequence
+            for i, agent in enumerate(self.agents):
+                async with self.workflow_telemetry.start_step(
+                    "chain.step",
+                    server_name=self.name,
+                    arguments={"agent": agent.name, "step": i + 1, "total": len(self.agents), "cumulative": True},
+                ) as step:
+                    # In cumulative mode, include the original message and all previous responses
+                    chain_messages = messages.copy()
 
-        # Track all responses in the chain
-        all_responses: List[PromptMessageExtended] = []
+                    # Convert previous assistant responses to user messages for the next agent
+                    for prev_response in all_responses:
+                        chain_messages.append(Prompt.user(prev_response.all_text()))
 
-        # Initialize list for storing formatted results
-        final_results: List[str] = []
+                    current_response = await agent.generate(
+                        chain_messages,
+                        request_params,
+                    )
 
-        # Add the original request with XML tag
-        request_text = (
-            f"<fastagent:request>{user_message.all_text() or '<no response>'}</fastagent:request>"
-        )
-        final_results.append(request_text)
+                    # Store the response
+                    all_responses.append(current_response)
 
-        # Process through each agent in sequence
-        for i, agent in enumerate(self.agents):
-            # In cumulative mode, include the original message and all previous responses
-            chain_messages = messages.copy()
+                    response_text = current_response.all_text()
+                    attributed_response = (
+                        f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
+                    )
+                    final_results.append(attributed_response)
+                    await step.finish(True, text=f"{agent.name} completed step {i + 1}/{len(self.agents)}")
 
-            # Convert previous assistant responses to user messages for the next agent
-            for prev_response in all_responses:
-                chain_messages.append(Prompt.user(prev_response.all_text()))
-
-            current_response = await agent.generate(
-                chain_messages,
-                request_params,
+            # For cumulative mode, return the properly formatted output with XML tags
+            response_text = "\n\n".join(final_results)
+            return PromptMessageExtended(
+                role="assistant",
+                content=[TextContent(type="text", text=response_text)],
             )
-
-            # Store the response
-            all_responses.append(current_response)
-
-            response_text = current_response.all_text()
-            attributed_response = (
-                f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
-            )
-            final_results.append(attributed_response)
-
-        # For cumulative mode, return the properly formatted output with XML tags
-        response_text = "\n\n".join(final_results)
-        return PromptMessageExtended(
-            role="assistant",
-            content=[TextContent(type="text", text=response_text)],
-        )
 
     async def structured_impl(
         self,
