@@ -13,7 +13,9 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     TextContent,
+    TextResourceContents,
 )
+from pydantic import AnyUrl
 
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
@@ -369,7 +371,7 @@ class GoogleConverter:
         if content.role == "model" and any(part.function_call for part in content.parts):
             return PromptMessageExtended(role="assistant", content=[])
 
-        fast_agent_parts: list[ContentBlock | CallToolRequestParams] = []
+        fast_agent_parts: list[ContentBlock] = []
         for part in content.parts:
             if part.text:
                 fast_agent_parts.append(TextContent(type="text", text=part.text))
@@ -380,8 +382,8 @@ class GoogleConverter:
                 fast_agent_parts.append(
                     EmbeddedResource(
                         type="resource",
-                        resource=TextContent(
-                            uri=part.file_data.file_uri,
+                        resource=TextResourceContents(
+                            uri=AnyUrl(part.file_data.file_uri or ""),
                             mimeType=part.file_data.mime_type,
                             text=f"[Resource: {part.file_data.file_uri}, MIME: {part.file_data.mime_type}]",
                         ),

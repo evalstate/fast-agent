@@ -154,7 +154,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         try:
             # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             async for chunk in response_stream:
-
                 last_chunk = chunk
                 if getattr(chunk, "usage_metadata", None):
                     usage_metadata = chunk.usage_metadata
@@ -530,7 +529,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         # If we somehow have no provider-native parts, ensure we send an empty user content
         if not turn_messages:
-            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text("")]))
+            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text(text="")]))
 
         conversation_history: list[types.Content] = []
         if request_params.use_history and len(multipart_messages) > 1:

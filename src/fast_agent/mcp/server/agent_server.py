@@ -157,14 +157,12 @@ class AgentMCPServer:
             instance = await self._acquire_instance(ctx)
             agent = instance.app[agent_name]
             try:
-                # Agent history is the authoritative source; LLM history is diagnostic only.
-                history = getattr(agent, "message_history", None)
-                if history is None:
+                multipart_history = agent.message_history
+                if not multipart_history:
                     return []
 
                 # Convert the multipart message history to standard PromptMessages
-                prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(history)
-
+                prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
                 # In FastMCP, we need to return the raw list of messages
                 return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
             finally:
