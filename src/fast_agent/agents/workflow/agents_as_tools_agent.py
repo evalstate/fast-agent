@@ -353,6 +353,7 @@ class AgentsAsToolsAgent(ToolAgent):
 
         try:
             # Suppress child agent chat messages (keep tool calls visible)
+            if suppress_display:
                 self._suppress_child_display(child)
 
             response: PromptMessageExtended = await child.generate([child_request], None)

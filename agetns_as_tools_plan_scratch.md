@@ -83,8 +83,9 @@ While §2.3 framed cloning/pooling as optional futures, the active codebase now 
    - Progress entries remain visible by emitting `ProgressAction.FINISHED` events instead of hiding tasks, ensuring traceability per instance.
 
 4. **Implications**
-   - Logs, MCP events, and usage rows now display fully indexed names (`PM-1-DayStatusSummarizer[2]`).
-   - Resource cost is higher than the single-object model, but correctness (agent naming, MCP routing, per-instance usage summaries) takes priority for the current StratoSpace workflows.
+   - Logs, MCP events, and progress panel lines now display fully indexed names (for example, `PM-1-DayStatusSummarizer[2]`).
+   - The CLI *Usage Summary* table still reports a single aggregated row per template agent (for example, `PM-1-DayStatusSummarizer`), not per `[i]` instance.
+   - Resource cost is higher than the single-object model, but correctness (agent naming, MCP routing, and per-instance traceability in logs/UI) takes priority for the current StratoSpace workflows.
 
 This snapshot should stay in sync with the actual code to document why the detached-instance path is the default today, even though the plan keeps the door open for lighter reuse models.
 
@@ -299,7 +300,7 @@ To avoid touching `RichProgressDisplay` internals from this class, introduce a t
   - Responsibilities:
     - `start_parent_waiting(original_parent_name)` → emit `ProgressAction.READY`.
     - `start_instance(parent, child, instance_name)` → emit `ProgressAction.CHATTING` or `CALLING_TOOL` with `agent_name=instance_name`.
-    - `finish_instance(instance_name)` → ask `progress_display` to hide instance task (via a **public** `hide_task` API).
+    - `finish_instance(instance_name)` → emit `ProgressAction.FINISHED` for the instance and rely on the standard progress UI for visibility.
     - `_show_parallel_tool_calls(call_descriptors)` → call `parent.display.show_tool_call` with `[i]` suffixes.
     - `_show_parallel_tool_results(ordered_records)` → call `parent.display.show_tool_result` with `[i]` suffixes.
 
@@ -332,6 +333,7 @@ The `AgentsAsToolsAgent` itself:
 
 - Leave `UsageAccumulator` unchanged.
 - Parent and each child agent track their own usage normally.
+  - In the detached-clone implementation, each clone accrues usage on its own accumulator and then merges it back into the template child.
 - History:
   - `PromptMessageExtended.tool_results` remains a flat mapping by correlation id.
   - `history_display` will show:
@@ -403,8 +405,8 @@ This layered model allows future refactors such as a **web UI** or a **non-Rich 
 
 ### Phase 2 — UI integration (progress + instance naming)
 
-- Introduce `AgentsAsToolsDisplayAdapter` and new APIs on `RichProgressDisplay` (e.g. `hide_task`).
-- Implement instance naming and ephemeral progress lines.
+- Introduce `AgentsAsToolsDisplayAdapter` to centralize Agents-as-Tools-specific progress behavior.
+- Implement instance naming and FINISHED-based progress lines so instances remain visible after completion.
 - Suppress child chat via ref-counted display config changes.
 
 - Manual QA:

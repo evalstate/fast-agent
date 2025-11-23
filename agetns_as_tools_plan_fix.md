@@ -334,7 +334,7 @@ That is a larger refactor than we want for the current experimental implementati
    - Assert that for parallel calls:
      - Parent gets a `READY` event.
      - Each instance gets a `CHATTING` event with `target=OriginalName[i]`.
-     - `hide_task()` is called exactly once per instance.
+     - Each instance eventually receives a `FINISHED` event and remains visible for inspection.
 
 3. **Manual diagnostic recipe**
 

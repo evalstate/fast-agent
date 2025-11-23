@@ -61,16 +61,6 @@ class RichProgressDisplay:
             self._paused = False
             self._progress.start()
 
-    def hide_task(self, task_name: str) -> None:
-        """Hide an existing task from the progress display by name."""
-        task_id = self._taskmap.get(task_name)
-        if task_id is None:
-            return
-        for task in self._progress.tasks:
-            if task.id == task_id:
-                task.visible = False
-                break
-
     @contextmanager
     def paused(self):
         """Context manager for temporarily pausing the display."""
