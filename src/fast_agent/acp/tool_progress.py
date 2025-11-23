@@ -18,10 +18,12 @@ from acp.helpers import (
     embedded_blob_resource,
     embedded_text_resource,
     image_block,
+    plan_entry,
     resource_link_block,
     session_notification,
     text_block,
     tool_content,
+    update_plan,
 )
 from acp.schema import EmbeddedResourceContentBlock, ToolKind
 from mcp.types import (
@@ -591,3 +593,61 @@ class ACPToolProgressManager:
             f"Cleaned up {count} tool trackers for session {session_id}",
             name="acp_tool_cleanup",
         )
+
+
+class ACPPlanTelemetryProvider:
+    """
+    ACP-based plan telemetry provider that sends plan updates to clients.
+
+    Implements the PlanTelemetryProvider protocol by sending session/update
+    notifications with plan entries.
+    """
+
+    def __init__(self, connection: "AgentSideConnection", session_id: str) -> None:
+        """
+        Initialize the plan telemetry provider.
+
+        Args:
+            connection: The ACP connection to send notifications on
+            session_id: The ACP session ID for this provider
+        """
+        self._connection = connection
+        self._session_id = session_id
+
+    async def update_plan(self, entries: list) -> None:
+        """
+        Send a plan update with the current list of plan entries.
+
+        Args:
+            entries: List of PlanEntry objects with content, priority, and status
+        """
+        try:
+            # Convert PlanEntry objects to ACP plan entries
+            acp_entries = []
+            for entry in entries:
+                acp_entry = plan_entry(
+                    content=entry.content,
+                    priority=entry.priority,
+                    status=entry.status,
+                )
+                acp_entries.append(acp_entry)
+
+            # Create the plan update
+            plan_update = update_plan(acp_entries)
+
+            # Send as session notification
+            notification = session_notification(self._session_id, plan_update)
+            await self._connection.sessionUpdate(notification)
+
+            logger.debug(
+                f"Sent plan update with {len(entries)} entries",
+                name="acp_plan_update",
+                session_id=self._session_id,
+                entry_count=len(entries),
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending plan update: {e}",
+                name="acp_plan_update_error",
+                exc_info=True,
+            )

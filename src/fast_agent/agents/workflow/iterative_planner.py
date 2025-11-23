@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple, Type
 
 from mcp import Tool
 from mcp.types import TextContent
+from opentelemetry import trace
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
@@ -24,6 +25,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.workflow_telemetry import PlanEntry
 
 logger = get_logger(__name__)
 
@@ -306,58 +308,105 @@ class IterativePlanner(LlmAgent):
             PlanResult containing execution results and final output
         """
 
-        objective_met: bool = False
-        terminate_plan: str | None = None
-        plan_result = PlanResult(objective=objective, step_results=[])
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"IterativePlanner: '{self.name}' execute_plan"):
+            objective_met: bool = False
+            terminate_plan: str | None = None
+            plan_result = PlanResult(objective=objective, step_results=[])
 
-        while not objective_met and not terminate_plan:
-            next_step: PlanningStep | None = await self._get_next_step(
-                objective, plan_result, request_params
+            # Track all plan entries for ACP plan updates
+            all_plan_entries: List[PlanEntry] = []
+
+            while not objective_met and not terminate_plan:
+                next_step: PlanningStep | None = await self._get_next_step(
+                    objective, plan_result, request_params
+                )
+
+                if None is next_step:
+                    terminate_plan = "Failed to generate plan, terminating early"
+                    logger.error("Failed to generate next step, terminating plan early")
+                    break
+
+                assert next_step  # lets keep the indenting manageable!
+
+                if next_step.is_complete:
+                    objective_met = True
+                    terminate_plan = "Plan completed successfully"
+                    # Mark all entries as completed
+                    for entry in all_plan_entries:
+                        entry.status = "completed"
+                    await self.plan_telemetry.update_plan(all_plan_entries)
+                    break
+
+                plan = Plan(steps=[next_step], is_complete=next_step.is_complete)
+                invalid_agents = self._validate_agent_names(plan)
+                if invalid_agents:
+                    logger.error(f"Plan contains invalid agent names: {', '.join(invalid_agents)}")
+                    terminate_plan = (
+                        f"Invalid agent names found ({', '.join(invalid_agents)}), terminating plan"
+                    )
+                    break
+
+                # Create plan entries for this step's tasks and send plan update
+                step_number = len(plan_result.step_results) + 1
+                step_entries: List[PlanEntry] = []
+                for task in next_step.tasks:
+                    entry = PlanEntry(
+                        content=f"Step {step_number}: {task.description} ({task.agent})",
+                        priority="medium",
+                        status="pending",
+                    )
+                    step_entries.append(entry)
+                    all_plan_entries.append(entry)
+
+                # Send plan update with all entries
+                await self.plan_telemetry.update_plan(all_plan_entries)
+
+                for step in plan.steps:  # this will only be one for iterative (change later)
+                    # Mark step entries as in_progress
+                    for entry in step_entries:
+                        entry.status = "in_progress"
+                    await self.plan_telemetry.update_plan(all_plan_entries)
+
+                    # Execute with workflow telemetry
+                    async with self.workflow_telemetry.start_step(
+                        "iterative_planner.step",
+                        server_name=self.name,
+                        arguments={
+                            "step": step_number,
+                            "description": step.description,
+                            "task_count": len(step.tasks),
+                        },
+                    ) as telemetry_step:
+                        step_result = await self._execute_step(step, plan_result)
+                        plan_result.add_step_result(step_result)
+                        await telemetry_step.finish(
+                            True, text=f"Completed step {step_number}: {step.description}"
+                        )
+
+                    # Mark step entries as completed
+                    for entry in step_entries:
+                        entry.status = "completed"
+                    await self.plan_telemetry.update_plan(all_plan_entries)
+
+                # Store plan in result
+                plan_result.plan = plan
+
+                if self.plan_iterations > 0:
+                    if len(plan_result.step_results) >= self.plan_iterations:
+                        terminate_plan = f"Reached maximum number of iterations ({self.plan_iterations}), terminating plan"
+
+            if not terminate_plan:
+                terminate_plan = "Unknown termination reason"
+            result_prompt = PLAN_RESULT_TEMPLATE.format(
+                plan_result=format_plan_result(plan_result), termination_reason=terminate_plan
             )
 
-            if None is next_step:
-                terminate_plan = "Failed to generate plan, terminating early"
-                logger.error("Failed to generate next step, terminating plan early")
-                break
-
-            assert next_step  # lets keep the indenting manageable!
-
-            if next_step.is_complete:
-                objective_met = True
-                terminate_plan = "Plan completed successfully"
-                break
-
-            plan = Plan(steps=[next_step], is_complete=next_step.is_complete)
-            invalid_agents = self._validate_agent_names(plan)
-            if invalid_agents:
-                logger.error(f"Plan contains invalid agent names: {', '.join(invalid_agents)}")
-                terminate_plan = (
-                    f"Invalid agent names found ({', '.join(invalid_agents)}), terminating plan"
-                )
-                break
-
-            for step in plan.steps:  # this will only be one for iterative (change later)
-                step_result = await self._execute_step(step, plan_result)
-                plan_result.add_step_result(step_result)
-
-            # Store plan in result
-            plan_result.plan = plan
-
-            if self.plan_iterations > 0:
-                if len(plan_result.step_results) >= self.plan_iterations:
-                    terminate_plan = f"Reached maximum number of iterations ({self.plan_iterations}), terminating plan"
-
-        if not terminate_plan:
-            terminate_plan = "Unknown termination reason"
-        result_prompt = PLAN_RESULT_TEMPLATE.format(
-            plan_result=format_plan_result(plan_result), termination_reason=terminate_plan
-        )
-
-        # Generate final synthesis
-        final_message = await self._planner_generate_str(result_prompt, request_params)
-        plan_result.result = final_message.last_text() or "No final message generated"
-        await self.show_assistant_message(final_message)
-        return plan_result
+            # Generate final synthesis
+            final_message = await self._planner_generate_str(result_prompt, request_params)
+            plan_result.result = final_message.last_text() or "No final message generated"
+            await self.show_assistant_message(final_message)
+            return plan_result
 
     async def _execute_step(self, step: Step, previous_result: PlanResult) -> Any:
         """

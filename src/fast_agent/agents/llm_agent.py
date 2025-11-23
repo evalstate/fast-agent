@@ -23,7 +23,9 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
 from fast_agent.workflow_telemetry import (
+    NoOpPlanTelemetryProvider,
     NoOpWorkflowTelemetryProvider,
+    PlanTelemetryProvider,
     WorkflowTelemetryProvider,
 )
 
@@ -55,6 +57,7 @@ class LlmAgent(LlmDecorator):
         self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
             NoOpWorkflowTelemetryProvider()
         )
+        self._plan_telemetry_provider: PlanTelemetryProvider = NoOpPlanTelemetryProvider()
 
     @property
     def display(self) -> ConsoleDisplay:
@@ -75,6 +78,17 @@ class LlmAgent(LlmDecorator):
         if provider is None:
             provider = NoOpWorkflowTelemetryProvider()
         self._workflow_telemetry_provider = provider
+
+    @property
+    def plan_telemetry(self) -> PlanTelemetryProvider:
+        """Telemetry provider for emitting plan updates."""
+        return self._plan_telemetry_provider
+
+    @plan_telemetry.setter
+    def plan_telemetry(self, provider: PlanTelemetryProvider | None) -> None:
+        if provider is None:
+            provider = NoOpPlanTelemetryProvider()
+        self._plan_telemetry_provider = provider
 
     async def show_assistant_message(
         self,

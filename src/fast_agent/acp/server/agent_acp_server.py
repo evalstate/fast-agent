@@ -38,7 +38,7 @@ from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
-from fast_agent.acp.tool_progress import ACPToolProgressManager
+from fast_agent.acp.tool_progress import ACPPlanTelemetryProvider, ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     TERMINAL_AVG_BYTES_PER_TOKEN,
@@ -485,6 +485,8 @@ class AgentACPServer(ACPAgent):
                 workflow_telemetry = ToolHandlerWorkflowTelemetry(
                     tool_handler, server_name=self.server_name
                 )
+                # Create plan telemetry provider for agents that support it
+                plan_telemetry = ACPPlanTelemetryProvider(self._connection, session_id)
 
                 logger.info(
                     "ACP tool progress manager created for session",
@@ -507,6 +509,9 @@ class AgentACPServer(ACPAgent):
 
                     if hasattr(agent, "workflow_telemetry"):
                         agent.workflow_telemetry = workflow_telemetry
+
+                    if hasattr(agent, "plan_telemetry"):
+                        agent.plan_telemetry = plan_telemetry
 
                     # Register tool handler as stream listener to get early tool start events
                     if hasattr(agent, "llm") and hasattr(agent.llm, "add_tool_stream_listener"):
