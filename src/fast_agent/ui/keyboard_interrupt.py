@@ -9,21 +9,23 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from typing import Any, Coroutine, TypeVar
-    T = TypeVar('T')
 
-# ESC key code
-ESC_KEY = b'\x1b'
+    T = TypeVar("T")
 
 # Check interval in seconds
 CHECK_INTERVAL = 0.05
 
 
-async def _check_for_esc_unix() -> bool:
-    """Check for ESC key press on Unix systems."""
+def _read_key_unix(stop_event: threading.Event) -> str | None:
+    """
+    Read a single key from stdin on Unix systems.
+    Returns the key pressed or None if stop_event is set.
+    """
     import select
     import termios
     import tty
@@ -32,58 +34,65 @@ async def _check_for_esc_unix() -> bool:
     old_settings = termios.tcgetattr(fd)
 
     try:
-        # Set terminal to raw mode to read individual keystrokes
-        tty.setraw(fd)
+        # Set terminal to cbreak mode (less intrusive than raw)
+        tty.setcbreak(fd)
 
-        # Check if input is available
-        rlist, _, _ = select.select([sys.stdin], [], [], 0)
-        if rlist:
-            char = sys.stdin.read(1)
-            if char == '\x1b':  # ESC
-                return True
-        return False
+        while not stop_event.is_set():
+            # Check if input is available with a short timeout
+            rlist, _, _ = select.select([sys.stdin], [], [], CHECK_INTERVAL)
+            if rlist:
+                char = sys.stdin.read(1)
+                return char
+        return None
+    except Exception:
+        return None
     finally:
         # Restore terminal settings
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        try:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except Exception:
+            pass
 
 
-async def _check_for_esc_windows() -> bool:
-    """Check for ESC key press on Windows systems."""
+def _read_key_windows(stop_event: threading.Event) -> str | None:
+    """
+    Read a single key from stdin on Windows systems.
+    Returns the key pressed or None if stop_event is set.
+    """
     import msvcrt
+    import time
 
-    if msvcrt.kbhit():
-        char = msvcrt.getch()
-        if char == ESC_KEY:
-            return True
-    return False
+    while not stop_event.is_set():
+        if msvcrt.kbhit():
+            char = msvcrt.getch()
+            return char.decode("utf-8", errors="ignore")
+        time.sleep(CHECK_INTERVAL)
+    return None
 
 
-async def listen_for_esc(task: asyncio.Task, check_interval: float = CHECK_INTERVAL) -> None:
+def _keyboard_listener_thread(
+    task_to_cancel: asyncio.Task,
+    loop: asyncio.AbstractEventLoop,
+    stop_event: threading.Event,
+) -> None:
     """
-    Listen for ESC key press and cancel the given task when detected.
-
-    Args:
-        task: The asyncio task to cancel when ESC is pressed
-        check_interval: How often to check for key presses (seconds)
+    Thread function that listens for ESC key and cancels the task.
     """
-    # Select the appropriate checker for the platform
-    if sys.platform == 'win32':
-        check_func = _check_for_esc_windows
+    # Select the appropriate key reader for the platform
+    if sys.platform == "win32":
+        read_func = _read_key_windows
     else:
-        check_func = _check_for_esc_unix
+        read_func = _read_key_unix
 
     try:
-        while not task.done():
-            try:
-                if await check_func():
-                    task.cancel()
-                    return
-            except Exception:
-                # If we can't read keyboard (e.g., no TTY), just wait
-                pass
-            await asyncio.sleep(check_interval)
-    except asyncio.CancelledError:
-        # Listener was cancelled (normal when task completes)
+        while not stop_event.is_set() and not task_to_cancel.done():
+            key = read_func(stop_event)
+            if key == "\x1b":  # ESC
+                # Cancel the task from the event loop's thread
+                loop.call_soon_threadsafe(task_to_cancel.cancel)
+                return
+    except Exception:
+        # If we can't read keyboard (e.g., no TTY), just exit
         pass
 
 
@@ -105,7 +114,16 @@ async def run_with_esc_cancel(
         asyncio.CancelledError: If ESC was pressed to cancel
     """
     task = asyncio.create_task(coro)
-    listener = asyncio.create_task(listen_for_esc(task))
+    loop = asyncio.get_running_loop()
+    stop_event = threading.Event()
+
+    # Start the keyboard listener thread
+    listener_thread = threading.Thread(
+        target=_keyboard_listener_thread,
+        args=(task, loop, stop_event),
+        daemon=True,
+    )
+    listener_thread.start()
 
     try:
         result = await task
@@ -115,8 +133,7 @@ async def run_with_esc_cancel(
             on_cancel()
         raise
     finally:
-        listener.cancel()
-        try:
-            await listener
-        except asyncio.CancelledError:
-            pass
+        # Signal the listener thread to stop
+        stop_event.set()
+        # Give the thread a moment to clean up
+        listener_thread.join(timeout=0.1)

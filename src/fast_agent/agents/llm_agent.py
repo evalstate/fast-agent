@@ -166,6 +166,11 @@ class LlmAgent(LlmDecorator):
                         Text("\n\nAn error occurred during generation.", style="dim red italic")
                     )
 
+            case LlmStopReason.CANCELLED:
+                additional_segments.append(
+                    Text("\n\nGeneration cancelled by user.", style="dim yellow italic")
+                )
+
             case _:
                 if message.stop_reason:
                     additional_segments.append(
