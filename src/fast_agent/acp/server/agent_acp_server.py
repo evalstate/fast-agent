@@ -23,10 +23,7 @@ from acp import (
     SetSessionModeRequest,
     SetSessionModeResponse,
 )
-from acp.agent.router import build_agent_router
-from acp.connection import MethodHandler
 from acp.helpers import session_notification, update_agent_message_text
-from acp.meta import AGENT_METHODS
 from acp.schema import (
     AgentCapabilities,
     Implementation,
@@ -54,7 +51,6 @@ from fast_agent.core.prompt_templates import (
     enrich_with_environment_context,
 )
 from fast_agent.interfaces import StreamingAgentProtocol
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
@@ -64,34 +60,6 @@ logger = get_logger(__name__)
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
-
-
-class ExtendedAgentSideConnection(AgentSideConnection):
-    """
-    Extended AgentSideConnection that registers session/cancel as both request and notification.
-
-    Some clients incorrectly send session/cancel as a request (with an id) instead of
-    a notification. This subclass adds the cancel handler to both routing tables for
-    compatibility.
-    """
-
-    def _create_handler(self, agent: ACPAgent) -> MethodHandler:
-        """Override to add cancel as both request and notification handler."""
-        router = build_agent_router(agent)
-
-        # Also register cancel as a request handler for compatibility with clients
-        # that incorrectly send it with an id
-        router._requests[AGENT_METHODS["session_cancel"]] = router._notifications.get(
-            AGENT_METHODS["session_cancel"]
-        )
-
-        async def handler(method: str, params: Any | None, is_notification: bool) -> Any:
-            if is_notification:
-                await router.dispatch_notification(method, params)
-                return None
-            return await router.dispatch_request(method, params)
-
-        return handler
 
 
 def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopReason:
@@ -221,8 +189,8 @@ class AgentACPServer(ACPAgent):
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
 
-        # Track cancellation tokens per session for cancel support
-        self._session_cancellation_tokens: dict[str, CancellationToken] = {}
+        # Track asyncio tasks per session for proper task-based cancellation
+        self._session_tasks: dict[str, asyncio.Task] = {}
 
         # Track current agent per session for ACP mode support
         self._session_current_agent: dict[str, str] = {}
@@ -790,9 +758,10 @@ class AgentACPServer(ACPAgent):
             # Mark this session as having an active prompt
             self._active_prompts.add(session_id)
 
-            # Create a cancellation token for this prompt
-            cancellation_token = CancellationToken()
-            self._session_cancellation_tokens[session_id] = cancellation_token
+            # Track the current task for proper cancellation via asyncio.Task.cancel()
+            current_task = asyncio.current_task()
+            if current_task:
+                self._session_tasks[session_id] = current_task
 
         # Use try/finally to ensure session is always removed from active prompts
         try:
@@ -944,7 +913,6 @@ class AgentACPServer(ACPAgent):
                         result = await agent.generate(
                             prompt_message,
                             request_params=session_request_params,
-                            cancellation_token=cancellation_token,
                         )
                         response_text = result.last_text() or "No content generated"
 
@@ -1055,11 +1023,19 @@ class AgentACPServer(ACPAgent):
             return PromptResponse(
                 stopReason=acp_stop_reason,
             )
+        except asyncio.CancelledError:
+            # Task was cancelled - return appropriate response
+            logger.info(
+                "Prompt cancelled by user",
+                name="acp_prompt_cancelled",
+                session_id=session_id,
+            )
+            return PromptResponse(stopReason="cancelled")
         finally:
-            # Always remove session from active prompts and cleanup cancellation token
+            # Always remove session from active prompts and cleanup task
             async with self._session_lock:
                 self._active_prompts.discard(session_id)
-                self._session_cancellation_tokens.pop(session_id, None)
+                self._session_tasks.pop(session_id, None)
             logger.debug(
                 "Removed session from active prompts",
                 name="acp_prompt_complete",
@@ -1073,6 +1049,9 @@ class AgentACPServer(ACPAgent):
         This cancels any in-progress prompt for the specified session.
         Per ACP protocol, we should stop all LLM requests and tool invocations
         as soon as possible.
+
+        Uses asyncio.Task.cancel() for proper async cancellation, which raises
+        asyncio.CancelledError in the running task.
         """
         session_id = params.sessionId
 
@@ -1082,14 +1061,14 @@ class AgentACPServer(ACPAgent):
             session_id=session_id,
         )
 
-        # Get the cancellation token for this session and signal cancellation
+        # Get the task for this session and cancel it
         async with self._session_lock:
-            cancellation_token = self._session_cancellation_tokens.get(session_id)
-            if cancellation_token:
-                cancellation_token.cancel("user_cancelled")
+            task = self._session_tasks.get(session_id)
+            if task and not task.done():
+                task.cancel()
                 logger.info(
-                    "Cancellation signaled for session",
-                    name="acp_cancel_signaled",
+                    "Task cancelled for session",
+                    name="acp_cancel_task",
                     session_id=session_id,
                 )
             else:
@@ -1116,8 +1095,7 @@ class AgentACPServer(ACPAgent):
             # Note: AgentSideConnection expects (writer, reader) order
             # - input_stream (writer) = where agent writes TO client
             # - output_stream (reader) = where agent reads FROM client
-            # Use ExtendedAgentSideConnection for cancel request/notification compatibility
-            connection = ExtendedAgentSideConnection(
+            connection = AgentSideConnection(
                 lambda conn: self,
                 writer,  # input_stream = StreamWriter for agent output
                 reader,  # output_stream = StreamReader for agent input
@@ -1222,8 +1200,8 @@ class AgentACPServer(ACPAgent):
             # Clean up session current agent mapping
             self._session_current_agent.clear()
 
-            # Clear cancellation tokens
-            self._session_cancellation_tokens.clear()
+            # Clear tasks
+            self._session_tasks.clear()
 
             # Clear stored prompt contexts
             self._session_prompt_context.clear()

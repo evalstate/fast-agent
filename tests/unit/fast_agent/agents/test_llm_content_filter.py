@@ -40,7 +40,7 @@ class RecordingStubLLM(FastAgentLLMProtocol):
     def provider(self) -> Provider:
         return self._provider
 
-    async def generate(self, messages, request_params=None, tools=None, cancellation_token=None):
+    async def generate(self, messages, request_params=None, tools=None):
         self.generated_messages = messages
         self._message_history = messages
         return PromptMessageExtended(

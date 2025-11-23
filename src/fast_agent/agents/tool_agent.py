@@ -12,7 +12,6 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -80,7 +79,6 @@ class ToolAgent(LlmAgent):
         messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a response using the LLM, and handle tool calls if necessary.
@@ -97,7 +95,6 @@ class ToolAgent(LlmAgent):
                 messages,
                 request_params=request_params,
                 tools=tools,
-                cancellation_token=cancellation_token,
             )
 
             if LlmStopReason.TOOL_USE == result.stop_reason:

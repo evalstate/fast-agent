@@ -13,7 +13,7 @@ class CapturingOpenAI(OpenAILLM):
         super().__init__(**kwargs)
         self.captured = None
 
-    async def _openai_completion(self, message, request_params=None, tools=None, cancellation_token=None):
+    async def _openai_completion(self, message, request_params=None, tools=None):
         self.captured = message
         return Prompt.assistant("ok")
 

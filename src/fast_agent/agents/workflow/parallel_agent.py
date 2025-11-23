@@ -9,7 +9,6 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, ModelT
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)
@@ -56,7 +55,6 @@ class ParallelAgent(LlmAgent):
         messages: List[PromptMessageExtended],
         request_params: Optional[RequestParams] = None,
         tools: List[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Execute fan-out agents in parallel and aggregate their results with the fan-in agent.

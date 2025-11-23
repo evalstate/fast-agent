@@ -19,7 +19,6 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ModelT
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)
@@ -109,7 +108,6 @@ class EvaluatorOptimizerAgent(LlmAgent):
         messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a response through evaluation-guided refinement.

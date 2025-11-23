@@ -17,7 +17,6 @@ from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import FastAgentLLMProtocol, LLMFactoryProtocol, ModelT
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
@@ -188,7 +187,6 @@ class RouterAgent(LlmAgent):
         messages: List[PromptMessageExtended],
         request_params: Optional[RequestParams] = None,
         tools: List[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Route the request to the most appropriate agent and return its response.
