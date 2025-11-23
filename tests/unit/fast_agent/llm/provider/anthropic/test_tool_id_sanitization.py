@@ -1,8 +1,12 @@
-from anthropic.types import MessageParam
+from typing import TYPE_CHECKING
+
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.types import PromptMessageExtended
+
+if TYPE_CHECKING:
+    from anthropic.types import MessageParam
 
 
 def test_sanitizes_tool_use_ids_for_assistant_calls():
