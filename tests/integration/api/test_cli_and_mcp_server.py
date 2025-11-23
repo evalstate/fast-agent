@@ -116,7 +116,7 @@ def test_agent_message_cli_quiet_flag():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agent_server_option_stdio(fast_agent):
-    """Test that FastAgent supports --server flag with STDIO transport."""
+    """Test STDIO transport works end-to-end."""
 
     @fast_agent.agent(name="client", servers=["std_io"])
     async def agent_function():
@@ -131,7 +131,7 @@ async def test_agent_server_option_stdio(fast_agent):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
-    """Test that FastAgent supports --server flag with STDIO transport."""
+    """Test STDIO transport preserves prompt history."""
 
     @fast_agent.agent(name="client", servers=["std_io"])
     async def agent_function():
@@ -151,8 +151,8 @@ async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_agent_server_option_sse(fast_agent):
-    """Test that FastAgent supports --server flag with SSE transport."""
+async def test_agent_transport_option_sse(fast_agent):
+    """Test that FastAgent enables server mode when --transport is provided (SSE)."""
 
     # Start the SSE server in a subprocess
     import os
@@ -171,7 +171,6 @@ async def test_agent_server_option_sse(fast_agent):
             "uv",
             "run",
             test_agent_path,
-            "--server",
             "--transport",
             "sse",
             "--port",
@@ -296,7 +295,7 @@ async def test_serve_request_scope_disables_session_header():
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agent_server_option_http(fast_agent):
-    """Test that FastAgent supports --server flag with HTTP transport."""
+    """Test that FastAgent still accepts the legacy --server flag with HTTP transport."""
 
     # Start the SSE server in a subprocess
     import os
