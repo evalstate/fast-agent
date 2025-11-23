@@ -8,7 +8,7 @@ import os
 import signal
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Awaitable, Callable, Set
+from typing import Any, Awaitable, Callable, Set
 
 from mcp.server.fastmcp import Context as MCPContext
 from mcp.server.fastmcp import FastMCP
@@ -56,7 +56,7 @@ class AgentMCPServer:
 
         # Resource management
         self._exit_stack = AsyncExitStack()
-        self._active_connections: Set[any] = set()
+        self._active_connections: Set[Any] = set()
 
         # Server state
         self._server_task = None
