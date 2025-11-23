@@ -6,6 +6,7 @@ from mcp.types import PromptMessage
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
@@ -64,6 +65,7 @@ class PlaybackLLM(PassthroughLLM):
         ],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Handle playback of messages in two modes:
