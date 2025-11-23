@@ -50,9 +50,9 @@ async def test_templates_sent_when_history_disabled():
     template_result = PromptMessageExtended(
         role="user",
         content=[TextContent(type="text", text="template baseline")],
+        is_template=True,
     )
-    agent._template_messages.append(template_result)
-    agent._message_history.extend(agent._template_messages)
+    agent._message_history = [template_result.model_copy(deep=True)]
 
     user_msg = PromptMessageExtended(
         role="user", content=[TextContent(type="text", text="hello world")]

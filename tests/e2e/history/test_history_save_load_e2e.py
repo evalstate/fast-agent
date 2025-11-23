@@ -17,8 +17,16 @@ from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 TEST_CONFIG_PATH = Path(__file__).resolve().parent.parent / "llm" / "fastagent.config.yaml"
-DEFAULT_CREATE_MODELS = ["gpt-5-mini.minimal", "haiku", "gemini25"]
-DEFAULT_CHECK_MODELS = ["haiku", "kimigroq", "gpt-5-mini.minimal"]
+DEFAULT_CREATE_MODELS = [
+    "gpt-5-mini.minimal",
+    "haiku",
+    "gemini25",
+    "minimax",
+    "kimi",
+    "qwen3",
+    "glm",
+]
+DEFAULT_CHECK_MODELS = ["haiku", "kimigroq", "gpt-5-mini.minimal", "kimi", "qwen3", "glm"]
 MAGIC_STRING = "MAGIC-ACCESS-PHRASE-9F1C"
 MAGIC_TOOL = Tool(
     name="fetch_magic_string",
@@ -50,6 +58,7 @@ CHECK_MODELS = _parse_model_list(
     os.environ.get("FAST_AGENT_HISTORY_CHECK_MODELS"), DEFAULT_CHECK_MODELS
 )
 MODEL_MATRIX = [(create, check) for create in CREATE_MODELS for check in CHECK_MODELS]
+_HISTORY_CACHE: dict[str, Path] = {}
 
 
 def _sanitize_model_name(model: str) -> str:
@@ -116,20 +125,31 @@ async def _load_and_verify(agent: LlmAgent, history_file: Path) -> None:
     assert MAGIC_STRING.lower() in follow_text
 
 
-@pytest.mark.e2e
-@pytest.mark.asyncio
-@pytest.mark.parametrize("create_model,check_model", MODEL_MATRIX)
-async def test_history_survives_across_models(tmp_path, create_model, check_model):
-    history_file = (
-        tmp_path
-        / f"history_{_sanitize_model_name(create_model)}_{_sanitize_model_name(check_model)}.json"
-    )
+async def _get_or_create_history_file(create_model: str, tmp_path_factory) -> Path:
+    """
+    Create history once per creator model and reuse the saved file across check models.
+    """
+    cached = _HISTORY_CACHE.get(create_model)
+    if cached and cached.exists():
+        return cached
+
+    history_dir = tmp_path_factory.mktemp(f"history-{_sanitize_model_name(create_model)}")
+    history_file = Path(history_dir) / "history.json"
 
     async with agent_session(create_model, f"history-create-{create_model}") as creator_agent:
         await _create_history(creator_agent)
         save_messages(creator_agent.message_history, history_file)
 
     assert history_file.exists()
+    _HISTORY_CACHE[create_model] = history_file
+    return history_file
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("create_model,check_model", MODEL_MATRIX)
+async def test_history_survives_across_models(tmp_path_factory, create_model, check_model):
+    history_file = await _get_or_create_history_file(create_model, tmp_path_factory)
 
     async with agent_session(check_model, f"history-load-{check_model}") as checker_agent:
         await _load_and_verify(checker_agent, history_file)

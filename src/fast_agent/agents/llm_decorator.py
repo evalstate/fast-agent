@@ -167,7 +167,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: List[PromptMessageExtended] = []
-        self._template_messages: List[PromptMessageExtended] = []
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -365,8 +364,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         for msg in multipart_messages:
             msg.is_template = True
 
-        self._template_messages = [msg.model_copy(deep=True) for msg in multipart_messages]
-        self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
+        self._message_history = [msg.model_copy(deep=True) for msg in multipart_messages]
 
         return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
@@ -405,10 +403,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             return
         self._llm.clear(clear_prompts=clear_prompts)
         if clear_prompts:
-            self._template_messages = []
             self._message_history = []
         else:
-            self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
+            template_prefix = self._template_prefix_messages()
+            self._message_history = [msg.model_copy(deep=True) for msg in template_prefix]
 
     async def structured(
         self,
@@ -523,7 +521,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if call_params and not call_params.use_history:
             call_params.use_history = True
 
-        base_history = self._message_history if use_history else self._template_messages
+        base_history = self._message_history if use_history else self._template_prefix_messages()
         full_history = [msg.model_copy(deep=True) for msg in base_history]
         full_history.extend(sanitized_messages)
 
@@ -862,6 +860,26 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             List of PromptMessageExtended objects representing the conversation history
         """
         return self._message_history
+
+    @property
+    def template_messages(self) -> List[PromptMessageExtended]:
+        """
+        Return the template prefix of the message history.
+
+        Templates are identified via the is_template flag and are expected to
+        appear as a contiguous prefix of the history.
+        """
+        return [msg.model_copy(deep=True) for msg in self._template_prefix_messages()]
+
+    def _template_prefix_messages(self) -> List[PromptMessageExtended]:
+        """Return the leading messages marked as templates (non-copy)."""
+        prefix: List[PromptMessageExtended] = []
+        for msg in self._message_history:
+            if msg.is_template:
+                prefix.append(msg)
+            else:
+                break
+        return prefix
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""

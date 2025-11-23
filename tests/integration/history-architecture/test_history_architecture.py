@@ -111,11 +111,11 @@ async def test_template_persistence_after_clear(fast_agent):
                 Prompt.user("You are a helpful assistant."),
                 Prompt.assistant("I understand."),
             ]
-            agent_obj._template_messages = [msg.model_copy(deep=True) for msg in template_msgs]
+            template_msgs = [msg.model_copy(update={"is_template": True}) for msg in template_msgs]
             agent_obj._message_history = [msg.model_copy(deep=True) for msg in template_msgs]
 
             # Verify template is loaded
-            assert len(agent_obj._template_messages) == 2
+            assert len(agent_obj.template_messages) == 2
             assert len(agent_obj.message_history) == 2
 
             # Add a user message
@@ -128,7 +128,7 @@ async def test_template_persistence_after_clear(fast_agent):
 
             # Templates should be restored, new message should be gone
             assert len(agent_obj.message_history) == 2
-            assert len(agent_obj._template_messages) == 2
+            assert len(agent_obj.template_messages) == 2
 
             # Add another message
             agent_obj._message_history.append(user_msg)
@@ -139,7 +139,7 @@ async def test_template_persistence_after_clear(fast_agent):
 
             # Everything should be gone
             assert len(agent_obj.message_history) == 0
-            assert len(agent_obj._template_messages) == 0
+            assert len(agent_obj.template_messages) == 0
 
     await agent_function()
 
