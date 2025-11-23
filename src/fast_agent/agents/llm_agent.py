@@ -8,7 +8,7 @@ This class extends LlmDecorator with LLM-specific interaction behaviors includin
 - Chat display integration
 """
 
-from typing import Callable
+from typing import Callable, List, Optional, Tuple
 
 from a2a.types import AgentCapabilities
 from mcp import Tool
@@ -18,6 +18,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -79,12 +80,12 @@ class LlmAgent(LlmDecorator):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: list[str] | None = None,
-        highlight_items: str | list[str] | None = None,
+        bottom_items: List[str] | None = None,
+        highlight_items: str | List[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Text | None = None,
+        additional_message: Optional[Text] = None,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -99,7 +100,7 @@ class LlmAgent(LlmDecorator):
         """
 
         # Determine display content based on stop reason if not provided
-        additional_segments: list[Text] = []
+        additional_segments: List[Text] = []
 
         # Generate additional message based on stop reason
         match message.stop_reason:
@@ -234,13 +235,14 @@ class LlmAgent(LlmDecorator):
 
     async def generate_impl(
         self,
-        messages: list[PromptMessageExtended],
+        messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: list[Tool] | None = None,
+        tools: List[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Enhanced generate implementation that resets tool call tracking.
-        Messages are already normalized to list[PromptMessageExtended].
+        Messages are already normalized to List[PromptMessageExtended].
         """
         if "user" == messages[-1].role:
             self.show_user_message(message=messages[-1])
@@ -270,7 +272,7 @@ class LlmAgent(LlmDecorator):
 
                 try:
                     result, summary = await self._generate_with_summary(
-                        messages, request_params, tools
+                        messages, request_params, tools, cancellation_token
                     )
                 finally:
                     if remove_listener:
@@ -285,7 +287,9 @@ class LlmAgent(LlmDecorator):
 
             await self.show_assistant_message(result, additional_message=summary_text)
         else:
-            result, summary = await self._generate_with_summary(messages, request_params, tools)
+            result, summary = await self._generate_with_summary(
+                messages, request_params, tools, cancellation_token
+            )
 
             summary_text = (
                 Text(f"\n\n{summary.message}", style="dim red italic") if summary else None
@@ -296,10 +300,10 @@ class LlmAgent(LlmDecorator):
 
     async def structured_impl(
         self,
-        messages: list[PromptMessageExtended],
+        messages: List[PromptMessageExtended],
         model: type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> tuple[ModelT | None, PromptMessageExtended]:
+    ) -> Tuple[ModelT | None, PromptMessageExtended]:
         if "user" == messages[-1].role:
             self.show_user_message(message=messages[-1])
 

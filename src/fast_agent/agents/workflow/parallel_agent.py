@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any
+from typing import Any, List, Optional, Tuple
 
 from mcp import Tool
 from mcp.types import TextContent
@@ -9,6 +9,7 @@ from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import AgentProtocol, ModelT
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)
@@ -31,7 +32,7 @@ class ParallelAgent(LlmAgent):
         self,
         config: AgentConfig,
         fan_in_agent: AgentProtocol,
-        fan_out_agents: list[AgentProtocol],
+        fan_out_agents: List[AgentProtocol],
         include_request: bool = True,
         **kwargs,
     ) -> None:
@@ -52,9 +53,10 @@ class ParallelAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: list[PromptMessageExtended],
-        request_params: RequestParams | None = None,
-        tools: list[Tool] | None = None,
+        messages: List[PromptMessageExtended],
+        request_params: Optional[RequestParams] = None,
+        tools: List[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Execute fan-out agents in parallel and aggregate their results with the fan-in agent.
@@ -69,12 +71,12 @@ class ParallelAgent(LlmAgent):
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"Parallel: '{self._name}' generate"):
-            responses: list[PromptMessageExtended] = await self._execute_fan_out(
+            responses: List[PromptMessageExtended] = await self._execute_fan_out(
                 messages, request_params
             )
 
             # Extract the received message from the input
-            received_message: str | None = messages[-1].all_text() if messages else None
+            received_message: Optional[str] = messages[-1].all_text() if messages else None
 
             # Convert responses to strings for aggregation
             string_responses = []
@@ -92,7 +94,7 @@ class ParallelAgent(LlmAgent):
             # Use the fan-in agent to aggregate the responses
             return await self._fan_in_generate(formatted_prompt, request_params)
 
-    def _format_responses(self, responses: list[Any], message: str | None = None) -> str:
+    def _format_responses(self, responses: List[Any], message: Optional[str] = None) -> str:
         """
         Format a list of responses for the fan-in agent.
 
@@ -120,10 +122,10 @@ class ParallelAgent(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: list[PromptMessageExtended],
+        messages: List[PromptMessageExtended],
         model: type[ModelT],
-        request_params: RequestParams | None = None,
-    ) -> tuple[ModelT | None, PromptMessageExtended]:
+        request_params: Optional[RequestParams] = None,
+    ) -> Tuple[ModelT | None, PromptMessageExtended]:
         """
         Apply the prompt and return the result as a Pydantic model.
 
@@ -140,12 +142,12 @@ class ParallelAgent(LlmAgent):
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"Parallel: '{self._name}' generate"):
-            responses: list[PromptMessageExtended] = await self._execute_fan_out(
+            responses: List[PromptMessageExtended] = await self._execute_fan_out(
                 messages, request_params
             )
 
             # Extract the received message
-            received_message: str | None = messages[-1].all_text() if messages else None
+            received_message: Optional[str] = messages[-1].all_text() if messages else None
 
             # Convert responses to strings
             string_responses = [response.all_text() for response in responses]
@@ -195,9 +197,9 @@ class ParallelAgent(LlmAgent):
 
     async def _execute_fan_out(
         self,
-        messages: list[PromptMessageExtended],
-        request_params: RequestParams | None,
-    ) -> list[PromptMessageExtended]:
+        messages: List[PromptMessageExtended],
+        request_params: Optional[RequestParams],
+    ) -> List[PromptMessageExtended]:
         """
         Run fan-out agents with telemetry so transports can surface progress.
         """
@@ -217,7 +219,7 @@ class ParallelAgent(LlmAgent):
     async def _fan_in_generate(
         self,
         prompt: PromptMessageExtended,
-        request_params: RequestParams | None,
+        request_params: Optional[RequestParams],
     ) -> PromptMessageExtended:
         """
         Aggregate fan-out output with telemetry.
@@ -235,8 +237,8 @@ class ParallelAgent(LlmAgent):
         self,
         prompt: PromptMessageExtended,
         model: type[ModelT],
-        request_params: RequestParams | None,
-    ) -> tuple[ModelT | None, PromptMessageExtended]:
+        request_params: Optional[RequestParams],
+    ) -> Tuple[ModelT | None, PromptMessageExtended]:
         """
         Structured aggregation with telemetry.
         """
