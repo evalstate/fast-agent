@@ -1035,7 +1035,7 @@ class MCPAggregator(ContextDependent):
         operation_type: str,
         operation_name: str,
         method_name: str,
-        method_args: Dict[str, Any] = None,
+        method_args: Dict[str, Any] | None = None,
         error_factory: Callable[[str], R] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> R:

@@ -353,8 +353,8 @@ class AgentCompleter(Completer):
     def __init__(
         self,
         agents: List[str],
-        commands: List[str] = None,
-        agent_types: dict = None,
+        commands: List[str] | None = None,
+        agent_types: dict | None = None,
         is_human_input: bool = False,
     ) -> None:
         self.agents = agents
@@ -609,8 +609,8 @@ async def get_enhanced_input(
     show_default: bool = False,
     show_stop_hint: bool = False,
     multiline: bool = False,
-    available_agent_names: List[str] = None,
-    agent_types: dict[str, AgentType] = None,
+    available_agent_names: List[str] | None = None,
+    agent_types: dict[str, AgentType] | None = None,
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
     agent_provider: "AgentApp | None" = None,
@@ -1097,8 +1097,8 @@ async def get_enhanced_input(
 
 async def get_selection_input(
     prompt_text: str,
-    options: List[str] = None,
-    default: str = None,
+    options: List[str] | None = None,
+    default: str | None = None,
     allow_cancel: bool = True,
     complete_options: bool = True,
 ) -> Optional[str]:
@@ -1144,7 +1144,7 @@ async def get_selection_input(
 
 async def get_argument_input(
     arg_name: str,
-    description: str = None,
+    description: str | None = None,
     required: bool = True,
 ) -> Optional[str]:
     """
