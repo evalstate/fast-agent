@@ -18,6 +18,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.cancellation import CancellationError, CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -988,7 +989,12 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         return bedrock_messages
 
-    async def _process_stream(self, stream_response, model: str) -> BedrockMessage:
+    async def _process_stream(
+        self,
+        stream_response,
+        model: str,
+        cancellation_token: CancellationToken | None = None,
+    ) -> BedrockMessage:
         """Process streaming response from Bedrock."""
         estimated_tokens = 0
         response_content = []
@@ -998,6 +1004,11 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         try:
             for event in stream_response["stream"]:
+                # Check for cancellation before processing each event
+                if cancellation_token and cancellation_token.is_cancelled:
+                    self.logger.info("Stream cancelled by user")
+                    raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+
                 if "messageStart" in event:
                     # Message started
                     continue
@@ -1193,6 +1204,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         pre_messages: List[BedrockMessageParam] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Bedrock and available tools.
@@ -1538,7 +1550,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         )
                         attempted_streaming = True
                         response = client.converse_stream(**converse_args)
-                        processed_response = await self._process_stream(response, model)
+                        processed_response = await self._process_stream(
+                            response, model, cancellation_token
+                        )
                 except (ClientError, BotoCoreError) as e:
                     # Check if this is a reasoning-related error
                     if reasoning_budget > 0 and (
@@ -1568,7 +1582,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             )
                         else:
                             response = client.converse_stream(**converse_args)
-                            processed_response = await self._process_stream(response, model)
+                            processed_response = await self._process_stream(
+                                response, model, cancellation_token
+                            )
                     else:
                         # Not a reasoning error, re-raise
                         raise
@@ -1682,7 +1698,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                             )
                         else:
                             response = client.converse_stream(**converse_args)
-                            processed_response = await self._process_stream(response, model)
+                            processed_response = await self._process_stream(
+                                response, model, cancellation_token
+                            )
                         if not caps.schema and has_tools:
                             caps.schema = ToolSchemaType(schema_choice)
                         self.capabilities[model] = caps
@@ -1850,6 +1868,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """Apply Bedrock-specific prompt formatting."""
         if not multipart_messages:
@@ -1892,7 +1911,11 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
 
         # Call the completion method with optional pre_messages for no-history mode
         return await self._bedrock_completion(
-            message_param, request_params, tools, pre_messages=pre_messages
+            message_param,
+            request_params,
+            tools,
+            pre_messages=pre_messages,
+            cancellation_token=cancellation_token,
         )
 
     def _generate_simplified_schema(self, model: Type[ModelT]) -> str:
