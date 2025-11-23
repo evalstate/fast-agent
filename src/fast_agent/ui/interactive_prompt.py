@@ -14,10 +14,13 @@ Usage:
     )
 """
 
+import asyncio
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
+from fast_agent.ui.keyboard_interrupt import run_with_esc_cancel
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -330,8 +333,17 @@ class InteractivePrompt:
                 if user_input == "":
                     continue
 
-            # Send the message to the agent
-            result = await send_func(user_input, agent)
+            # Send the message to the agent with ESC cancellation support
+            # Only enable ESC cancellation if we're in an interactive terminal
+            if sys.stdin.isatty():
+                try:
+                    result = await run_with_esc_cancel(send_func(user_input, agent))
+                except asyncio.CancelledError:
+                    rich_print("\n[yellow]Request cancelled by user (ESC)[/yellow]")
+                    result = "[Cancelled]"
+                    continue
+            else:
+                result = await send_func(user_input, agent)
 
         return result
 
