@@ -74,13 +74,27 @@ class ChainAgent(LlmAgent):
         user_message = messages[-1]
 
         if not self.cumulative:
-            response: PromptMessageExtended = await self.agents[0].generate(
-                messages, request_params
-            )
+            # First agent in chain
+            async with self.workflow_telemetry.start_step(
+                "chain.step",
+                server_name=self.name,
+                arguments={"agent": self.agents[0].name, "step": 1, "total_steps": len(self.agents)},
+            ) as step:
+                response: PromptMessageExtended = await self.agents[0].generate(
+                    messages, request_params
+                )
+                await step.finish(True, text=f"{self.agents[0].name} completed step 1/{len(self.agents)}")
+
             # Process the rest of the agents in the chain
-            for agent in self.agents[1:]:
-                next_message = Prompt.user(*response.content)
-                response = await agent.generate([next_message], request_params)
+            for i, agent in enumerate(self.agents[1:], start=2):
+                async with self.workflow_telemetry.start_step(
+                    "chain.step",
+                    server_name=self.name,
+                    arguments={"agent": agent.name, "step": i, "total_steps": len(self.agents)},
+                ) as step:
+                    next_message = Prompt.user(*response.content)
+                    response = await agent.generate([next_message], request_params)
+                    await step.finish(True, text=f"{agent.name} completed step {i}/{len(self.agents)}")
 
             return response
 
@@ -98,26 +112,33 @@ class ChainAgent(LlmAgent):
 
         # Process through each agent in sequence
         for i, agent in enumerate(self.agents):
-            # In cumulative mode, include the original message and all previous responses
-            chain_messages = messages.copy()
+            step_num = i + 1
+            async with self.workflow_telemetry.start_step(
+                "chain.step",
+                server_name=self.name,
+                arguments={"agent": agent.name, "step": step_num, "total_steps": len(self.agents), "cumulative": True},
+            ) as step:
+                # In cumulative mode, include the original message and all previous responses
+                chain_messages = messages.copy()
 
-            # Convert previous assistant responses to user messages for the next agent
-            for prev_response in all_responses:
-                chain_messages.append(Prompt.user(prev_response.all_text()))
+                # Convert previous assistant responses to user messages for the next agent
+                for prev_response in all_responses:
+                    chain_messages.append(Prompt.user(prev_response.all_text()))
 
-            current_response = await agent.generate(
-                chain_messages,
-                request_params,
-            )
+                current_response = await agent.generate(
+                    chain_messages,
+                    request_params,
+                )
 
-            # Store the response
-            all_responses.append(current_response)
+                # Store the response
+                all_responses.append(current_response)
 
-            response_text = current_response.all_text()
-            attributed_response = (
-                f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
-            )
-            final_results.append(attributed_response)
+                response_text = current_response.all_text()
+                attributed_response = (
+                    f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
+                )
+                final_results.append(attributed_response)
+                await step.finish(True, text=f"{agent.name} completed step {step_num}/{len(self.agents)}")
 
         # For cumulative mode, return the properly formatted output with XML tags
         response_text = "\n\n".join(final_results)

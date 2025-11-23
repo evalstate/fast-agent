@@ -310,22 +310,39 @@ class IterativePlanner(LlmAgent):
         terminate_plan: str | None = None
         plan_result = PlanResult(objective=objective, step_results=[])
 
+        iteration = 0
         while not objective_met and not terminate_plan:
-            next_step: PlanningStep | None = await self._get_next_step(
-                objective, plan_result, request_params
-            )
+            iteration += 1
 
-            if None is next_step:
-                terminate_plan = "Failed to generate plan, terminating early"
-                logger.error("Failed to generate next step, terminating plan early")
-                break
+            # Emit telemetry for planning step
+            async with self.workflow_telemetry.start_step(
+                "planner.get_next_step",
+                server_name=self.name,
+                arguments={"iteration": iteration, "objective": objective[:100]},
+            ) as planning_step:
+                next_step: PlanningStep | None = await self._get_next_step(
+                    objective, plan_result, request_params
+                )
 
-            assert next_step  # lets keep the indenting manageable!
+                if None is next_step:
+                    terminate_plan = "Failed to generate plan, terminating early"
+                    logger.error("Failed to generate next step, terminating plan early")
+                    await planning_step.finish(False, error=terminate_plan)
+                    break
 
-            if next_step.is_complete:
-                objective_met = True
-                terminate_plan = "Plan completed successfully"
-                break
+                assert next_step  # lets keep the indenting manageable!
+
+                if next_step.is_complete:
+                    objective_met = True
+                    terminate_plan = "Plan completed successfully"
+                    await planning_step.finish(True, text="Objective marked complete")
+                    break
+
+                task_count = len(next_step.tasks) if next_step.tasks else 0
+                await planning_step.finish(
+                    True,
+                    text=f"Generated step {iteration} with {task_count} task(s)"
+                )
 
             plan = Plan(steps=[next_step], is_complete=next_step.is_complete)
             invalid_agents = self._validate_agent_names(plan)
@@ -337,8 +354,19 @@ class IterativePlanner(LlmAgent):
                 break
 
             for step in plan.steps:  # this will only be one for iterative (change later)
-                step_result = await self._execute_step(step, plan_result)
-                plan_result.add_step_result(step_result)
+                # Emit telemetry for step execution
+                async with self.workflow_telemetry.start_step(
+                    "planner.execute_step",
+                    server_name=self.name,
+                    arguments={
+                        "iteration": iteration,
+                        "step_description": step.description[:100] if step.description else "",
+                        "task_count": len(step.tasks) if step.tasks else 0,
+                    },
+                ) as exec_step:
+                    step_result = await self._execute_step(step, plan_result)
+                    plan_result.add_step_result(step_result)
+                    await exec_step.finish(True, text=f"Step {iteration} executed successfully")
 
             # Store plan in result
             plan_result.plan = plan
@@ -392,38 +420,49 @@ class IterativePlanner(LlmAgent):
             assert agent is not None
 
             results = []
-            for task in agent_tasks:
-                try:
-                    task_description = DELEGATED_TASK_TEMPLATE.format(
-                        objective=previous_result.objective, task=task.description, context=context
-                    )
-                    result = await agent.generate(
-                        [
-                            PromptMessageExtended(
-                                role="user",
-                                content=[TextContent(type="text", text=task_description)],
-                            )
-                        ]
-                    )
+            for task_idx, task in enumerate(agent_tasks):
+                async with self.workflow_telemetry.start_step(
+                    "planner.execute_task",
+                    server_name=self.name,
+                    arguments={
+                        "agent": agent_name,
+                        "task": task.description[:100] if task.description else "",
+                        "task_index": task_idx + 1,
+                    },
+                ) as task_step:
+                    try:
+                        task_description = DELEGATED_TASK_TEMPLATE.format(
+                            objective=previous_result.objective, task=task.description, context=context
+                        )
+                        result = await agent.generate(
+                            [
+                                PromptMessageExtended(
+                                    role="user",
+                                    content=[TextContent(type="text", text=task_description)],
+                                )
+                            ]
+                        )
 
-                    task_model = task.model_dump()
-                    results.append(
-                        TaskWithResult(
-                            description=task_model["description"],
-                            agent=task_model["agent"],
-                            result=result.last_text() or "<missing response>",
+                        task_model = task.model_dump()
+                        results.append(
+                            TaskWithResult(
+                                description=task_model["description"],
+                                agent=task_model["agent"],
+                                result=result.last_text() or "<missing response>",
+                            )
                         )
-                    )
-                except Exception as e:
-                    logger.error(f"Error executing task: {str(e)}")
-                    task_model = task.model_dump()
-                    results.append(
-                        TaskWithResult(
-                            description=task_model["description"],
-                            agent=task_model["agent"],
-                            result=f"ERROR: {str(e)}",
+                        await task_step.finish(True, text=f"{agent_name} completed task")
+                    except Exception as e:
+                        logger.error(f"Error executing task: {str(e)}")
+                        task_model = task.model_dump()
+                        results.append(
+                            TaskWithResult(
+                                description=task_model["description"],
+                                agent=task_model["agent"],
+                                result=f"ERROR: {str(e)}",
+                            )
                         )
-                    )
+                        await task_step.finish(False, error=str(e))
             return results
 
         # Execute different agents in parallel, tasks within each agent sequentially
