@@ -2,8 +2,9 @@
 Utilities for rendering PromptMessageExtended objects for display.
 """
 
+from typing import cast
 
-from mcp.types import BlobResourceContents, TextResourceContents
+from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextResourceContents
 
 from fast_agent.mcp.helpers.content_helpers import (
     get_resource_uri,
@@ -39,22 +40,24 @@ def render_multipart_message(message: PromptMessageExtended) -> str:
 
         elif is_image_content(content):
             # Format details about the image
-            image_data = getattr(content, "data", "")
+            image = cast(ImageContent, content)
+            image_data = image.data
             data_size = len(image_data) if image_data else 0
-            mime_type = getattr(content, "mimeType", "unknown")
+            mime_type = image.mimeType
             image_info = f"[IMAGE: {mime_type}, {data_size} bytes]"
             rendered_parts.append(image_info)
 
         elif is_resource_content(content):
             # Handle embedded resources
             uri = get_resource_uri(content)
-            resource = getattr(content, "resource", None)
+            embedded = cast(EmbeddedResource, content)
+            resource = embedded.resource
 
-            if resource and isinstance(resource, TextResourceContents):
+            if isinstance(resource, TextResourceContents):
                 # Handle text resources
                 text = resource.text
                 text_length = len(text)
-                mime_type = getattr(resource, "mimeType", "text/plain")
+                mime_type = resource.mimeType or "text/plain"
 
                 # Preview with truncation for long content
                 preview = text[:300] + ("..." if text_length > 300 else "")
@@ -63,11 +66,11 @@ def render_multipart_message(message: PromptMessageExtended) -> str:
                 )
                 rendered_parts.append(resource_info)
 
-            elif resource and isinstance(resource, BlobResourceContents):
+            elif isinstance(resource, BlobResourceContents):
                 # Handle blob resources (binary data)
-                blob = getattr(resource, "blob", "")
+                blob = resource.blob
                 blob_length = len(blob) if blob else 0
-                mime_type = getattr(resource, "mimeType", "application/octet-stream")
+                mime_type = resource.mimeType or "application/octet-stream"
 
                 resource_info = f"[EMBEDDED BLOB RESOURCE: {mime_type}, {uri}, {blob_length} bytes]"
                 rendered_parts.append(resource_info)

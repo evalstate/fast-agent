@@ -152,7 +152,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             )
 
         # Cache effective model name for type-safe access
-        self._model_name: str | None = getattr(self.default_request_params, "model", None)
+        self._model_name: str | None = self.default_request_params.model
 
         self.verb = kwargs.get("verb")
 
