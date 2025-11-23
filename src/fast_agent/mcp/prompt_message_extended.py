@@ -29,6 +29,7 @@ class PromptMessageExtended(BaseModel):
     tool_results: Dict[str, CallToolResult] | None = None
     channels: Mapping[str, Sequence[ContentBlock]] | None = None
     stop_reason: LlmStopReason | None = None
+    is_template: bool = False
 
     @classmethod
     def to_extended(cls, messages: List[PromptMessage]) -> List["PromptMessageExtended"]:

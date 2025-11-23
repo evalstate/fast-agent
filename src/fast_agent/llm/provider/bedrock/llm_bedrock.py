@@ -19,6 +19,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -278,6 +279,25 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     "Please configure AWS credentials using AWS CLI, environment variables, or IAM roles.",
                 ) from e
         return self._bedrock_runtime_client
+
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[BedrockMessageParam]:
+        """
+        Convert PromptMessageExtended list to Bedrock BedrockMessageParam format.
+        This is called fresh on every API call from _convert_to_provider_format().
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of Bedrock BedrockMessageParam objects
+        """
+        converted: List[BedrockMessageParam] = []
+        for msg in messages:
+            bedrock_msg = BedrockConverter.convert_to_bedrock(msg)
+            converted.append(bedrock_msg)
+        return converted
 
     def _build_tool_name_mapping(
         self, tools: "ListToolsResult", name_policy: ToolNamePolicy
@@ -1193,6 +1213,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
         pre_messages: List[BedrockMessageParam] | None = None,
+        history: List[PromptMessageExtended] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Bedrock and available tools.
@@ -1216,10 +1237,11 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                     f"Error accessing Bedrock: {error_msg}",
                 ) from e
 
-        # Always include prompt messages, but only include conversation history
-        # if use_history is True
-        messages.extend(self.history.get(include_completion_history=params.use_history))
-        messages.append(message_param)
+        # Convert supplied history/messages directly
+        if history:
+            messages.extend(self._convert_to_provider_format(history))
+        else:
+            messages.append(message_param)
 
         # Get available tools (no resolver gating; fallback logic will decide wiring)
         tool_list = None
@@ -1820,20 +1842,9 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         # Map stop reason to LlmStopReason
         mapped_stop_reason = self._map_bedrock_stop_reason(stop_reason)
 
-        # Update history
-        if params.use_history:
-            # Get current prompt messages
-            prompt_messages = self.history.get(include_completion_history=False)
-
-            # Calculate new conversation messages (excluding prompts)
-            new_messages = messages[len(prompt_messages) :]
-
-            # Remove system prompt from new messages if it was added
-            if (self.instruction or params.systemPrompt) and new_messages:
-                # System prompt is not added to messages list in Bedrock, so no need to remove it
-                pass
-
-            self.history.set(new_messages)
+        # Update diagnostic snapshot (never read again)
+        # This provides a snapshot of what was sent to the provider for debugging
+        self.history.set(messages)
 
         self._log_chat_finished(model=model)
 
@@ -1851,48 +1862,28 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
-        """Apply Bedrock-specific prompt formatting."""
+        """
+        Provider-specific prompt application.
+        Templates are handled by the agent; messages already include them.
+        """
         if not multipart_messages:
             return PromptMessageExtended(role="user", content=[])
 
         # Check the last message role
         last_message = multipart_messages[-1]
 
-        # Add all previous messages to history (or all messages if last is from assistant)
-        # if the last message is a "user" inference is required
-        # if the last message is a "user" inference is required
-        messages_to_add = (
-            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
-        )
-        converted = []
-        for msg in messages_to_add:
-            # Convert each message to Bedrock message parameter format
-            bedrock_msg = self._convert_multipart_to_bedrock_message(msg)
-            converted.append(bedrock_msg)
-
-        # Only persist prior messages when history is enabled; otherwise inline for this call
-        params = self.get_request_params(request_params)
-        pre_messages: List[BedrockMessageParam] | None = None
-        if params.use_history:
-            self.history.extend(converted, is_prompt=is_template)
-        else:
-            pre_messages = converted
-
         if last_message.role == "assistant":
             # For assistant messages: Return the last message (no completion needed)
             return last_message
 
-        # For user messages with tool_results, we need to add the tool result message to the conversation
-        if last_message.tool_results:
-            # Convert the tool result message and use it as the final input
-            message_param = self._convert_multipart_to_bedrock_message(last_message)
-        else:
-            # Convert the last user message to Bedrock message parameter format
-            message_param = self._convert_multipart_to_bedrock_message(last_message)
+        # Convert the last user message to Bedrock message parameter format
+        message_param = BedrockConverter.convert_to_bedrock(last_message)
 
-        # Call the completion method with optional pre_messages for no-history mode
+        # Call the completion method
+        # No need to pass pre_messages - conversion happens in _bedrock_completion
+        # via _convert_to_provider_format()
         return await self._bedrock_completion(
-            message_param, request_params, tools, pre_messages=pre_messages
+            message_param, request_params, tools, pre_messages=None, history=multipart_messages
         )
 
     def _generate_simplified_schema(self, model: Type[ModelT]) -> str:

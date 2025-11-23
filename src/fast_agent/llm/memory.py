@@ -7,6 +7,13 @@ MessageParamT = TypeVar("MessageParamT")
 class Memory(Protocol, Generic[MessageParamT]):
     """
     Simple memory management for storing past interactions in-memory.
+
+    IMPORTANT: As of the conversation history architecture refactor,
+    provider history is DIAGNOSTIC ONLY. Messages are generated fresh
+    from _message_history on each API call via _convert_to_provider_format().
+
+    The get() method should NOT be called by provider code for API calls.
+    It may still be used for debugging/inspection purposes.
     """
 
     # TODO: saqadri - add checkpointing and other advanced memory capabilities
@@ -86,13 +93,23 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         """
         Get all messages in memory.
 
+        DEPRECATED: Provider history is now diagnostic only. This method returns
+        a diagnostic snapshot and should NOT be used for API calls. Messages for
+        API calls are generated fresh from _message_history via
+        _convert_to_provider_format().
+
         Args:
             include_history: If True, include regular history messages
                              If False, only return prompt messages
 
         Returns:
             Combined list of prompt messages and optionally history messages
+            (for diagnostic/inspection purposes only)
         """
+        # Note: We don't emit a warning here because this method is still
+        # legitimately used for diagnostic purposes and by some internal code.
+        # The important change is that provider completion methods no longer
+        # call this for API message construction.
         if include_completion_history:
             return self.prompt_messages + self.history
         else:

@@ -17,6 +17,8 @@ Usage:
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
 
+from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
+
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
 
@@ -278,7 +280,9 @@ class InteractivePrompt:
                             rich_print(f"[green]History saved to {saved_path}[/green]")
                         except Exception:
                             # Fallback to magic string path for maximum compatibility
-                            control = "***SAVE_HISTORY" + (f" {filename}" if filename else "")
+                            control = CONTROL_MESSAGE_SAVE_HISTORY + (
+                                f" {filename}" if filename else ""
+                            )
                             result = await send_func(control, agent)
                             if result:
                                 rich_print(f"[green]{result}[/green]")
@@ -291,22 +295,18 @@ class InteractivePrompt:
 
                         filename = command_dict.get("filename")
                         try:
-                            from fast_agent.mcp.prompts.prompt_load import load_prompt
+                            from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 
-                            # Load the messages from the file
-                            messages = load_prompt(Path(filename))
-
-                            # Get the agent object
+                            # Get the agent object and its underlying LLM
                             agent_obj = prompt_provider._agent(agent)
 
-                            # Clear the agent's history first
-                            agent_obj.clear()
+                            # Load history directly without triggering LLM call
+                            load_history_into_agent(agent_obj, Path(filename))
 
-                            # Load the messages into the agent's history
-                            # We use generate() to properly process the loaded history
-                            await agent_obj.generate(messages)
-
-                            rich_print(f"[green]History loaded from {filename}[/green]")
+                            msg_count = len(agent_obj.message_history)
+                            rich_print(
+                                f"[green]Loaded {msg_count} messages from {filename}[/green]"
+                            )
                         except FileNotFoundError:
                             rich_print(f"[red]File not found: {filename}[/red]")
                         except Exception as e:

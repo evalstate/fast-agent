@@ -335,17 +335,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         request_params = self.get_request_params(request_params=request_params)
         responses: List[ContentBlock] = []
 
-        # Build conversation history from stored provider-specific messages
-        # and the provided message for this turn (no implicit conversion here).
-        # We store provider-native Content objects in history.
-        # Start with prompts + (optionally) accumulated conversation messages
-        base_history: List[types.Content] = self.history.get(
-            include_completion_history=request_params.use_history
-        )
-        # Make a working copy and add the provided turn message(s) if present
-        conversation_history: List[types.Content] = list(base_history)
-        if message:
-            conversation_history.extend(message)
+        # Caller supplies the full set of messages to send (history + turn)
+        conversation_history: List[types.Content] = list(message or [])
 
         self.logger.debug(f"Google completion requested with messages: {conversation_history}")
         self._log_chat_progress(self.chat_turn(), model=request_params.model)
@@ -473,13 +464,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         else:
             stop_reason = self._map_finish_reason(getattr(candidate, "finish_reason", None))
 
-        # 6. Persist conversation state to provider-native history (exclude prompt messages)
-        if request_params.use_history:
-            # History store separates prompt vs conversation messages; keep prompts as-is
-            prompt_messages = self.history.get(include_completion_history=False)
-            # messages after prompts are the true conversation history
-            new_messages = conversation_history[len(prompt_messages) :]
-            self.history.set(new_messages, is_prompt=False)
+        # Update diagnostic snapshot (never read again)
+        # This provides a snapshot of what was sent to the provider for debugging
+        self.history.set(conversation_history)
 
         self._log_chat_finished(model=request_params.model)  # Use model from request_params
         return Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
@@ -494,30 +481,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """
-        Applies the prompt messages and potentially calls the LLM for completion.
+        Provider-specific prompt application.
+        Templates are handled by the agent; messages already include them.
         """
-
         request_params = self.get_request_params(request_params=request_params)
 
         # Determine the last message
         last_message = multipart_messages[-1]
-
-        # Add previous messages (excluding the last user message) to provider-native history
-        # If last is assistant, we add all messages and return it directly (no inference).
-        messages_to_add = (
-            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
-        )
-
-        if messages_to_add:
-            # Convert prior messages to google.genai Content
-            converted_prior = self._converter.convert_to_google_content(messages_to_add)
-            # Only persist prior context when history is enabled; otherwise inline later
-            if request_params.use_history:
-                self.history.extend(converted_prior, is_prompt=is_template)
-            else:
-                # Prepend prior context directly to the turn message list
-                # This keeps the single-turn chain intact without relying on provider memory
-                pass
 
         if last_message.role == "assistant":
             # No generation required; the provided assistant message is the output
@@ -532,7 +502,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             # Map correlation IDs back to tool names using the last assistant tool_calls
             # found in our high-level message history
             id_to_name: Dict[str, str] = {}
-            for prev in reversed(self._message_history):
+            for prev in reversed(multipart_messages):
                 if prev.role == "assistant" and prev.tool_calls:
                     for call_id, call in prev.tool_calls.items():
                         try:
@@ -557,19 +527,33 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             # convert_to_google_content returns a list; preserve order after tool responses
             turn_messages.extend(user_contents)
 
-        # If not using provider history, include prior messages inline for this turn
-        if messages_to_add and not request_params.use_history:
-            prior_contents = self._converter.convert_to_google_content(messages_to_add)
-            turn_messages = prior_contents + turn_messages
-
         # If we somehow have no provider-native parts, ensure we send an empty user content
         if not turn_messages:
             turn_messages.append(types.Content(role="user", parts=[types.Part.from_text("")]))
 
-        # Delegate to the native completion with explicit turn messages
-        return await self._google_completion(
-            turn_messages, request_params=request_params, tools=tools
-        )
+        conversation_history: List[types.Content] = []
+        if request_params.use_history and len(multipart_messages) > 1:
+            conversation_history.extend(
+                self._convert_to_provider_format(multipart_messages[:-1])
+            )
+        conversation_history.extend(turn_messages)
+
+        return await self._google_completion(conversation_history, request_params=request_params, tools=tools)
+
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[types.Content]:
+        """
+        Convert PromptMessageExtended list to Google types.Content format.
+        This is called fresh on every API call from _convert_to_provider_format().
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of Google types.Content objects
+        """
+        return self._converter.convert_to_google_content(messages)
 
     def _map_finish_reason(self, finish_reason: object) -> LlmStopReason:
         """Map Google finish reasons to LlmStopReason robustly."""
@@ -611,21 +595,14 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         request_params=None,
     ):
         """
-        Handles structured output for Gemini models using response_schema and response_mime_type,
-        keeping provider-native (google.genai) history consistent with non-structured calls.
+        Provider-specific structured output implementation.
+        Note: Message history is managed by base class and converted via
+        _convert_to_provider_format() on each call.
         """
         import json
 
-        # Determine the last message and add prior messages to provider-native history
+        # Determine the last message
         last_message = multipart_messages[-1] if multipart_messages else None
-        messages_to_add = (
-            multipart_messages
-            if last_message and last_message.role == "assistant"
-            else multipart_messages[:-1]
-        )
-        if messages_to_add:
-            converted_prior = self._converter.convert_to_google_content(messages_to_add)
-            self.history.extend(converted_prior, is_prompt=False)
 
         # If the last message is an assistant message, attempt to parse its JSON and return
         if last_message and last_message.role == "assistant":

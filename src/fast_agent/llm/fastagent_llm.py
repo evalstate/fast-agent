@@ -26,7 +26,11 @@ from openai import NotGiven
 from openai.lib._parsing import type_to_response_format_param as _type_to_response_format
 from pydantic_core import from_json
 
-from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_TIMING
+from fast_agent.constants import (
+    CONTROL_MESSAGE_SAVE_HISTORY,
+    DEFAULT_MAX_ITERATIONS,
+    FAST_AGENT_TIMING,
+)
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -133,9 +137,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         # memory contains provider specific API types.
         self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
 
-        self._message_history: List[PromptMessageExtended] = []
-        self._template_messages: List[PromptMessageExtended] = []
-
         # Initialize the display component
         from fast_agent.ui.console_display import ConsoleDisplay
 
@@ -203,7 +204,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         # TODO -- create a "fast-agent" control role rather than magic strings
 
-        if messages[-1].first_text().startswith("***SAVE_HISTORY"):
+        if messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):
             parts: list[str] = messages[-1].first_text().split(" ", 1)
             if len(parts) > 1:
                 filename: str = parts[1].strip()
@@ -212,20 +213,21 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
                 timestamp = datetime.now().strftime("%y_%m_%d_%H_%M")
                 filename = f"{timestamp}-conversation.json"
-            await self._save_history(filename)
+            await self._save_history(filename, messages)
             return Prompt.assistant(f"History saved to {filename}")
-
-        self._precall(messages)
 
         # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
+        # The caller supplies the full conversation to send
+        full_history = messages
+
         # Track timing for this generation
         start_time = time.perf_counter()
         assistant_response: PromptMessageExtended = await self._apply_prompt_provider_specific(
-            messages, request_params, tools
+            full_history, request_params, tools
         )
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
@@ -243,12 +245,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             assistant_response.channels = channels
 
         self.usage_accumulator.count_tools(len(assistant_response.tool_calls or {}))
-
-        # add generic error and termination reason handling/rollback
-        # Only append if it's not already the last message in history
-        # (this can happen when loading a saved history that ends with an assistant message)
-        if not self._message_history or self._message_history[-1] is not assistant_response:
-            self._message_history.append(assistant_response)
 
         return assistant_response
 
@@ -295,8 +291,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             Tuple of (parsed model instance or None, assistant response message)
         """
 
-        self._precall(messages)
-
         # Store MCP metadata in context variable
         final_request_params = self.get_request_params(request_params)
 
@@ -304,10 +298,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         if final_request_params.mcp_metadata:
             _mcp_metadata_var.set(final_request_params.mcp_metadata)
 
+        full_history = messages
+
         # Track timing for this structured generation
         start_time = time.perf_counter()
         result, assistant_response = await self._apply_prompt_provider_specific_structured(
-            messages, model, request_params
+            full_history, model, request_params
         )
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
@@ -324,7 +320,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             channels[FAST_AGENT_TIMING] = [TextContent(type="text", text=json.dumps(timing_data))]
             assistant_response.channels = channels
 
-        self._message_history.append(assistant_response)
         return result, assistant_response
 
     @staticmethod
@@ -405,14 +400,17 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """Hook for subclasses to adjust structured output text before parsing."""
         return text
 
+    def record_templates(self, templates: List[PromptMessageExtended]) -> None:
+        """Hook for providers that need template visibility (e.g., caching)."""
+        return
+
     def _precall(self, multipart_messages: List[PromptMessageExtended]) -> None:
         """Pre-call hook to modify the message before sending it to the provider."""
-        # Ensure all messages are PromptMessageExtended before extending history
-        self._message_history.extend(multipart_messages)
+        # No-op placeholder; history is managed by the agent
 
     def chat_turn(self) -> int:
         """Return the current chat turn number"""
-        return 1 + sum(1 for message in self._message_history if message.role == "assistant")
+        return 1 + len(self._usage_accumulator.turns)
 
     def prepare_provider_arguments(
         self,
@@ -630,6 +628,37 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         raise NotImplementedError("Must be implemented by subclass")
 
+    def _convert_to_provider_format(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[MessageParamT]:
+        """
+        Convert provided messages to provider-specific format.
+        Called fresh on EVERY API call - no caching.
+
+        Args:
+            messages: List of PromptMessageExtended
+
+        Returns:
+            List of provider-specific message objects
+        """
+        return self._convert_extended_messages_to_provider(messages)
+
+    @abstractmethod
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[MessageParamT]:
+        """
+        Convert PromptMessageExtended list to provider-specific format.
+        Must be implemented by each provider.
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of provider-specific message parameter objects
+        """
+        raise NotImplementedError("Must be implemented by subclass")
+
     async def show_prompt_loaded(
         self,
         prompt_name: str,
@@ -685,20 +714,14 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             arguments=arguments,
         )
 
-        # Convert to PromptMessageExtended objects
+        # Convert to PromptMessageExtended objects and delegate
         multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
-        # Store a local copy of template messages so we can retain them across clears
-        self._template_messages = [msg.model_copy(deep=True) for msg in multipart_messages]
-
-        # Delegate to the provider-specific implementation
         result = await self._apply_prompt_provider_specific(
             multipart_messages, None, is_template=True
         )
-        # Ensure message history always includes the stored template when applied
-        self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
         return result.first_text()
 
-    async def _save_history(self, filename: str) -> None:
+    async def _save_history(self, filename: str, messages: List[PromptMessageExtended]) -> None:
         """
         Save the Message History to a file in a format determined by the file extension.
 
@@ -707,8 +730,15 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         """
         from fast_agent.mcp.prompt_serialization import save_messages
 
+        # Drop control messages like ***SAVE_HISTORY before persisting
+        filtered = [
+            msg.model_copy(deep=True)
+            for msg in messages
+            if not msg.first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY)
+        ]
+
         # Save messages using the unified save function that auto-detects format
-        save_messages(self._message_history, filename)
+        save_messages(filtered, filename)
 
     @property
     def message_history(self) -> List[PromptMessageExtended]:
@@ -721,32 +751,16 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             List of PromptMessageExtended objects representing the conversation history
         """
-        return self._message_history
+        return []
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
-        if not self._message_history:
-            return None
-
-        removed = self._message_history.pop()
-        try:
-            self.history.pop()
-        except Exception:
-            # If provider-specific memory isn't available, ignore to avoid crashing UX
-            pass
-        return removed
+        return None
 
     def clear(self, *, clear_prompts: bool = False) -> None:
         """Reset stored message history while optionally retaining prompt templates."""
 
         self.history.clear(clear_prompts=clear_prompts)
-        if clear_prompts:
-            self._template_messages = []
-            self._message_history = []
-            return
-
-        # Restore message history to template messages only; new turns will append as normal
-        self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
 
     def _api_key(self):
         if self._init_api_key:

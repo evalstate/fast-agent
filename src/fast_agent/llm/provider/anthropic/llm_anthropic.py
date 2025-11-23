@@ -32,6 +32,7 @@ from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
 )
+from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
@@ -51,6 +52,8 @@ logger = get_logger(__name__)
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
+    CONVERSATION_CACHE_WALK_DISTANCE = 6
+    MAX_CONVERSATION_CACHE_BLOCKS = 2
     # Anthropic-specific parameter exclusions
     ANTHROPIC_EXCLUDE_FIELDS = {
         FastAgentLLM.PARAM_MESSAGES,
@@ -115,7 +118,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 for tool in tools or []
             ]
 
-    def _apply_system_cache(self, base_args: dict, cache_mode: str) -> None:
+    def _apply_system_cache(self, base_args: dict, cache_mode: str) -> int:
         """Apply cache control to system prompt if cache mode allows it."""
         system_content: SystemParam | None = base_args.get("system")
 
@@ -130,41 +133,31 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 logger.debug(
                     "Applied cache_control to system prompt (caches tools+system in one block)"
                 )
+                return 1
             # If it's already a list (shouldn't happen in current flow but type-safe)
             elif isinstance(system_content, list):
                 logger.debug("System prompt already in list format")
             else:
                 logger.debug(f"Unexpected system prompt type: {type(system_content)}")
 
-    async def _apply_conversation_cache(self, messages: List[MessageParam], cache_mode: str) -> int:
-        """Apply conversation caching if in auto mode. Returns number of cache blocks applied."""
-        applied_count = 0
-        if cache_mode == "auto" and self.history.should_apply_conversation_cache():
-            cache_updates = self.history.get_conversation_cache_updates()
+        return 0
 
-            # Remove cache control from old positions
-            if cache_updates["remove"]:
-                self.history.remove_cache_control_from_messages(messages, cache_updates["remove"])
-                logger.debug(
-                    f"Removed conversation cache_control from positions {cache_updates['remove']}"
-                )
+    @staticmethod
+    def _apply_cache_control_to_message(message: MessageParam) -> bool:
+        """Apply cache control to the last content block of a message."""
+        if not isinstance(message, dict) or "content" not in message:
+            return False
 
-            # Add cache control to new positions
-            if cache_updates["add"]:
-                applied_count = self.history.add_cache_control_to_messages(
-                    messages, cache_updates["add"]
-                )
-                if applied_count > 0:
-                    self.history.apply_conversation_cache_updates(cache_updates)
-                    logger.debug(
-                        f"Applied conversation cache_control to positions {cache_updates['add']} ({applied_count} blocks)"
-                    )
-                else:
-                    logger.debug(
-                        f"Failed to apply conversation cache_control to positions {cache_updates['add']}"
-                    )
+        content_list = message["content"]
+        if not isinstance(content_list, list) or not content_list:
+            return False
 
-        return applied_count
+        for content_block in reversed(content_list):
+            if isinstance(content_block, dict):
+                content_block["cache_control"] = {"type": "ephemeral"}
+                return True
+
+        return False
 
     def _is_structured_output_request(self, tool_uses: List[Any]) -> bool:
         """
@@ -454,6 +447,32 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             stop_reason=LlmStopReason.ERROR,
         )
 
+    def _build_request_messages(
+        self,
+        params: RequestParams,
+        message_param: MessageParam,
+        pre_messages: List[MessageParam] | None = None,
+        history: List[PromptMessageExtended] | None = None,
+    ) -> List[MessageParam]:
+        """
+        Build the list of Anthropic message parameters for the next request.
+
+        Ensures that the current user message is only included once when history
+        is enabled, which prevents duplicate tool_result blocks from being sent.
+        """
+        messages: List[MessageParam] = list(pre_messages) if pre_messages else []
+
+        history_messages: List[MessageParam] = []
+        if params.use_history and history:
+            history_messages = self._convert_to_provider_format(history)
+            messages.extend(history_messages)
+
+        include_current = not params.use_history or not history_messages
+        if include_current:
+            messages.append(message_param)
+
+        return messages
+
     async def _anthropic_completion(
         self,
         message_param,
@@ -461,6 +480,8 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         structured_model: Type[ModelT] | None = None,
         tools: List[Tool] | None = None,
         pre_messages: List[MessageParam] | None = None,
+        history: List[PromptMessageExtended] | None = None,
+        current_extended: PromptMessageExtended | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -474,17 +495,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         try:
             anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
-            messages: List[MessageParam] = list(pre_messages) if pre_messages else []
             params = self.get_request_params(request_params)
+            messages = self._build_request_messages(params, message_param, pre_messages, history=history)
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid Anthropic API key",
                 "The configured Anthropic API key was rejected.\nPlease check that your API key is valid and not expired.",
             ) from e
-
-        # Always include prompt messages, but only include conversation history if enabled
-        messages.extend(self.history.get(include_completion_history=params.use_history))
-        messages.append(message_param)  # message_param is the current user turn
 
         # Get cache mode configuration
         cache_mode = self._get_cache_mode()
@@ -521,20 +538,25 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         )
 
         # Apply cache control to system prompt AFTER merging arguments
-        self._apply_system_cache(arguments, cache_mode)
+        system_cache_applied = self._apply_system_cache(arguments, cache_mode)
 
-        # Apply conversation caching
-        applied_count = await self._apply_conversation_cache(messages, cache_mode)
+        # Apply cache_control markers using planner
+        planner = AnthropicCachePlanner(
+            self.CONVERSATION_CACHE_WALK_DISTANCE, self.MAX_CONVERSATION_CACHE_BLOCKS
+        )
+        plan_messages: List[PromptMessageExtended] = []
+        include_current = not params.use_history or not history
+        if params.use_history and history:
+            plan_messages.extend(history)
+        if include_current and current_extended:
+            plan_messages.append(current_extended)
 
-        # Verify we don't exceed Anthropic's 4 cache block limit
-        if applied_count > 0:
-            total_cache_blocks = applied_count
-            if cache_mode != "off" and arguments["system"]:
-                total_cache_blocks += 1  # tools+system cache block
-            if total_cache_blocks > 4:
-                logger.warning(
-                    f"Total cache blocks ({total_cache_blocks}) exceeds Anthropic limit of 4"
-                )
+        cache_indices = planner.plan_indices(
+            plan_messages, cache_mode=cache_mode, system_cache_blocks=system_cache_applied
+        )
+        for idx in cache_indices:
+            if 0 <= idx < len(messages):
+                self._apply_cache_control_to_message(messages[idx])
 
         logger.debug(f"{arguments}")
         # Use streaming API with helper
@@ -607,13 +629,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 else:
                     tool_calls = self._build_tool_calls_dict(tool_uses)
 
-        # Only save the new conversation messages to history if use_history is true
-        # Keep the prompt messages separate
-        if params.use_history:
-            # Get current prompt messages
-            prompt_messages = self.history.get(include_completion_history=False)
-            new_messages = messages[len(prompt_messages) :]
-            self.history.set(new_messages)
+        # Update diagnostic snapshot (never read again)
+        # This provides a snapshot of what was sent to the provider for debugging
+        self.history.set(messages)
 
         self._log_chat_finished(model=model)
 
@@ -628,50 +646,25 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         tools: List[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
-        # Effective params for this turn
-        params = self.get_request_params(request_params)
-
+        """
+        Provider-specific prompt application.
+        Templates are handled by the agent; messages already include them.
+        """
         # Check the last message role
         last_message = multipart_messages[-1]
-
-        # Add all previous messages to history (or all messages if last is from assistant)
-        messages_to_add = (
-            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
-        )
-        converted: List[MessageParam] = []
-
-        # Get cache mode configuration
-        cache_mode = self._get_cache_mode()
-
-        for msg in messages_to_add:
-            anthropic_msg = AnthropicConverter.convert_to_anthropic(msg)
-
-            # Apply caching to template messages if cache_mode is "prompt" or "auto"
-            if is_template and cache_mode in ["prompt", "auto"] and anthropic_msg.get("content"):
-                content_list = anthropic_msg["content"]
-                if isinstance(content_list, list) and content_list:
-                    # Apply cache control to the last content block
-                    last_block = content_list[-1]
-                    if isinstance(last_block, dict):
-                        last_block["cache_control"] = {"type": "ephemeral"}
-                        logger.debug(
-                            f"Applied cache_control to template message with role {anthropic_msg.get('role')}"
-                        )
-
-            converted.append(anthropic_msg)
-
-        # Persist prior only when history is enabled; otherwise inline for this call
-        pre_messages: List[MessageParam] | None = None
-        if params.use_history:
-            self.history.extend(converted, is_prompt=is_template)
-        else:
-            pre_messages = converted
 
         if last_message.role == "user":
             logger.debug("Last message in prompt is from user, generating assistant response")
             message_param = AnthropicConverter.convert_to_anthropic(last_message)
+            # No need to pass pre_messages - conversion happens in _anthropic_completion
+            # via _convert_to_provider_format()
             return await self._anthropic_completion(
-                message_param, request_params, tools=tools, pre_messages=pre_messages
+                message_param,
+                request_params,
+                tools=tools,
+                pre_messages=None,
+                history=multipart_messages,
+                current_extended=last_message,
             )
         else:
             # For assistant messages: Return the last message content as text
@@ -684,22 +677,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageExtended]:  # noqa: F821
+        """
+        Provider-specific structured output implementation.
+        Note: Message history is managed by base class and converted via
+        _convert_to_provider_format() on each call.
+        """
         request_params = self.get_request_params(request_params)
 
         # Check the last message role
         last_message = multipart_messages[-1]
-
-        # Add all previous messages to history (or all messages if last is from assistant)
-        messages_to_add = (
-            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
-        )
-        converted = []
-
-        for msg in messages_to_add:
-            anthropic_msg = AnthropicConverter.convert_to_anthropic(msg)
-            converted.append(anthropic_msg)
-
-        self.history.extend(converted, is_prompt=False)
 
         if last_message.role == "user":
             logger.debug("Last message in prompt is from user, generating structured response")
@@ -707,7 +693,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
             # Call _anthropic_completion with the structured model
             result: PromptMessageExtended = await self._anthropic_completion(
-                message_param, request_params, structured_model=model
+                message_param,
+                request_params,
+                structured_model=model,
+                history=multipart_messages,
+                current_extended=last_message,
             )
 
             for content in result.content:
@@ -726,6 +716,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # For assistant messages: Return the last message content
             logger.debug("Last message in prompt is from assistant, returning it directly")
             return None, last_message
+
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[MessageParam]:
+        """
+        Convert PromptMessageExtended list to Anthropic MessageParam format.
+        This is called fresh on every API call from _convert_to_provider_format().
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of Anthropic MessageParam objects
+        """
+        return [AnthropicConverter.convert_to_anthropic(msg) for msg in messages]
 
     @classmethod
     def convert_message_to_message_param(cls, message: Message, **kwargs) -> MessageParam:

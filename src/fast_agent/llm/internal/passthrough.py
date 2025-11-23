@@ -81,6 +81,10 @@ class PassthroughLLM(FastAgentLLM):
         self.history.extend(multipart_messages, is_prompt=is_template)
 
         last_message = multipart_messages[-1]
+        # If the caller already provided an assistant reply (e.g., history replay), return it as-is.
+        if last_message.role == "assistant":
+            return last_message
+
         tool_calls: Dict[str, CallToolRequest] = {}
         stop_reason: LlmStopReason = LlmStopReason.END_TURN
         if self.is_tool_call(last_message):
@@ -112,9 +116,14 @@ class PassthroughLLM(FastAgentLLM):
                 self._fixed_response, tool_calls=tool_calls, stop_reason=stop_reason
             )
         else:
-            concatenated_content = "\n".join(
-                [message.all_text() for message in multipart_messages if "user" == message.role]
-            )
+            # Walk backwards through messages concatenating while role is "user"
+            user_messages = []
+            for message in reversed(multipart_messages):
+                if message.role != "user":
+                    break
+                user_messages.append(message.all_text())
+            concatenated_content = "\n".join(reversed(user_messages))
+
             result = Prompt.assistant(
                 concatenated_content,
                 tool_calls=tool_calls,
@@ -132,6 +141,21 @@ class PassthroughLLM(FastAgentLLM):
         self.usage_accumulator.add_turn(turn_usage)
 
         return result
+
+    def _convert_extended_messages_to_provider(
+        self, messages: List[PromptMessageExtended]
+    ) -> List[Any]:
+        """
+        Convert PromptMessageExtended list to provider format.
+        For PassthroughLLM, we don't actually make API calls, so this just returns empty list.
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            Empty list (passthrough doesn't use provider-specific messages)
+        """
+        return []
 
     def is_tool_call(self, message: PromptMessageExtended) -> bool:
         return message.first_text().startswith(CALL_TOOL_INDICATOR)
