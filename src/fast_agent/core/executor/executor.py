@@ -54,7 +54,7 @@ class Executor(ABC, ContextDependent):
         self,
         engine: str,
         config: ExecutorConfig | None = None,
-        signal_bus: SignalHandler = None,
+        signal_bus: SignalHandler | None = None,
         context: Optional["Context"] = None,
         **kwargs,
     ) -> None:

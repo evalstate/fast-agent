@@ -182,7 +182,7 @@ class HTTPTransport(FilteredEventTransport):
     def __init__(
         self,
         endpoint: str,
-        headers: Dict[str, str] = None,
+        headers: Dict[str, str] | None = None,
         batch_size: int = 100,
         timeout: float = 5.0,
         event_filter: EventFilter | None = None,

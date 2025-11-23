@@ -143,7 +143,7 @@ def get_dependencies(
     agents: Dict[str, Dict[str, Any]],
     visited: set,
     path: set,
-    agent_type: AgentType = None,
+    agent_type: AgentType | None = None,
 ) -> List[str]:
     """
     Get dependencies for an agent in topological order.
