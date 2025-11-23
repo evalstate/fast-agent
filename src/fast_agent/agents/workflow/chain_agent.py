@@ -72,6 +72,8 @@ class ChainAgent(LlmAgent):
             The response from the final agent in the chain
         """
         tracer = trace.get_tracer(__name__)
+        # Forward request params but strip any system prompt so subagents keep their own instructions.
+
         with tracer.start_as_current_span(f"Chain: '{self._name}' generate"):
             # Get the original user message (last message in the list)
             user_message = messages[-1]
@@ -86,7 +88,9 @@ class ChainAgent(LlmAgent):
                     response: PromptMessageExtended = await self.agents[0].generate(
                         messages, request_params
                     )
-                    await step.finish(True, text=f"{self.agents[0].name} completed step 1/{len(self.agents)}")
+                    await step.finish(
+                        True, text=f"{self.agents[0].name} completed step 1/{len(self.agents)}"
+                    )
 
                 # Process the rest of the agents in the chain
                 for i, agent in enumerate(self.agents[1:], start=2):
@@ -97,7 +101,9 @@ class ChainAgent(LlmAgent):
                     ) as step:
                         next_message = Prompt.user(*response.content)
                         response = await agent.generate([next_message], request_params)
-                        await step.finish(True, text=f"{agent.name} completed step {i}/{len(self.agents)}")
+                        await step.finish(
+                            True, text=f"{agent.name} completed step {i}/{len(self.agents)}"
+                        )
 
                 return response
 
@@ -108,9 +114,7 @@ class ChainAgent(LlmAgent):
             final_results: List[str] = []
 
             # Add the original request with XML tag
-            request_text = (
-                f"<fastagent:request>{user_message.all_text() or '<no response>'}</fastagent:request>"
-            )
+            request_text = f"<fastagent:request>{user_message.all_text() or '<no response>'}</fastagent:request>"
             final_results.append(request_text)
 
             # Process through each agent in sequence
@@ -118,7 +122,12 @@ class ChainAgent(LlmAgent):
                 async with self.workflow_telemetry.start_step(
                     "chain.step",
                     server_name=self.name,
-                    arguments={"agent": agent.name, "step": i + 1, "total": len(self.agents), "cumulative": True},
+                    arguments={
+                        "agent": agent.name,
+                        "step": i + 1,
+                        "total": len(self.agents),
+                        "cumulative": True,
+                    },
                 ) as step:
                     # In cumulative mode, include the original message and all previous responses
                     chain_messages = messages.copy()
@@ -129,18 +138,18 @@ class ChainAgent(LlmAgent):
 
                     current_response = await agent.generate(
                         chain_messages,
-                        request_params,
+                        forward_params,
                     )
 
                     # Store the response
                     all_responses.append(current_response)
 
                     response_text = current_response.all_text()
-                    attributed_response = (
-                        f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
-                    )
+                    attributed_response = f"<fastagent:response agent='{agent.name}'>{response_text}</fastagent:response>"
                     final_results.append(attributed_response)
-                    await step.finish(True, text=f"{agent.name} completed step {i + 1}/{len(self.agents)}")
+                    await step.finish(
+                        True, text=f"{agent.name} completed step {i + 1}/{len(self.agents)}"
+                    )
 
             # For cumulative mode, return the properly formatted output with XML tags
             response_text = "\n\n".join(final_results)
@@ -170,7 +179,11 @@ class ChainAgent(LlmAgent):
         response = await self.generate(messages, request_params)
         last_agent = self.agents[-1]
         try:
-            return await last_agent.structured([response], model, request_params)
+            forward_params = None
+            if request_params:
+                forward_params = request_params.model_copy(deep=True)
+                forward_params.systemPrompt = None
+            return await last_agent.structured([response], model, forward_params)
         except Exception as e:
             logger.warning(f"Failed to parse response from chain: {str(e)}")
             return None, Prompt.assistant("Failed to parse response from chain: {str(e)}")

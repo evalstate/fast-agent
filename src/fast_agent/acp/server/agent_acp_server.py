@@ -239,7 +239,9 @@ class AgentACPServer(ACPAgent):
         Args:
             agent: Agent instance that may expose an llm with model metadata.
         """
-        model_name = getattr(getattr(agent, "llm", None), "model_name", None)
+        # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
+        llm = getattr(agent, "_llm", None)
+        model_name = getattr(llm, "model_name", None)
         if not model_name:
             return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
@@ -431,6 +433,12 @@ class AgentACPServer(ACPAgent):
         """
         Apply late-binding template variables to an agent's instruction for this session.
         """
+        # Only apply per-session system prompts when the target agent actually has an LLM.
+        # Workflow wrappers (chain/parallel) don't attach an LLM and will forward params
+        # to their children, which can override their instructions if we keep the prompt.
+        if not getattr(agent, "_llm", None):
+            return None
+
         # Prefer cached resolved instructions to avoid reprocessing templates
         resolved_cache = self._session_resolved_instructions.get(session_id, {})
         resolved = resolved_cache.get(getattr(agent, "name", ""), None)
@@ -520,9 +528,10 @@ class AgentACPServer(ACPAgent):
                         )
 
                     # Register tool handler as stream listener to get early tool start events
-                    if hasattr(agent, "llm") and hasattr(agent.llm, "add_tool_stream_listener"):
+                    llm = getattr(agent, "_llm", None)
+                    if llm and hasattr(llm, "add_tool_stream_listener"):
                         try:
-                            agent.llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
+                            llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
                             logger.info(
                                 "ACP tool handler registered as stream listener",
                                 name="acp_tool_stream_listener_registered",

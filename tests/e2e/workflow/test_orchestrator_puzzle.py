@@ -78,6 +78,7 @@ async def main():
         "orchestrator",
         agents=["first_two", "last_two", "validator"],
         model="gpt-5-mini.low",
+        default=True,
         # model="sonnet",
     )
     async def agent_function():

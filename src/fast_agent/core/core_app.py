@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
+from os import PathLike
 from typing import TYPE_CHECKING, TypeVar
 
 from fast_agent.core.logging.logger import get_logger
@@ -24,7 +25,7 @@ class Core:
     def __init__(
         self,
         name: str = "fast-agent",
-        settings: Settings | None | str = None,
+        settings: Settings | None | str | PathLike[str] = None,
         signal_notification: SignalWaitCallback | None = None,
     ) -> None:
         """
@@ -32,7 +33,7 @@ class Core:
         Args:
             name:
             settings: If unspecified, the settings are loaded from fastagent.config.yaml.
-                If this is a string, it is treated as the path to the config file to load.
+                If this is a string or path-like object, it is treated as the path to the config file to load.
             signal_notification: Callback for getting notified on workflow signals/events.
         """
         self.name = name

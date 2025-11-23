@@ -510,9 +510,8 @@ def router(
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
-    elicitation_handler: 
-        ElicitationFnT
-     | None = None,  ## exclude from docs, decide whether allowable
+    elicitation_handler: ElicitationFnT
+    | None = None,  ## exclude from docs, decide whether allowable
     api_key: str | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -582,10 +581,7 @@ def chain(
 
         raise AgentConfigError(f"Chain '{name}' requires at least one agent in the sequence")
 
-    default_instruction = """
-    You are a chain that processes requests through a series of specialized agents in sequence.
-    Pass the output of each agent to the next agent in the chain.
-    """
+    default_instruction = """Chain processes requests through a series of agents in sequence, the output of each agent is passed to the next."""
     resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
     return _decorator_impl(
