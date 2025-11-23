@@ -15,7 +15,9 @@ Usage:
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
+
+from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -44,7 +46,7 @@ from fast_agent.ui.usage_display import collect_agents_from_provider, display_us
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
 
 # Type alias for the agent getter function
-AgentGetter = Callable[[str], Optional[object]]
+AgentGetter = Callable[[str], object | None]
 
 
 class InteractivePrompt:
@@ -53,20 +55,20 @@ class InteractivePrompt:
     This is extracted from the original AgentApp implementation to support DirectAgentApp.
     """
 
-    def __init__(self, agent_types: Optional[Dict[str, AgentType]] = None) -> None:
+    def __init__(self, agent_types: dict[str, AgentType] | None = None) -> None:
         """
         Initialize the interactive prompt.
 
         Args:
             agent_types: Dictionary mapping agent names to their types for display
         """
-        self.agent_types: Dict[str, AgentType] = agent_types or {}
+        self.agent_types: dict[str, AgentType] = agent_types or {}
 
     async def prompt_loop(
         self,
         send_func: SendFunc,
         default_agent: str,
-        available_agents: List[str],
+        available_agents: list[str],
         prompt_provider: "AgentApp",
         default: str = "",
     ) -> str:
@@ -116,7 +118,7 @@ class InteractivePrompt:
 
                 # Check if we should switch agents
                 if isinstance(command_result, dict):
-                    command_dict: Dict[str, Any] = command_result
+                    command_dict: dict[str, Any] = command_result
                     if "switch_agent" in command_dict:
                         new_agent = command_dict["switch_agent"]
                         if new_agent in available_agents_set:
@@ -278,7 +280,9 @@ class InteractivePrompt:
                             rich_print(f"[green]History saved to {saved_path}[/green]")
                         except Exception:
                             # Fallback to magic string path for maximum compatibility
-                            control = "***SAVE_HISTORY" + (f" {filename}" if filename else "")
+                            control = CONTROL_MESSAGE_SAVE_HISTORY + (
+                                f" {filename}" if filename else ""
+                            )
                             result = await send_func(control, agent)
                             if result:
                                 rich_print(f"[green]{result}[/green]")
@@ -291,22 +295,18 @@ class InteractivePrompt:
 
                         filename = command_dict.get("filename")
                         try:
-                            from fast_agent.mcp.prompts.prompt_load import load_prompt
+                            from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 
-                            # Load the messages from the file
-                            messages = load_prompt(Path(filename))
-
-                            # Get the agent object
+                            # Get the agent object and its underlying LLM
                             agent_obj = prompt_provider._agent(agent)
 
-                            # Clear the agent's history first
-                            agent_obj.clear()
+                            # Load history directly without triggering LLM call
+                            load_history_into_agent(agent_obj, Path(filename))
 
-                            # Load the messages into the agent's history
-                            # We use generate() to properly process the loaded history
-                            await agent_obj.generate(messages)
-
-                            rich_print(f"[green]History loaded from {filename}[/green]")
+                            msg_count = len(agent_obj.message_history)
+                            rich_print(
+                                f"[green]Loaded {msg_count} messages from {filename}[/green]"
+                            )
                         except FileNotFoundError:
                             rich_print(f"[red]File not found: {filename}[/red]")
                         except Exception as e:
@@ -380,7 +380,7 @@ class InteractivePrompt:
         console.print(combined)
         rich_print()
 
-    async def _get_all_prompts(self, prompt_provider: "AgentApp", agent_name: Optional[str] = None):
+    async def _get_all_prompts(self, prompt_provider: "AgentApp", agent_name: str | None = None):
         """
         Get a list of all available prompts.
 
@@ -566,8 +566,8 @@ class InteractivePrompt:
         self,
         prompt_provider: "AgentApp",
         agent_name: str,
-        requested_name: Optional[str] = None,
-        send_func: Optional[SendFunc] = None,
+        requested_name: str | None = None,
+        send_func: SendFunc | None = None,
     ) -> None:
         """
         Select and apply a prompt.
@@ -597,7 +597,7 @@ class InteractivePrompt:
                     continue
 
                 # Extract prompts
-                prompts: List[Prompt] = []
+                prompts: list[Prompt] = []
                 if hasattr(prompts_info, "prompts"):
                     prompts = prompts_info.prompts
                 elif isinstance(prompts_info, list):
@@ -777,7 +777,7 @@ class InteractivePrompt:
 
                     rich_print()  # Space between prompts
 
-                prompt_names = [str(i + 1) for i in range(len(all_prompts))]
+                prompt_names = [str(i) for i, _ in enumerate(all_prompts, 1)]
 
                 # Get user selection
                 selection = await get_selection_input(

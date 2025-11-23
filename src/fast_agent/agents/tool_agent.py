@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
@@ -76,13 +76,13 @@ class ToolAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a response using the LLM, and handle tool calls if necessary.
-        Messages are already normalized to List[PromptMessageExtended].
+        Messages are already normalized to list[PromptMessageExtended].
         """
         if tools is None:
             tools = (await self.list_tools()).tools
@@ -241,7 +241,7 @@ class ToolAgent(LlmAgent):
         """Return available tools for this agent. Overridable by subclasses."""
         return ListToolsResult(tools=list(self._tool_schemas))
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
         """Execute a tool by name using local FastMCP tools. Overridable by subclasses."""
         fast_tool = self._execution_tools.get(name)
         if not fast_tool:

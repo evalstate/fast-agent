@@ -1,5 +1,5 @@
 import sys
-from typing import Annotated, List
+from typing import Annotated
 
 import pytest
 from pydantic import BaseModel, Field
@@ -19,7 +19,7 @@ def debug_cache_at_end():
     BedrockLLM.debug_cache()
 
 
-def _bedrock_models_for_smoke() -> List[str]:
+def _bedrock_models_for_smoke() -> list[str]:
     """Return Bedrock models if AWS is configured, otherwise return empty list."""
     try:
         return all_bedrock_models(prefix="")
@@ -204,7 +204,7 @@ async def test_bedrock_basic_tool_calling(fast_agent, model_name):
     await weather_forecast()
 
 
-def _bedrock_models_for_structured() -> List[str]:
+def _bedrock_models_for_structured() -> list[str]:
     """Return Bedrock models suitable for structured-output tests.
 
     Prefer Nova and Claude 3.x families.

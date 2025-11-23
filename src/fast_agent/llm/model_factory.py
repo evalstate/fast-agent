@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Optional, Type, Union
+from typing import Type, Union
 
 from pydantic import BaseModel
 
@@ -136,7 +136,7 @@ class ModelFactory:
         "gpt-oss": "hf.openai/gpt-oss-120b",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm": "hf.zai-org/GLM-4.6",
-        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
     }
@@ -155,11 +155,11 @@ class ModelFactory:
             return False
 
     # Mapping of providers to their LLM classes
-    PROVIDER_CLASSES: Dict[Provider, LLMClass] = {}
+    PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
     # Mapping of special model names to their specific LLM classes
     # This overrides the provider-based class selection
-    MODEL_SPECIFIC_CLASSES: Dict[str, LLMClass] = {
+    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {
         "playback": PlaybackLLM,
         "silent": SilentLLM,
         "slow": SlowLLM,
@@ -264,7 +264,7 @@ class ModelFactory:
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
-            agent: AgentProtocol, request_params: Optional[RequestParams] = None, **kwargs
+            agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs
         ) -> FastAgentLLMProtocol:
             base_params = RequestParams()
             base_params.model = config.model_name

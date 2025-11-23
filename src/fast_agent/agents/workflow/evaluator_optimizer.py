@@ -8,7 +8,7 @@ or a maximum number of refinements is attempted.
 """
 
 from enum import Enum
-from typing import Any, List, Optional, Tuple, Type
+from typing import Any, Type
 
 from mcp import Tool
 from pydantic import BaseModel, Field
@@ -48,7 +48,7 @@ class EvaluationResult(BaseModel):
     rating: QualityRating = Field(description="Quality rating of the response")
     feedback: str = Field(description="Specific feedback and suggestions for improvement")
     needs_improvement: bool = Field(description="Whether the output needs further improvement")
-    focus_areas: List[str] = Field(
+    focus_areas: list[str] = Field(
         default_factory=list, description="Specific areas to focus on in next iteration"
     )
 
@@ -74,7 +74,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
         evaluator_agent: AgentProtocol,
         min_rating: QualityRating = QualityRating.GOOD,
         max_refinements: int = 3,
-        context: Optional[Any] = None,
+        context: Any | None = None,
         **kwargs,
     ) -> None:
         """
@@ -105,9 +105,9 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a response through evaluation-guided refinement.
@@ -204,10 +204,10 @@ class EvaluatorOptimizerAgent(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Generate an optimized response and parse it into a structured format.
 

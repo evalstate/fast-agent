@@ -1,4 +1,4 @@
-from typing import Any, Dict, Optional
+from typing import Any
 
 from fast_agent.human_input.elicitation_state import elicitation_state
 from fast_agent.human_input.types import (
@@ -47,7 +47,7 @@ async def elicitation_input_callback(
             )
 
         # Get the elicitation schema from metadata
-        schema: Optional[Dict[str, Any]] = None
+        schema: dict[str, Any] | None = None
         if request.metadata and "requested_schema" in request.metadata:
             schema = request.metadata["requested_schema"]
 

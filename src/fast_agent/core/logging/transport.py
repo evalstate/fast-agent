@@ -9,7 +9,7 @@ import json
 import traceback
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Dict, List, Protocol
+from typing import Protocol
 
 import aiohttp
 from opentelemetry import trace
@@ -71,7 +71,7 @@ class ConsoleTransport(FilteredEventTransport):
         super().__init__(event_filter=event_filter)
         # Use shared console instances
         self._serializer = JSONSerializer()
-        self.log_level_styles: Dict[str, str] = {
+        self.log_level_styles: dict[str, str] = {
             "info": "bold green",
             "debug": "dim white",
             "warning": "bold yellow",
@@ -182,7 +182,7 @@ class HTTPTransport(FilteredEventTransport):
     def __init__(
         self,
         endpoint: str,
-        headers: Dict[str, str] = None,
+        headers: dict[str, str] = None,
         batch_size: int = 100,
         timeout: float = 5.0,
         event_filter: EventFilter | None = None,
@@ -193,7 +193,7 @@ class HTTPTransport(FilteredEventTransport):
         self.batch_size = batch_size
         self.timeout = timeout
 
-        self.batch: List[Event] = []
+        self.batch: list[Event] = []
         self.lock = asyncio.Lock()
         self._session: aiohttp.ClientSession | None = None
         self._serializer = JSONSerializer()
@@ -268,7 +268,7 @@ class AsyncEventBus:
 
     def __init__(self, transport: EventTransport | None = None) -> None:
         self.transport: EventTransport = transport or NoOpTransport()
-        self.listeners: Dict[str, EventListener] = {}
+        self.listeners: dict[str, EventListener] = {}
         self._queue: asyncio.Queue | None = None
         self._task: asyncio.Task | None = None
         self._running = False

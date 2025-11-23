@@ -1,4 +1,4 @@
-from typing import Any, List, Type, Union
+from typing import Any, Type, Union
 
 from mcp import Tool
 from mcp.types import PromptMessage
@@ -31,7 +31,7 @@ class PlaybackLLM(PassthroughLLM):
 
     def __init__(self, name: str = "Playback", **kwargs: dict[str, Any]) -> None:
         super().__init__(name=name, provider=Provider.FAST_AGENT, **kwargs)
-        self._messages: List[PromptMessageExtended] = []
+        self._messages: list[PromptMessageExtended] = []
         self._current_index = -1
         self._overage = -1
 
@@ -60,10 +60,10 @@ class PlaybackLLM(PassthroughLLM):
             str,
             PromptMessage,
             PromptMessageExtended,
-            List[Union[str, PromptMessage, PromptMessageExtended]],
+            list[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Handle playback of messages in two modes:
@@ -112,7 +112,7 @@ class PlaybackLLM(PassthroughLLM):
 
     async def structured(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
     ) -> tuple[ModelT | None, PromptMessageExtended]:

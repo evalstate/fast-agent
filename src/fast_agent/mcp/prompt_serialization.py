@@ -17,7 +17,6 @@ and PromptMessageExtended objects. It includes functionality for:
 """
 
 import json
-from typing import List
 
 from mcp.types import (
     EmbeddedResource,
@@ -59,7 +58,7 @@ def serialize_to_dict(obj, exclude_none: bool = True):
 
 
 def to_get_prompt_result(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
 ) -> GetPromptResult:
     """
     Convert PromptMessageExtended objects to a GetPromptResult container.
@@ -80,7 +79,7 @@ def to_get_prompt_result(
 
 
 
-def to_get_prompt_result_json(messages: List[PromptMessageExtended]) -> str:
+def to_get_prompt_result_json(messages: list[PromptMessageExtended]) -> str:
     """
     Convert PromptMessageExtended objects to MCP-compatible GetPromptResult JSON.
 
@@ -98,7 +97,7 @@ def to_get_prompt_result_json(messages: List[PromptMessageExtended]) -> str:
     return json.dumps(result_dict, indent=2)
 
 
-def to_json(messages: List[PromptMessageExtended]) -> str:
+def to_json(messages: list[PromptMessageExtended]) -> str:
     """
     Convert PromptMessageExtended objects directly to JSON, preserving all extended fields.
 
@@ -121,7 +120,7 @@ def to_json(messages: List[PromptMessageExtended]) -> str:
     return json.dumps(result_dict, indent=2)
 
 
-def from_json(json_str: str) -> List[PromptMessageExtended]:
+def from_json(json_str: str) -> list[PromptMessageExtended]:
     """
     Parse a JSON string into PromptMessageExtended objects.
 
@@ -141,8 +140,8 @@ def from_json(json_str: str) -> List[PromptMessageExtended]:
     # Extract messages array
     messages_data = result_dict.get("messages", [])
 
-    extended_messages: List[PromptMessageExtended] = []
-    basic_buffer: List[PromptMessage] = []
+    extended_messages: list[PromptMessageExtended] = []
+    basic_buffer: list[PromptMessage] = []
 
     def flush_basic_buffer() -> None:
         nonlocal basic_buffer
@@ -175,7 +174,7 @@ def from_json(json_str: str) -> List[PromptMessageExtended]:
     return extended_messages
 
 
-def save_json(messages: List[PromptMessageExtended], file_path: str) -> None:
+def save_json(messages: list[PromptMessageExtended], file_path: str) -> None:
     """
     Save PromptMessageExtended objects to a JSON file using enhanced format.
 
@@ -192,7 +191,7 @@ def save_json(messages: List[PromptMessageExtended], file_path: str) -> None:
         f.write(json_str)
 
 
-def load_json(file_path: str) -> List[PromptMessageExtended]:
+def load_json(file_path: str) -> list[PromptMessageExtended]:
     """
     Load PromptMessageExtended objects from a JSON file.
 
@@ -210,7 +209,7 @@ def load_json(file_path: str) -> List[PromptMessageExtended]:
     return from_json(json_str)
 
 
-def save_messages(messages: List[PromptMessageExtended], file_path: str) -> None:
+def save_messages(messages: list[PromptMessageExtended], file_path: str) -> None:
     """
     Save PromptMessageExtended objects to a file, with format determined by file extension.
 
@@ -229,7 +228,7 @@ def save_messages(messages: List[PromptMessageExtended], file_path: str) -> None
         save_delimited(messages, file_path)
 
 
-def load_messages(file_path: str) -> List[PromptMessageExtended]:
+def load_messages(file_path: str) -> list[PromptMessageExtended]:
     """
     Load PromptMessageExtended objects from a file, with format determined by file extension.
 
@@ -255,12 +254,12 @@ def load_messages(file_path: str) -> List[PromptMessageExtended]:
 
 
 def multipart_messages_to_delimited_format(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
     resource_delimiter: str = RESOURCE_DELIMITER,
     combine_text: bool = True,  # Set to False to maintain backward compatibility
-) -> List[str]:
+) -> list[str]:
     """
     Convert PromptMessageExtended objects to a hybrid delimited format:
     - Plain text for user/assistant text content with delimiters
@@ -338,7 +337,7 @@ def delimited_format_to_extended_messages(
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
     resource_delimiter: str = RESOURCE_DELIMITER,
-) -> List[PromptMessageExtended]:
+) -> list[PromptMessageExtended]:
     """
     Parse hybrid delimited format into PromptMessageExtended objects:
     - Plain text for user/assistant text content with delimiters
@@ -522,7 +521,7 @@ def delimited_format_to_extended_messages(
 
 
 def save_delimited(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
     file_path: str,
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
@@ -557,7 +556,7 @@ def load_delimited(
     user_delimiter: str = USER_DELIMITER,
     assistant_delimiter: str = ASSISTANT_DELIMITER,
     resource_delimiter: str = RESOURCE_DELIMITER,
-) -> List[PromptMessageExtended]:
+) -> list[PromptMessageExtended]:
     """
     Load PromptMessageExtended objects from a file in hybrid delimited format.
 

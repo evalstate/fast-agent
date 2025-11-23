@@ -5,7 +5,7 @@ This file provides backward compatibility with the existing API while
 delegating to the proper implementations in the providers/ directory.
 """
 
-from typing import Any, Dict, Union
+from typing import Any, Union
 
 from openai.types.chat import (
     ChatCompletionMessage,
@@ -20,7 +20,7 @@ from fast_agent.types import PromptMessageExtended
 
 
 def openai_message_to_prompt_message_multipart(
-    message: Union[ChatCompletionMessage, Dict[str, Any]],
+    message: Union[ChatCompletionMessage, dict[str, Any]],
 ) -> PromptMessageExtended:
     """
     Convert an OpenAI ChatCompletionMessage to a PromptMessageExtended.

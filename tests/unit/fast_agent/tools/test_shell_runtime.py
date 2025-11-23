@@ -5,7 +5,7 @@ import signal
 import subprocess
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import pytest
 
@@ -57,15 +57,15 @@ def _no_progress():
 
 
 def _setup_runtime(
-    monkeypatch: pytest.MonkeyPatch, runtime_info: Dict[str, str]
-) -> Tuple[ShellRuntime, DummyProcess, Dict[str, Any]]:
+    monkeypatch: pytest.MonkeyPatch, runtime_info: dict[str, str]
+) -> tuple[ShellRuntime, DummyProcess, dict[str, Any]]:
     logger = logging.getLogger("shell-runtime-test")
     runtime = ShellRuntime(activation_reason="test", logger=logger)
     runtime.runtime_info = lambda: runtime_info  # type: ignore[assignment]
     runtime.working_directory = lambda: Path(".")  # type: ignore[assignment]
 
     dummy_process = DummyProcess()
-    captured: Dict[str, Any] = {}
+    captured: dict[str, Any] = {}
 
     async def fake_exec(*args, **kwargs):
         captured["exec_args"] = args

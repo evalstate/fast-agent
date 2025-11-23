@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Dict, List
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from fast_agent.event_progress import ProgressEvent
@@ -164,7 +164,7 @@ class LoggingListener(FilteredListener):
         self.logger = logger or logging.getLogger("fast_agent")
 
     async def handle_matched_event(self, event) -> None:
-        level_map: Dict[EventType, int] = {
+        level_map: dict[EventType, int] = {
             "debug": logging.DEBUG,
             "info": logging.INFO,
             "warning": logging.WARNING,
@@ -246,7 +246,7 @@ class BatchingListener(FilteredListener):
         super().__init__(event_filter=event_filter)
         self.batch_size = batch_size
         self.flush_interval = flush_interval
-        self.batch: List[Event] = []
+        self.batch: list[Event] = []
         self.last_flush: float = time.time()  # Time of last flush
         self._flush_task: asyncio.Task | None = None  # Task for periodic flush loop
         self._stop_event = None  # Event to signal flush task to stop
@@ -293,5 +293,5 @@ class BatchingListener(FilteredListener):
         self.last_flush = time.time()
         await self._process_batch(to_process)
 
-    async def _process_batch(self, events: List[Event]) -> None:
+    async def _process_batch(self, events: list[Event]) -> None:
         pass

@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Optional, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from mcp.types import ContentBlock, TextContent
 
@@ -117,7 +117,7 @@ class _ToolHandlerWorkflowStep(WorkflowTelemetry):
     server_name: str
     arguments: dict[str, Any] | None
 
-    _tool_call_id: Optional[str] = None
+    _tool_call_id: str | None = None
     _finished: bool = False
     _lock: asyncio.Lock = asyncio.Lock()
 

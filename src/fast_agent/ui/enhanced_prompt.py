@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -213,7 +213,7 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
 
 
 async def _display_all_agents_with_hierarchy(
-    available_agents: List[str], agent_provider: "AgentApp | None"
+    available_agents: list[str], agent_provider: "AgentApp | None"
 ) -> None:
     """Display all agents with tree structure for workflow agents."""
     # Track which agents are children to avoid displaying them twice
@@ -352,8 +352,8 @@ class AgentCompleter(Completer):
 
     def __init__(
         self,
-        agents: List[str],
-        commands: List[str] = None,
+        agents: list[str],
+        commands: list[str] = None,
         agent_types: dict = None,
         is_human_input: bool = False,
     ) -> None:
@@ -681,7 +681,7 @@ async def get_enhanced_input(
     show_default: bool = False,
     show_stop_hint: bool = False,
     multiline: bool = False,
-    available_agent_names: List[str] = None,
+    available_agent_names: list[str] = None,
     agent_types: dict[str, AgentType] = None,
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
@@ -1169,11 +1169,11 @@ async def get_enhanced_input(
 
 async def get_selection_input(
     prompt_text: str,
-    options: List[str] = None,
+    options: list[str] = None,
     default: str = None,
     allow_cancel: bool = True,
     complete_options: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """
     Display a selection prompt and return the user's selection.
 
@@ -1218,7 +1218,7 @@ async def get_argument_input(
     arg_name: str,
     description: str = None,
     required: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """
     Prompt for an argument value with formatting and help text.
 
@@ -1266,7 +1266,7 @@ async def get_argument_input(
 
 async def handle_special_commands(
     command: Any, agent_app: "AgentApp | None" = None
-) -> bool | Dict[str, Any]:
+) -> bool | dict[str, Any]:
     """
     Handle special input commands.
 
