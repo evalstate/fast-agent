@@ -140,9 +140,12 @@ class MCPAggregator(ContextDependent):
                 manager = MCPConnectionManager(server_registry, context=context)
                 await manager.__aenter__()
                 context._connection_manager = manager
+                self._owns_connection_manager = True
             self._persistent_connection_manager = cast(
                 "MCPConnectionManager", context._connection_manager
             )
+        else:
+            self._persistent_connection_manager = None
 
         # Import the display component here to avoid circular imports
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -181,6 +184,8 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Store the config for access in session factory
+        self._persistent_connection_manager: MCPConnectionManager | None = None
+        self._owns_connection_manager = False
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -236,7 +241,7 @@ class MCPAggregator(ContextDependent):
         if self.connection_persistence and self._persistent_connection_manager:
             try:
                 # Only attempt cleanup if we own the connection manager
-                if (
+                if self._owns_connection_manager and (
                     hasattr(self.context, "_connection_manager")
                     and self.context._connection_manager == self._persistent_connection_manager
                 ):
@@ -1525,17 +1530,41 @@ class MCPAggregator(ContextDependent):
                 operation_type="prompts/list",
                 operation_name="",
                 method_name="list_prompts",
-                error_factory=lambda _: None,
+                method_args={},
             )
+            new_tools = result.tools or []
 
-            # Get prompts from result
-            prompts = getattr(result, "prompts", [])
+            # Update tool maps
+            async with self._tool_map_lock:
+                # Remove old tools for this server
+                old_tools = self._server_to_tool_map.get(server_name, [])
+                for old_tool in old_tools:
+                    if old_tool.namespaced_tool_name in self._namespaced_tool_map:
+                        del self._namespaced_tool_map[old_tool.namespaced_tool_name]
 
-            # Update cache
-            async with self._prompt_cache_lock:
-                self._prompt_cache[server_name] = prompts
+                # Add new tools
+                self._server_to_tool_map[server_name] = []
+                for tool in new_tools:
+                    namespaced_tool_name = create_namespaced_name(server_name, tool.name)
+                    namespaced_tool = NamespacedTool(
+                        tool=tool,
+                        server_name=server_name,
+                        namespaced_tool_name=namespaced_tool_name,
+                    )
 
-            results[server_name] = prompts
+                    self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
+                    self._server_to_tool_map[server_name].append(namespaced_tool)
+
+            logger.info(
+                f"Successfully refreshed tools for server '{server_name}'",
+                data={
+                    "progress_action": ProgressAction.UPDATED,
+                    "server_name": server_name,
+                    "agent_name": self.agent_name,
+                    "tool_count": len(new_tools),
+                },
+            )
+            results[server_name] = new_tools
             return results
 
         # No specific server - check if we can use the cache for all servers
@@ -1564,7 +1593,7 @@ class MCPAggregator(ContextDependent):
                     operation_type="prompts/list",
                     operation_name="",
                     method_name="list_prompts",
-                    error_factory=lambda _: None,
+                    method_args={},
                 )
 
                 prompts = getattr(result, "prompts", [])

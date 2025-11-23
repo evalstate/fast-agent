@@ -4,9 +4,11 @@ Decorator for LlmAgent, normalizes PromptMessageExtended, allows easy extension 
 
 import json
 from collections import Counter, defaultdict
+from copy import deepcopy
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
+    Any,
     Dict,
     List,
     Mapping,
@@ -111,6 +113,8 @@ class LlmDecorator(AgentProtocol):
         # Initialize the LLM to None (will be set by attach_llm)
         self._llm: Optional[FastAgentLLMProtocol] = None
         self._initialized = False
+        self._llm_factory_ref: LLMFactoryProtocol | None = None
+        self._llm_attach_kwargs: dict[str, Any] | None = None
 
     @property
     def context(self) -> Context | None:
@@ -181,7 +185,70 @@ class LlmDecorator(AgentProtocol):
             agent=self, request_params=effective_params, context=self._context, **additional_kwargs
         )
 
+        # Store attachment details for future cloning
+        self._llm_factory_ref = llm_factory
+        attach_kwargs: dict[str, Any] = dict(additional_kwargs)
+        attach_kwargs["request_params"] = deepcopy(effective_params)
+        self._llm_attach_kwargs = attach_kwargs
+
         return self._llm
+
+    def _clone_constructor_kwargs(self) -> dict[str, Any]:
+        """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
+        return {}
+
+    async def spawn_detached_instance(self, *, name: str | None = None) -> "LlmAgent":
+        """Create a fresh agent instance with its own MCP/LLM stack."""
+
+        new_config = deepcopy(self.config)
+        if name:
+            new_config.name = name
+
+        constructor_kwargs = self._clone_constructor_kwargs()
+        clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
+        await clone.initialize()
+
+        if self._llm_factory_ref is not None:
+            if self._llm_attach_kwargs is None:
+                raise RuntimeError(
+                    "LLM attachment parameters missing despite factory being available"
+                )
+
+            attach_kwargs = dict(self._llm_attach_kwargs)
+            request_params = attach_kwargs.pop("request_params", None)
+            if request_params is not None:
+                request_params = deepcopy(request_params)
+
+            await clone.attach_llm(
+                self._llm_factory_ref,
+                request_params=request_params,
+                **attach_kwargs,
+            )
+
+        return clone
+
+    def merge_usage_from(self, other: "LlmAgent") -> None:
+        """Merge LLM usage metrics from another agent instance into this one."""
+
+        if not hasattr(self, "_llm") or not hasattr(other, "_llm"):
+            return
+
+        source_llm = getattr(other, "_llm", None)
+        target_llm = getattr(self, "_llm", None)
+        if not source_llm or not target_llm:
+            return
+
+        source_usage = getattr(source_llm, "usage_accumulator", None)
+        target_usage = getattr(target_llm, "usage_accumulator", None)
+        if not source_usage or not target_usage:
+            return
+
+        for turn in source_usage.turns:
+            try:
+                target_usage.add_turn(turn.model_copy(deep=True))
+            except AttributeError:
+                # Fallback if turn doesn't provide model_copy
+                target_usage.add_turn(turn)
 
     async def __call__(
         self,

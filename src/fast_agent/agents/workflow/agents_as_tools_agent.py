@@ -7,7 +7,10 @@ Overview
 This module implements the "Agents as Tools" pattern, inspired by OpenAI's Agents SDK
 (https://openai.github.io/openai-agents-python/tools). It allows child agents to be
 exposed as callable tools to a parent agent, enabling hierarchical agent composition
-without the complexity of traditional orchestrator patterns.
+without the complexity of traditional orchestrator patterns. The current implementation
+goes a step further by spawning **detached per-call clones** of every child so that each
+parallel execution has its own LLM + MCP stack, eliminating name overrides and shared
+state hacks.
 
 Rationale
 ---------
@@ -45,23 +48,18 @@ Algorithm
    - LLM decides which tools (child agents) to call based on user request
 
 3. **Tool Execution (call_tool)**
-   - Route tool name to corresponding child agent
-   - Convert tool arguments (text or JSON) to child agent input
-   - Suppress child agent's chat messages (show_chat=False) using reference counting
-   - Keep child agent's tool calls visible (show_tools=True)
-   - Track active instances per child agent to prevent race conditions
-   - Only modify display config on first instance, restore on last instance
-   - Execute child agent and return response as CallToolResult
+   - Route tool name to corresponding child template
+   - Convert tool arguments (text or JSON) to child input
+   - Execution itself is performed by detached clones created inside `run_tools`
+   - Responses are converted to `CallToolResult` objects (errors propagate as `isError=True`)
 
 4. **Parallel Execution (run_tools)**
    - Collect all tool calls from parent LLM response
-   - Create asyncio tasks for each child agent call
-   - Modify child agent names with instance numbers: `AgentName[1]`, `AgentName[2]`
-   - Update both child._name and child._aggregator.agent_name for progress routing
-   - Set parent agent to "Ready" status while instances run
-   - Execute all tasks concurrently via asyncio.gather
-   - Hide instance lines immediately as each task completes (via finally block)
-   - Aggregate results and return to parent LLM
+   - For each call, spawn a detached clone with its own LLM + MCP aggregator and suffixed name
+   - Emit `ProgressAction.CHATTING` for each instance and keep parent status untouched
+   - Execute tasks concurrently via `asyncio.gather`
+   - On completion, mark instance lines `FINISHED` (no hiding) and merge usage back into the template
+   - Aggregate results and return them to the parent LLM
 
 Progress Panel Behavior
 -----------------------
@@ -74,29 +72,40 @@ table) undergoes dynamic updates:
 ```
 
 **During parallel execution (2+ instances):**
-- Parent line switches to "Ready" status to indicate waiting for children
-- New lines appear for each instance:
+- Parent line stays in whatever lifecycle state it already had; no forced "Ready" flips.
+- New lines appear for each detached instance with suffixed names:
 ```
-▎ Ready          ▎ PM-1-DayStatusSummarizer      ← parent waiting
-▎▶ Calling tool  ▎ PM-1-DayStatusSummarizer[1]   tg-ro (list_messages)
-▎▶ Chatting      ▎ PM-1-DayStatusSummarizer[2]   gpt-5 turn 2
+▎▶ Chatting      ▎ PM-1-DayStatusSummarizer[1]   gpt-5 turn 2
+▎▶ Calling tool  ▎ PM-1-DayStatusSummarizer[2]   tg-ro (list_messages)
 ```
 
 **Key implementation details:**
-- Each instance gets unique agent_name: `OriginalName[instance_number]`
-- Both child._name and child._aggregator.agent_name are updated for correct progress routing
-- Tool progress events (CALLING_TOOL) use instance name, not parent name
-- Each instance shows independent status: Chatting, Calling tool, turn count
+- Each clone advertises its own `agent_name` (e.g., `OriginalName[instance_number]`).
+- MCP progress events originate from the clone's aggregator, so tool activity always shows under the suffixed name.
+- Parent status lines remain visible for context while children run.
 
 **As each instance completes:**
-- Instance line disappears immediately (task.visible = False in finally block)
-- Other instances continue showing their independent progress
-- No "stuck" status lines after completion
+- We emit `ProgressAction.FINISHED` with elapsed time, keeping the line in the panel for auditability.
+- Other instances continue showing their independent progress until they also finish.
 
 **After all parallel executions complete:**
-- All instance lines hidden
-- Parent line returns to normal agent lifecycle  
-- Original agent names and display configs restored
+- Finished instance lines remain until the parent agent moves on, giving a full record of what ran.
+- Parent and child template names stay untouched because clones carry the suffixed identity.
+
+- **Instance line visibility**: We now leave finished instance lines visible (marked `FINISHED`)
+  instead of hiding them immediately, preserving a full audit trail of parallel runs.
+- **Chat log separation**: Each parallel instance gets its own tool request/result headers
+  with instance numbers [1], [2], etc. for traceability.
+
+Stats and Usage Semantics
+-------------------------
+- Each detached clone accrues usage on its own `UsageAccumulator`; after shutdown we
+  call `child.merge_usage_from(clone)` so template agents retain consolidated totals.
+- Runtime events (logs, MCP progress, chat headers) use the suffixed clone names,
+  ensuring per-instance traceability even though usage rolls up to the template.
+- The CLI *Usage Summary* table still reports one row per template agent
+  (for example, `PM-1-DayStatusSummarizer`), not per `[i]` instance; clones are
+  runtime-only and do not appear as separate agents in that table.
 
 **Chat log display:**
 Tool headers show instance numbers for clarity:
@@ -114,12 +123,12 @@ Bottom status bar shows all instances:
 
 Implementation Notes
 --------------------
-- **Name modification timing**: Agent names are modified in a wrapper coroutine that
-  executes at task runtime, not task creation time, to avoid race conditions
-- **Original name caching**: Store original names before ANY modifications to prevent
-  [1][2] bugs when the same agent is called multiple times
-- **Progress event routing**: Must update both agent._name and agent._aggregator.agent_name
-  since MCPAggregator caches agent_name for progress events
+- **Instance naming**: `run_tools` computes `instance_name = f"{child.name}[i]"` inside the
+  per-call wrapper and passes it into `spawn_detached_instance`, so the template child object
+  keeps its original name while each detached clone owns the suffixed identity.
+- **Progress event routing**: Because each clone's `MCPAggregator` is constructed with the
+  suffixed `agent_name`, all MCP/tool progress events naturally use
+  `PM-1-DayStatusSummarizer[i]` without mutating base agent fields or using `ContextVar` hacks.
 - **Display suppression with reference counting**: Multiple parallel instances of the same
   child agent share a single agent object. Use reference counting to track active instances:
   - `_display_suppression_count[child_id]`: Count of active parallel instances
@@ -127,9 +136,14 @@ Implementation Notes
   - Only modify display config when first instance starts (count 0→1)
   - Only restore display config when last instance completes (count 1→0)
   - Prevents race condition where early-finishing instances restore config while others run
-- **Instance line visibility**: Each instance line is hidden immediately in the task's
-  finally block, not after all tasks complete. Uses consistent progress_display singleton
-  reference to ensure visibility changes work correctly
+- **Child agent(s)**
+  - Existing agents (typically `McpAgent`-based) with their own MCP servers, skills, tools, etc.
+  - Serve as **templates**; `run_tools` now clones them before every tool call via
+    `spawn_detached_instance`, so runtime work happens inside short-lived replicas.
+
+- **Detached instances**
+  - Each tool call gets an actual cloned agent with suffixed name `Child[i]`.
+  - Clones own their MCP aggregator/LLM stacks and merge usage back into the template after shutdown.
 - **Chat log separation**: Each parallel instance gets its own tool request/result headers
   with instance numbers [1], [2], etc. for traceability
 
@@ -275,62 +289,76 @@ class AgentsAsToolsAgent(ToolAgent):
             )
         return ListToolsResult(tools=tools)
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
-        """Execute a child agent by name.
-        
-        Args:
-            name: Tool name (agent name with prefix)
-            arguments: Optional arguments to pass to the child agent
-            
-        Returns:
-            CallToolResult containing the child agent's response
-        """
-        child = self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
-        if child is None:
-            return CallToolResult(content=[text_content(f"Unknown agent-tool: {name}")], isError=True)
+    def _ensure_display_maps_initialized(self) -> None:
+        """Lazily initialize display suppression tracking maps."""
+        if not hasattr(self, "_display_suppression_count"):
+            self._display_suppression_count = {}
+            self._original_display_configs = {}
+
+    def _suppress_child_display(self, child: LlmAgent) -> None:
+        """Suppress child chat output while preserving tool logs."""
+        self._ensure_display_maps_initialized()
+        child_id = id(child)
+        count = self._display_suppression_count.get(child_id, 0)
+        if 0 == count:
+            if hasattr(child, "display") and child.display and getattr(child.display, "config", None):
+                # Store original config for restoration later
+                self._original_display_configs[child_id] = child.display.config
+                temp_config = copy(child.display.config)
+                if hasattr(temp_config, "logger"):
+                    temp_logger = copy(temp_config.logger)
+                    temp_logger.show_chat = False
+                    temp_logger.show_tools = True  # Explicitly keep tools visible
+                    temp_config.logger = temp_logger
+                child.display.config = temp_config
+        self._display_suppression_count[child_id] = count + 1
+
+    def _release_child_display(self, child: LlmAgent) -> None:
+        """Restore child display configuration when the last tool instance completes."""
+        if not hasattr(self, "_display_suppression_count"):
+            return
+        child_id = id(child)
+        if child_id not in self._display_suppression_count:
+            return
+        self._display_suppression_count[child_id] -= 1
+        if self._display_suppression_count[child_id] <= 0:
+            del self._display_suppression_count[child_id]
+            original_config = self._original_display_configs.pop(child_id, None)
+            if original_config is not None and hasattr(child, "display") and child.display:
+                child.display.config = original_config
+
+    async def _invoke_child_agent(
+        self,
+        child: LlmAgent,
+        arguments: dict[str, Any] | None = None,
+        *,
+        suppress_display: bool = True,
+    ) -> CallToolResult:
+        """Shared helper to execute a child agent with standard serialization and display rules."""
 
         args = arguments or {}
+        # Serialize arguments to text input
         if isinstance(args.get("text"), str):
             input_text = args["text"]
         elif "json" in args:
-            input_text = json.dumps(args["json"], ensure_ascii=False) if isinstance(args["json"], dict) else str(args["json"])
+            input_text = (
+                json.dumps(args["json"], ensure_ascii=False)
+                if isinstance(args["json"], dict)
+                else str(args["json"])
+            )
         else:
             input_text = json.dumps(args, ensure_ascii=False) if args else ""
 
-        # Serialize arguments to text input
         child_request = Prompt.user(input_text)
-        
-        # Track display config changes per child to handle parallel instances
-        child_id = id(child)
-        if not hasattr(self, '_display_suppression_count'):
-            self._display_suppression_count = {}
-            self._original_display_configs = {}
-        
+
         try:
             # Suppress child agent chat messages (keep tool calls visible)
-            # Only modify config on first parallel instance
-            if child_id not in self._display_suppression_count:
-                self._display_suppression_count[child_id] = 0
-                
-                if hasattr(child, 'display') and child.display and child.display.config:
-                    # Store original config for restoration later
-                    self._original_display_configs[child_id] = child.display.config
-                    temp_config = copy(child.display.config)
-                    if hasattr(temp_config, 'logger'):
-                        temp_logger = copy(temp_config.logger)
-                        temp_logger.show_chat = False
-                        temp_logger.show_tools = True  # Explicitly keep tools visible
-                        temp_config.logger = temp_logger
-                        child.display.config = temp_config
-            
-            # Increment active instance count
-            self._display_suppression_count[child_id] += 1
-            
+                self._suppress_child_display(child)
+
             response: PromptMessageExtended = await child.generate([child_request], None)
             # Prefer preserving original content blocks for better UI fidelity
             content_blocks = list(response.content or [])
 
-            # Mark error if error channel contains entries, and surface them
             from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 
             error_blocks = None
@@ -348,12 +376,23 @@ class AgentsAsToolsAgent(ToolAgent):
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
         finally:
-            # Decrement active instance count
-            if child_id in self._display_suppression_count:
-                self._display_suppression_count[child_id] -= 1
-                
-                # Don't restore config here - let run_tools restore after results are displayed
-                # This ensures final logs keep instance numbers [N]
+            if suppress_display:
+                self._release_child_display(child)
+
+    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
+        """Execute a child agent by name.
+        
+        Args:
+            name: Tool name (agent name with prefix)
+            arguments: Optional arguments to pass to the child agent
+            
+        Returns:
+            CallToolResult containing the child agent's response
+        """
+        child = self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
+        if child is None:
+            return CallToolResult(content=[text_content(f"Unknown agent-tool: {name}")], isError=True)
+        return await self._invoke_child_agent(child, arguments)
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
@@ -370,9 +409,6 @@ class AgentsAsToolsAgent(ToolAgent):
             "missing": "missing",
         }
 
-        # Show instance count if multiple agents
-        instance_count = len([d for d in descriptors if d.get("status") != "error"])
-        
         # Show detailed call information for each agent
         for i, desc in enumerate(descriptors, 1):
             tool_name = desc.get("tool", "(unknown)")
@@ -382,10 +418,8 @@ class AgentsAsToolsAgent(ToolAgent):
             if status == "error":
                 continue  # Skip display for error tools, will show in results
             
-            # Add individual instance number if multiple
-            display_tool_name = tool_name
-            if instance_count > 1:
-                display_tool_name = f"{tool_name}[{i}]"
+            # Always add individual instance number for clarity
+            display_tool_name = f"{tool_name}[{i}]"
             
             # Build bottom item for THIS instance only (not all instances)
             status_label = status_labels.get(status, "pending")
@@ -420,8 +454,6 @@ class AgentsAsToolsAgent(ToolAgent):
         if not records:
             return
 
-        instance_count = len(records)
-        
         # Show detailed result for each agent
         for i, record in enumerate(records, 1):
             descriptor = record.get("descriptor", {})
@@ -429,10 +461,8 @@ class AgentsAsToolsAgent(ToolAgent):
             tool_name = descriptor.get("tool", "(unknown)")
             
             if result:
-                # Add individual instance number if multiple
-                display_tool_name = tool_name
-                if instance_count > 1:
-                    display_tool_name = f"{tool_name}[{i}]"
+                # Always add individual instance number for clarity
+                display_tool_name = f"{tool_name}[{i}]"
                 
                 # Show individual tool result with full content
                 self.display.show_tool_result(
@@ -490,67 +520,85 @@ class AgentsAsToolsAgent(ToolAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
-        # Collect original names
         pending_count = len(id_list)
-        original_names = {}
-        if pending_count > 1:
-            for cid in id_list:
-                tool_name = descriptor_by_id[cid]["tool"]
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child and hasattr(child, '_name') and tool_name not in original_names:
-                    original_names[tool_name] = child._name
+        parent_base_names: set[str] = set()
+        for cid in id_list:
+            tool_name = descriptor_by_id[cid]["tool"]
+            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+            if child:
+                parent_base_names.add(child.name)
         
         # Import progress_display at outer scope to ensure same instance
         from fast_agent.event_progress import ProgressAction, ProgressEvent
         from fast_agent.ui.progress_display import progress_display as outer_progress_display
-        
-        # Create wrapper coroutine that sets name and emits progress for instance
-        async def call_with_instance_name(tool_name: str, tool_args: dict[str, Any], instance: int) -> CallToolResult:
-            instance_name = None
-            if pending_count > 1:
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child and hasattr(child, '_name'):
-                    original = original_names.get(tool_name, child._name)
-                    instance_name = f"{original}[{instance}]"
-                    child._name = instance_name
-                    
-                    # Also update aggregator's agent_name so tool progress events use instance name
-                    if hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = instance_name
-                    
-                    # Emit progress event to create separate line in progress panel
-                    outer_progress_display.update(ProgressEvent(
+
+        # Create wrapper coroutine that sets names and emits progress for instance
+        async def call_with_instance_name(
+            tool_name: str, tool_args: dict[str, Any], instance: int
+        ) -> CallToolResult:
+            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+            if not child:
+                error_msg = f"Unknown agent-tool: {tool_name}"
+                return CallToolResult(content=[text_content(error_msg)], isError=True)
+
+            base_name = getattr(child, "_name", child.name)
+            instance_name = f"{base_name}[{instance}]"
+
+            try:
+                clone = await child.spawn_detached_instance(name=instance_name)
+            except Exception as exc:
+                logger.error(
+                    "Failed to spawn dedicated child instance",
+                    data={
+                        "tool_name": tool_name,
+                        "agent_name": base_name,
+                        "error": str(exc),
+                    },
+                )
+                return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
+
+            progress_started = False
+            try:
+                outer_progress_display.update(
+                    ProgressEvent(
                         action=ProgressAction.CHATTING,
                         target=instance_name,
                         details="",
-                        agent_name=instance_name
-                    ))
-            
-            try:
-                return await self.call_tool(tool_name, tool_args)
+                        agent_name=instance_name,
+                    )
+                )
+                progress_started = True
+                return await self._invoke_child_agent(clone, tool_args)
             finally:
-                # Hide instance line immediately when this task completes
-                if instance_name and pending_count > 1:
-                    logger.info(f"Hiding instance line: {instance_name}")
-                    if instance_name in outer_progress_display._taskmap:
-                        task_id = outer_progress_display._taskmap[instance_name]
-                        for task in outer_progress_display._progress.tasks:
-                            if task.id == task_id:
-                                task.visible = False
-                                logger.info(f"Set visible=False for {instance_name}")
-                                break
-        
-        # Set parent agent lines to Ready status while instances run
-        if pending_count > 1:
-            for tool_name in original_names.keys():
-                original = original_names[tool_name]
-                # Set parent to Ready status
-                outer_progress_display.update(ProgressEvent(
-                    action=ProgressAction.READY,
-                    target=original,
-                    details="",
-                    agent_name=original
-                ))
+                try:
+                    await clone.shutdown()
+                except Exception as shutdown_exc:
+                    logger.warning(
+                        "Error shutting down dedicated child instance",
+                        data={
+                            "instance_name": instance_name,
+                            "error": str(shutdown_exc),
+                        },
+                    )
+                try:
+                    child.merge_usage_from(clone)
+                except Exception as merge_exc:
+                    logger.warning(
+                        "Failed to merge usage from child instance",
+                        data={
+                            "instance_name": instance_name,
+                            "error": str(merge_exc),
+                        },
+                    )
+                if progress_started and instance_name:
+                    outer_progress_display.update(
+                        ProgressEvent(
+                            action=ProgressAction.FINISHED,
+                            target=instance_name,
+                            details="Completed",
+                            agent_name=instance_name,
+                        )
+                    )
         
         # Create tasks with instance-specific wrappers
         for i, cid in enumerate(id_list, 1):
@@ -588,35 +636,5 @@ class AgentsAsToolsAgent(ToolAgent):
             ordered_records.append({"descriptor": descriptor, "result": result})
 
         self._show_parallel_tool_results(ordered_records)
-
-        # Restore original agent names and display configs (instance lines already hidden in task finally blocks)
-        if pending_count > 1:
-            for tool_name, original_name in original_names.items():
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child:
-                    child._name = original_name
-                    # Restore aggregator's agent_name too
-                    if hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = original_name
-                    
-                    # Restore display config now that all results are shown
-                    child_id = id(child)
-                    if child_id in self._display_suppression_count:
-                        del self._display_suppression_count[child_id]
-                    
-                    if child_id in self._original_display_configs:
-                        original_config = self._original_display_configs[child_id]
-                        del self._original_display_configs[child_id]
-                        if hasattr(child, 'display') and child.display:
-                            child.display.config = original_config
-                            logger.info(f"Restored display config for {original_name} after all results displayed")
-        else:
-            # Single instance, just restore name
-            for tool_name, original_name in original_names.items():
-                child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-                if child:
-                    child._name = original_name
-                    if hasattr(child, '_aggregator') and child._aggregator:
-                        child._aggregator.agent_name = original_name
 
         return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
