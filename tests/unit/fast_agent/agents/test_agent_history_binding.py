@@ -4,6 +4,7 @@ from mcp.types import TextContent
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.prompt import Prompt
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
@@ -21,6 +22,7 @@ class FakeLLM(FastAgentLLM[PromptMessageExtended, PromptMessageExtended]):
         request_params: RequestParams | None = None,
         tools=None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         self.last_messages = list(multipart_messages)
         return Prompt.assistant("ok")

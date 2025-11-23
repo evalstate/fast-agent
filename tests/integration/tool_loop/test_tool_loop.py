@@ -7,6 +7,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.prompt import Prompt
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -20,6 +21,7 @@ class ToolGeneratingLlm(PassthroughLLM):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         tool_calls = {}
         tool_calls["my_id"] = CallToolRequest(
@@ -102,6 +104,7 @@ class PersistentToolGeneratingLlm(PassthroughLLM):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         self.call_count += 1
         tool_calls = {

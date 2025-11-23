@@ -5,7 +5,7 @@ This provides an implementation that delegates operations to a sequence of
 other agents, chaining their outputs together.
 """
 
-from typing import Any, Type
+from typing import Any, List, Optional, Tuple, Type
 
 from mcp import Tool
 from mcp.types import TextContent
@@ -15,6 +15,7 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import ModelT
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)
@@ -35,9 +36,9 @@ class ChainAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: list[LlmAgent],
+        agents: List[LlmAgent],
         cumulative: bool = False,
-        context: Any | None = None,
+        context: Optional[Any] = None,
         **kwargs,
     ) -> None:
         """
@@ -56,9 +57,10 @@ class ChainAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: list[PromptMessageExtended],
-        request_params: RequestParams | None = None,
-        tools: list[Tool] | None = None,
+        messages: List[PromptMessageExtended],
+        request_params: Optional[RequestParams] = None,
+        tools: List[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Chain the request through multiple agents in sequence.
@@ -85,10 +87,10 @@ class ChainAgent(LlmAgent):
             return response
 
         # Track all responses in the chain
-        all_responses: list[PromptMessageExtended] = []
+        all_responses: List[PromptMessageExtended] = []
 
         # Initialize list for storing formatted results
-        final_results: list[str] = []
+        final_results: List[str] = []
 
         # Add the original request with XML tag
         request_text = (
@@ -128,10 +130,10 @@ class ChainAgent(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: list[PromptMessageExtended],
+        messages: List[PromptMessageExtended],
         model: Type[ModelT],
-        request_params: RequestParams | None = None,
-    ) -> tuple[ModelT | None, PromptMessageExtended]:
+        request_params: Optional[RequestParams] = None,
+    ) -> Tuple[ModelT | None, PromptMessageExtended]:
         """
         Chain the request through multiple agents and parse the final response.
 

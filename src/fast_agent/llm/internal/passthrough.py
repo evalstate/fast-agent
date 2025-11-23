@@ -6,6 +6,7 @@ from mcp.types import CallToolRequestParams, PromptMessage
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
@@ -76,6 +77,7 @@ class PassthroughLLM(FastAgentLLM):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         # Add messages to history with proper is_prompt flag
         self.history.extend(multipart_messages, is_prompt=is_template)
