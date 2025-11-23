@@ -157,11 +157,12 @@ class AgentMCPServer:
             instance = await self._acquire_instance(ctx)
             agent = instance.app[agent_name]
             try:
-                if not hasattr(agent, "_llm") or agent._llm is None:
+                # Get message history directly from the agent
+                multipart_history = agent.message_history
+                if not multipart_history:
                     return []
 
                 # Convert the multipart message history to standard PromptMessages
-                multipart_history = agent._llm.message_history
                 prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
 
                 # In FastMCP, we need to return the raw list of messages
