@@ -79,7 +79,7 @@ async def llm_agent_setup(model_name):
     test_config = AgentConfig("test")
 
     # Pass the config file path from the test directory
-    config_path = os.path.join(os.path.dirname(__file__), "fastagent.config.yaml")
+    config_path = Path(__file__).parent / "fastagent.config.yaml"
 
     # Initialize Core and agent
     core = Core(settings=config_path)

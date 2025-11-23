@@ -777,7 +777,7 @@ class InteractivePrompt:
 
                     rich_print()  # Space between prompts
 
-                prompt_names = [str(i + 1) for i in range(len(all_prompts))]
+                prompt_names = [str(i) for i, _ in enumerate(all_prompts, 1)]
 
                 # Get user selection
                 selection = await get_selection_input(

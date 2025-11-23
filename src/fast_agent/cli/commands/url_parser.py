@@ -73,7 +73,7 @@ def generate_server_name(url: str) -> str:
     parsed_url = urlparse(url)
 
     # Extract hostname and port
-    hostname = parsed_url.netloc.split(":")[0]
+    hostname, _, port_str = parsed_url.netloc.partition(":")
 
     # Clean the hostname for use in a server name
     # Replace non-alphanumeric characters with underscores
@@ -89,9 +89,7 @@ def generate_server_name(url: str) -> str:
         path = re.sub(r"[^a-zA-Z0-9]", "_", path)
 
         # Include port if specified
-        port = ""
-        if ":" in parsed_url.netloc:
-            port = f"_{parsed_url.netloc.split(':')[1]}"
+        port = f"_{port_str}" if port_str else ""
 
         if path:
             return f"{clean_hostname}{port}_{path[:20]}"  # Limit path length
