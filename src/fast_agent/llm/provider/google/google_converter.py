@@ -13,6 +13,7 @@ from mcp.types import (
     EmbeddedResource,
     ImageContent,
     TextContent,
+    TextResourceContents,
 )
 
 from fast_agent.mcp.helpers.content_helpers import (
@@ -380,7 +381,7 @@ class GoogleConverter:
                 fast_agent_parts.append(
                     EmbeddedResource(
                         type="resource",
-                        resource=TextContent(
+                        resource=TextResourceContents(
                             uri=part.file_data.file_uri,
                             mimeType=part.file_data.mime_type,
                             text=f"[Resource: {part.file_data.file_uri}, MIME: {part.file_data.mime_type}]",
