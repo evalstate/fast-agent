@@ -1,3 +1,4 @@
+import asyncio
 import json
 import secrets
 
@@ -17,7 +18,7 @@ from mcp.types import (
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
-from fast_agent.llm.cancellation import CancellationError, CancellationToken
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 
 # Import the new converter class
@@ -161,7 +162,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 # Check for cancellation before processing each chunk
                 if cancellation_token and cancellation_token.is_cancelled:
                     self.logger.info("Stream cancelled by user")
-                    raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+                    raise asyncio.CancelledError(cancellation_token.cancel_reason or "cancelled")
 
                 last_chunk = chunk
                 if getattr(chunk, "usage_metadata", None):

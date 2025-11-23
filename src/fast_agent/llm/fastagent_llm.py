@@ -203,7 +203,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             A PromptMessageExtended containing the Assistant response
 
         Raises:
-            CancellationError: If the operation is cancelled via the token
+            asyncio.CancelledError: If the operation is cancelled via the token
         """
         # TODO -- create a "fast-agent" control role rather than magic strings
 
