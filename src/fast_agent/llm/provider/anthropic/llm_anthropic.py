@@ -315,10 +315,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                         )
                     continue
 
-                if (
-                    event.type == "content_block_stop"
-                    and event.index in tool_streams
-                ):
+                if event.type == "content_block_stop" and event.index in tool_streams:
                     info = tool_streams.pop(event.index)
                     preview_raw = "".join(info.get("buffer", []))
                     if preview_raw:
@@ -507,7 +504,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         try:
             anthropic = AsyncAnthropic(api_key=api_key, base_url=base_url)
             params = self.get_request_params(request_params)
-            messages = self._build_request_messages(params, message_param, pre_messages, history=history)
+            messages = self._build_request_messages(
+                params, message_param, pre_messages, history=history
+            )
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid Anthropic API key",
@@ -679,14 +678,11 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # via _convert_to_provider_format()
             return await self._anthropic_completion(
                 message_param,
-               
                 request_params,
-               
                 tools=tools,
-               
                 pre_messages=None,
                 history=multipart_messages,
-                current_extended=last_message,,
+                current_extended=last_message,
                 cancellation_token=cancellation_token,
             )
         else:
