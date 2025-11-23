@@ -63,8 +63,11 @@ fast-agent go --model=generic.qwen2.5  # use ollama qwen 2.5
 fast-agent setup                       # create an example agent and config files
 uv run agent.py                        # run your first agent
 uv run agent.py --model=o3-mini.low    # specify a model
+uv run agent.py --transport http --port 8001  # expose as MCP server (server mode implied)
 fast-agent quickstart workflow  # create "building effective agents" examples
 ```
+
+`--server` remains available for backward compatibility but is deprecated; `--transport` now automatically switches an agent into server mode.
 
 Other quickstart examples include a Researcher Agent (with Evaluator-Optimizer workflow) and Data Analysis Agent (similar to the ChatGPT experience), demonstrating MCP Roots support.
 
