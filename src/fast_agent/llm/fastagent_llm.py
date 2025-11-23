@@ -36,7 +36,7 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     ModelT,
 )
-from fast_agent.llm.cancellation import CancellationError, CancellationToken
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
