@@ -1,3 +1,4 @@
+import re
 from typing import List, Sequence, Union
 
 from anthropic.types import (
@@ -81,6 +82,7 @@ class AnthropicConverter:
         # legally include corresponding tool_result blocks.
         if role == "assistant" and multipart_msg.tool_calls:
             for tool_use_id, req in multipart_msg.tool_calls.items():
+                sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
                 name = None
                 args = None
                 try:
@@ -94,7 +96,7 @@ class AnthropicConverter:
                 all_content_blocks.append(
                     ToolUseBlockParam(
                         type="tool_use",
-                        id=tool_use_id,
+                        id=sanitized_id,
                         name=name or "unknown_tool",
                         input=args or {},
                     )
@@ -404,6 +406,7 @@ class AnthropicConverter:
         content_blocks = []
 
         for tool_use_id, result in tool_results:
+            sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
             # Process each tool result
             tool_result_blocks = []
 
@@ -427,7 +430,7 @@ class AnthropicConverter:
                 content_blocks.append(
                     ToolResultBlockParam(
                         type="tool_result",
-                        tool_use_id=tool_use_id,
+                        tool_use_id=sanitized_id,
                         content=tool_result_blocks,
                         is_error=result.isError,
                     )
@@ -437,7 +440,7 @@ class AnthropicConverter:
                 content_blocks.append(
                     ToolResultBlockParam(
                         type="tool_result",
-                        tool_use_id=tool_use_id,
+                        tool_use_id=sanitized_id,
                         content=[TextBlockParam(type="text", text="[No content in tool result]")],
                         is_error=result.isError,
                     )
@@ -446,3 +449,14 @@ class AnthropicConverter:
             # All content is now included within the tool_result block.
 
         return MessageParam(role="user", content=content_blocks)
+
+    @staticmethod
+    def _sanitize_tool_id(tool_id: str | None) -> str:
+        """
+        Anthropic tool_use ids must match ^[a-zA-Z0-9_-]+$.
+        Clean any other characters to underscores and provide a stable fallback.
+        """
+        if not tool_id:
+            return "tool"
+        cleaned = re.sub(r"[^a-zA-Z0-9_-]", "_", tool_id)
+        return cleaned or "tool"
