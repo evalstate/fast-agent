@@ -169,15 +169,18 @@ class FastAgent:
                 help="Show version and exit",
             )
             parser.add_argument(
-                "--server",
-                action="store_true",
-                help="Run as an MCP server",
+                "--serve",
+                nargs="?",
+                const="http",
+                default=None,
+                choices=["sse", "http", "stdio", "acp"],
+                help="Run as an MCP server with specified transport (default: http)",
             )
             parser.add_argument(
                 "--transport",
                 choices=["sse", "http", "stdio", "acp"],
-                default="http",
-                help="Transport protocol to use when running as a server (sse, http, stdio, or acp)",
+                default=None,
+                help="[DEPRECATED: use --serve] Transport protocol for server mode",
             )
             parser.add_argument(
                 "--port",
@@ -221,6 +224,38 @@ class FastAgent:
                     app_version = "unknown"
                 print(f"fast-agent-mcp v{app_version}")
                 sys.exit(0)
+
+            # Consolidate --serve and --transport options
+            serve_value = getattr(self.args, "serve", None)
+            transport_value = getattr(self.args, "transport", None)
+
+            # Determine if we're in server mode and the transport to use
+            if serve_value is not None:
+                # --serve was specified (with or without value)
+                self.args.server = True
+                self.args.transport = serve_value
+                if transport_value is not None and transport_value != serve_value:
+                    import warnings
+                    warnings.warn(
+                        f"Both --serve={serve_value} and --transport={transport_value} specified. "
+                        f"Using --serve value: {serve_value}",
+                        DeprecationWarning,
+                        stacklevel=2
+                    )
+            elif transport_value is not None:
+                # --transport was specified without --serve (deprecated usage)
+                import warnings
+                warnings.warn(
+                    "--transport is deprecated. Use --serve instead, e.g., --serve=http or --serve acp",
+                    DeprecationWarning,
+                    stacklevel=2
+                )
+                self.args.server = True
+                self.args.transport = transport_value
+            else:
+                # Neither specified
+                self.args.server = False
+                self.args.transport = "http"  # default
         # --- End of wrapped logic ---
 
         # Force quiet mode automatically when running ACP transport

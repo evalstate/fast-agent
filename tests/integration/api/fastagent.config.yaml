@@ -39,7 +39,7 @@ mcp:
       args: ["prompt.txt"]
     std_io:
       command: "uv"
-      args: ["run", "integration_agent.py", "--server", "--transport", "stdio"]
+      args: ["run", "integration_agent.py", "--serve", "stdio"]
     sse:
       transport: "sse"
       url: "http://localhost:8723/sse"
