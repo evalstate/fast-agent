@@ -9,14 +9,27 @@ REASONING = "reasoning"
 FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
 FAST_AGENT_REMOVED_METADATA_CHANNEL = "fast-agent-removed-meta"
 FAST_AGENT_TIMING = "fast-agent-timing"
+FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
-DEFAULT_MAX_ITERATIONS = 20
+DEFAULT_MAX_ITERATIONS = 99
 """Maximum number of User/Assistant turns to take"""
+
+DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192
+"""Baseline byte limit for ACP terminal output when no model info exists."""
+
+TERMINAL_OUTPUT_TOKEN_RATIO = 0.5
+"""Assume terminal output may consume at least half of model max output tokens."""
+
+TERMINAL_AVG_BYTES_PER_TOKEN = 4
+"""Conservative bytes-per-token estimate for mapping token budgets to byte limits."""
 
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 {{serverInstructions}}
-
 {{agentSkills}}
+{{file_silent:AGENTS.md}}
+{{env}}
 
 The current date is {{currentDate}}."""
+
+CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"

@@ -1,4 +1,4 @@
-from typing import Dict, List, Mapping, Optional, Sequence
+from typing import Mapping, Sequence
 
 from mcp.types import (
     CallToolRequest,
@@ -24,14 +24,15 @@ class PromptMessageExtended(BaseModel):
     """
 
     role: Role
-    content: List[ContentBlock] = []
-    tool_calls: Dict[str, CallToolRequest] | None = None
-    tool_results: Dict[str, CallToolResult] | None = None
+    content: list[ContentBlock] = []
+    tool_calls: dict[str, CallToolRequest] | None = None
+    tool_results: dict[str, CallToolResult] | None = None
     channels: Mapping[str, Sequence[ContentBlock]] | None = None
     stop_reason: LlmStopReason | None = None
+    is_template: bool = False
 
     @classmethod
-    def to_extended(cls, messages: List[PromptMessage]) -> List["PromptMessageExtended"]:
+    def to_extended(cls, messages: list[PromptMessage]) -> list["PromptMessageExtended"]:
         """Convert a sequence of PromptMessages into PromptMessageExtended objects."""
         if not messages:
             return []
@@ -58,7 +59,7 @@ class PromptMessageExtended(BaseModel):
 
         return result
 
-    def from_multipart(self) -> List[PromptMessage]:
+    def from_multipart(self) -> list[PromptMessage]:
         """Convert this PromptMessageExtended to a sequence of standard PromptMessages."""
         return [
             PromptMessage(role=self.role, content=content_part) for content_part in self.content
@@ -123,7 +124,7 @@ class PromptMessageExtended(BaseModel):
         return text
 
     @classmethod
-    def parse_get_prompt_result(cls, result: GetPromptResult) -> List["PromptMessageExtended"]:
+    def parse_get_prompt_result(cls, result: GetPromptResult) -> list["PromptMessageExtended"]:
         """
         Parse a GetPromptResult into PromptMessageExtended objects.
 
@@ -137,8 +138,8 @@ class PromptMessageExtended(BaseModel):
 
     @classmethod
     def from_get_prompt_result(
-        cls, result: Optional[GetPromptResult]
-    ) -> List["PromptMessageExtended"]:
+        cls, result: GetPromptResult | None
+    ) -> list["PromptMessageExtended"]:
         """
         Convert a GetPromptResult to PromptMessageExtended objects with error handling.
         This method safely handles None values and empty results.

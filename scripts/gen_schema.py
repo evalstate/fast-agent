@@ -15,7 +15,7 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any, Dict, Tuple
+from typing import Any
 
 import typer
 from pydantic import BaseModel
@@ -26,7 +26,7 @@ app = typer.Typer()
 console = Console()
 
 
-def extract_model_info(content: str) -> Dict[str, Dict[str, str]]:
+def extract_model_info(content: str) -> dict[str, dict[str, str]]:
     """
     Extract docstrings for all models and their fields.
     Returns a dict mapping model names to their field descriptions.
@@ -132,7 +132,7 @@ def create_mock_modules() -> None:
 
 def load_settings_class(
     file_path: Path,
-) -> Tuple[type[BaseSettings], Dict[str, Dict[str, str]]]:
+) -> tuple[type[BaseSettings], dict[str, dict[str, str]]]:
     """Load Settings class from a Python file."""
     # Add src directory to Python path
     src_dir = file_path.parent.parent.parent / "src"
@@ -164,7 +164,7 @@ def load_settings_class(
 
 
 def apply_descriptions_to_schema(
-    schema: Dict[str, Any], model_info: Dict[str, Dict[str, str]]
+    schema: dict[str, Any], model_info: dict[str, dict[str, str]]
 ) -> None:
     """Recursively apply descriptions to schema and all its nested models."""
     if not isinstance(schema, dict):

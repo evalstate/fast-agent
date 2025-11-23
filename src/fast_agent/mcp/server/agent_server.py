@@ -8,7 +8,7 @@ import os
 import signal
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
-from typing import Awaitable, Callable, Set
+from typing import Awaitable, Callable
 
 from mcp.server.fastmcp import Context as MCPContext
 from mcp.server.fastmcp import FastMCP
@@ -56,7 +56,7 @@ class AgentMCPServer:
 
         # Resource management
         self._exit_stack = AsyncExitStack()
-        self._active_connections: Set[any] = set()
+        self._active_connections: set[any] = set()
 
         # Server state
         self._server_task = None
@@ -157,13 +157,12 @@ class AgentMCPServer:
             instance = await self._acquire_instance(ctx)
             agent = instance.app[agent_name]
             try:
-                if not hasattr(agent, "_llm") or agent._llm is None:
+                multipart_history = agent.message_history
+                if not multipart_history:
                     return []
 
                 # Convert the multipart message history to standard PromptMessages
-                multipart_history = agent._llm.message_history
                 prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
-
                 # In FastMCP, we need to return the raw list of messages
                 return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
             finally:

@@ -22,6 +22,10 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.workflow_telemetry import (
+    NoOpWorkflowTelemetryProvider,
+    WorkflowTelemetryProvider,
+)
 
 # TODO -- decide what to do with type safety for model/chat_turn()
 
@@ -48,6 +52,9 @@ class LlmAgent(LlmDecorator):
 
         # Initialize display component
         self._display = ConsoleDisplay(config=self._context.config if self._context else None)
+        self._workflow_telemetry_provider: WorkflowTelemetryProvider = (
+            NoOpWorkflowTelemetryProvider()
+        )
 
     @property
     def display(self) -> ConsoleDisplay:
@@ -57,6 +64,17 @@ class LlmAgent(LlmDecorator):
     @display.setter
     def display(self, value: ConsoleDisplay) -> None:
         self._display = value
+
+    @property
+    def workflow_telemetry(self) -> WorkflowTelemetryProvider:
+        """Telemetry provider for emitting workflow delegation steps."""
+        return self._workflow_telemetry_provider
+
+    @workflow_telemetry.setter
+    def workflow_telemetry(self, provider: WorkflowTelemetryProvider | None) -> None:
+        if provider is None:
+            provider = NoOpWorkflowTelemetryProvider()
+        self._workflow_telemetry_provider = provider
 
     async def show_assistant_message(
         self,
@@ -147,6 +165,11 @@ class LlmAgent(LlmDecorator):
                     additional_segments.append(
                         Text("\n\nAn error occurred during generation.", style="dim red italic")
                     )
+
+            case LlmStopReason.CANCELLED:
+                additional_segments.append(
+                    Text("\n\nGeneration cancelled by user.", style="dim yellow italic")
+                )
 
             case _:
                 if message.stop_reason:
@@ -267,7 +290,9 @@ class LlmAgent(LlmDecorator):
 
             await self.show_assistant_message(result, additional_message=summary_text)
         else:
-            result, summary = await self._generate_with_summary(messages, request_params, tools)
+            result, summary = await self._generate_with_summary(
+                messages, request_params, tools
+            )
 
             summary_text = (
                 Text(f"\n\n{summary.message}", style="dim red italic") if summary else None

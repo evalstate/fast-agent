@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Optional, TypeVar
+from typing import TYPE_CHECKING, TypeVar
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 
 if TYPE_CHECKING:
     # Only imported for type checking to avoid circular imports at runtime
+    from os import PathLike
+
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
@@ -24,15 +26,15 @@ class Core:
     def __init__(
         self,
         name: str = "fast-agent",
-        settings: Optional[Settings] | str = None,
-        signal_notification: Optional[SignalWaitCallback] = None,
+        settings: Settings | None | str | PathLike[str] = None,
+        signal_notification: SignalWaitCallback | None = None,
     ) -> None:
         """
         Initialize the core.
         Args:
             name:
             settings: If unspecified, the settings are loaded from fastagent.config.yaml.
-                If this is a string, it is treated as the path to the config file to load.
+                If this is a string or path-like object, it is treated as the path to the config file to load.
             signal_notification: Callback for getting notified on workflow signals/events.
         """
         self.name = name
@@ -43,7 +45,7 @@ class Core:
 
         self._logger = None
         # Use forward reference for type to avoid runtime import
-        self._context: Optional["Context"] = None
+        self._context: "Context" | None = None
         self._initialized = False
 
     @property

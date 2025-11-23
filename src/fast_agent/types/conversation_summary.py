@@ -7,7 +7,6 @@ and extracting useful statistics like tool call counts, error rates, etc.
 
 import json
 from collections import Counter
-from typing import Dict, List
 
 from pydantic import BaseModel, computed_field
 
@@ -48,27 +47,27 @@ class ConversationSummary(BaseModel):
     All computed properties are included in .model_dump() for easy serialization.
     """
 
-    messages: List[PromptMessageExtended]
+    messages: list[PromptMessageExtended]
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def message_count(self) -> int:
         """Total number of messages in the conversation."""
         return len(self.messages)
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def user_message_count(self) -> int:
         """Number of messages from the user."""
         return sum(1 for msg in self.messages if msg.role == "user")
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def assistant_message_count(self) -> int:
         """Number of messages from the assistant."""
         return sum(1 for msg in self.messages if msg.role == "assistant")
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def tool_calls(self) -> int:
         """Total number of tool calls made across all messages."""
@@ -76,7 +75,7 @@ class ConversationSummary(BaseModel):
             len(msg.tool_calls) for msg in self.messages if msg.tool_calls
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def tool_errors(self) -> int:
         """Total number of tool calls that resulted in errors."""
@@ -85,7 +84,7 @@ class ConversationSummary(BaseModel):
             for msg in self.messages if msg.tool_results
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def tool_successes(self) -> int:
         """Total number of tool calls that completed successfully."""
@@ -94,7 +93,7 @@ class ConversationSummary(BaseModel):
             for msg in self.messages if msg.tool_results
         )
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def tool_error_rate(self) -> float:
         """
@@ -106,15 +105,15 @@ class ConversationSummary(BaseModel):
             return 0.0
         return self.tool_errors / total_results
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    def tool_call_map(self) -> Dict[str, int]:
+    def tool_call_map(self) -> dict[str, int]:
         """
         Mapping of tool names to the number of times they were called.
 
         Example: {"fetch_weather": 3, "calculate": 1}
         """
-        tool_names: List[str] = []
+        tool_names: list[str] = []
         for msg in self.messages:
             if msg.tool_calls:
                 tool_names.extend(
@@ -122,9 +121,9 @@ class ConversationSummary(BaseModel):
                 )
         return dict(Counter(tool_names))
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    def tool_error_map(self) -> Dict[str, int]:
+    def tool_error_map(self) -> dict[str, int]:
         """
         Mapping of tool names to the number of errors they produced.
 
@@ -134,14 +133,14 @@ class ConversationSummary(BaseModel):
         finding corresponding CallToolRequest entries in assistant messages.
         """
         # First, build a map from tool_id -> tool_name by scanning tool_calls
-        tool_id_to_name: Dict[str, str] = {}
+        tool_id_to_name: dict[str, str] = {}
         for msg in self.messages:
             if msg.tool_calls:
                 for tool_id, call in msg.tool_calls.items():
                     tool_id_to_name[tool_id] = call.params.name
 
         # Then, count errors by tool name
-        error_names: List[str] = []
+        error_names: list[str] = []
         for msg in self.messages:
             if msg.tool_results:
                 for tool_id, result in msg.tool_results.items():
@@ -152,19 +151,19 @@ class ConversationSummary(BaseModel):
 
         return dict(Counter(error_names))
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def has_tool_calls(self) -> bool:
         """Whether any tool calls were made in this conversation."""
         return self.tool_calls > 0
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def has_tool_errors(self) -> bool:
         """Whether any tool errors occurred in this conversation."""
         return self.tool_errors > 0
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def total_elapsed_time_ms(self) -> float:
         """
@@ -192,9 +191,9 @@ class ConversationSummary(BaseModel):
                         continue
         return total
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
-    def assistant_message_timings(self) -> List[Dict[str, float]]:
+    def assistant_message_timings(self) -> list[dict[str, float]]:
         """
         List of timing data for each assistant message.
 
@@ -222,7 +221,7 @@ class ConversationSummary(BaseModel):
                         continue
         return timings
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def average_assistant_response_time_ms(self) -> float:
         """
@@ -237,7 +236,7 @@ class ConversationSummary(BaseModel):
         total = sum(t.get("duration_ms", 0) for t in timings)
         return total / len(timings)
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def first_llm_start_time(self) -> float | None:
         """
@@ -251,7 +250,7 @@ class ConversationSummary(BaseModel):
             return None
         return timings[0].get("start_time")
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def last_llm_end_time(self) -> float | None:
         """
@@ -265,7 +264,7 @@ class ConversationSummary(BaseModel):
             return None
         return timings[-1].get("end_time")
 
-    @computed_field
+    @computed_field  # type: ignore[prop-decorator]
     @property
     def conversation_span_ms(self) -> float:
         """

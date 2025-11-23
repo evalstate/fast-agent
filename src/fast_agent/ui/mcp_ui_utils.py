@@ -7,7 +7,7 @@ import subprocess
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, List, Optional
+from typing import Iterable
 
 from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
 
@@ -30,7 +30,7 @@ ENABLE_DATA_URLS = False
 class UILink:
     title: str
     file_path: str  # absolute path to local html file
-    web_url: Optional[str] = None  # Preferable clickable link (http(s) or data URL)
+    web_url: str | None = None  # Preferable clickable link (http(s) or data URL)
 
 
 def _safe_filename(name: str) -> str:
@@ -69,7 +69,7 @@ def _extract_title(uri: str | None) -> str:
         return "UI"
 
 
-def _decode_text_or_blob(resource) -> Optional[str]:
+def _decode_text_or_blob(resource) -> str | None:
     """Return string content from TextResourceContents or BlobResourceContents."""
     if isinstance(resource, TextResourceContents):
         return resource.text or ""
@@ -81,7 +81,7 @@ def _decode_text_or_blob(resource) -> Optional[str]:
     return None
 
 
-def _first_https_url_from_uri_list(text: str) -> Optional[str]:
+def _first_https_url_from_uri_list(text: str) -> str | None:
     for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
@@ -126,7 +126,7 @@ def _write_html_file(name_hint: str, html: str) -> str:
     return str(out_path.resolve())
 
 
-def ui_links_from_channel(resources: Iterable[EmbeddedResource]) -> List[UILink]:
+def ui_links_from_channel(resources: Iterable[EmbeddedResource]) -> list[UILink]:
     """
     Build local HTML files for a list of MCP-UI EmbeddedResources and return clickable links.
 
@@ -135,7 +135,7 @@ def ui_links_from_channel(resources: Iterable[EmbeddedResource]) -> List[UILink]
     - text/uri-list: expects text or blob of a single URL (first valid URL is used)
     - application/vnd.mcp-ui.remote-dom* : currently unsupported; generate a placeholder page
     """
-    links: List[UILink] = []
+    links: list[UILink] = []
     for emb in resources:
         res = emb.resource
         uri = str(getattr(res, "uri", "")) if getattr(res, "uri", None) else None

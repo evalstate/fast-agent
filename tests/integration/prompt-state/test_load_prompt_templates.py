@@ -1,10 +1,11 @@
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 import pytest
 from mcp.types import ImageContent
 
+from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompts.prompt_load import (
     load_prompt,
@@ -25,7 +26,7 @@ async def test_load_simple_conversation_from_file(fast_agent):
     @fast.agent()
     async def agent_function():
         async with fast.run() as agent:
-            loaded: List[PromptMessageExtended] = load_prompt(Path("conv1_simple.md"))
+            loaded: list[PromptMessageExtended] = load_prompt(Path("conv1_simple.md"))
             assert 4 == len(loaded)
             assert "user" == loaded[0].role
             assert "assistant" == loaded[1].role
@@ -33,7 +34,7 @@ async def test_load_simple_conversation_from_file(fast_agent):
             # Use the "default" agent directly
             response = await agent.default.generate(loaded)
             assert "message 2" in agent.default.message_history[-4].first_text()
-            assert "message 3" in response.first_text()
+            assert "message 4" in response.first_text()
 
     await agent_function()
 
@@ -84,7 +85,7 @@ async def test_save_state_to_simple_text_file(fast_agent):
                 os.remove("./simple.txt")
             await agent.send("hello")
             await agent.send("world")
-            await agent.send("***SAVE_HISTORY simple.txt")
+            await agent.send(f"{CONTROL_MESSAGE_SAVE_HISTORY} simple.txt")
 
             prompts: list[PromptMessageExtended] = load_prompt(Path("simple.txt"))
             assert 4 == len(prompts)
@@ -120,7 +121,7 @@ async def test_save_state_to_mcp_json_format(fast_agent):
             await agent.send("world")
 
             # Save in JSON format (filename ends with .json)
-            await agent.send("***SAVE_HISTORY history.json")
+            await agent.send(f"{CONTROL_MESSAGE_SAVE_HISTORY} history.json")
 
             # Verify file exists
             assert os.path.exists("./history.json")
@@ -183,7 +184,7 @@ async def test_round_trip_json_attachments(fast_agent):
 
             await agent.test.generate([Prompt.user("good morning")])
             await agent.test.generate([Prompt.user("what's in this image", Path("conv2_img.png"))])
-            await agent.send("***SAVE_HISTORY multipart.json")
+            await agent.send(f"{CONTROL_MESSAGE_SAVE_HISTORY} multipart.json")
 
             prompts: list[PromptMessageExtended] = load_prompt(Path("./multipart.json"))
             assert 4 == len(prompts)

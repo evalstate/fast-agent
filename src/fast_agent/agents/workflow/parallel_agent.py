@@ -69,9 +69,8 @@ class ParallelAgent(LlmAgent):
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"Parallel: '{self._name}' generate"):
-            # Execute all fan-out agents in parallel
-            responses: List[PromptMessageExtended] = await asyncio.gather(
-                *[agent.generate(messages, request_params) for agent in self.fan_out_agents]
+            responses: List[PromptMessageExtended] = await self._execute_fan_out(
+                messages, request_params
             )
 
             # Extract the received message from the input
@@ -91,7 +90,7 @@ class ParallelAgent(LlmAgent):
             )
 
             # Use the fan-in agent to aggregate the responses
-            return await self.fan_in_agent.generate([formatted_prompt], request_params)
+            return await self._fan_in_generate(formatted_prompt, request_params)
 
     def _format_responses(self, responses: List[Any], message: Optional[str] = None) -> str:
         """
@@ -141,9 +140,8 @@ class ParallelAgent(LlmAgent):
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"Parallel: '{self._name}' generate"):
-            # Generate parallel responses first
-            responses: List[PromptMessageExtended] = await asyncio.gather(
-                *[agent.generate(messages, request_params) for agent in self.fan_out_agents]
+            responses: List[PromptMessageExtended] = await self._execute_fan_out(
+                messages, request_params
             )
 
             # Extract the received message
@@ -161,7 +159,7 @@ class ParallelAgent(LlmAgent):
             )
 
             # Use the fan-in agent to parse the structured output
-            return await self.fan_in_agent.structured([formatted_prompt], model, request_params)
+            return await self._fan_in_structured(formatted_prompt, model, request_params)
 
     async def initialize(self) -> None:
         """
@@ -194,3 +192,59 @@ class ParallelAgent(LlmAgent):
                 await agent.shutdown()
             except Exception as e:
                 logger.warning(f"Error shutting down fan-out agent {agent.name}: {str(e)}")
+
+    async def _execute_fan_out(
+        self,
+        messages: List[PromptMessageExtended],
+        request_params: Optional[RequestParams],
+    ) -> List[PromptMessageExtended]:
+        """
+        Run fan-out agents with telemetry so transports can surface progress.
+        """
+
+        async def _run_agent(agent: AgentProtocol) -> PromptMessageExtended:
+            async with self.workflow_telemetry.start_step(
+                "parallel.fan_out",
+                server_name=self.name,
+                arguments={"agent": agent.name},
+            ) as step:
+                result = await agent.generate(messages, request_params)
+                await step.finish(True, text=f"{agent.name} completed fan-out work")
+                return result
+
+        return await asyncio.gather(*[_run_agent(agent) for agent in self.fan_out_agents])
+
+    async def _fan_in_generate(
+        self,
+        prompt: PromptMessageExtended,
+        request_params: Optional[RequestParams],
+    ) -> PromptMessageExtended:
+        """
+        Aggregate fan-out output with telemetry.
+        """
+        async with self.workflow_telemetry.start_step(
+            "parallel.fan_in",
+            server_name=self.name,
+            arguments={"agent": self.fan_in_agent.name},
+        ) as step:
+            result = await self.fan_in_agent.generate([prompt], request_params)
+            await step.finish(True, text=f"{self.fan_in_agent.name} aggregated results")
+            return result
+
+    async def _fan_in_structured(
+        self,
+        prompt: PromptMessageExtended,
+        model: type[ModelT],
+        request_params: Optional[RequestParams],
+    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+        """
+        Structured aggregation with telemetry.
+        """
+        async with self.workflow_telemetry.start_step(
+            "parallel.fan_in_structured",
+            server_name=self.name,
+            arguments={"agent": self.fan_in_agent.name},
+        ) as step:
+            result = await self.fan_in_agent.structured([prompt], model, request_params)
+            await step.finish(True, text=f"{self.fan_in_agent.name} produced structured output")
+            return result

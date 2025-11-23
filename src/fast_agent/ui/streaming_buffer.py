@@ -19,7 +19,7 @@ KISS (Keep It Simple, Stupid):
 
 from dataclasses import dataclass
 from math import ceil
-from typing import List, Optional
+from typing import Generator
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -40,7 +40,7 @@ class Table:
 
     start_pos: int  # Character position where table starts
     end_pos: int  # Character position where table ends
-    header_lines: List[str]  # Header row + separator (e.g., ["| A | B |", "|---|---|"])
+    header_lines: list[str]  # Header row + separator (e.g., ["| A | B |", "|---|---|"])
 
 
 class StreamBuffer:
@@ -56,7 +56,7 @@ class StreamBuffer:
 
     def __init__(self):
         """Initialize the stream buffer."""
-        self._chunks: List[str] = []
+        self._chunks: list[str] = []
         self._parser = MarkdownIt().enable("table")
 
     def append(self, chunk: str) -> None:
@@ -80,7 +80,7 @@ class StreamBuffer:
         self,
         terminal_height: int,
         target_ratio: float = 0.7,
-        terminal_width: Optional[int] = None,
+        terminal_width: int | None = None,
     ) -> str:
         """Get text for display, truncated to fit terminal.
 
@@ -114,7 +114,7 @@ class StreamBuffer:
         text: str,
         terminal_height: int,
         target_ratio: float,
-        terminal_width: Optional[int],
+        terminal_width: int | None,
     ) -> str:
         """Truncate text to fit display with context preservation.
 
@@ -208,7 +208,7 @@ class StreamBuffer:
 
         return truncated_text
 
-    def _find_code_blocks(self, text: str) -> List[CodeBlock]:
+    def _find_code_blocks(self, text: str) -> list[CodeBlock]:
         """Find all code blocks in text using markdown-it parser.
 
         Args:
@@ -235,7 +235,7 @@ class StreamBuffer:
 
         return blocks
 
-    def _find_tables(self, text: str) -> List[Table]:
+    def _find_tables(self, text: str) -> list[Table]:
         """Find all tables in text using markdown-it parser.
 
         Args:
@@ -279,7 +279,7 @@ class StreamBuffer:
         return tables
 
     def _preserve_code_block_context(
-        self, original_text: str, truncated_text: str, truncation_pos: int, code_blocks: List[CodeBlock]
+        self, original_text: str, truncated_text: str, truncation_pos: int, code_blocks: list[CodeBlock]
     ) -> str:
         """Prepend code block opening fence if truncation removed it.
 
@@ -310,7 +310,7 @@ class StreamBuffer:
         return truncated_text
 
     def _preserve_table_context(
-        self, original_text: str, truncated_text: str, truncation_pos: int, tables: List[Table]
+        self, original_text: str, truncated_text: str, truncation_pos: int, tables: list[Table]
     ) -> str:
         """Prepend table header if truncation removed it.
 
@@ -382,7 +382,7 @@ class StreamBuffer:
 
         return text
 
-    def _flatten_tokens(self, tokens: List[Token]) -> List[Token]:
+    def _flatten_tokens(self, tokens: list[Token]) -> Generator[Token, None, None]:
         """Flatten nested token tree.
 
         Args:
@@ -399,7 +399,7 @@ class StreamBuffer:
             else:
                 yield token
 
-    def _estimate_display_counts(self, lines: List[str], terminal_width: int) -> List[int]:
+    def _estimate_display_counts(self, lines: list[str], terminal_width: int) -> list[int]:
         """Estimate how many terminal rows each logical line will occupy."""
         return [
             max(1, ceil(len(line) / terminal_width)) if line else 1

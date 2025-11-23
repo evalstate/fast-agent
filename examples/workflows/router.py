@@ -6,6 +6,7 @@ Demonstrates router's ability to either:
 """
 
 import asyncio
+import sys
 
 from rich.console import Console
 
@@ -47,10 +48,11 @@ SAMPLE_REQUESTS = [
 @fast.router(
     name="route",
     model="sonnet",
+    default=True,
     agents=["code_expert", "general_assistant", "fetcher"],
 )
 async def main() -> None:
-    console = Console()
+    console = Console(file=sys.stderr)
     console.print(
         "\n[bright_red]Router Workflow Demo[/bright_red]\n\n"
         "Enter a request to route it to the appropriate agent.\nEnter [bright_red]STOP[/bright_red] to run the demo, [bright_red]EXIT[/bright_red] to leave"

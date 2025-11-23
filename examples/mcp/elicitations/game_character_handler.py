@@ -8,7 +8,7 @@ visual gauges, and animated effects.
 
 import asyncio
 import random
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 from mcp.shared.context import RequestContext
 from mcp.types import ElicitRequestParams, ElicitResult
@@ -35,7 +35,7 @@ async def game_character_elicitation_handler(
 
     if params.requestedSchema:
         properties = params.requestedSchema.get("properties", {})
-        content: Dict[str, Any] = {}
+        content: dict[str, Any] = {}
 
         console.print("\n[bold magenta]🎮 Character Creation Studio 🎮[/bold magenta]\n")
 

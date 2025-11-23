@@ -8,7 +8,7 @@ capabilities (Text/Document/Vision), backed by the model database.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
@@ -25,11 +25,11 @@ class ModelInfo:
 
     name: str
     provider: Provider
-    context_window: Optional[int]
-    max_output_tokens: Optional[int]
-    tokenizes: List[str]
-    json_mode: Optional[str]
-    reasoning: Optional[str]
+    context_window: int | None
+    max_output_tokens: int | None
+    tokenizes: list[str]
+    json_mode: str | None
+    reasoning: str | None
 
     @property
     def supports_text(self) -> bool:
@@ -62,15 +62,15 @@ class ModelInfo:
         return (self.supports_text, self.supports_document, self.supports_vision)
 
     @classmethod
-    def from_llm(cls, llm: "FastAgentLLMProtocol") -> Optional["ModelInfo"]:
-        name = getattr(llm, "model_name", None)
-        provider = getattr(llm, "provider", None)
-        if not name or not provider:
+    def from_llm(cls, llm: "FastAgentLLMProtocol") -> "ModelInfo" | None:
+        name = llm.model_name
+        provider = llm.provider
+        if not name:
             return None
         return cls.from_name(name, provider)
 
     @classmethod
-    def from_name(cls, name: str, provider: Provider | None = None) -> Optional["ModelInfo"]:
+    def from_name(cls, name: str, provider: Provider | None = None) -> "ModelInfo" | None:
         canonical_name = ModelFactory.MODEL_ALIASES.get(name, name)
         params = ModelDatabase.get_model_params(canonical_name)
         if not params:

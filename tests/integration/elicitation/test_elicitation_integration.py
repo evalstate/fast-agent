@@ -7,7 +7,7 @@ These tests verify that:
 3. Elicitation capabilities are properly advertised to servers
 """
 
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from mcp.shared.context import RequestContext
@@ -31,7 +31,7 @@ async def custom_test_elicitation_handler(
     if params.requestedSchema:
         # Generate test data based on the schema for round-trip verification
         properties = params.requestedSchema.get("properties", {})
-        content: Dict[str, Any] = {}
+        content: dict[str, Any] = {}
 
         # Provide test values for each field
         for field_name, field_def in properties.items():

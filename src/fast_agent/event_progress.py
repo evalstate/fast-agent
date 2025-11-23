@@ -1,7 +1,6 @@
 """Module for converting log events to progress events."""
 
 from enum import Enum
-from typing import Optional
 
 from pydantic import BaseModel
 
@@ -35,11 +34,11 @@ class ProgressEvent(BaseModel):
 
     action: ProgressAction
     target: str
-    details: Optional[str] = None
-    agent_name: Optional[str] = None
-    streaming_tokens: Optional[str] = None  # Special field for streaming token count
-    progress: Optional[float] = None  # Current progress value
-    total: Optional[float] = None  # Total value for progress calculation
+    details: str | None = None
+    agent_name: str | None = None
+    streaming_tokens: str | None = None  # Special field for streaming token count
+    progress: float | None = None  # Current progress value
+    total: float | None = None  # Total value for progress calculation
 
     def __str__(self) -> str:
         """Format the progress event for display."""

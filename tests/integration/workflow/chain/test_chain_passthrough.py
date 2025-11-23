@@ -42,7 +42,13 @@ async def test_chain_passthrough(fast_agent):  # CHAIN OF 3 BASIC AGENTS
             assert result == input_url
 
             result = await agent.topic_writer_cumulative.send("X")
-            # we expect the result to include tagged responses from all agents.
-            assert "X\nX\nX\nX" in result
+            # Expect tagged responses from all agents in cumulative output
+            assert "<fastagent:request>X</fastagent:request>" in result
+            assert "<fastagent:response agent='url_fetcher'>X</fastagent:response>" in result
+            assert "<fastagent:response agent='summary_writer'>X\nX</fastagent:response>" in result
+            assert (
+                "<fastagent:response agent='google_sheets_writer'>X\nX\nX\nX</fastagent:response>"
+                in result
+            )
 
     await chain_workflow()  # Call the inner function

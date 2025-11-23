@@ -4,7 +4,6 @@ It adds logging and supports sampling requests.
 """
 
 from datetime import timedelta
-from time import perf_counter
 from typing import TYPE_CHECKING
 
 from mcp import ClientSession, ServerNotification
@@ -112,11 +111,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # 1. Sampling is explicitly configured, OR
         # 2. Application-level auto_sampling is enabled
         sampling_cb = None
-        if (
-            self.server_config
-            and hasattr(self.server_config, "sampling")
-            and self.server_config.sampling
-        ):
+        if self.server_config and self.server_config.sampling:
             # Explicit sampling configuration
             sampling_cb = sample
         elif self._should_enable_auto_sampling():
@@ -208,7 +203,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
         request_id = getattr(self, "_request_id", None)
-        start_time = perf_counter()
         try:
             result = await super().send_request(
                 request=request,
@@ -222,7 +216,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 data=result.model_dump() if result is not None else "no response returned",
             )
             self._attach_transport_channel(request_id, result)
-            self._attach_transport_elapsed(result, perf_counter() - start_time)
             return result
         except Exception as e:
             # Handle connection errors cleanly
@@ -251,16 +244,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             setattr(result, "transport_channel", channel)
         except Exception:
             # If result cannot be mutated, ignore silently
-            pass
-
-    @staticmethod
-    def _attach_transport_elapsed(result, elapsed: float | None) -> None:
-        if result is None or elapsed is None:
-            return
-        try:
-            setattr(result, "transport_elapsed", max(elapsed, 0.0))
-        except Exception:
-            # Ignore if result is immutable
             pass
 
     async def _received_notification(self, notification: ServerNotification) -> None:

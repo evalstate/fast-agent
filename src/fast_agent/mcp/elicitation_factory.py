@@ -2,7 +2,7 @@
 Factory for resolving elicitation handlers with proper precedence.
 """
 
-from typing import Any, Optional
+from typing import Any
 
 from mcp.client.session import ElicitationFnT
 
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 def resolve_elicitation_handler(
     agent_config: AgentConfig, app_config: Any, server_config: Any = None
-) -> Optional[ElicitationFnT]:
+) -> ElicitationFnT | None:
     """Resolve elicitation handler with proper precedence.
 
     Precedence order:

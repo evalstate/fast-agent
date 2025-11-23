@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.3.21"
+version = "0.4.0"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -15,7 +15,7 @@ classifiers = [
 requires-python = ">=3.13.5,<3.14"
 dependencies = [
     "fastapi>=0.121.0",
-    "mcp==1.21.0",
+    "mcp==1.22.0",
     "opentelemetry-distro>=0.55b0",
     "opentelemetry-exporter-otlp-proto-http>=1.7.0",
     "pydantic-settings>=2.7.0",
@@ -23,21 +23,22 @@ dependencies = [
     "pyyaml>=6.0.2",
     "rich>=14.2.0",
     "typer>=0.20.0",
-    "anthropic>=0.72.0",
-    "openai[aiohttp]>=2.7.1",
+    "anthropic>=0.74.1",
+    "openai[aiohttp]>=2.8.1",
     "prompt-toolkit>=3.0.52",
     "aiohttp>=3.13.2",
-    "opentelemetry-instrumentation-openai>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-anthropic>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-mcp>=0.43.1; python_version >= '3.10' and python_version < '4.0'",
-    "google-genai>=1.49.0",
-    "opentelemetry-instrumentation-google-genai>=0.3b0",
+    "opentelemetry-instrumentation-openai>=0.49; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.49; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-mcp>=0.49; python_version >= '3.10' and python_version < '4.0'",
+    "google-genai>=1.52.0",
+    "opentelemetry-instrumentation-google-genai>=0.4b0",
     "deprecated>=1.2.18",
-    "a2a-sdk>=0.3.10",
+    "a2a-sdk>=0.3.16",
     "email-validator>=2.2.0",
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
     "python-frontmatter>=1.1.0",
+    "agent-client-protocol>=0.6.3",
 ]
 
 [project.optional-dependencies]
@@ -63,7 +64,6 @@ all-providers = [
     "tensorzero>=2025.7.5"
 ]
 dev = [
-    "anthropic>=0.42.0",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
@@ -99,7 +99,8 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "e2e: tests that connect to external resources (llms)",
     "integration: marks tests as integration tests",
-    "simulated_endpoints: marks tests that use simulated external endpoints"
+    "simulated_endpoints: marks tests that use simulated external endpoints",
+    "unit: marks tests as unit tests"
 ]
 
 # Filter out utcnow depreciation warnings from the boto3 library (if installed)
@@ -114,7 +115,6 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
-    "anthropic>=0.49.0",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "pyyaml>=6.0.2",
@@ -129,6 +129,7 @@ dev = [
 fast-agent = "fast_agent.cli.__main__:main"
 fast-agent-mcp = "fast_agent.cli.__main__:main"
 fastagent = "fast_agent.cli.__main__:app"
+fast-agent-acp = "fast_agent.cli.commands.acp:main"
 prompt-server = "fast_agent.mcp.prompts.__main__:main"
 
 
@@ -150,4 +151,10 @@ ignore=["E501"]
 "tests/*" = ["ANN"]  # Don't require type annotations in tests
 
 [tool.uv.workspace]
-members = ["examples/tensorzero/mcp_server"]
+members = [
+    "publish/fast-agent-acp",
+]
+
+[tool.uv.sources]
+fast-agent-mcp = { workspace = true }
+fast-agent-acp = { workspace = true }
