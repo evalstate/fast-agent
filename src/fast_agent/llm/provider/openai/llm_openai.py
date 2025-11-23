@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any
 
 from mcp import Tool
 from mcp.types import (
@@ -677,9 +677,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     async def _openai_completion(
         self,
-        message: List[OpenAIMessage] | None,
+        message: list[OpenAIMessage] | None,
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -689,11 +689,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         request_params = self.get_request_params(request_params=request_params)
 
-        response_content_blocks: List[ContentBlock] = []
+        response_content_blocks: list[ContentBlock] = []
         model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
 
         # TODO -- move this in to agent context management / agent group handling
-        messages: List[ChatCompletionMessageParam] = []
+        messages: list[ChatCompletionMessageParam] = []
         system_prompt = self.instruction or request_params.systemPrompt
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
@@ -702,7 +702,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         if message:
             messages.extend(message)
 
-        available_tools: List[ChatCompletionToolParam] | None = [
+        available_tools: list[ChatCompletionToolParam] | None = [
             {
                 "type": "function",
                 "function": {
@@ -797,7 +797,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         messages.append(message_dict)
         stop_reason = LlmStopReason.END_TURN
-        requested_tool_calls: Dict[str, CallToolRequest] | None = None
+        requested_tool_calls: dict[str, CallToolRequest] | None = None
         if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
             requested_tool_calls = {}
             stop_reason = LlmStopReason.TOOL_USE
@@ -883,9 +883,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """
@@ -909,7 +909,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         return await self._openai_completion(converted_messages, req_params, tools)
 
     def _prepare_api_request(
-        self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams
+        self, messages, tools: list[ChatCompletionToolParam] | None, request_params: RequestParams
     ) -> dict[str, str]:
         # Create base arguments dictionary
 
@@ -934,14 +934,14 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
-        arguments: Dict[str, str] = self.prepare_provider_arguments(
+        arguments: dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
         return arguments
 
     def _convert_extended_messages_to_provider(
-        self, messages: List[PromptMessageExtended]
-    ) -> List[ChatCompletionMessageParam]:
+        self, messages: list[PromptMessageExtended]
+    ) -> list[ChatCompletionMessageParam]:
         """
         Convert PromptMessageExtended list to OpenAI ChatCompletionMessageParam format.
         This is called fresh on every API call from _convert_to_provider_format().
@@ -952,7 +952,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         Returns:
             List of OpenAI ChatCompletionMessageParam objects
         """
-        converted: List[ChatCompletionMessageParam] = []
+        converted: list[ChatCompletionMessageParam] = []
 
         for msg in messages:
             # convert_to_openai returns a list of messages
@@ -960,7 +960,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         return converted
 
-    def adjust_schema(self, inputSchema: Dict) -> Dict:
+    def adjust_schema(self, inputSchema: dict) -> dict:
         # return inputSchema
         if self.provider not in [Provider.OPENAI, Provider.AZURE]:
             return inputSchema

@@ -1,6 +1,5 @@
 """Tests for the MCP UI Mixin."""
 
-from typing import List
 
 import pytest
 from mcp.types import CallToolResult, EmbeddedResource, TextContent, TextResourceContents
@@ -42,8 +41,8 @@ class StubAgent:
     async def show_assistant_message(
         self,
         message,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,

@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 from json import JSONDecodeError
-from typing import TYPE_CHECKING, Any, Iterator, List, Mapping, Optional, Union
+from typing import TYPE_CHECKING, Any, Iterator, Mapping, Union
 
 from mcp.types import CallToolResult
 from rich.markdown import Markdown
@@ -109,7 +109,7 @@ class ConsoleDisplay:
         message_type: MessageType,
         name: str | None = None,
         right_info: str = "",
-        bottom_metadata: List[str] | None = None,
+        bottom_metadata: list[str] | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
         is_error: bool = False,
@@ -174,7 +174,7 @@ class ConsoleDisplay:
         content: Any,
         truncate: bool = True,
         is_error: bool = False,
-        message_type: Optional[MessageType] = None,
+        message_type: MessageType | None = None,
         check_markdown_markers: bool = False,
     ) -> None:
         """
@@ -370,7 +370,7 @@ class ConsoleDisplay:
             else:
                 console.console.print(pretty_obj, markup=self._markup)
 
-    def _shorten_items(self, items: List[str], max_length: int) -> List[str]:
+    def _shorten_items(self, items: list[str], max_length: int) -> list[str]:
         """
         Shorten items to max_length with ellipsis if needed.
 
@@ -387,7 +387,7 @@ class ConsoleDisplay:
         self,
         *,
         message_type: MessageType,
-        bottom_metadata: List[str] | None,
+        bottom_metadata: list[str] | None,
         highlight_index: int | None,
         max_item_length: int | None,
     ) -> None:
@@ -437,7 +437,7 @@ class ConsoleDisplay:
 
     def _format_bottom_metadata(
         self,
-        items: List[str],
+        items: list[str],
         highlight_index: int | None,
         highlight_color: str,
         max_width: int | None = None,
@@ -609,12 +609,12 @@ class ConsoleDisplay:
     async def show_assistant_message(
         self,
         message_text: Union[str, Text, "PromptMessageExtended"],
-        bottom_items: List[str] | None = None,
+        bottom_items: list[str] | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional[Text] = None,
+        additional_message: Text | None = None,
     ) -> None:
         """Display an assistant message in a formatted panel.
 
@@ -674,7 +674,7 @@ class ConsoleDisplay:
     def streaming_assistant_message(
         self,
         *,
-        bottom_items: List[str] | None = None,
+        bottom_items: list[str] | None = None,
         highlight_index: int | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
@@ -718,7 +718,7 @@ class ConsoleDisplay:
         finally:
             handle.close()
 
-    def _display_mermaid_diagrams(self, diagrams: List[MermaidDiagram]) -> None:
+    def _display_mermaid_diagrams(self, diagrams: list[MermaidDiagram]) -> None:
         """Display mermaid diagram links."""
         diagram_content = Text()
         # Add bullet at the beginning
@@ -746,7 +746,7 @@ class ConsoleDisplay:
         console.console.print()
         console.console.print(diagram_content, markup=self._markup)
 
-    async def show_mcp_ui_links(self, links: List[UILink]) -> None:
+    async def show_mcp_ui_links(self, links: list[UILink]) -> None:
         """Display MCP-UI links beneath the chat like mermaid links."""
         if self.config and not self.config.logger.show_chat:
             return
@@ -824,12 +824,12 @@ class ConsoleDisplay:
     async def show_prompt_loaded(
         self,
         prompt_name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         message_count: int = 0,
-        agent_name: Optional[str] = None,
-        server_list: List[str] | None = None,
+        agent_name: str | None = None,
+        server_list: list[str] | None = None,
         highlight_server: str | None = None,
-        arguments: Optional[dict[str, str]] = None,
+        arguments: dict[str, str] | None = None,
     ) -> None:
         """
         Display information about a loaded prompt template.

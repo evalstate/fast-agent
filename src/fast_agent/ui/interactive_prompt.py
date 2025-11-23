@@ -15,7 +15,7 @@ Usage:
 """
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Dict, List, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 
@@ -46,7 +46,7 @@ from fast_agent.ui.usage_display import collect_agents_from_provider, display_us
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
 
 # Type alias for the agent getter function
-AgentGetter = Callable[[str], Optional[object]]
+AgentGetter = Callable[[str], object | None]
 
 
 class InteractivePrompt:
@@ -55,20 +55,20 @@ class InteractivePrompt:
     This is extracted from the original AgentApp implementation to support DirectAgentApp.
     """
 
-    def __init__(self, agent_types: Optional[Dict[str, AgentType]] = None) -> None:
+    def __init__(self, agent_types: dict[str, AgentType] | None = None) -> None:
         """
         Initialize the interactive prompt.
 
         Args:
             agent_types: Dictionary mapping agent names to their types for display
         """
-        self.agent_types: Dict[str, AgentType] = agent_types or {}
+        self.agent_types: dict[str, AgentType] = agent_types or {}
 
     async def prompt_loop(
         self,
         send_func: SendFunc,
         default_agent: str,
-        available_agents: List[str],
+        available_agents: list[str],
         prompt_provider: "AgentApp",
         default: str = "",
     ) -> str:
@@ -118,7 +118,7 @@ class InteractivePrompt:
 
                 # Check if we should switch agents
                 if isinstance(command_result, dict):
-                    command_dict: Dict[str, Any] = command_result
+                    command_dict: dict[str, Any] = command_result
                     if "switch_agent" in command_dict:
                         new_agent = command_dict["switch_agent"]
                         if new_agent in available_agents_set:
@@ -380,7 +380,7 @@ class InteractivePrompt:
         console.print(combined)
         rich_print()
 
-    async def _get_all_prompts(self, prompt_provider: "AgentApp", agent_name: Optional[str] = None):
+    async def _get_all_prompts(self, prompt_provider: "AgentApp", agent_name: str | None = None):
         """
         Get a list of all available prompts.
 
@@ -566,8 +566,8 @@ class InteractivePrompt:
         self,
         prompt_provider: "AgentApp",
         agent_name: str,
-        requested_name: Optional[str] = None,
-        send_func: Optional[SendFunc] = None,
+        requested_name: str | None = None,
+        send_func: SendFunc | None = None,
     ) -> None:
         """
         Select and apply a prompt.
@@ -597,7 +597,7 @@ class InteractivePrompt:
                     continue
 
                 # Extract prompts
-                prompts: List[Prompt] = []
+                prompts: list[Prompt] = []
                 if hasattr(prompts_info, "prompts"):
                     prompts = prompts_info.prompts
                 elif isinstance(prompts_info, list):

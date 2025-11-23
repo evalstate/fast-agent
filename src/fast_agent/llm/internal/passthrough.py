@@ -1,5 +1,5 @@
 import json  # Import at the module level
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from mcp import CallToolRequest, Tool
 from mcp.types import CallToolRequestParams, PromptMessage
@@ -41,7 +41,7 @@ class PassthroughLLM(FastAgentLLM):
     async def initialize(self) -> None:
         pass
 
-    def _parse_tool_command(self, command: str) -> tuple[str, Optional[dict]]:
+    def _parse_tool_command(self, command: str) -> tuple[str, dict | None]:
         """
         Parse a tool command string into tool name and arguments.
 
@@ -72,7 +72,7 @@ class PassthroughLLM(FastAgentLLM):
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,
@@ -85,7 +85,7 @@ class PassthroughLLM(FastAgentLLM):
         if last_message.role == "assistant":
             return last_message
 
-        tool_calls: Dict[str, CallToolRequest] = {}
+        tool_calls: dict[str, CallToolRequest] = {}
         stop_reason: LlmStopReason = LlmStopReason.END_TURN
         if self.is_tool_call(last_message):
             tool_name, arguments = self._parse_tool_command(last_message.first_text())
@@ -143,8 +143,8 @@ class PassthroughLLM(FastAgentLLM):
         return result
 
     def _convert_extended_messages_to_provider(
-        self, messages: List[PromptMessageExtended]
-    ) -> List[Any]:
+        self, messages: list[PromptMessageExtended]
+    ) -> list[Any]:
         """
         Convert PromptMessageExtended list to provider format.
         For PassthroughLLM, we don't actually make API calls, so this just returns empty list.

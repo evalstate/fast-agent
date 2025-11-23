@@ -3,13 +3,13 @@ Utility module for displaying usage statistics in a consistent format.
 Consolidates the usage display logic that was duplicated between fastagent.py and interactive_prompt.py.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from rich.console import Console
 
 
 def display_usage_report(
-    agents: Dict[str, Any], show_if_progress_disabled: bool = False, subdued_colors: bool = False
+    agents: dict[str, Any], show_if_progress_disabled: bool = False, subdued_colors: bool = False
 ) -> None:
     """
     Display a formatted table of token usage for all agents.
@@ -179,8 +179,8 @@ def display_usage_report(
 
 
 def collect_agents_from_provider(
-    prompt_provider: Any, agent_name: Optional[str] = None
-) -> Dict[str, Any]:
+    prompt_provider: Any, agent_name: str | None = None
+) -> dict[str, Any]:
     """
     Collect agents from a prompt provider for usage display.
 

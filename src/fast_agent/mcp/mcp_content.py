@@ -7,7 +7,7 @@ EmbeddedResource, and other MCP content types with minimal boilerplate.
 
 import base64
 from pathlib import Path
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Literal, Union
 
 from mcp.types import (
     Annotations,
@@ -54,7 +54,7 @@ def MCPText(
 def MCPImage(
     path: str | Path | None = None,
     data: bytes | None = None,
-    mime_type: Optional[str] = None,
+    mime_type: str | None = None,
     role: Literal["user", "assistant"] = "user",
     annotations: Annotations | None = None,
 ) -> dict:
@@ -99,7 +99,7 @@ def MCPImage(
 
 def MCPFile(
     path: Union[str, Path],
-    mime_type: Optional[str] = None,
+    mime_type: str | None = None,
     role: Literal["user", "assistant"] = "user",
     annotations: Annotations | None = None,
 ) -> dict:
@@ -152,7 +152,7 @@ def MCPFile(
 def MCPPrompt(
     *content_items: Union[dict, str, Path, bytes, ContentBlock, ReadResourceResult],
     role: Literal["user", "assistant"] = "user",
-) -> List[dict]:
+) -> list[dict]:
     """
     Create one or more prompt messages with various content types.
 
@@ -235,14 +235,14 @@ def MCPPrompt(
 
 def User(
     *content_items: Union[dict, str, Path, bytes, ContentBlock, ReadResourceResult],
-) -> List[dict]:
+) -> list[dict]:
     """Create user message(s) with various content types."""
     return MCPPrompt(*content_items, role="user")
 
 
 def Assistant(
     *content_items: Union[dict, str, Path, bytes, ContentBlock, ReadResourceResult],
-) -> List[dict]:
+) -> list[dict]:
     """Create assistant message(s) with various content types."""
     return MCPPrompt(*content_items, role="assistant")
 

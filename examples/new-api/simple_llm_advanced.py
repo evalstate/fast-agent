@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Dict
+from typing import Any
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 
@@ -52,7 +52,7 @@ def create_calculator_tool() -> FastMCPTool:
 
 
 # Example 3: Complex async tool with side effects
-async def send_email(to: str, subject: str, body: str) -> Dict[str, Any]:
+async def send_email(to: str, subject: str, body: str) -> dict[str, Any]:
     """Send an email (mock implementation).
 
     Args:

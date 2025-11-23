@@ -5,7 +5,7 @@ These utilities simplify extracting content from nested message structures
 without repetitive type checking.
 """
 
-from typing import List, Optional, Union, cast
+from typing import Union, cast
 
 from mcp.types import (
     EmbeddedResource,
@@ -34,7 +34,7 @@ class MessageContent:
     """
 
     @staticmethod
-    def get_all_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> List[str]:
+    def get_all_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> list[str]:
         """
         Extract all text content from a message.
 
@@ -73,7 +73,7 @@ class MessageContent:
         return separator.join(MessageContent.get_all_text(message))
 
     @staticmethod
-    def get_first_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> Optional[str]:
+    def get_first_text(message: Union[PromptMessage, "PromptMessageExtended"]) -> str | None:
         """
         Get the first available text content from a message.
 
@@ -114,7 +114,7 @@ class MessageContent:
     @staticmethod
     def get_text_at_first_position(
         message: Union[PromptMessage, "PromptMessageExtended"],
-    ) -> Optional[str]:
+    ) -> str | None:
         """
         Get the text from the first position of a message if it's TextContent.
 
@@ -135,7 +135,7 @@ class MessageContent:
         return cast("TextContent", message.content[0]).text
 
     @staticmethod
-    def get_all_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> List[str]:
+    def get_all_images(message: Union[PromptMessage, "PromptMessageExtended"]) -> list[str]:
         """
         Extract all image data from a message.
 
@@ -158,7 +158,7 @@ class MessageContent:
         return result
 
     @staticmethod
-    def get_first_image(message: Union[PromptMessage, "PromptMessageExtended"]) -> Optional[str]:
+    def get_first_image(message: Union[PromptMessage, "PromptMessageExtended"]) -> str | None:
         """
         Get the first available image data from a message.
 
@@ -181,7 +181,7 @@ class MessageContent:
     @staticmethod
     def get_all_resources(
         message: Union[PromptMessage, "PromptMessageExtended"],
-    ) -> List[EmbeddedResource]:
+    ) -> list[EmbeddedResource]:
         """
         Extract all embedded resources from a message.
 

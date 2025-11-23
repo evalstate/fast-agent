@@ -1,6 +1,6 @@
 """Helper functions for server configuration and naming."""
 
-from typing import Any, Dict
+from typing import Any
 
 
 def generate_server_name(identifier: str) -> str:
@@ -59,7 +59,7 @@ def generate_server_name(identifier: str) -> str:
     return server_name
 
 
-async def add_servers_to_config(fast_app: Any, servers: Dict[str, Dict[str, Any]]) -> None:
+async def add_servers_to_config(fast_app: Any, servers: dict[str, dict[str, Any]]) -> None:
     """Add server configurations to the FastAgent app config.
 
     This function handles the repetitive initialization and configuration

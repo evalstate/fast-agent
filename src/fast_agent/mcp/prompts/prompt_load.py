@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Literal
+from typing import Literal
 
 from mcp.server.fastmcp.prompts.base import (
     AssistantMessage,
@@ -31,8 +31,8 @@ def cast_message_role(role: str) -> MessageRole:
 
 
 def create_messages_with_resources(
-    content_sections: List[PromptContent], prompt_files: List[Path]
-) -> List[PromptMessage]:
+    content_sections: list[PromptContent], prompt_files: list[Path]
+) -> list[PromptMessage]:
     """
     Create a list of messages from content sections, with resources properly handled.
 
@@ -99,7 +99,7 @@ def create_resource_message(
         return message_class(content=embedded_resource)
 
 
-def load_prompt(file: Path) -> List[PromptMessageExtended]:
+def load_prompt(file: Path) -> list[PromptMessageExtended]:
     """
     Load a prompt from a file and return as PromptMessageExtended objects.
 

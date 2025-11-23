@@ -11,7 +11,7 @@ import base64
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any, Awaitable, Callable, Union
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import (
@@ -48,7 +48,7 @@ logger = logging.getLogger("prompt_server")
 mcp = FastMCP("Prompt Server")
 
 
-def convert_to_fastmcp_messages(prompt_messages: List[Union[PromptMessage, PromptMessageExtended]]) -> List[Message]:
+def convert_to_fastmcp_messages(prompt_messages: list[Union[PromptMessage, PromptMessageExtended]]) -> list[Message]:
     """
     Convert PromptMessage or PromptMessageExtended objects to FastMCP Message objects.
     This adapter prevents double-wrapping of messages and handles both types.
@@ -90,7 +90,7 @@ def convert_to_fastmcp_messages(prompt_messages: List[Union[PromptMessage, Promp
 class PromptConfig(PromptMetadata):
     """Configuration for the prompt server"""
 
-    prompt_files: List[Path] = []
+    prompt_files: list[Path] = []
     user_delimiter: str = DEFAULT_USER_DELIMITER
     assistant_delimiter: str = DEFAULT_ASSISTANT_DELIMITER
     resource_delimiter: str = DEFAULT_RESOURCE_DELIMITER
@@ -101,12 +101,12 @@ class PromptConfig(PromptMetadata):
 
 
 # We'll maintain registries of all exposed resources and prompts
-exposed_resources: Dict[str, Path] = {}
-prompt_registry: Dict[str, PromptMetadata] = {}
+exposed_resources: dict[str, Path] = {}
+prompt_registry: dict[str, PromptMetadata] = {}
 
 
 # Define a single type for prompt handlers to avoid mypy issues
-PromptHandler = Callable[..., Awaitable[List[Message]]]
+PromptHandler = Callable[..., Awaitable[list[Message]]]
 
 
 # Type for resource handler
@@ -132,8 +132,8 @@ def create_resource_handler(resource_path: Path, mime_type: str) -> ResourceHand
 
 
 def get_delimiter_config(
-    config: Optional[PromptConfig] = None, file_path: Optional[Path] = None
-) -> Dict[str, Any]:
+    config: PromptConfig | None = None, file_path: Path | None = None
+) -> dict[str, Any]:
     """Get delimiter configuration, falling back to defaults if config is None"""
     # Set defaults
     config_values = {
@@ -153,7 +153,7 @@ def get_delimiter_config(
     return config_values
 
 
-def register_prompt(file_path: Path, config: Optional[PromptConfig] = None) -> None:
+def register_prompt(file_path: Path, config: PromptConfig | None = None) -> None:
     """Register a prompt file"""
     try:
         # Check if it's a JSON file for ultra-minimal path

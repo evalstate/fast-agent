@@ -1,9 +1,9 @@
-from typing import Any, Dict
+from typing import Any
 
 from fast_agent.types import PromptMessageExtended
 
 # Bedrock message format types
-BedrockMessageParam = Dict[str, Any]
+BedrockMessageParam = dict[str, Any]
 
 
 class BedrockConverter:

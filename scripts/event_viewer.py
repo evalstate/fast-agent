@@ -7,7 +7,6 @@ import termios
 import tty
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
 
 import typer
 from rich.console import Console
@@ -33,13 +32,13 @@ def get_key() -> str:
 class EventDisplay:
     """Display MCP events from a log file."""
 
-    def __init__(self, events: List[Event]) -> None:
+    def __init__(self, events: list[Event]) -> None:
         self.events = events
         self.total = len(events)
         self.current = 0
-        self.current_iteration: Optional[int] = None
+        self.current_iteration: int | None = None
         self.tool_calls = 0
-        self.progress_events: List[ProgressEvent] = []
+        self.progress_events: list[ProgressEvent] = []
         self._process_current()
 
     def next(self, steps: int = 1) -> None:
@@ -154,7 +153,7 @@ class EventDisplay:
         return Panel(main_layout, title="MCP Event Viewer")
 
 
-def load_events(path: Path) -> List[Event]:
+def load_events(path: Path) -> list[Event]:
     """Load events from JSONL file."""
     events = []
     print(f"Loading events from {path}")  # Debug

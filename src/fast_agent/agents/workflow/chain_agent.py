@@ -5,7 +5,7 @@ This provides an implementation that delegates operations to a sequence of
 other agents, chaining their outputs together.
 """
 
-from typing import Any, List, Optional, Tuple, Type
+from typing import Any, Type
 
 from mcp import Tool
 from mcp.types import TextContent
@@ -35,9 +35,9 @@ class ChainAgent(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: List[LlmAgent],
+        agents: list[LlmAgent],
         cumulative: bool = False,
-        context: Optional[Any] = None,
+        context: Any | None = None,
         **kwargs,
     ) -> None:
         """
@@ -56,9 +56,9 @@ class ChainAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
-        request_params: Optional[RequestParams] = None,
-        tools: List[Tool] | None = None,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Chain the request through multiple agents in sequence.
@@ -85,10 +85,10 @@ class ChainAgent(LlmAgent):
             return response
 
         # Track all responses in the chain
-        all_responses: List[PromptMessageExtended] = []
+        all_responses: list[PromptMessageExtended] = []
 
         # Initialize list for storing formatted results
-        final_results: List[str] = []
+        final_results: list[str] = []
 
         # Add the original request with XML tag
         request_text = (
@@ -128,10 +128,10 @@ class ChainAgent(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
-        request_params: Optional[RequestParams] = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+        request_params: RequestParams | None = None,
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Chain the request through multiple agents and parse the final response.
 

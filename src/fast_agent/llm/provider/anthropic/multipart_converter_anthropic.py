@@ -1,5 +1,5 @@
 import re
-from typing import List, Sequence, Union
+from typing import Sequence, Union
 
 from anthropic.types import (
     Base64ImageSourceParam,
@@ -162,7 +162,7 @@ class AnthropicConverter:
     def _convert_content_items(
         content_items: Sequence[ContentBlock],
         document_mode: bool = True,
-    ) -> List[ContentBlockParam]:
+    ) -> list[ContentBlockParam]:
         """
         Convert a list of content items to Anthropic content blocks.
 
@@ -173,7 +173,7 @@ class AnthropicConverter:
         Returns:
             List of Anthropic content blocks
         """
-        anthropic_blocks: List[ContentBlockParam] = []
+        anthropic_blocks: list[ContentBlockParam] = []
 
         for content_item in content_items:
             if is_text_content(content_item):
@@ -392,7 +392,7 @@ class AnthropicConverter:
 
     @staticmethod
     def create_tool_results_message(
-        tool_results: List[tuple[str, CallToolResult]],
+        tool_results: list[tuple[str, CallToolResult]],
     ) -> MessageParam:
         """
         Create a user message containing tool results.

@@ -3,7 +3,7 @@ Iterative Planner Agent - works towards an objective using sub-agents
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Type
 
 from mcp import Tool
 from mcp.types import TextContent
@@ -166,9 +166,9 @@ class IterativePlanner(LlmAgent):
     def __init__(
         self,
         config: AgentConfig,
-        agents: List[AgentProtocol],
+        agents: list[AgentProtocol],
         plan_iterations: int = -1,
-        context: Optional[Any] = None,
+        context: Any | None = None,
         **kwargs,
     ) -> None:
         """
@@ -185,7 +185,7 @@ class IterativePlanner(LlmAgent):
             raise AgentConfigError("At least one worker agent must be provided")
 
         # Store agents by name for easier lookup
-        self.agents: Dict[str, AgentProtocol] = {}
+        self.agents: dict[str, AgentProtocol] = {}
         for agent in agents:
             agent_name = agent.name
             self.agents[agent_name] = agent
@@ -237,9 +237,9 @@ class IterativePlanner(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Execute an orchestrated plan to process the input.
@@ -262,10 +262,10 @@ class IterativePlanner(LlmAgent):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
-        request_params: Optional[RequestParams] = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+        request_params: RequestParams | None = None,
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Execute an orchestration plan and parse the result into a structured format.
 
@@ -386,7 +386,7 @@ class IterativePlanner(LlmAgent):
         for task in step.tasks:
             tasks_by_agent[task.agent].append(task)
 
-        async def execute_agent_tasks(agent_name: str, agent_tasks: List) -> List[TaskWithResult]:
+        async def execute_agent_tasks(agent_name: str, agent_tasks: list) -> list[TaskWithResult]:
             """Execute all tasks for a single agent sequentially (preserves history)"""
             agent = self.agents.get(agent_name)
             assert agent is not None
@@ -506,7 +506,7 @@ class IterativePlanner(LlmAgent):
             logger.error(f"Failed to parse next step: {str(e)}")
             return None
 
-    def _validate_agent_names(self, plan: Plan) -> List[str]:
+    def _validate_agent_names(self, plan: Plan) -> list[str]:
         """
         Validate all agent names in a plan before execution.
 

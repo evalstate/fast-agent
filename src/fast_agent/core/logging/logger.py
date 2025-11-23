@@ -12,7 +12,7 @@ import logging
 import threading
 import time
 from contextlib import asynccontextmanager, contextmanager
-from typing import Any, Dict
+from typing import Any
 
 from fast_agent.core.logging.events import Event, EventContext, EventFilter, EventType
 from fast_agent.core.logging.listeners import (
@@ -257,7 +257,7 @@ class LoggingConfig:
 
 
 _logger_lock = threading.Lock()
-_loggers: Dict[str, Logger] = {}
+_loggers: dict[str, Logger] = {}
 
 
 def get_logger(namespace: str) -> Logger:
@@ -304,7 +304,7 @@ def get_logger(namespace: str) -> Logger:
 # class Workflow:
 #     """Example workflow that logs multiple steps, also with optional tracing."""
 
-#     def __init__(self, name: str, steps: List[str]):
+#     def __init__(self, name: str, steps: list[str]):
 #         self.logger = Logger(f"workflow.{name}")
 #         self.steps = steps
 

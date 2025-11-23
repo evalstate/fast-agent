@@ -4,7 +4,6 @@ import base64
 import re
 import zlib
 from dataclasses import dataclass
-from typing import List, Optional
 
 # Mermaid chart viewer URL prefix
 MERMAID_VIEWER_URL = "https://www.mermaidchart.com/play#"
@@ -16,12 +15,12 @@ class MermaidDiagram:
     """Represents a detected Mermaid diagram."""
 
     content: str
-    title: Optional[str] = None
+    title: str | None = None
     start_pos: int = 0
     end_pos: int = 0
 
 
-def extract_mermaid_diagrams(text: str) -> List[MermaidDiagram]:
+def extract_mermaid_diagrams(text: str) -> list[MermaidDiagram]:
     """
     Extract all Mermaid diagram blocks from text content.
 
@@ -102,7 +101,7 @@ def create_mermaid_live_link(diagram_content: str) -> str:
     return f"{MERMAID_VIEWER_URL}pako:{encoded}"
 
 
-def format_mermaid_links(diagrams: List[MermaidDiagram]) -> List[str]:
+def format_mermaid_links(diagrams: list[MermaidDiagram]) -> list[str]:
     """
     Format Mermaid diagrams as markdown links.
 
