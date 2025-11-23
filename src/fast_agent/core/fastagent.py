@@ -176,7 +176,7 @@ class FastAgent:
             parser.add_argument(
                 "--transport",
                 choices=["sse", "http", "stdio", "acp"],
-                default="http",
+                default=None,
                 help="Transport protocol to use when running as a server (sse, http, stdio, or acp)",
             )
             parser.add_argument(
@@ -212,6 +212,29 @@ class FastAgent:
                 # Optionally, warn about unknown args if not ignoring?
                 # if unknown and not ignore_unknown_args:
                 #     logger.warning(f"Ignoring unknown command line arguments: {unknown}")
+
+            # Track whether CLI flags were explicitly provided
+            cli_args = sys.argv[1:]
+            server_flag_used = "--server" in cli_args
+            transport_flag_used = any(
+                arg == "--transport" or arg.startswith("--transport=") for arg in cli_args
+            )
+
+            # If a transport was provided, assume server mode even without --server
+            if transport_flag_used and not getattr(self.args, "server", False):
+                self.args.server = True
+
+            # Default the transport if still unset
+            if getattr(self.args, "transport", None) is None:
+                self.args.transport = "http"
+
+            # Warn that --server is deprecated when the user supplied it explicitly
+            if server_flag_used:
+                print(
+                    "--server is deprecated; server mode is implied when --transport is provided. "
+                    "This flag will be removed in a future release.",
+                    file=sys.stderr,
+                )
 
             # Handle version flag
             if self.args.version:

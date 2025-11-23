@@ -195,11 +195,12 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
 
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
-        "relevant to the Users task, intent or would increase effectiveness. \n"
-        "Use 'execute' for shell commands in the agent workspace. Any files you create will be visible to the user."
+        "relevant to the Users task, intent or would increase your effectiveness. \n"
+        "Use 'execute' to run shell commands in the agent workspace. Files you create will be visible to the user."
         "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
-        "Paths in skill documentation are relative to the skill's directory, not the workspace root. Use the full path from workspace root when executing."
-        "Only use skills listed in <available_skills> below.\n\n"
+        "Paths in Skill documentation are relative to that Skill's directory, NOT the workspace root.\n"
+        "For example if the 'test' skill has scripts/example.py access it with <skill_folder>/scripts/example.py.\n"
+        "Only use Skills listed in <available_skills> below.\n\n"
     )
     formatted_parts: list[str] = []
 
