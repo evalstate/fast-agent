@@ -600,7 +600,7 @@ class TestAnthropicToolConverter(unittest.TestCase):
 
 
 def create_text_resource(
-    text: str, filename_or_uri: str, mime_type: str = None
+    text: str, filename_or_uri: str, mime_type: str | None = None
 ) -> TextResourceContents:
     """
     Helper function to create a TextResourceContents with proper URI handling.

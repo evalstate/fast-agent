@@ -28,7 +28,7 @@ image_path = "image.png"
     structured_output=False,
 )
 async def get_image(
-    image_name: str = "default", ctx: Context = None
+    image_name: str = "default", ctx: Context | None = None
 ) -> list[TextContent | ImageContent]:
     try:
         # Use the global image path
