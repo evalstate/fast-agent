@@ -16,10 +16,10 @@ def get_server_config(ctx: Any) -> Union["MCPServerSettings", None]:
 
     # Check if ctx has a session attribute (RequestContext case)
     if hasattr(ctx, "session"):
-        if isinstance(ctx.session, MCPAgentClientSession) and hasattr(ctx.session, "server_config"):
+        if isinstance(ctx.session, MCPAgentClientSession):
             return ctx.session.server_config
     # Also check if ctx itself is MCPAgentClientSession (direct call case)
-    elif isinstance(ctx, MCPAgentClientSession) and hasattr(ctx, "server_config"):
+    elif isinstance(ctx, MCPAgentClientSession):
         return ctx.server_config
 
     return None

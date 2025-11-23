@@ -63,9 +63,9 @@ class ModelInfo:
 
     @classmethod
     def from_llm(cls, llm: "FastAgentLLMProtocol") -> "ModelInfo" | None:
-        name = getattr(llm, "model_name", None)
-        provider = getattr(llm, "provider", None)
-        if not name or not provider:
+        name = llm.model_name
+        provider = llm.provider
+        if not name:
             return None
         return cls.from_name(name, provider)
 

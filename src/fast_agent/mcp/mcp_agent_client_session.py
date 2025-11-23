@@ -111,11 +111,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # 1. Sampling is explicitly configured, OR
         # 2. Application-level auto_sampling is enabled
         sampling_cb = None
-        if (
-            self.server_config
-            and hasattr(self.server_config, "sampling")
-            and self.server_config.sampling
-        ):
+        if self.server_config and self.server_config.sampling:
             # Explicit sampling configuration
             sampling_cb = sample
         elif self._should_enable_auto_sampling():
