@@ -178,7 +178,6 @@ async def test_handling_multipart_json_format(fast_agent):
 async def test_prompt_server_sse_can_set_ports(fast_agent):
     # Start the SSE server in a subprocess
     import asyncio
-    import os
     import subprocess
 
     # Get the path to the test agent
@@ -226,7 +225,6 @@ async def test_prompt_server_sse_can_set_ports(fast_agent):
 async def test_prompt_server_http_can_set_ports(fast_agent):
     # Start the SSE server in a subprocess
     import asyncio
-    import os
     import subprocess
 
     # Get the path to the test agent
