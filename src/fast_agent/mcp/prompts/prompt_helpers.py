@@ -109,7 +109,7 @@ class MessageContent:
             return isinstance(message.content, TextContent)
 
         # For multipart messages, check if there's at least one item and the first is TextContent
-        return len(message.content) > 0 and isinstance(message.content[0], TextContent)
+        return bool(message.content) and isinstance(message.content[0], TextContent)
 
     @staticmethod
     def get_text_at_first_position(

@@ -85,7 +85,7 @@ class PassthroughLLM(FastAgentLLM):
         stop_reason: LlmStopReason = LlmStopReason.END_TURN
         if self.is_tool_call(last_message):
             tool_name, arguments = self._parse_tool_command(last_message.first_text())
-            tool_calls["correlationId" + str(self._correlation_id)] = CallToolRequest(
+            tool_calls[f"correlationId{self._correlation_id}"] = CallToolRequest(
                 method="tools/call",
                 params=CallToolRequestParams(name=tool_name, arguments=arguments),
             )

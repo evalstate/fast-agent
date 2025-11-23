@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import TYPE_CHECKING, Dict, List
 
 import pytest
@@ -181,7 +182,7 @@ async def test_prompt_server_sse_can_set_ports(fast_agent):
     import subprocess
 
     # Get the path to the test agent
-    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_dir = Path(__file__).resolve().parent
 
     # Port must match what's in the fastagent.config.yaml
     port = 8723
@@ -229,7 +230,7 @@ async def test_prompt_server_http_can_set_ports(fast_agent):
     import subprocess
 
     # Get the path to the test agent
-    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_dir = Path(__file__).resolve().parent
 
     # Port must match what's in the fastagent.config.yaml
     port = 8724
