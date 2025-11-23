@@ -12,13 +12,26 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import AbstractAsyncContextManager
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 from mcp.types import ContentBlock, TextContent
 
 if TYPE_CHECKING:
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+
+
+# Plan entry types for ACP plan mode
+PlanEntryPriority = Literal["high", "medium", "low"]
+PlanEntryStatus = Literal["pending", "in_progress", "completed"]
+
+
+@dataclass
+class PlanEntry:
+    """Represents a single entry in an execution plan."""
+    content: str
+    priority: PlanEntryPriority
+    status: PlanEntryStatus
 
 
 class WorkflowStepHandle(Protocol):
@@ -198,3 +211,18 @@ class ToolHandlerWorkflowTelemetry(NoOpWorkflowTelemetryProvider):
             server_name=effective_server,
             arguments=arguments,
         )
+
+
+class PlanTelemetryProvider(Protocol):
+    """Provider capable of sending plan updates."""
+
+    async def update_plan(self, entries: list[PlanEntry]) -> None:
+        """Send a plan update with the current list of entries."""
+        ...
+
+
+class NoOpPlanTelemetryProvider:
+    """Provider that ignores plan updates."""
+
+    async def update_plan(self, entries: list[PlanEntry]) -> None:
+        pass

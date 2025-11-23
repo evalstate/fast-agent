@@ -591,3 +591,61 @@ class ACPToolProgressManager:
             f"Cleaned up {count} tool trackers for session {session_id}",
             name="acp_tool_cleanup",
         )
+
+
+class ACPPlanTelemetryProvider:
+    """
+    Plan telemetry provider that sends plan updates via ACP session/update notifications.
+
+    Implements the PlanTelemetryProvider protocol to send plan status updates
+    to ACP clients using the plan sessionUpdate type.
+    """
+
+    def __init__(self, connection: "AgentSideConnection", session_id: str) -> None:
+        """
+        Initialize the plan telemetry provider.
+
+        Args:
+            connection: The ACP connection to send notifications on
+            session_id: The ACP session ID for this provider
+        """
+        self._connection = connection
+        self._session_id = session_id
+
+    async def update_plan(self, entries: list) -> None:
+        """
+        Send a plan update with the current list of entries.
+
+        Args:
+            entries: List of PlanEntry objects representing the current plan state
+        """
+        # Convert PlanEntry objects to dicts for JSON serialization
+        plan_entries = []
+        for entry in entries:
+            plan_entries.append({
+                "content": entry.content,
+                "priority": entry.priority,
+                "status": entry.status,
+            })
+
+        plan_update = {
+            "sessionUpdate": "plan",
+            "entries": plan_entries,
+        }
+
+        try:
+            notification = session_notification(self._session_id, plan_update)
+            await self._connection.sessionUpdate(notification)
+
+            logger.debug(
+                f"Sent plan update with {len(plan_entries)} entries",
+                name="acp_plan_update",
+                session_id=self._session_id,
+                entry_count=len(plan_entries),
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending plan update notification: {e}",
+                name="acp_plan_update_error",
+                exc_info=True,
+            )

@@ -24,6 +24,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.workflow_telemetry import PlanEntry
 
 logger = get_logger(__name__)
 
@@ -310,6 +311,9 @@ class IterativePlanner(LlmAgent):
         terminate_plan: str | None = None
         plan_result = PlanResult(objective=objective, step_results=[])
 
+        # Track plan entries for ACP plan mode
+        plan_entries: list[PlanEntry] = []
+
         while not objective_met and not terminate_plan:
             next_step: PlanningStep | None = await self._get_next_step(
                 objective, plan_result, request_params
@@ -338,6 +342,25 @@ class IterativePlanner(LlmAgent):
 
             for step in plan.steps:  # this will only be one for iterative (change later)
                 step_num = len(plan_result.step_results) + 1
+
+                # Add new step to plan entries as pending
+                step_description = step.description[:100] if step.description else f"Step {step_num}"
+                new_entry = PlanEntry(
+                    content=step_description,
+                    priority="high",
+                    status="pending",
+                )
+                plan_entries.append(new_entry)
+                await self.plan_telemetry.update_plan(plan_entries)
+
+                # Mark step as in_progress
+                plan_entries[-1] = PlanEntry(
+                    content=step_description,
+                    priority="high",
+                    status="in_progress",
+                )
+                await self.plan_telemetry.update_plan(plan_entries)
+
                 async with self.workflow_telemetry.start_step(
                     "planner.execute_step",
                     server_name=self.name,
@@ -354,6 +377,14 @@ class IterativePlanner(LlmAgent):
                         True,
                         text=f"Completed step {step_num} with {len(step.tasks)} task(s)"
                     )
+
+                # Mark step as completed
+                plan_entries[-1] = PlanEntry(
+                    content=step_description,
+                    priority="high",
+                    status="completed",
+                )
+                await self.plan_telemetry.update_plan(plan_entries)
 
             # Store plan in result
             plan_result.plan = plan
