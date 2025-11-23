@@ -564,7 +564,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         # If we somehow have no provider-native parts, ensure we send an empty user content
         if not turn_messages:
-            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text("")]))
+            turn_messages.append(types.Content(role="user", parts=[types.Part.from_text(text="")]))
 
         # Delegate to the native completion with explicit turn messages
         return await self._google_completion(
