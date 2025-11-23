@@ -52,7 +52,7 @@ class ToolDisplay:
             for tool_cfg in skybridge_config.tools:
                 if tool_cfg.tool_name == tool_name and tool_cfg.is_valid:
                     is_skybridge_tool = True
-                    skybridge_resource_uri = tool_cfg.resource_uri
+                    skybridge_resource_uri = str(tool_cfg.resource_uri) if tool_cfg.resource_uri else None
                     break
 
         if result.isError:
