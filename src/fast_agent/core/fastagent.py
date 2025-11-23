@@ -97,6 +97,7 @@ if TYPE_CHECKING:
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
+_FASTAGENT_DEBUG_PRINTED = False
 
 class FastAgent:
     """
@@ -127,6 +128,17 @@ class FastAgent:
                             (like FastAPI/Uvicorn) that handles its own arguments.
             quiet: If True, disable progress display, tool and message logging for cleaner output
         """
+        global _FASTAGENT_DEBUG_PRINTED
+        if not _FASTAGENT_DEBUG_PRINTED:
+            try:
+                from pathlib import Path
+
+                source_path = Path(__file__).resolve()
+                print(f"[FAST_AGENT DEBUG] FastAgent __init__ from {source_path}")
+            except Exception:
+                print("[FAST_AGENT DEBUG] FastAgent __init__ (path resolution failed)")
+            _FASTAGENT_DEBUG_PRINTED = True
+
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
         self._skills_directory_override = (
