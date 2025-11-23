@@ -1,4 +1,4 @@
-from typing import Any, Callable, Sequence
+from typing import Any, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
@@ -12,6 +12,7 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -76,13 +77,14 @@ class ToolAgent(LlmAgent):
 
     async def generate_impl(
         self,
-        messages: list[PromptMessageExtended],
+        messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: list[Tool] | None = None,
+        tools: List[Tool] | None = None,
+        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Generate a response using the LLM, and handle tool calls if necessary.
-        Messages are already normalized to list[PromptMessageExtended].
+        Messages are already normalized to List[PromptMessageExtended].
         """
         if tools is None:
             tools = (await self.list_tools()).tools
@@ -92,7 +94,10 @@ class ToolAgent(LlmAgent):
 
         while True:
             result = await super().generate_impl(
-                messages, request_params=request_params, tools=tools
+                messages,
+                request_params=request_params,
+                tools=tools,
+                cancellation_token=cancellation_token,
             )
 
             if LlmStopReason.TOOL_USE == result.stop_reason:
@@ -241,7 +246,7 @@ class ToolAgent(LlmAgent):
         """Return available tools for this agent. Overridable by subclasses."""
         return ListToolsResult(tools=list(self._tool_schemas))
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
+    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """Execute a tool by name using local FastMCP tools. Overridable by subclasses."""
         fast_tool = self._execution_tools.get(name)
         if not fast_tool:
