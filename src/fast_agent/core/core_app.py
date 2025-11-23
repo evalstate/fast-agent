@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager
-from os import PathLike
 from typing import TYPE_CHECKING, TypeVar
 
 from fast_agent.core.logging.logger import get_logger
@@ -10,6 +9,8 @@ from fast_agent.event_progress import ProgressAction
 
 if TYPE_CHECKING:
     # Only imported for type checking to avoid circular imports at runtime
+    from os import PathLike
+
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback

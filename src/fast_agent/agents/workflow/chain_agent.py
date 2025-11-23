@@ -138,7 +138,6 @@ class ChainAgent(LlmAgent):
 
                     current_response = await agent.generate(
                         chain_messages,
-                        forward_params,
                     )
 
                     # Store the response
