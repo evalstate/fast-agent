@@ -1,6 +1,7 @@
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import AsyncIterator
 
 import pytest
 from mcp.types import CallToolResult, TextContent, Tool
@@ -56,7 +57,7 @@ def _sanitize_model_name(model: str) -> str:
 
 
 @asynccontextmanager
-async def agent_session(model_name: str, label: str):
+async def agent_session(model_name: str, label: str) -> AsyncIterator[LlmAgent]:
     core = Core(settings=str(TEST_CONFIG_PATH))
     async with core.run():
         agent = LlmAgent(AgentConfig(label), core.context)
@@ -126,7 +127,7 @@ async def test_history_survives_across_models(tmp_path, create_model, check_mode
 
     async with agent_session(create_model, f"history-create-{create_model}") as creator_agent:
         await _create_history(creator_agent)
-        save_messages(creator_agent.llm.message_history, history_file)
+        save_messages(creator_agent.message_history, history_file)
 
     assert history_file.exists()
 

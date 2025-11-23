@@ -362,14 +362,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         assert self._llm
 
         multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
+        for msg in multipart_messages:
+            msg.is_template = True
+
         self._template_messages = [msg.model_copy(deep=True) for msg in multipart_messages]
         self._message_history = [msg.model_copy(deep=True) for msg in self._template_messages]
-
-        if hasattr(self._llm, "record_templates"):
-            try:
-                self._llm.record_templates(self._template_messages)
-            except Exception:
-                pass
 
         return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 

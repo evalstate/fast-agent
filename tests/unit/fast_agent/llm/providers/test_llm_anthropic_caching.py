@@ -10,6 +10,7 @@ from mcp.types import CallToolResult, TextContent
 
 from fast_agent.config import AnthropicSettings, Settings
 from fast_agent.context import Context
+from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import AnthropicConverter
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -34,10 +35,18 @@ class TestAnthropicCaching:
         llm = AnthropicLLM(context=ctx)
         return llm
 
+    def _apply_cache_plan(
+        self, messages: list[PromptMessageExtended], cache_mode: str, system_blocks: int = 0
+    ) -> list[dict]:
+        planner = AnthropicCachePlanner()
+        plan = planner.plan_indices(messages, cache_mode=cache_mode, system_cache_blocks=system_blocks)
+        converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
+        for idx in plan:
+            AnthropicLLM._apply_cache_control_to_message(converted[idx])
+        return converted
+
     def test_conversion_off_mode_no_cache_control(self):
         """Test that no cache_control is applied when cache_mode is 'off'."""
-        llm = self._create_llm(cache_mode="off")
-
         # Create test messages
         messages = [
             PromptMessageExtended(
@@ -48,8 +57,7 @@ class TestAnthropicCaching:
             ),
         ]
 
-        # Convert to provider format
-        converted = llm._convert_extended_messages_to_provider(messages)
+        converted = self._apply_cache_plan(messages, cache_mode="off")
 
         # Verify no cache_control in any message
         assert len(converted) == 2
@@ -63,28 +71,22 @@ class TestAnthropicCaching:
 
     def test_conversion_prompt_mode_templates_cached(self):
         """Test that template messages get cache_control in 'prompt' mode."""
-        llm = self._create_llm(cache_mode="prompt")
-
-        # Create template messages
+        # Create template + conversation messages (agent supplies all, flags templates)
         template_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="System context")]
+                role="user", content=[TextContent(type="text", text="System context")], is_template=True
             ),
             PromptMessageExtended(
-                role="assistant", content=[TextContent(type="text", text="Understood")]
+                role="assistant", content=[TextContent(type="text", text="Understood")], is_template=True
             ),
         ]
-        llm._template_messages = template_msgs
-
-        # Create conversation messages
         conversation_msgs = [
             PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text="Question")]
             ),
         ]
 
-        # Convert using _convert_to_provider_format which prepends templates
-        converted = llm._convert_to_provider_format(conversation_msgs)
+        converted = self._apply_cache_plan(template_msgs + conversation_msgs, cache_mode="prompt")
 
         # Verify we have 3 messages (2 templates + 1 conversation)
         assert len(converted) == 3
@@ -111,25 +113,18 @@ class TestAnthropicCaching:
 
     def test_conversion_auto_mode_templates_cached(self):
         """Test that template messages get cache_control in 'auto' mode."""
-        llm = self._create_llm(cache_mode="auto")
-
-        # Create template messages
         template_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Template")]
+                role="user", content=[TextContent(type="text", text="Template")], is_template=True
             ),
         ]
-        llm._template_messages = template_msgs
-
-        # Create conversation messages
         conversation_msgs = [
             PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text="Question")]
             ),
         ]
 
-        # Convert using _convert_to_provider_format
-        converted = llm._convert_to_provider_format(conversation_msgs)
+        converted = self._apply_cache_plan(template_msgs + conversation_msgs, cache_mode="auto")
 
         # Template message should have cache_control
         found_cache_control = False
@@ -144,28 +139,21 @@ class TestAnthropicCaching:
 
     def test_conversion_off_mode_templates_not_cached(self):
         """Test that template messages do NOT get cache_control when cache_mode is 'off'."""
-        llm = self._create_llm(cache_mode="off")
-
-        # Create template messages
         template_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Template")]
+                role="user", content=[TextContent(type="text", text="Template")], is_template=True
             ),
             PromptMessageExtended(
-                role="assistant", content=[TextContent(type="text", text="Response")]
+                role="assistant", content=[TextContent(type="text", text="Response")], is_template=True
             ),
         ]
-        llm._template_messages = template_msgs
-
-        # Create conversation messages
         conversation_msgs = [
             PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text="Question")]
             ),
         ]
 
-        # Convert using _convert_to_provider_format
-        converted = llm._convert_to_provider_format(conversation_msgs)
+        converted = self._apply_cache_plan(template_msgs + conversation_msgs, cache_mode="off")
 
         # No messages should have cache_control
         for msg in converted:
@@ -178,8 +166,6 @@ class TestAnthropicCaching:
 
     def test_conversion_multiple_messages_structure(self):
         """Test that message structure is preserved during conversion."""
-        llm = self._create_llm(cache_mode="off")
-
         messages = [
             PromptMessageExtended(
                 role="user", content=[TextContent(type="text", text="First")]
@@ -192,7 +178,7 @@ class TestAnthropicCaching:
             ),
         ]
 
-        converted = llm._convert_extended_messages_to_provider(messages)
+        converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
 
         # Verify structure
         assert len(converted) == 3
@@ -257,18 +243,14 @@ class TestAnthropicCaching:
 
     def test_conversion_with_templates_only(self):
         """Test conversion when only templates exist (no conversation)."""
-        llm = self._create_llm(cache_mode="prompt")
-
         # Create template messages
         template_msgs = [
             PromptMessageExtended(
-                role="user", content=[TextContent(type="text", text="Template")]
+                role="user", content=[TextContent(type="text", text="Template")], is_template=True
             ),
         ]
-        llm._template_messages = template_msgs
 
-        # Convert with empty conversation
-        converted = llm._convert_to_provider_format([])
+        converted = self._apply_cache_plan(template_msgs, cache_mode="prompt")
 
         # Should have just the template
         assert len(converted) == 1
@@ -283,8 +265,6 @@ class TestAnthropicCaching:
 
     def test_cache_control_on_last_content_block(self):
         """Test that cache_control is applied to the last content block of template messages."""
-        llm = self._create_llm(cache_mode="prompt")
-
         # Create a template with multiple content blocks
         template_msgs = [
             PromptMessageExtended(
@@ -293,12 +273,11 @@ class TestAnthropicCaching:
                     TextContent(type="text", text="First block"),
                     TextContent(type="text", text="Second block"),
                 ],
+                is_template=True,
             ),
         ]
-        llm._template_messages = template_msgs
 
-        # Convert with empty conversation
-        converted = llm._convert_to_provider_format([])
+        converted = self._apply_cache_plan(template_msgs, cache_mode="prompt")
 
         # Cache control should be on the last block
         content_blocks = converted[0]["content"]
