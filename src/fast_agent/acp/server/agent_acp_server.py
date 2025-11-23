@@ -54,7 +54,7 @@ from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
-from fast_agent.workflow_telemetry import ToolHandlerWorkflowTelemetry
+from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
 
@@ -507,6 +507,11 @@ class AgentACPServer(ACPAgent):
 
                     if hasattr(agent, "workflow_telemetry"):
                         agent.workflow_telemetry = workflow_telemetry
+
+                    # Set plan telemetry for iterative planners
+                    if hasattr(agent, "plan_telemetry"):
+                        plan_telemetry = ACPPlanTelemetryProvider(self._connection, session_id)
+                        agent.plan_telemetry = plan_telemetry
 
                     # Register tool handler as stream listener to get early tool start events
                     if hasattr(agent, "llm") and hasattr(agent.llm, "add_tool_stream_listener"):

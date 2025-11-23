@@ -1,11 +1,14 @@
 """
-Workflow telemetry helpers for emitting virtual tool progress.
+Workflow telemetry helpers for emitting virtual tool progress and plan updates.
 
-This module provides a pluggable abstraction that workflows (router, parallel)
+This module provides a pluggable abstraction that workflows (router, parallel, chain)
 can use to announce delegation steps without knowing which transport consumes
 the events. Transports that care about surfacing these events (e.g. ACP) can
 install a telemetry implementation that forwards them to tool progress
 notifications, while the default implementation is a no-op.
+
+Additionally, provides plan telemetry for iterative planners to share their
+execution plans with clients that support plan mode (like ACP).
 """
 
 from __future__ import annotations
@@ -13,11 +16,14 @@ from __future__ import annotations
 import asyncio
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, List, Protocol
 
 from mcp.types import ContentBlock, TextContent
 
 if TYPE_CHECKING:
+    from acp import AgentSideConnection
+    from acp.schema import PlanEntryPriority, PlanEntryStatus
+
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 
@@ -198,3 +204,61 @@ class ToolHandlerWorkflowTelemetry(NoOpWorkflowTelemetryProvider):
             server_name=effective_server,
             arguments=arguments,
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Plan Telemetry - for Iterative Planner to share execution plans via ACP
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class PlanTelemetryProvider(Protocol):
+    """Provider capable of sending plan updates to clients."""
+
+    async def update_plan(
+        self,
+        entries: List[tuple[str, "PlanEntryPriority", "PlanEntryStatus"]],
+    ) -> None:
+        """
+        Send a plan update with the current state of all plan entries.
+
+        Args:
+            entries: List of (content, priority, status) tuples for each plan entry
+        """
+        ...
+
+
+class NoOpPlanTelemetryProvider:
+    """Provider that does nothing - used when no transport wants plan updates."""
+
+    async def update_plan(
+        self,
+        entries: List[tuple[str, "PlanEntryPriority", "PlanEntryStatus"]],
+    ) -> None:
+        pass
+
+
+class ACPPlanTelemetryProvider:
+    """
+    Plan telemetry provider that sends plan updates via ACP session/update notifications.
+    """
+
+    def __init__(self, connection: "AgentSideConnection", session_id: str) -> None:
+        self._connection = connection
+        self._session_id = session_id
+
+    async def update_plan(
+        self,
+        entries: List[tuple[str, "PlanEntryPriority", "PlanEntryStatus"]],
+    ) -> None:
+        """Send a plan update to the ACP client."""
+        from acp.helpers import session_notification
+        from acp.schema import AgentPlanUpdate, PlanEntry
+
+        plan_entries = [
+            PlanEntry(content=content, priority=priority, status=status)
+            for content, priority, status in entries
+        ]
+
+        plan_update = AgentPlanUpdate(sessionUpdate="plan", entries=plan_entries)
+        notification = session_notification(self._session_id, plan_update)
+        await self._connection.sessionUpdate(notification)
