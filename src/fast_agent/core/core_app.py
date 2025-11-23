@@ -9,6 +9,8 @@ from fast_agent.event_progress import ProgressAction
 
 if TYPE_CHECKING:
     # Only imported for type checking to avoid circular imports at runtime
+    from os import PathLike
+
     from fast_agent.config import Settings
     from fast_agent.context import Context
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
@@ -24,7 +26,7 @@ class Core:
     def __init__(
         self,
         name: str = "fast-agent",
-        settings: Settings | None | str = None,
+        settings: Settings | None | str | PathLike[str] = None,
         signal_notification: SignalWaitCallback | None = None,
     ) -> None:
         """
@@ -32,7 +34,7 @@ class Core:
         Args:
             name:
             settings: If unspecified, the settings are loaded from fastagent.config.yaml.
-                If this is a string, it is treated as the path to the config file to load.
+                If this is a string or path-like object, it is treated as the path to the config file to load.
             signal_notification: Callback for getting notified on workflow signals/events.
         """
         self.name = name

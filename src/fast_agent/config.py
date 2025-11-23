@@ -645,7 +645,7 @@ class Settings(BaseSettings):
 _settings: Settings | None = None
 
 
-def get_settings(config_path: str | None = None) -> Settings:
+def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
     def resolve_env_vars(config_item: Any) -> Any:

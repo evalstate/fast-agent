@@ -4,8 +4,9 @@ import asyncio
 import concurrent.futures
 import logging
 import uuid
+from os import PathLike
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -184,15 +185,16 @@ async def configure_executor(config: "Settings"):
 
 
 async def initialize_context(
-    config: Union["Settings", str] | None = None, store_globally: bool = False
+    config: Settings | str | PathLike[str] | None = None, store_globally: bool = False
 ):
     """
     Initialize the global application context.
     """
     if config is None:
         config = get_settings()
-    elif isinstance(config, str):
-        config = get_settings(config_path=config)
+    elif isinstance(config, (str, PathLike)):
+        # Accept pathlib.Path and other path-like objects for convenience in tests
+        config = get_settings(config_path=str(config))
 
     context = Context()
     context.config = config
