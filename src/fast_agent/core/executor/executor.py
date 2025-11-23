@@ -104,7 +104,7 @@ class Executor(ABC, ContextDependent):
         """
         Run `func(item)` for each item in `inputs` with concurrency limit.
         """
-        results: List[R, BaseException] = []
+        results: List[R | BaseException] = []
 
         async def run(item):
             if self.config.max_concurrent_activities:
