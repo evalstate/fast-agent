@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -18,7 +19,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
-from fast_agent.llm.cancellation import CancellationError, CancellationToken
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
 from fast_agent.llm.provider_types import Provider
@@ -1027,7 +1028,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                 # Check for cancellation before processing each event
                 if cancellation_token and cancellation_token.is_cancelled:
                     self.logger.info("Stream cancelled by user")
-                    raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+                    raise asyncio.CancelledError()
 
                 if "messageStart" in event:
                     # Message started

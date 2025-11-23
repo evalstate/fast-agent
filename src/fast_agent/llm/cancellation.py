@@ -5,6 +5,9 @@ This module provides a CancellationToken that can be used to cancel
 in-flight LLM requests, particularly useful for:
 - ESC key cancellation in interactive sessions
 - ACP session/cancel protocol support
+
+When cancellation is detected, raise asyncio.CancelledError for proper
+asyncio integration.
 """
 
 import asyncio
@@ -73,14 +76,6 @@ class CancellationToken:
         self._cancel_reason = None
 
 
-class CancellationError(Exception):
-    """
-    Exception raised when an operation is cancelled.
-
-    This is not an error condition - it indicates intentional cancellation
-    by the user or system.
-    """
-
-    def __init__(self, reason: str = "Operation cancelled"):
-        self.reason = reason
-        super().__init__(reason)
+# Deprecated: Use asyncio.CancelledError instead
+# Kept for backward compatibility during transition
+CancellationError = asyncio.CancelledError

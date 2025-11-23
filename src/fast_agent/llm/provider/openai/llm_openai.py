@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from mcp import Tool
@@ -24,7 +25,7 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
-from fast_agent.llm.cancellation import CancellationError, CancellationToken
+from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
@@ -236,7 +237,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Check for cancellation before processing each chunk
             if cancellation_token and cancellation_token.is_cancelled:
                 _logger.info("Stream cancelled by user")
-                raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+                raise asyncio.CancelledError()
 
             # Handle chunk accumulation
             state.handle_chunk(chunk)
@@ -464,7 +465,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Check for cancellation before processing each chunk
             if cancellation_token and cancellation_token.is_cancelled:
                 self.logger.info("Stream cancelled by user")
-                raise CancellationError(cancellation_token.cancel_reason or "cancelled")
+                raise asyncio.CancelledError()
 
             # Process streaming events for tool calls
             if chunk.choices:
@@ -760,8 +761,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
                 response = await self._process_stream(stream, model_name, cancellation_token)
-        except CancellationError as e:
-            self.logger.info(f"OpenAI completion cancelled: {e.reason}")
+        except asyncio.CancelledError:
+            self.logger.info("OpenAI completion cancelled")
             # Return a response indicating cancellation
             return Prompt.assistant(
                 TextContent(type="text", text=""),
