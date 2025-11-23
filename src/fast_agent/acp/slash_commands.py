@@ -10,6 +10,7 @@ from __future__ import annotations
 import textwrap
 import time
 from importlib.metadata import version as get_version
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acp.schema import AvailableCommand, AvailableCommandInput, CommandInputHint
@@ -19,6 +20,7 @@ from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
 
@@ -90,6 +92,11 @@ class SlashCommandHandler:
                 description="Clear history (`last` for prev. turn)",
                 input=AvailableCommandInput(root=CommandInputHint(hint="[last]")),
             ),
+            "load": AvailableCommand(
+                name="load",
+                description="Load conversation history from file",
+                input=AvailableCommandInput(root=CommandInputHint(hint="<filename>")),
+            ),
         }
 
     def get_available_commands(self) -> list[AvailableCommand]:
@@ -159,6 +166,8 @@ class SlashCommandHandler:
             return await self._handle_save(arguments)
         if command_name == "clear":
             return await self._handle_clear(arguments)
+        if command_name == "load":
+            return await self._handle_load(arguments)
 
         return f"Command /{command_name} is not yet implemented."
 
@@ -539,6 +548,81 @@ class SlashCommandHandler:
                 "",
                 "Conversation history saved successfully.",
                 f"Filename: `{saved_path}`",
+            ]
+        )
+
+    async def _handle_load(self, arguments: str | None = None) -> str:
+        """Handle the /load command by loading conversation history from file."""
+        heading = "# load conversation"
+
+        agent = self.instance.agents.get(self.current_agent_name)
+        if not agent:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
+                ]
+            )
+
+        filename = arguments.strip() if arguments and arguments.strip() else None
+
+        if not filename:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Please specify a filename to load.",
+                    "Usage: `/load <filename>`",
+                    "",
+                    "Supported formats:",
+                    "- `.json` - Full conversation history with tool calls and metadata",
+                    "- `.md` - Template format with resource loading",
+                ]
+            )
+
+        file_path = Path(filename)
+
+        # Check if file exists
+        if not file_path.exists():
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"File not found: `{filename}`",
+                    "",
+                    "Please ensure the file exists and the path is correct.",
+                ]
+            )
+
+        try:
+            # Get message count before loading
+            original_count = len(agent.message_history) if hasattr(agent, "message_history") else 0
+
+            # Load history into agent
+            load_history_into_agent(agent, file_path)
+
+            # Get message count after loading
+            new_count = len(agent.message_history) if hasattr(agent, "message_history") else 0
+
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to load conversation history.",
+                    f"Details: {exc}",
+                ]
+            )
+
+        return "\n".join(
+            [
+                heading,
+                "",
+                "Conversation history loaded successfully.",
+                f"Filename: `{filename}`",
+                f"Messages loaded: {new_count}",
+                f"Previous messages cleared: {original_count}",
             ]
         )
 

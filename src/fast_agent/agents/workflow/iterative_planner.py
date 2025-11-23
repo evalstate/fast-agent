@@ -337,8 +337,23 @@ class IterativePlanner(LlmAgent):
                 break
 
             for step in plan.steps:  # this will only be one for iterative (change later)
-                step_result = await self._execute_step(step, plan_result)
-                plan_result.add_step_result(step_result)
+                step_num = len(plan_result.step_results) + 1
+                async with self.workflow_telemetry.start_step(
+                    "planner.execute_step",
+                    server_name=self.name,
+                    arguments={
+                        "step": step_num,
+                        "description": step.description[:100] if step.description else "",
+                        "tasks": len(step.tasks),
+                    },
+                ) as telemetry_step:
+                    await telemetry_step.update(message=f"Step {step_num}: {step.description[:80]}...")
+                    step_result = await self._execute_step(step, plan_result)
+                    plan_result.add_step_result(step_result)
+                    await telemetry_step.finish(
+                        True,
+                        text=f"Completed step {step_num} with {len(step.tasks)} task(s)"
+                    )
 
             # Store plan in result
             plan_result.plan = plan
@@ -353,10 +368,21 @@ class IterativePlanner(LlmAgent):
             plan_result=format_plan_result(plan_result), termination_reason=terminate_plan
         )
 
-        # Generate final synthesis
-        final_message = await self._planner_generate_str(result_prompt, request_params)
-        plan_result.result = final_message.last_text() or "No final message generated"
-        await self.show_assistant_message(final_message)
+        # Generate final synthesis with telemetry
+        async with self.workflow_telemetry.start_step(
+            "planner.synthesis",
+            server_name=self.name,
+            arguments={
+                "steps_completed": len(plan_result.step_results),
+                "termination_reason": terminate_plan[:100],
+            },
+        ) as step:
+            await step.update(message="Synthesizing results...")
+            final_message = await self._planner_generate_str(result_prompt, request_params)
+            plan_result.result = final_message.last_text() or "No final message generated"
+            await self.show_assistant_message(final_message)
+            await step.finish(True, text="Plan synthesis complete")
+
         return plan_result
 
     async def _execute_step(self, step: Step, previous_result: PlanResult) -> Any:
@@ -392,38 +418,48 @@ class IterativePlanner(LlmAgent):
             assert agent is not None
 
             results = []
-            for task in agent_tasks:
-                try:
-                    task_description = DELEGATED_TASK_TEMPLATE.format(
-                        objective=previous_result.objective, task=task.description, context=context
-                    )
-                    result = await agent.generate(
-                        [
-                            PromptMessageExtended(
-                                role="user",
-                                content=[TextContent(type="text", text=task_description)],
-                            )
-                        ]
-                    )
+            for task_idx, task in enumerate(agent_tasks):
+                async with self.workflow_telemetry.start_step(
+                    "planner.task",
+                    server_name=self.name,
+                    arguments={
+                        "agent": agent_name,
+                        "task": task.description[:80] if task.description else "",
+                    },
+                ) as telemetry_step:
+                    try:
+                        task_description = DELEGATED_TASK_TEMPLATE.format(
+                            objective=previous_result.objective, task=task.description, context=context
+                        )
+                        result = await agent.generate(
+                            [
+                                PromptMessageExtended(
+                                    role="user",
+                                    content=[TextContent(type="text", text=task_description)],
+                                )
+                            ]
+                        )
 
-                    task_model = task.model_dump()
-                    results.append(
-                        TaskWithResult(
-                            description=task_model["description"],
-                            agent=task_model["agent"],
-                            result=result.last_text() or "<missing response>",
+                        task_model = task.model_dump()
+                        results.append(
+                            TaskWithResult(
+                                description=task_model["description"],
+                                agent=task_model["agent"],
+                                result=result.last_text() or "<missing response>",
+                            )
                         )
-                    )
-                except Exception as e:
-                    logger.error(f"Error executing task: {str(e)}")
-                    task_model = task.model_dump()
-                    results.append(
-                        TaskWithResult(
-                            description=task_model["description"],
-                            agent=task_model["agent"],
-                            result=f"ERROR: {str(e)}",
+                        await telemetry_step.finish(True, text=f"{agent_name} completed task")
+                    except Exception as e:
+                        logger.error(f"Error executing task: {str(e)}")
+                        task_model = task.model_dump()
+                        results.append(
+                            TaskWithResult(
+                                description=task_model["description"],
+                                agent=task_model["agent"],
+                                result=f"ERROR: {str(e)}",
+                            )
                         )
-                    )
+                        await telemetry_step.finish(False, error=str(e))
             return results
 
         # Execute different agents in parallel, tasks within each agent sequentially
