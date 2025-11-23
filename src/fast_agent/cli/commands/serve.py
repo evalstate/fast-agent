@@ -34,6 +34,10 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True, no_args_is_help=False)
 def serve(
     ctx: typer.Context,
+    transport: ServeTransport = typer.Argument(
+        ServeTransport.HTTP,
+        help="Transport protocol to expose (http, sse, stdio, acp)",
+    ),
     name: str = typer.Option("fast-agent", "--name", help="Name for the MCP server"),
     instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
@@ -72,11 +76,6 @@ def serve(
         "-d",
         help="Description used for the exposed send tool (use {agent} to reference the agent name)",
     ),
-    transport: ServeTransport = typer.Option(
-        ServeTransport.HTTP,
-        "--transport",
-        help="Transport protocol to expose (http, sse, stdio, acp)",
-    ),
     host: str = typer.Option(
         "0.0.0.0",
         "--host",
@@ -103,10 +102,11 @@ def serve(
     Run FastAgent as an MCP server.
 
     Examples:
-        fast-agent serve --model=haiku --instruction=./instruction.md --transport=http --port=8000
+        fast-agent serve --model=haiku --instruction=./instruction.md --port=8000
+        fast-agent serve sse --port=8000 --model=haiku
+        fast-agent serve acp --instruction=./prompt.md --servers=filesystem
         fast-agent serve --url=http://localhost:8001/mcp --auth=YOUR_API_TOKEN
         fast-agent serve --stdio "python my_server.py --debug"
-        fast-agent serve --npx "@modelcontextprotocol/server-filesystem /path/to/data"
         fast-agent serve --description "Interact with the {agent} assistant"
     """
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
