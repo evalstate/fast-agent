@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp.types import TextContent
@@ -30,7 +30,7 @@ END_TURN: StopReason = "end_turn"
 
 @dataclass
 class StubAgent:
-    message_history: List[Any] = field(default_factory=list)
+    message_history: list[Any] = field(default_factory=list)
     _llm: Any = None
     cleared: bool = False
     popped: bool = False
@@ -48,7 +48,7 @@ class StubAgent:
 
 @dataclass
 class StubAgentInstance:
-    agents: Dict[str, Any] = field(default_factory=dict)
+    agents: dict[str, Any] = field(default_factory=dict)
 
 
 def _handler(
@@ -220,9 +220,9 @@ async def test_slash_command_save_conversation() -> None:
     class RecordingHistoryExporter:
         def __init__(self, default_name: str = "24_01_01_12_00-conversation.json") -> None:
             self.default_name = default_name
-            self.calls: List[tuple[Any, Optional[str]]] = []
+            self.calls: list[tuple[Any, str | None]] = []
 
-        async def save(self, agent, filename: Optional[str] = None) -> str:
+        async def save(self, agent, filename: str | None = None) -> str:
             self.calls.append((agent, filename))
             return filename or self.default_name
 

@@ -1,12 +1,12 @@
 """Helper functions for type-safe server config access."""
 
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Union
 
 if TYPE_CHECKING:
     from fast_agent.config import MCPServerSettings
 
 
-def get_server_config(ctx: Any) -> Optional["MCPServerSettings"]:
+def get_server_config(ctx: Any) -> Union["MCPServerSettings", None]:
     """Extract server config from context if available.
 
     Type guard helper that safely accesses server_config with proper type checking.

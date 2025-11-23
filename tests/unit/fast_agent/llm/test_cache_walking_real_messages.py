@@ -1,15 +1,15 @@
 import unittest
-from typing import Any, Dict, List
+from typing import Any
 
 from fast_agent.llm.memory import SimpleMemory
 
 
-def create_message(role: str, text: str, turn: int = 0) -> Dict[str, Any]:
+def create_message(role: str, text: str, turn: int = 0) -> dict[str, Any]:
     """Create a realistic message dict."""
     return {"role": role, "content": [{"type": "text", "text": f"{text} (turn {turn})"}]}
 
 
-def create_tool_response_message(tool_result: str, turn: int = 0) -> Dict[str, Any]:
+def create_tool_response_message(tool_result: str, turn: int = 0) -> dict[str, Any]:
     """Create a tool response message."""
     return {
         "role": "user",
@@ -17,7 +17,7 @@ def create_tool_response_message(tool_result: str, turn: int = 0) -> Dict[str, A
     }
 
 
-def has_cache_control(message: Dict[str, Any]) -> bool:
+def has_cache_control(message: dict[str, Any]) -> bool:
     """Check if a message has cache control."""
     if not isinstance(message, dict) or "content" not in message:
         return False
@@ -30,7 +30,7 @@ def has_cache_control(message: Dict[str, Any]) -> bool:
     return False
 
 
-def count_cache_blocks(messages: List[Dict[str, Any]]) -> int:
+def count_cache_blocks(messages: list[dict[str, Any]]) -> int:
     """Count total cache blocks in message array."""
     return sum(1 for msg in messages if has_cache_control(msg))
 

@@ -5,8 +5,6 @@ Shows keyring backend, per-server OAuth token status, and provides a way to clea
 
 from __future__ import annotations
 
-from typing import Dict, List, Optional
-
 import typer
 from rich.table import Table
 
@@ -99,9 +97,9 @@ def _server_rows_from_settings(settings: Settings):
     return rows
 
 
-def _servers_by_identity(settings: Settings) -> Dict[str, List[str]]:
+def _servers_by_identity(settings: Settings) -> dict[str, list[str]]:
     """Group configured server names by derived identity (base URL)."""
-    mapping: Dict[str, List[str]] = {}
+    mapping: dict[str, list[str]] = {}
     mcp = getattr(settings, "mcp", None)
     servers = getattr(mcp, "servers", {}) if mcp else {}
     for name, cfg in servers.items():
@@ -115,8 +113,8 @@ def _servers_by_identity(settings: Settings) -> Dict[str, List[str]]:
 
 @app.command()
 def status(
-    target: Optional[str] = typer.Argument(None, help="Identity (base URL) or server name"),
-    config_path: Optional[str] = typer.Option(None, "--config-path", "-c"),
+    target: str | None = typer.Argument(None, help="Identity (base URL) or server name"),
+    config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
     """Show keyring backend and token status for configured MCP servers."""
     settings = get_settings(config_path)
@@ -240,12 +238,12 @@ def status(
 
 @app.command()
 def clear(
-    server: Optional[str] = typer.Argument(None, help="Server name to clear (from config)"),
-    identity: Optional[str] = typer.Option(
+    server: str | None = typer.Argument(None, help="Server name to clear (from config)"),
+    identity: str | None = typer.Option(
         None, "--identity", help="Token identity (base URL) to clear"
     ),
     all: bool = typer.Option(False, "--all", help="Clear tokens for all identities in keyring"),
-    config_path: Optional[str] = typer.Option(None, "--config-path", "-c"),
+    config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
     """Clear stored OAuth tokens from the keyring."""
     targets_identities: list[str] = []
@@ -281,7 +279,7 @@ def clear(
 
 @app.callback(invoke_without_command=True)
 def main(
-    ctx: typer.Context, config_path: Optional[str] = typer.Option(None, "--config-path", "-c")
+    ctx: typer.Context, config_path: str | None = typer.Option(None, "--config-path", "-c")
 ) -> None:
     """Default to showing status if no subcommand is provided."""
     if ctx.invoked_subcommand is None:
@@ -293,13 +291,13 @@ def main(
 
 @app.command()
 def login(
-    target: Optional[str] = typer.Argument(
+    target: str | None = typer.Argument(
         None, help="Server name (from config) or identity (base URL)"
     ),
-    transport: Optional[str] = typer.Option(
+    transport: str | None = typer.Option(
         None, "--transport", help="Transport for identity mode: http or sse"
     ),
-    config_path: Optional[str] = typer.Option(None, "--config-path", "-c"),
+    config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
     """Start OAuth flow and store tokens for a server.
 

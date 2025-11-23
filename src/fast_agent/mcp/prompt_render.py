@@ -2,7 +2,6 @@
 Utilities for rendering PromptMessageExtended objects for display.
 """
 
-from typing import List
 
 from mcp.types import BlobResourceContents, TextResourceContents
 
@@ -29,7 +28,7 @@ def render_multipart_message(message: PromptMessageExtended) -> str:
     Returns:
         A string representation of the message's content
     """
-    rendered_parts: List[str] = []
+    rendered_parts: list[str] = []
 
     for content in message.content:
         if is_text_content(content):

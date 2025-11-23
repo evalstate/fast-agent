@@ -12,11 +12,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
     Iterable,
-    List,
     Mapping,
-    Optional,
     Sequence,
     TypeVar,
     Union,
@@ -108,7 +105,7 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
-        manifests: List[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
+        manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
         if not manifests and context and getattr(context, "skill_registry", None):
             try:
                 manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
@@ -116,7 +113,7 @@ class McpAgent(ABC, ToolAgent):
                 manifests = []
 
         self._skill_manifests = list(manifests)
-        self._skill_map: Dict[str, SkillManifest] = {
+        self._skill_map: dict[str, SkillManifest] = {
             manifest.name: manifest for manifest in manifests
         }
         self._agent_skills_warning_shown = False
@@ -244,7 +241,7 @@ class McpAgent(ABC, ToolAgent):
         """
         await self._aggregator.close()
 
-    async def get_server_status(self) -> Dict[str, ServerStatus]:
+    async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
         if not self._aggregator:
             return {}
@@ -313,7 +310,7 @@ class McpAgent(ABC, ToolAgent):
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 
     def _format_server_instructions(
-        self, instructions_data: Dict[str, tuple[str | None, List[str]]]
+        self, instructions_data: dict[str, tuple[str | None, list[str]]]
     ) -> str:
         """
         Format server instructions with XML tags and tool lists.
@@ -494,7 +491,7 @@ class McpAgent(ABC, ToolAgent):
         )
 
     async def call_tool(
-        self, name: str, arguments: Dict[str, Any] | None = None, tool_use_id: str | None = None
+        self, name: str, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
     ) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
@@ -536,7 +533,7 @@ class McpAgent(ABC, ToolAgent):
             return await self._aggregator.call_tool(name, arguments, tool_use_id)
 
     async def _call_human_input_tool(
-        self, arguments: Dict[str, Any] | None = None
+        self, arguments: dict[str, Any] | None = None
     ) -> CallToolResult:
         """
         Handle human input via an elicitation form.
@@ -593,7 +590,7 @@ class McpAgent(ABC, ToolAgent):
     async def get_prompt(
         self,
         prompt_name: str,
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         namespace: str | None = None,
         server_name: str | None = None,
     ) -> GetPromptResult:
@@ -614,7 +611,7 @@ class McpAgent(ABC, ToolAgent):
     async def apply_prompt(
         self,
         prompt: Union[str, GetPromptResult],
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
         **_: Any,
@@ -679,7 +676,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def get_embedded_resources(
         self, resource_uri: str, server_name: str | None = None
-    ) -> List[EmbeddedResource]:
+    ) -> list[EmbeddedResource]:
         """
         Get a resource from an MCP server and return it as a list of embedded resources ready for use in prompts.
 
@@ -697,7 +694,7 @@ class McpAgent(ABC, ToolAgent):
         result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, server_name)
 
         # Convert each resource content to an EmbeddedResource
-        embedded_resources: List[EmbeddedResource] = []
+        embedded_resources: list[EmbeddedResource] = []
         for resource_content in result.contents:
             embedded_resource = EmbeddedResource(
                 type="resource", resource=resource_content, annotations=None
@@ -749,7 +746,7 @@ class McpAgent(ABC, ToolAgent):
             The agent's response as a string
         """
         # Get the embedded resources
-        embedded_resources: List[EmbeddedResource] = await self.get_embedded_resources(
+        embedded_resources: list[EmbeddedResource] = await self.get_embedded_resources(
             resource_uri, namespace if namespace is not None else server_name
         )
 
@@ -1022,7 +1019,7 @@ class McpAgent(ABC, ToolAgent):
             return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
     async def apply_prompt_messages(
-        self, prompts: List[PromptMessageExtended], request_params: RequestParams | None = None
+        self, prompts: list[PromptMessageExtended], request_params: RequestParams | None = None
     ) -> str:
         """
         Apply a list of prompt messages and return the result.
@@ -1040,7 +1037,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_prompts(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, List[mcp.types.Prompt]]:
+    ) -> Mapping[str, list[mcp.types.Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 
@@ -1062,7 +1059,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_resources(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Dict[str, List[str]]:
+    ) -> dict[str, list[str]]:
         """
         List all resources available to this agent, filtered by configuration.
 
@@ -1082,7 +1079,7 @@ class McpAgent(ABC, ToolAgent):
             lambda resource: resource,
         )
 
-    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
+    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, list[Tool]]:
         """
         List all tools available to this agent, grouped by server and filtered by configuration.
 
@@ -1160,7 +1157,7 @@ class McpAgent(ABC, ToolAgent):
         Return an A2A card describing this Agent
         """
 
-        skills: List[AgentSkill] = []
+        skills: list[AgentSkill] = []
         tools: ListToolsResult = await self.list_tools()
         for tool in tools.tools:
             skills.append(await self.convert(tool))
@@ -1181,12 +1178,12 @@ class McpAgent(ABC, ToolAgent):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional["Text"] = None,
+        additional_message: Union["Text", None] = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -1230,7 +1227,7 @@ class McpAgent(ABC, ToolAgent):
             additional_message=additional_message,
         )
 
-    def _extract_servers_from_message(self, message: PromptMessageExtended) -> List[str]:
+    def _extract_servers_from_message(self, message: PromptMessageExtended) -> list[str]:
         """
         Extract server names from tool calls in the message.
 
@@ -1310,7 +1307,7 @@ class McpAgent(ABC, ToolAgent):
         )
 
     @property
-    def message_history(self) -> List[PromptMessageExtended]:
+    def message_history(self) -> list[PromptMessageExtended]:
         """
         Return the agent's message history as PromptMessageExtended objects.
 
@@ -1320,12 +1317,11 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             List of PromptMessageExtended objects representing the conversation history
         """
-        if self._llm:
-            return self._llm.message_history
-        return []
+        # Conversation history is maintained at the agent layer; LLM history is diagnostic only.
+        return super().message_history
 
     @property
-    def usage_accumulator(self) -> Optional["UsageAccumulator"]:
+    def usage_accumulator(self) -> Union["UsageAccumulator", None]:
         """
         Return the usage accumulator for tracking token usage across turns.
 

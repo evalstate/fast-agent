@@ -5,7 +5,7 @@ Events and event filters for the logger module for the MCP Agent
 import logging
 import random
 from datetime import datetime
-from typing import Any, Dict, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,10 +21,10 @@ class EventContext(BaseModel):
 
     session_id: str | None = None
     workflow_id: str | None = None
-    # request_id: Optional[str] = None
-    # parent_event_id: Optional[str] = None
-    # correlation_id: Optional[str] = None
-    # user_id: Optional[str] = None
+    # request_id: str | None = None
+    # parent_event_id: str | None = None
+    # correlation_id: str | None = None
+    # user_id: str | None = None
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -40,7 +40,7 @@ class Event(BaseModel):
     namespace: str
     message: str
     timestamp: datetime = Field(default_factory=datetime.now)
-    data: Dict[str, Any] = Field(default_factory=dict)
+    data: dict[str, Any] = Field(default_factory=dict)
     context: EventContext | None = None
 
     # For distributed tracing
@@ -84,7 +84,7 @@ class EventFilter(BaseModel):
 
         # 4) Minimum severity
         if self.min_level:
-            level_map: Dict[EventType, int] = {
+            level_map: dict[EventType, int] = {
                 "debug": logging.DEBUG,
                 "info": logging.INFO,
                 "warning": logging.WARNING,

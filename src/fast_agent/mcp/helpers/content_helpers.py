@@ -3,7 +3,7 @@ Helper functions for working with content objects (Fast Agent namespace).
 
 """
 
-from typing import TYPE_CHECKING, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Sequence, Union
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -21,7 +21,7 @@ from mcp.types import (
 )
 
 
-def get_text(content: ContentBlock) -> Optional[str]:
+def get_text(content: ContentBlock) -> str | None:
     """Extract text content from a content object if available."""
     if isinstance(content, TextContent):
         return content.text
@@ -48,7 +48,7 @@ def get_text(content: ContentBlock) -> Optional[str]:
     return None
 
 
-def get_image_data(content: ContentBlock) -> Optional[str]:
+def get_image_data(content: ContentBlock) -> str | None:
     """Extract image data from a content object if available."""
     if isinstance(content, ImageContent):
         return content.data
@@ -60,7 +60,7 @@ def get_image_data(content: ContentBlock) -> Optional[str]:
     return None
 
 
-def get_resource_uri(content: ContentBlock) -> Optional[str]:
+def get_resource_uri(content: ContentBlock) -> str | None:
     """Extract resource URI from an EmbeddedResource if available."""
     if isinstance(content, EmbeddedResource):
         return str(content.resource.uri)
@@ -87,7 +87,7 @@ def is_resource_link(content: ContentBlock) -> bool:
     return isinstance(content, ResourceLink)
 
 
-def get_resource_text(result: ReadResourceResult, index: int = 0) -> Optional[str]:
+def get_resource_text(result: ReadResourceResult, index: int = 0) -> str | None:
     """Extract text content from a ReadResourceResult at the specified index."""
     if index >= len(result.contents):
         raise IndexError(
@@ -99,7 +99,7 @@ def get_resource_text(result: ReadResourceResult, index: int = 0) -> Optional[st
     return None
 
 
-def split_thinking_content(message: str) -> tuple[Optional[str], str]:
+def split_thinking_content(message: str) -> tuple[str | None, str]:
     """Split a message into thinking and content parts."""
     import re
 
@@ -127,8 +127,8 @@ def text_content(text: str) -> TextContent:
 
 
 def ensure_multipart_messages(
-    messages: List[Union["PromptMessageExtended", PromptMessage]],
-) -> List["PromptMessageExtended"]:
+    messages: list[Union["PromptMessageExtended", PromptMessage]],
+) -> list["PromptMessageExtended"]:
     """Ensure all messages in a list are PromptMessageExtended objects."""
     # Import here to avoid circular dependency
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -153,7 +153,7 @@ def normalize_to_extended_list(
         "PromptMessageExtended",
         Sequence[Union[str, PromptMessage, "PromptMessageExtended"]],
     ],
-) -> List["PromptMessageExtended"]:
+) -> list["PromptMessageExtended"]:
     """Normalize various input types to a list of PromptMessageExtended objects."""
     # Import here to avoid circular dependency
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -176,7 +176,7 @@ def normalize_to_extended_list(
         return [messages]
 
     # List of mixed types → convert each element
-    result: List[PromptMessageExtended] = []
+    result: list[PromptMessageExtended] = []
     for item in messages:
         if isinstance(item, str):
             result.append(

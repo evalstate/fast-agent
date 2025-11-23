@@ -10,11 +10,9 @@ from typing import (
     AsyncIterator,
     Callable,
     Coroutine,
-    Dict,
-    List,
-    Optional,
     Type,
     TypeVar,
+    Union,
 )
 
 from pydantic import BaseModel, ConfigDict
@@ -42,7 +40,7 @@ class ExecutorConfig(BaseModel):
 
     max_concurrent_activities: int | None = None  # Unbounded by default
     timeout_seconds: timedelta | None = None  # No timeout by default
-    retry_policy: Dict[str, Any] | None = None
+    retry_policy: dict[str, Any] | None = None
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -55,7 +53,7 @@ class Executor(ABC, ContextDependent):
         engine: str,
         config: ExecutorConfig | None = None,
         signal_bus: SignalHandler = None,
-        context: Optional["Context"] = None,
+        context: Union["Context", None] = None,
         **kwargs,
     ) -> None:
         super().__init__(context=context, **kwargs)
@@ -84,13 +82,13 @@ class Executor(ABC, ContextDependent):
         self,
         *tasks: Callable[..., R] | Coroutine[Any, Any, R],
         **kwargs: Any,
-    ) -> List[R | BaseException]:
+    ) -> list[R | BaseException]:
         """Execute a list of tasks and return their results"""
 
     @abstractmethod
     async def execute_streaming(
         self,
-        *tasks: List[Callable[..., R] | Coroutine[Any, Any, R]],
+        *tasks: list[Callable[..., R] | Coroutine[Any, Any, R]],
         **kwargs: Any,
     ) -> AsyncIterator[R | BaseException]:
         """Execute tasks and yield results as they complete"""
@@ -98,13 +96,13 @@ class Executor(ABC, ContextDependent):
     async def map(
         self,
         func: Callable[..., R],
-        inputs: List[Any],
+        inputs: list[Any],
         **kwargs: Any,
-    ) -> List[R | BaseException]:
+    ) -> list[R | BaseException]:
         """
         Run `func(item)` for each item in `inputs` with concurrency limit.
         """
-        results: List[R, BaseException] = []
+        results: list[R, BaseException] = []
 
         async def run(item):
             if self.config.max_concurrent_activities:
@@ -233,7 +231,7 @@ class AsyncioExecutor(Executor):
         self,
         *tasks: Callable[..., R] | Coroutine[Any, Any, R],
         **kwargs: Any,
-    ) -> List[R | BaseException]:
+    ) -> list[R | BaseException]:
         return await asyncio.gather(
             *(self._execute_task(task, **kwargs) for task in tasks),
             return_exceptions=True,
@@ -241,7 +239,7 @@ class AsyncioExecutor(Executor):
 
     async def execute_streaming(
         self,
-        *tasks: List[Callable[..., R] | Coroutine[Any, Any, R]],
+        *tasks: list[Callable[..., R] | Coroutine[Any, Any, R]],
         **kwargs: Any,
     ) -> AsyncIterator[R | BaseException]:
         # TODO: saqadri - validate if async with self.execution_context() is needed here

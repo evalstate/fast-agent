@@ -1,4 +1,3 @@
-from typing import List
 
 from pydantic import AnyUrl, BaseModel, Field
 
@@ -34,9 +33,9 @@ class SkybridgeServerConfig(BaseModel):
 
     server_name: str
     supports_resources: bool = False
-    ui_resources: List[SkybridgeResourceConfig] = Field(default_factory=list)
-    warnings: List[str] = Field(default_factory=list)
-    tools: List[SkybridgeToolConfig] = Field(default_factory=list)
+    ui_resources: list[SkybridgeResourceConfig] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    tools: list[SkybridgeToolConfig] = Field(default_factory=list)
 
     @property
     def enabled(self) -> bool:

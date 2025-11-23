@@ -8,7 +8,7 @@ to choose JSON (for .json files) or Markdown-like delimited text otherwise.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from fast_agent.mcp.prompt_serialization import save_messages
 
@@ -20,7 +20,7 @@ class HistoryExporter:
     """Utility for exporting agent history to a file."""
 
     @staticmethod
-    async def save(agent: AgentProtocol, filename: Optional[str] = None) -> str:
+    async def save(agent: AgentProtocol, filename: str | None = None) -> str:
         """
         Save the given agent's message history to a file.
 

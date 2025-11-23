@@ -31,3 +31,5 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 {{env}}
 
 The current date is {{currentDate}}."""
+
+CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"

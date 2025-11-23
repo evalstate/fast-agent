@@ -8,7 +8,7 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from mcp.types import CallToolResult, TextContent, Tool
 
@@ -75,7 +75,7 @@ class ShellRuntime:
             return self._skills_directory
         return Path.cwd()
 
-    def runtime_info(self) -> Dict[str, str | None]:
+    def runtime_info(self) -> dict[str, str | None]:
         """Best-effort detection of the shell runtime used for local execution.
 
         Uses modern Python APIs (platform.system(), shutil.which()) to detect
@@ -108,7 +108,7 @@ class ShellRuntime:
             # Fallback to generic sh
             return {"name": "sh", "path": None}
 
-    def metadata(self, command: Optional[str]) -> Dict[str, Any]:
+    def metadata(self, command: str | None) -> dict[str, Any]:
         """Build metadata for display when the shell tool is invoked."""
         info = self.runtime_info()
         working_dir = self.working_directory()
@@ -130,7 +130,7 @@ class ShellRuntime:
             "returns_exit_code": True,
         }
 
-    async def execute(self, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+    async def execute(self, arguments: dict[str, Any] | None = None) -> CallToolResult:
         """Execute a shell command and stream output to the console with timeout detection."""
         command_value = (arguments or {}).get("command") if arguments else None
         if not isinstance(command_value, str) or not command_value.strip():
@@ -199,7 +199,7 @@ class ShellRuntime:
                 watchdog_task = None
 
                 async def stream_output(
-                    stream, style: Optional[str], is_stderr: bool = False
+                    stream, style: str | None, is_stderr: bool = False
                 ) -> None:
                     if not stream:
                         return

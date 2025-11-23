@@ -1,5 +1,4 @@
 # from openai.types.beta.chat import
-from typing import List
 
 from mcp import Tool
 from mcp.types import ContentBlock, TextContent
@@ -49,9 +48,9 @@ class ResponsesLLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessag
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List[PromptMessageExtended],
+        multipart_messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
         responses_client = await self._responses_client()
@@ -83,7 +82,7 @@ class ResponsesLLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessag
                     )
 
             final_response = await stream.get_final_response()
-            reasoning_content: List[ContentBlock] = []
+            reasoning_content: list[ContentBlock] = []
             for output_item in final_response.output:
                 if isinstance(output_item, ResponseReasoningItem):
                     summary_text = "\n".join(part.text for part in output_item.summary if part.text)

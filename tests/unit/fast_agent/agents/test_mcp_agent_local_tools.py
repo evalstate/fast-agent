@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -16,7 +16,7 @@ def _make_agent_config() -> AgentConfig:
 
 @pytest.mark.asyncio
 async def test_local_tools_listed_and_callable() -> None:
-    calls: List[Dict[str, Any]] = []
+    calls: list[dict[str, Any]] = []
 
     def sample_tool(video_id: str) -> str:
         calls.append({"video_id": video_id})

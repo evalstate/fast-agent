@@ -90,6 +90,15 @@ async def test_generates_structured():
 
 
 @pytest.mark.asyncio
+async def test_returns_assistant_message_verbatim():
+    llm: FastAgentLLMProtocol = PassthroughLLM()
+    assistant_msg = Prompt.assistant("already answered")
+    result = await llm.generate([assistant_msg])
+    assert result.role == "assistant"
+    assert result.first_text() == "already answered"
+
+
+@pytest.mark.asyncio
 async def test_usage_tracking():
     """Test that PassthroughLLM correctly tracks usage"""
     llm: FastAgentLLMProtocol = PassthroughLLM()
