@@ -51,7 +51,6 @@ from fast_agent.core.prompt_templates import (
     enrich_with_environment_context,
 )
 from fast_agent.interfaces import StreamingAgentProtocol
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
@@ -189,9 +188,6 @@ class AgentACPServer(ACPAgent):
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
-
-        # Track cancellation tokens per session for cancel support
-        self._session_cancellation_tokens: dict[str, CancellationToken] = {}
 
         # Track asyncio tasks per session for proper task-based cancellation
         self._session_tasks: dict[str, asyncio.Task] = {}
@@ -762,10 +758,6 @@ class AgentACPServer(ACPAgent):
             # Mark this session as having an active prompt
             self._active_prompts.add(session_id)
 
-            # Create a cancellation token for this prompt
-            cancellation_token = CancellationToken()
-            self._session_cancellation_tokens[session_id] = cancellation_token
-
             # Track the current task for proper cancellation via asyncio.Task.cancel()
             current_task = asyncio.current_task()
             if current_task:
@@ -921,7 +913,6 @@ class AgentACPServer(ACPAgent):
                         result = await agent.generate(
                             prompt_message,
                             request_params=session_request_params,
-                            cancellation_token=cancellation_token,
                         )
                         response_text = result.last_text() or "No content generated"
 
@@ -1041,10 +1032,9 @@ class AgentACPServer(ACPAgent):
             )
             return PromptResponse(stopReason="cancelled")
         finally:
-            # Always remove session from active prompts, cleanup cancellation token and task
+            # Always remove session from active prompts and cleanup task
             async with self._session_lock:
                 self._active_prompts.discard(session_id)
-                self._session_cancellation_tokens.pop(session_id, None)
                 self._session_tasks.pop(session_id, None)
             logger.debug(
                 "Removed session from active prompts",
@@ -1081,18 +1071,7 @@ class AgentACPServer(ACPAgent):
                     name="acp_cancel_task",
                     session_id=session_id,
                 )
-
-            # Also signal the cancellation token for immediate loop termination
-            cancellation_token = self._session_cancellation_tokens.get(session_id)
-            if cancellation_token:
-                cancellation_token.cancel("user_cancelled")
-                logger.info(
-                    "Cancellation token signaled for session",
-                    name="acp_cancel_signaled",
-                    session_id=session_id,
-                )
-
-            if not task and not cancellation_token:
+            else:
                 logger.warning(
                     "No active prompt to cancel for session",
                     name="acp_cancel_no_active",
@@ -1221,8 +1200,7 @@ class AgentACPServer(ACPAgent):
             # Clean up session current agent mapping
             self._session_current_agent.clear()
 
-            # Clear cancellation tokens and tasks
-            self._session_cancellation_tokens.clear()
+            # Clear tasks
             self._session_tasks.clear()
 
             # Clear stored prompt contexts

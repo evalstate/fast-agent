@@ -1,4 +1,3 @@
-import asyncio
 import json
 import secrets
 
@@ -18,7 +17,6 @@ from mcp.types import (
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 
 # Import the new converter class
@@ -116,7 +114,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         contents: list[types.Content],
         config: types.GenerateContentConfig,
         client: genai.Client,
-        cancellation_token: CancellationToken | None = None,
     ) -> types.GenerateContentResponse | None:
         """Stream Gemini responses and return the final aggregated completion."""
         try:
@@ -137,16 +134,13 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             )
             return None
 
-        return await self._consume_google_stream(
-            response_stream, model=model, cancellation_token=cancellation_token
-        )
+        return await self._consume_google_stream(response_stream, model=model)
 
     async def _consume_google_stream(
         self,
         response_stream,
         *,
         model: str,
-        cancellation_token: CancellationToken | None = None,
     ) -> types.GenerateContentResponse | None:
         """Consume the async streaming iterator and aggregate the final response."""
         estimated_tokens = 0
@@ -158,11 +152,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         last_chunk: types.GenerateContentResponse | None = None
 
         try:
+            # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             async for chunk in response_stream:
-                # Check for cancellation before processing each chunk
-                if cancellation_token and cancellation_token.is_cancelled:
-                    self.logger.info("Stream cancelled by user")
-                    raise asyncio.CancelledError(cancellation_token.cancel_reason or "cancelled")
 
                 last_chunk = chunk
                 if getattr(chunk, "usage_metadata", None):
@@ -338,7 +329,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         *,
         response_mime_type: str | None = None,
         response_schema: object | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Google's generate_content API and available tools.
@@ -387,7 +377,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     contents=conversation_history,
                     config=generate_content_config,
                     client=client,
-                    cancellation_token=cancellation_token,
                 )
             if api_response is None:
                 api_response = await client.aio.models.generate_content(
@@ -491,7 +480,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         request_params: RequestParams | None = None,
         tools: list[McpTool] | None = None,
         is_template: bool = False,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Provider-specific prompt application.
@@ -553,7 +541,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             conversation_history,
             request_params=request_params,
             tools=tools,
-            cancellation_token=cancellation_token,
         )
 
     def _convert_extended_messages_to_provider(

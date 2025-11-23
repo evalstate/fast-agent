@@ -51,7 +51,6 @@ from fast_agent.interfaces import (
     LLMFactoryProtocol,
     StreamingAgentProtocol,
 )
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import UsageAccumulator
@@ -289,7 +288,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         ],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Create a completion with the LLM using the provided messages.
@@ -305,7 +303,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 - List of any combination of the above
             request_params: Optional parameters to configure the request
             tools: Optional list of tools available to the LLM
-            cancellation_token: Optional token to cancel the operation
 
         Returns:
             The LLM's response as a PromptMessageExtended
@@ -318,7 +315,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
             return await self.generate_impl(
-                multipart_messages, final_request_params, tools, cancellation_token
+                multipart_messages, final_request_params, tools
             )
 
     async def generate_impl(
@@ -326,7 +323,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Implementation method for generate.
@@ -339,13 +335,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             messages: Normalized list of PromptMessageExtended objects
             request_params: Optional parameters to configure the request
             tools: Optional list of tools available to the LLM
-            cancellation_token: Optional token to cancel the operation
 
         Returns:
             The LLM's response as a PromptMessageExtended
         """
         response, _ = await self._generate_with_summary(
-            messages, request_params, tools, cancellation_token
+            messages, request_params, tools
         )
         return response
 
@@ -480,13 +475,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> tuple[PromptMessageExtended, RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
         call_ctx = self._prepare_llm_call(messages, request_params)
 
         response = await self._llm.generate(
-            call_ctx.full_history, call_ctx.call_params, tools, cancellation_token
+            call_ctx.full_history, call_ctx.call_params, tools
         )
 
         if call_ctx.persist_history:

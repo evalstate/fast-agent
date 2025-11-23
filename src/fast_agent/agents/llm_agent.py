@@ -18,7 +18,6 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
@@ -238,7 +237,6 @@ class LlmAgent(LlmDecorator):
         messages: List[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: List[Tool] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Enhanced generate implementation that resets tool call tracking.
@@ -272,7 +270,7 @@ class LlmAgent(LlmDecorator):
 
                 try:
                     result, summary = await self._generate_with_summary(
-                        messages, request_params, tools, cancellation_token
+                        messages, request_params, tools
                     )
                 finally:
                     if remove_listener:
@@ -288,7 +286,7 @@ class LlmAgent(LlmDecorator):
             await self.show_assistant_message(result, additional_message=summary_text)
         else:
             result, summary = await self._generate_with_summary(
-                messages, request_params, tools, cancellation_token
+                messages, request_params, tools
             )
 
             summary_text = (

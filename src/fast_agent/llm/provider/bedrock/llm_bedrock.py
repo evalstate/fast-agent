@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import re
@@ -19,7 +18,6 @@ from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import ModelT
-from fast_agent.llm.cancellation import CancellationToken
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.bedrock.multipart_converter_bedrock import BedrockConverter
 from fast_agent.llm.provider_types import Provider
@@ -1014,7 +1012,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         self,
         stream_response,
         model: str,
-        cancellation_token: CancellationToken | None = None,
     ) -> BedrockMessage:
         """Process streaming response from Bedrock."""
         estimated_tokens = 0
@@ -1024,11 +1021,8 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         usage = {"input_tokens": 0, "output_tokens": 0}
 
         try:
+            # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             for event in stream_response["stream"]:
-                # Check for cancellation before processing each event
-                if cancellation_token and cancellation_token.is_cancelled:
-                    self.logger.info("Stream cancelled by user")
-                    raise asyncio.CancelledError(cancellation_token.cancel_reason or "cancelled")
 
                 if "messageStart" in event:
                     # Message started
@@ -1226,7 +1220,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         tools: list[Tool] | None = None,
         pre_messages: list[BedrockMessageParam] | None = None,
         history: list[PromptMessageExtended] | None = None,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using Bedrock and available tools.
@@ -1574,7 +1567,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         attempted_streaming = True
                         response = client.converse_stream(**converse_args)
                         processed_response = await self._process_stream(
-                            response, model, cancellation_token
+                            response, model
                         )
                 except (ClientError, BotoCoreError) as e:
                     # Check if this is a reasoning-related error
@@ -1606,7 +1599,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         else:
                             response = client.converse_stream(**converse_args)
                             processed_response = await self._process_stream(
-                                response, model, cancellation_token
+                                response, model
                             )
                     else:
                         # Not a reasoning error, re-raise
@@ -1722,7 +1715,7 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
                         else:
                             response = client.converse_stream(**converse_args)
                             processed_response = await self._process_stream(
-                                response, model, cancellation_token
+                                response, model
                             )
                         if not caps.schema and has_tools:
                             caps.schema = ToolSchemaType(schema_choice)
@@ -1880,7 +1873,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,
-        cancellation_token: CancellationToken | None = None,
     ) -> PromptMessageExtended:
         """
         Provider-specific prompt application.
@@ -1908,7 +1900,6 @@ class BedrockLLM(FastAgentLLM[BedrockMessageParam, BedrockMessage]):
             tools,
             pre_messages=None,
             history=multipart_messages,
-            cancellation_token=cancellation_token,
         )
 
     def _generate_simplified_schema(self, model: Type[ModelT]) -> str:
