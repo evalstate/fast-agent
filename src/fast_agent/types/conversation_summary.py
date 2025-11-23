@@ -7,7 +7,6 @@ and extracting useful statistics like tool call counts, error rates, etc.
 
 import json
 from collections import Counter
-from typing import Dict, List
 
 from pydantic import BaseModel, computed_field
 
@@ -48,7 +47,7 @@ class ConversationSummary(BaseModel):
     All computed properties are included in .model_dump() for easy serialization.
     """
 
-    messages: List[PromptMessageExtended]
+    messages: list[PromptMessageExtended]
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -108,13 +107,13 @@ class ConversationSummary(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def tool_call_map(self) -> Dict[str, int]:
+    def tool_call_map(self) -> dict[str, int]:
         """
         Mapping of tool names to the number of times they were called.
 
         Example: {"fetch_weather": 3, "calculate": 1}
         """
-        tool_names: List[str] = []
+        tool_names: list[str] = []
         for msg in self.messages:
             if msg.tool_calls:
                 tool_names.extend(
@@ -124,7 +123,7 @@ class ConversationSummary(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def tool_error_map(self) -> Dict[str, int]:
+    def tool_error_map(self) -> dict[str, int]:
         """
         Mapping of tool names to the number of errors they produced.
 
@@ -134,14 +133,14 @@ class ConversationSummary(BaseModel):
         finding corresponding CallToolRequest entries in assistant messages.
         """
         # First, build a map from tool_id -> tool_name by scanning tool_calls
-        tool_id_to_name: Dict[str, str] = {}
+        tool_id_to_name: dict[str, str] = {}
         for msg in self.messages:
             if msg.tool_calls:
                 for tool_id, call in msg.tool_calls.items():
                     tool_id_to_name[tool_id] = call.params.name
 
         # Then, count errors by tool name
-        error_names: List[str] = []
+        error_names: list[str] = []
         for msg in self.messages:
             if msg.tool_results:
                 for tool_id, result in msg.tool_results.items():
@@ -194,7 +193,7 @@ class ConversationSummary(BaseModel):
 
     @computed_field  # type: ignore[prop-decorator]
     @property
-    def assistant_message_timings(self) -> List[Dict[str, float]]:
+    def assistant_message_timings(self) -> list[dict[str, float]]:
         """
         List of timing data for each assistant message.
 

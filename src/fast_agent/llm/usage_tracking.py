@@ -6,7 +6,7 @@ including detailed cache metrics and context window management.
 """
 
 import time
-from typing import List, Optional, Union
+from typing import Union
 
 # Proper type imports for each provider
 try:
@@ -48,7 +48,7 @@ class ModelContextWindows:
     """Context window sizes and cache configurations for various models"""
 
     @classmethod
-    def get_context_window(cls, model: str) -> Optional[int]:
+    def get_context_window(cls, model: str) -> int | None:
         return ModelDatabase.get_context_window(model)
 
 
@@ -232,8 +232,8 @@ class TurnUsage(BaseModel):
 class UsageAccumulator(BaseModel):
     """Accumulates usage data across multiple turns with cache analytics"""
 
-    turns: List[TurnUsage] = Field(default_factory=list)
-    model: Optional[str] = None
+    turns: list[TurnUsage] = Field(default_factory=list)
+    model: str | None = None
 
     def add_turn(self, turn: TurnUsage) -> None:
         """Add a new turn to the accumulator"""
@@ -315,7 +315,7 @@ class UsageAccumulator(BaseModel):
 
     @computed_field
     @property
-    def cache_hit_rate(self) -> Optional[float]:
+    def cache_hit_rate(self) -> float | None:
         """Percentage of total input context served from cache"""
         cache_tokens = self.cumulative_cache_read_tokens + self.cumulative_cache_hit_tokens
         total_input_context = self.cumulative_input_tokens + cache_tokens
@@ -333,7 +333,7 @@ class UsageAccumulator(BaseModel):
 
     @computed_field
     @property
-    def context_window_size(self) -> Optional[int]:
+    def context_window_size(self) -> int | None:
         """Get context window size for current model"""
         if self.model:
             return ModelContextWindows.get_context_window(self.model)
@@ -341,7 +341,7 @@ class UsageAccumulator(BaseModel):
 
     @computed_field
     @property
-    def context_usage_percentage(self) -> Optional[float]:
+    def context_usage_percentage(self) -> float | None:
         """Percentage of context window used"""
         window_size = self.context_window_size
         if window_size and window_size > 0:

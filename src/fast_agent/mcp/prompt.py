@@ -7,7 +7,7 @@ fast_agent.core.prompt importing this Prompt.
 """
 
 from pathlib import Path
-from typing import Dict, List, Literal, Union
+from typing import Literal, Union
 
 from mcp import CallToolRequest
 from mcp.types import ContentBlock, PromptMessage
@@ -65,7 +65,7 @@ class Prompt:
             str, Path, bytes, dict, ContentBlock, PromptMessage, PromptMessageExtended
         ],
         stop_reason: LlmStopReason | None = None,
-        tool_calls: Dict[str, CallToolRequest] | None = None,
+        tool_calls: dict[str, CallToolRequest] | None = None,
     ) -> PromptMessageExtended:
         """
         Create an assistant PromptMessageExtended with various content items.
@@ -126,7 +126,7 @@ class Prompt:
         )
 
     @classmethod
-    def conversation(cls, *messages) -> List[PromptMessage]:
+    def conversation(cls, *messages) -> list[PromptMessage]:
         """
         Create a list of PromptMessages from various inputs.
         """
@@ -149,7 +149,7 @@ class Prompt:
         return result
 
     @classmethod
-    def from_multipart(cls, multipart: List[PromptMessageExtended]) -> List[PromptMessage]:
+    def from_multipart(cls, multipart: list[PromptMessageExtended]) -> list[PromptMessage]:
         """
         Convert a list of PromptMessageExtended objects to PromptMessages.
         """

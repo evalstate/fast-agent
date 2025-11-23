@@ -1,6 +1,6 @@
 import base64
 import unittest
-from typing import TYPE_CHECKING, List
+from typing import TYPE_CHECKING
 
 from mcp.types import (
     CallToolResult,
@@ -32,7 +32,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
         #        tool_call_id = "call_abc123"
 
         # Convert directly to OpenAI tool message
-        converted: List[Content] = self.converter.convert_function_results_to_google(
+        converted: list[Content] = self.converter.convert_function_results_to_google(
             [("test", tool_result)]
         )
         assert 1 == len(converted)
@@ -62,7 +62,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
         results = [(tool_call_id1, text_result), (tool_call_id2, image_result)]
 
         # Convert to OpenAI tool messages
-        converted: List[Content] = self.converter.convert_function_results_to_google(results)
+        converted: list[Content] = self.converter.convert_function_results_to_google(results)
 
         # Assertions
         assert 2 == len(converted)

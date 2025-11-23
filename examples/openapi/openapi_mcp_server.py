@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import httpx
 import yaml
@@ -18,11 +18,11 @@ class ApiCallRequest(BaseModel):
 
     method: str = Field(..., description="HTTP method to use, e.g. GET or POST.")
     path: str = Field(..., description="Endpoint path, such as /pets or pets.")
-    query: Dict[str, Any] | None = Field(
+    query: dict[str, Any] | None = Field(
         default=None, description="Optional query string parameters, keyed by name."
     )
     body: Any | None = Field(default=None, description="Optional JSON request body.")
-    headers: Dict[str, str] | None = Field(
+    headers: dict[str, str] | None = Field(
         default=None, description="Optional HTTP headers to include with the request."
     )
     timeout: float | None = Field(
@@ -68,7 +68,7 @@ def build_server(spec_text: str, base_url: str | None, server_name: str) -> Fast
             "and optional query parameters, JSON body, or headers."
         ),
     )
-    async def call_openapi_endpoint(request: ApiCallRequest) -> Dict[str, Any]:
+    async def call_openapi_endpoint(request: ApiCallRequest) -> dict[str, Any]:
         if not base_url:
             raise RuntimeError("The OpenAPI specification does not define a server URL to call.")
 
@@ -89,7 +89,7 @@ def build_server(spec_text: str, base_url: str | None, server_name: str) -> Fast
         except ValueError:
             payload = None
 
-        result: Dict[str, Any] = {
+        result: dict[str, Any] = {
             "status_code": response.status_code,
             "headers": dict(response.headers),
         }

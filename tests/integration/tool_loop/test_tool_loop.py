@@ -1,4 +1,3 @@
-from typing import List
 
 import pytest
 from mcp import CallToolRequest, Tool
@@ -17,7 +16,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 class ToolGeneratingLlm(PassthroughLLM):
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List[PromptMessageExtended],
+        multipart_messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,
@@ -99,7 +98,7 @@ class PersistentToolGeneratingLlm(PassthroughLLM):
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List[PromptMessageExtended],
+        multipart_messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
         is_template: bool = False,

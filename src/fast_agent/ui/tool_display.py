@@ -58,7 +58,7 @@ class ToolDisplay:
         if result.isError:
             status = "ERROR"
         else:
-            if len(content) == 0:
+            if not content:
                 status = "No Content"
             elif len(content) == 1 and is_text_content(content[0]):
                 text_content = get_text(content[0])

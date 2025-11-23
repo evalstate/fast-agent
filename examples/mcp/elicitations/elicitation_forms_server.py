@@ -7,7 +7,6 @@ different form types and validation patterns.
 
 import logging
 import sys
-from typing import Optional
 
 from mcp import ReadResourceResult
 from mcp.server.elicitation import (
@@ -38,13 +37,13 @@ async def event_registration() -> ReadResourceResult:
     class EventRegistration(BaseModel):
         name: str = Field(description="Your full name", min_length=2, max_length=100)
         email: str = Field(description="Your email address", json_schema_extra={"format": "email"})
-        company_website: Optional[str] = Field(
+        company_website: str | None = Field(
             None, description="Your company website (optional)", json_schema_extra={"format": "uri"}
         )
         event_date: str = Field(
             description="Which event date works for you?", json_schema_extra={"format": "date"}
         )
-        dietary_requirements: Optional[str] = Field(
+        dietary_requirements: str | None = Field(
             None, description="Any dietary requirements? (optional)", max_length=200
         )
 

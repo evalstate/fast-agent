@@ -9,12 +9,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
-    List,
     Mapping,
     Protocol,
     Sequence,
-    Tuple,
     Type,
     TypeVar,
     Union,
@@ -67,16 +64,16 @@ class FastAgentLLMProtocol(Protocol):
 
     async def structured(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]: ...
+    ) -> tuple[ModelT | None, PromptMessageExtended]: ...
 
     async def generate(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended: ...
 
     async def apply_prompt_template(
@@ -91,11 +88,11 @@ class FastAgentLLMProtocol(Protocol):
     def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
-        self, listener: Callable[[str, Dict[str, Any] | None], None]
+        self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]: ...
 
     @property
-    def message_history(self) -> List[PromptMessageExtended]: ...
+    def message_history(self) -> list[PromptMessageExtended]: ...
 
     def pop_last_message(self) -> PromptMessageExtended | None: ...
 
@@ -182,10 +179,10 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
         ],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]: ...
+    ) -> tuple[ModelT | None, PromptMessageExtended]: ...
 
     @property
-    def message_history(self) -> List[PromptMessageExtended]: ...
+    def message_history(self) -> list[PromptMessageExtended]: ...
 
     @property
     def usage_accumulator(self) -> UsageAccumulator | None: ...
@@ -193,7 +190,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     async def apply_prompt(
         self,
         prompt: Union[str, "GetPromptResult"],
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
     ) -> str: ...
@@ -201,15 +198,15 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     async def get_prompt(
         self,
         prompt_name: str,
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         namespace: str | None = None,
     ) -> GetPromptResult: ...
 
-    async def list_prompts(self, namespace: str | None = None) -> Mapping[str, List[Prompt]]: ...
+    async def list_prompts(self, namespace: str | None = None) -> Mapping[str, list[Prompt]]: ...
 
-    async def list_resources(self, namespace: str | None = None) -> Mapping[str, List[str]]: ...
+    async def list_resources(self, namespace: str | None = None) -> Mapping[str, list[str]]: ...
 
-    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]: ...
+    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, list[Tool]]: ...
 
     async def list_tools(self) -> ListToolsResult: ...
 
@@ -235,8 +232,8 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
@@ -262,5 +259,5 @@ class StreamingAgentProtocol(AgentProtocol, Protocol):
     def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
-        self, listener: Callable[[str, Dict[str, Any] | None], None]
+        self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]: ...

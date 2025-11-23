@@ -122,7 +122,7 @@ async def forms_elicitation_handler(
                 properties = params.requestedSchema.get("properties", {})
                 if len(properties) == 1:
                     # Single field schema - try to parse based on type
-                    field_name = list(properties.keys())[0]
+                    field_name = next(iter(properties))
                     field_def = properties[field_name]
                     field_type = field_def.get("type")
 

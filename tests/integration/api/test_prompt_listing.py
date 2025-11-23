@@ -73,6 +73,6 @@ async def test_apply_prompt_with_namespaced_name(fast_agent):
 
             # Verify the prompt was applied
             assert response, "No response from apply_prompt"
-            assert len(agent.test._llm.message_history) > 0
+            assert len(agent.test.message_history) > 0
 
     await agent_function()

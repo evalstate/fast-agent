@@ -5,7 +5,7 @@ import concurrent.futures
 import logging
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Union
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -49,15 +49,15 @@ class Context(BaseModel):
     This is a global context that is shared across the application.
     """
 
-    config: Optional[Settings] = None
-    executor: Optional[Executor] = None
-    human_input_handler: Optional[Any] = None
-    signal_notification: Optional[SignalWaitCallback] = None
+    config: Settings | None = None
+    executor: Executor | None = None
+    human_input_handler: Any | None = None
+    signal_notification: SignalWaitCallback | None = None
 
     # Registries
-    server_registry: Optional[ServerRegistry] = None
-    task_registry: Optional[ActivityRegistry] = None
-    skill_registry: Optional[SkillRegistry] = None
+    server_registry: ServerRegistry | None = None
+    task_registry: ActivityRegistry | None = None
+    skill_registry: SkillRegistry | None = None
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None
@@ -184,7 +184,7 @@ async def configure_executor(config: "Settings"):
 
 
 async def initialize_context(
-    config: Optional[Union["Settings", str]] = None, store_globally: bool = False
+    config: Union["Settings", str] | None = None, store_globally: bool = False
 ):
     """
     Initialize the global application context.

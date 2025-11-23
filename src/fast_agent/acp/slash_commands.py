@@ -129,9 +129,8 @@ class SlashCommandHandler:
         text = text[1:]
 
         # Split on first whitespace
-        parts = text.split(None, 1)
-        command_name = parts[0] if parts else ""
-        arguments = parts[1] if len(parts) > 1 else ""
+        command_name, _, arguments = text.partition(" ")
+        arguments = arguments.lstrip()
 
         return command_name, arguments
 

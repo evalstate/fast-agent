@@ -1,7 +1,6 @@
 """HuggingFace authentication utilities for MCP connections."""
 
 import os
-from typing import Dict, Optional
 from urllib.parse import urlparse
 
 
@@ -48,7 +47,7 @@ def is_huggingface_url(url: str) -> bool:
         return False
 
 
-def get_hf_token_from_env() -> Optional[str]:
+def get_hf_token_from_env() -> str | None:
     """
     Get the HuggingFace token from the HF_TOKEN environment variable.
 
@@ -58,7 +57,7 @@ def get_hf_token_from_env() -> Optional[str]:
     return os.environ.get("HF_TOKEN")
 
 
-def should_add_hf_auth(url: str, existing_headers: Optional[Dict[str, str]]) -> bool:
+def should_add_hf_auth(url: str, existing_headers: dict[str, str] | None) -> bool:
     """
     Determine if HuggingFace authentication should be added to the headers.
 
@@ -98,7 +97,7 @@ def should_add_hf_auth(url: str, existing_headers: Optional[Dict[str, str]]) -> 
     return get_hf_token_from_env() is not None
 
 
-def add_hf_auth_header(url: str, headers: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
+def add_hf_auth_header(url: str, headers: dict[str, str] | None) -> dict[str, str] | None:
     """
     Add HuggingFace authentication header if appropriate.
 

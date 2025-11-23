@@ -5,7 +5,7 @@ This module provides a centralized lookup for model parameters including
 context windows, max output tokens, and supported tokenization types.
 """
 
-from typing import Dict, List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel
 
@@ -19,7 +19,7 @@ class ModelParameters(BaseModel):
     max_output_tokens: int
     """Maximum output tokens the model can generate"""
 
-    tokenizes: List[str]
+    tokenizes: list[str]
     """List of supported content types for tokenization"""
 
     json_mode: None | str = "schema"
@@ -207,7 +207,7 @@ class ModelDatabase:
 
     # Model configuration database
     # KEEP ALL LOWER CASE KEYS
-    MODELS: Dict[str, ModelParameters] = {
+    MODELS: dict[str, ModelParameters] = {
         # internal models
         "passthrough": FAST_AGENT_STANDARD,
         "silent": FAST_AGENT_STANDARD,
@@ -307,24 +307,24 @@ class ModelDatabase:
     }
 
     @classmethod
-    def get_model_params(cls, model: str) -> Optional[ModelParameters]:
+    def get_model_params(cls, model: str) -> ModelParameters | None:
         """Get model parameters for a given model name"""
         return cls.MODELS.get(model.lower())
 
     @classmethod
-    def get_context_window(cls, model: str) -> Optional[int]:
+    def get_context_window(cls, model: str) -> int | None:
         """Get context window size for a model"""
         params = cls.get_model_params(model)
         return params.context_window if params else None
 
     @classmethod
-    def get_max_output_tokens(cls, model: str) -> Optional[int]:
+    def get_max_output_tokens(cls, model: str) -> int | None:
         """Get maximum output tokens for a model"""
         params = cls.get_model_params(model)
         return params.max_output_tokens if params else None
 
     @classmethod
-    def get_tokenizes(cls, model: str) -> Optional[List[str]]:
+    def get_tokenizes(cls, model: str) -> list[str] | None:
         """Get supported tokenization types for a model"""
         params = cls.get_model_params(model)
         return params.tokenizes if params else None
@@ -357,7 +357,7 @@ class ModelDatabase:
         return normalized.lower() in normalized_supported
 
     @classmethod
-    def supports_any_mime(cls, model: str, mime_types: List[str]) -> bool:
+    def supports_any_mime(cls, model: str, mime_types: list[str]) -> bool:
         """Return True if the model supports any of the provided MIME types."""
         return any(cls.supports_mime(model, m) for m in mime_types)
 
@@ -394,6 +394,6 @@ class ModelDatabase:
         return 2048  # Fallback for unknown models
 
     @classmethod
-    def list_models(cls) -> List[str]:
+    def list_models(cls) -> list[str]:
         """List all available model names"""
         return list(cls.MODELS.keys())
