@@ -238,26 +238,19 @@ These decisions simplify the fix plan and keep surface area small.
 
 **Goal:** keep existing UX (progress lines + names `[i]`) but reduce reliance on private internals.
 
-1. **Add a small public API to `RichProgressDisplay`**
+1. **Use only the standard event-based `RichProgressDisplay` API**
 
-   - In `rich_progress.py`:
-     - Add methods:
-       - `def hide_task(self, task_name: str) -> None:`
-         - Look up `task_id` via `_taskmap.get(task_name)`.
-         - If found, set `task.visible = False`.
-       - Optionally `def ensure_task(self, event: ProgressEvent) -> TaskID:` to encapsulate `add_task` + update logic.
+   - Avoid any direct access to `_taskmap` or `_progress.tasks` from `AgentsAsToolsAgent`.
+   - Emit well-formed `ProgressEvent`s instead: `CHATTING` at start and `FINISHED` at the end with `agent_name=instance_name`.
 
-   - Refactor `update()` to use `ensure_task()` internally.
+2. [x] **Use instance-scoped names in `AgentsAsToolsAgent`**
 
-2. [x] **Use the public API in `AgentsAsToolsAgent`**
-
-   - Replace direct access to `_taskmap` and `_progress.tasks` with:
-     - `outer_progress_display.hide_task(instance_name)`.
+   - Ensure we always emit instance-specific names via `agent_name=OriginalName[i]` and `target=OriginalName[i]` in progress events.
 
 3. **Document expected lifetime**
 
    - Comment in `AgentsAsToolsAgent`:
-     - Instance lines are **ephemeral**; they are hidden immediately when each task completes but progress data continues to exist for the duration of the run.
+     - Instance lines remain visible with a `FINISHED` status for the rest of the run for traceability.
 
 **Outcome:** same UI behavior, less fragile coupling to UI internals.
 
