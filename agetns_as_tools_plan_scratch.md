@@ -140,6 +140,60 @@ class AgentsAsToolsAgent(McpAgent):
    - No CLI flags change.
    - New behavior is activated simply by specifying `agents:` in the decorator/config.
 
+### 3.3. Minimal usage sample (for docs and examples)
+
+This sample is used as a reference for both local testing and future docs/README updates.
+It mirrors the standalone script in the Strato workspace (`fast/agent-as-tools.py`).
+
+```python
+import asyncio
+from fast_agent import FastAgent
+
+fast = FastAgent("Agents-as-Tools demo")
+
+
+@fast.agent(
+    name="NY-Time",
+    instruction="Return current time in New York.",
+    servers=["tm"],  # MCP server 'tm' configured in fastagent.config.yaml
+    model="gpt-5-mini",
+    tools={"tm": ["get_current_time"]},
+)
+@fast.agent(
+    name="London-Time",
+    instruction="Return current time in London.",
+    servers=["tm"],
+    model="gpt-5-mini",
+    tools={"tm": ["get_current_time"]},
+)
+@fast.agent(
+    name="time-orchestrator",
+    instruction="Get current time in New York and London.",
+    model="gpt-5-mini",
+    default=True,
+    agents=[
+        "NY-Time",
+        "London-Time",
+    ],
+)
+async def main() -> None:
+    async with fast.run() as agent:
+        result = await agent("get time for NY and London")
+        print(result)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Key points:
+
+- `NY-Time` and `London-Time` are normal MCP-enabled agents using the `tm` server.
+- `time-orchestrator` is a BASIC agent with `agents=[...]`; the factory instantiates it
+  as an `AgentsAsToolsAgent` under the hood, exposing each child as a tool.
+- From the LLM's perspective, it simply sees additional tools (`agent__NY-Time`,
+  `agent__London-Time`) alongside regular MCP tools.
+
 ---
 
 ## 4. Detailed Design by Concern
@@ -394,10 +448,15 @@ This keeps the surface area small and matches the needs of the CLI UI. A future 
 
 ### Phase 3 — Documentation & ergonomics
 
-- Add docs page / section:
+- Add docs page / section (for example, a `README.md` subsection
+  "Agents-as-Tools (child agents as tools)"):
   - Concept explanation.
-  - Example usage with YAML + decorators.
+  - Minimal Python example from §3.3 (NY/London time orchestrator).
   - Comparison with Orchestrator / IterativePlanner / Parallel workflows.
+
+- Keep the code sample in sync with the shipped example script
+  (currently `fast/agent-as-tools.py` in the Strato workspace, upstream
+  examples path TBD).
 
 - Add clear notes about:
   - Stats aggregation semantics.
