@@ -6,6 +6,7 @@ server to include local time in a brief report.
 """
 
 import asyncio
+
 from fast_agent import FastAgent
 
 fast = FastAgent("Agents-as-Tools simple demo")

@@ -10,7 +10,6 @@ import asyncio
 
 from fast_agent import FastAgent
 
-
 # Create the application
 fast = FastAgent("Agents-as-Tools demo")
 

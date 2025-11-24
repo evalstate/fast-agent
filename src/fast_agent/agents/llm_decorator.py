@@ -20,6 +20,8 @@ from typing import (
 if TYPE_CHECKING:
     from rich.text import Text
 
+    from fast_agent.agents.llm_agent import LlmAgent
+
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
 from mcp.types import (

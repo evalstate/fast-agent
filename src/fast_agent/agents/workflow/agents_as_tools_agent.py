@@ -188,24 +188,25 @@ from __future__ import annotations
 import asyncio
 import json
 from copy import copy
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
 
-from fast_agent.agents.agent_types import AgentConfig
-from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.mcp_agent import McpAgent
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_text_content,
     text_content,
 )
-from fast_agent.ui.message_primitives import MessageType
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import PromptMessageExtended
+
+if TYPE_CHECKING:
+    from fast_agent.agents.agent_types import AgentConfig
+    from fast_agent.agents.llm_agent import LlmAgent
 
 logger = get_logger(__name__)
 
