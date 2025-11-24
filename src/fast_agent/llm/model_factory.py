@@ -84,6 +84,7 @@ class ModelFactory:
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "claude-opus-4-0": Provider.ANTHROPIC,
         "claude-opus-4-1": Provider.ANTHROPIC,
+        "claude-opus-4-5": Provider.ANTHROPIC,
         "claude-opus-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
