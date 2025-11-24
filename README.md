@@ -162,6 +162,52 @@ uv run workflow/chaining.py --agent post_writer --message "<url>"
 
 Add the `--quiet` switch to disable progress and message display and return only the final response - useful for simple automations.
 
+### Agents-as-Tools (child agents as tools)
+
+Sometimes one agent needs to call other agents as tools. `fast-agent` supports
+this via a hybrid *Agents-as-Tools* agent:
+
+- You declare a BASIC agent with `agents=[...]`.
+- At runtime it is instantiated as an internal `AgentsAsToolsAgent`, which:
+  - Inherits from `McpAgent` (keeps its own MCP servers/tools).
+  - Exposes each child agent as a tool (`agent__ChildName`).
+  - Can mix MCP tools and agent-tools in the same tool loop.
+
+Minimal example:
+
+```python
+@fast.agent(
+    name="NY-Project-Manager",
+    instruction="Return current time and project status.",
+    servers=["time"],  # MCP server 'time' configured in fastagent.config.yaml
+)
+@fast.agent(
+    name="London-Project-Manager",
+    instruction="Return current time and news.",
+    servers=["time"],
+)
+@fast.agent(
+    name="PMO-orchestrator",
+    instruction="Get reports. Separate call per topic. NY: {OpenAI, Fast-Agent, Anthropic}, London: Economics",
+    default=True,
+    agents=[
+        "NY-Project-Manager",
+        "London-Project-Manager",
+    ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
+)
+async def main() -> None:
+    async with fast.run() as agent:
+        result = await agent("Get PMO report")
+        print(result)
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+Extended example is available in the repository as
+`examples/workflows/agents_as_tools_extended.py`.
+
 ## MCP OAuth (v2.1)
 
 For SSE and HTTP MCP servers, OAuth is enabled by default with minimal configuration. A local callback server is used to capture the authorization code, with a paste-URL fallback if the port is unavailable.

@@ -197,7 +197,11 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content, text_content
+from fast_agent.mcp.helpers.content_helpers import (
+    get_text,
+    is_text_content,
+    text_content,
+)
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -227,7 +231,7 @@ class AgentsAsToolsAgent(McpAgent):
         **kwargs: Any,
     ) -> None:
         """Initialize AgentsAsToolsAgent.
-        
+
         Args:
             config: Agent configuration for this parent agent (including MCP servers/tools)
             agents: List of child agents to expose as tools
@@ -248,10 +252,10 @@ class AgentsAsToolsAgent(McpAgent):
 
     def _make_tool_name(self, child_name: str) -> str:
         """Generate a tool name for a child agent.
-        
+
         Args:
             child_name: Name of the child agent
-            
+
         Returns:
             Prefixed tool name to avoid collisions with MCP tools
         """
@@ -315,7 +319,11 @@ class AgentsAsToolsAgent(McpAgent):
         child_id = id(child)
         count = self._display_suppression_count.get(child_id, 0)
         if 0 == count:
-            if hasattr(child, "display") and child.display and getattr(child.display, "config", None):
+            if (
+                hasattr(child, "display")
+                and child.display
+                and getattr(child.display, "config", None)
+            ):
                 # Store original config for restoration later
                 self._original_display_configs[child_id] = child.display.config
                 temp_config = copy(child.display.config)
@@ -338,7 +346,11 @@ class AgentsAsToolsAgent(McpAgent):
         if self._display_suppression_count[child_id] <= 0:
             del self._display_suppression_count[child_id]
             original_config = self._original_display_configs.pop(child_id, None)
-            if original_config is not None and hasattr(child, "display") and child.display:
+            if (
+                original_config is not None
+                and hasattr(child, "display")
+                and child.display
+            ):
                 child.display.config = original_config
 
     async def _invoke_child_agent(
@@ -370,7 +382,9 @@ class AgentsAsToolsAgent(McpAgent):
             if suppress_display:
                 self._suppress_child_display(child)
 
-            response: PromptMessageExtended = await child.generate([child_request], None)
+            response: PromptMessageExtended = await child.generate(
+                [child_request], None
+            )
             # Prefer preserving original content blocks for better UI fidelity
             content_blocks = list(response.content or [])
 
@@ -395,7 +409,9 @@ class AgentsAsToolsAgent(McpAgent):
                 self._release_child_display(child)
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
-        return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
+        return self._child_agents.get(name) or self._child_agents.get(
+            self._make_tool_name(name)
+        )
 
     async def call_tool(
         self,
@@ -419,7 +435,7 @@ class AgentsAsToolsAgent(McpAgent):
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
-        
+
         Args:
             descriptors: List of tool call descriptors with metadata
         """
@@ -437,17 +453,17 @@ class AgentsAsToolsAgent(McpAgent):
             tool_name = desc.get("tool", "(unknown)")
             args = desc.get("args", {})
             status = desc.get("status", "pending")
-            
+
             if status == "error":
                 continue  # Skip display for error tools, will show in results
-            
+
             # Always add individual instance number for clarity
             display_tool_name = f"{tool_name}[{i}]"
-            
+
             # Build bottom item for THIS instance only (not all instances)
             status_label = status_labels.get(status, "pending")
             bottom_item = f"{display_tool_name} · {status_label}"
-            
+
             # Show individual tool call with arguments
             self.display.show_tool_call(
                 name=self.name,
@@ -466,11 +482,9 @@ class AgentsAsToolsAgent(McpAgent):
                     return text[:180] + "…" if len(text) > 180 else text
         return ""
 
-    def _show_parallel_tool_results(
-        self, records: list[dict[str, Any]]
-    ) -> None:
+    def _show_parallel_tool_results(self, records: list[dict[str, Any]]) -> None:
         """Display tool result panels for parallel agent execution.
-        
+
         Args:
             records: List of result records with descriptor and result data
         """
@@ -482,11 +496,11 @@ class AgentsAsToolsAgent(McpAgent):
             descriptor = record.get("descriptor", {})
             result = record.get("result")
             tool_name = descriptor.get("tool", "(unknown)")
-            
+
             if result:
                 # Always add individual instance number for clarity
                 display_tool_name = f"{tool_name}[{i}]"
-                
+
                 # Show individual tool result with full content
                 self.display.show_tool_result(
                     name=self.name,
@@ -509,13 +523,19 @@ class AgentsAsToolsAgent(McpAgent):
         if not child_ids:
             return await super().run_tools(request)
 
-        child_results, child_error = await self._run_child_tools(request, set(child_ids))
+        child_results, child_error = await self._run_child_tools(
+            request, set(child_ids)
+        )
 
         if len(child_ids) == len(request.tool_calls):
-            return self._finalize_tool_results(child_results, tool_loop_error=child_error)
+            return self._finalize_tool_results(
+                child_results, tool_loop_error=child_error
+            )
 
         # Execute remaining MCP/local tools via base implementation
-        remaining_ids = [cid for cid in request.tool_calls.keys() if cid not in child_ids]
+        remaining_ids = [
+            cid for cid in request.tool_calls.keys() if cid not in child_ids
+        ]
         mcp_request = PromptMessageExtended(
             role=request.role,
             content=request.content,
@@ -530,7 +550,9 @@ class AgentsAsToolsAgent(McpAgent):
         combined_results.update(mcp_results)
 
         tool_loop_error = child_error or mcp_error
-        return self._finalize_tool_results(combined_results, tool_loop_error=tool_loop_error)
+        return self._finalize_tool_results(
+            combined_results, tool_loop_error=tool_loop_error
+        )
 
     async def _run_child_tools(
         self,
@@ -572,7 +594,10 @@ class AgentsAsToolsAgent(McpAgent):
             call_descriptors.append(descriptor)
             descriptor_by_id[correlation_id] = descriptor
 
-            if tool_name not in available_tools and self._make_tool_name(tool_name) not in available_tools:
+            if (
+                tool_name not in available_tools
+                and self._make_tool_name(tool_name) not in available_tools
+            ):
                 error_message = f"Tool '{tool_name}' is not available"
                 tool_results[correlation_id] = CallToolResult(
                     content=[text_content(error_message)], isError=True
@@ -585,7 +610,9 @@ class AgentsAsToolsAgent(McpAgent):
             id_list.append(correlation_id)
 
         from fast_agent.event_progress import ProgressAction, ProgressEvent
-        from fast_agent.ui.progress_display import progress_display as outer_progress_display
+        from fast_agent.ui.progress_display import (
+            progress_display as outer_progress_display,
+        )
 
         async def call_with_instance_name(
             tool_name: str, tool_args: dict[str, Any], instance: int
@@ -609,7 +636,9 @@ class AgentsAsToolsAgent(McpAgent):
                         "error": str(exc),
                     },
                 )
-                return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
+                return CallToolResult(
+                    content=[text_content(f"Spawn failed: {exc}")], isError=True
+                )
 
             progress_started = False
             try:
@@ -657,7 +686,9 @@ class AgentsAsToolsAgent(McpAgent):
         for i, cid in enumerate(id_list, 1):
             tool_name = descriptor_by_id[cid]["tool"]
             tool_args = descriptor_by_id[cid]["args"]
-            tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i)))
+            tasks.append(
+                asyncio.create_task(call_with_instance_name(tool_name, tool_args, i))
+            )
 
         self._show_parallel_tool_calls(call_descriptors)
 
@@ -675,7 +706,9 @@ class AgentsAsToolsAgent(McpAgent):
                     descriptor_by_id[correlation_id]["error_message"] = msg
                 else:
                     tool_results[correlation_id] = result
-                    descriptor_by_id[correlation_id]["status"] = "error" if result.isError else "done"
+                    descriptor_by_id[correlation_id]["status"] = (
+                        "error" if result.isError else "done"
+                    )
 
         ordered_records: list[dict[str, Any]] = []
         for cid in id_list:
