@@ -761,7 +761,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
-            return self._stream_failure_response(error, model_name)
+            raise error
         # Track usage if response is valid and has usage data
         if (
             hasattr(response, "usage")

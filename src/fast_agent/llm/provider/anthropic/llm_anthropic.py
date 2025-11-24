@@ -579,7 +579,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             )
         except APIError as error:
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
-            return self._stream_failure_response(error, model)
+            raise error
 
         # Track usage if response is valid and has usage data
         if (

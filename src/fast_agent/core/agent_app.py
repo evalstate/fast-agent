@@ -312,12 +312,41 @@ class AgentApp:
             # Google 429s look like Auth errors but are actually retriable
             if isinstance(e, ProviderKeyError):
                 msg = str(e).lower()
-                if "429" in msg or "quota" in msg or "exhausted" in msg:
+                retry_keywords = ["429", "503", "quota", "exhausted", "overloaded", "unavailable", "timeout"]
+                if any(k in msg for k in retry_keywords):
                     return False
                 return True
             return False
         
         # Define the wrapper for send function
+        def _format_final_error(error: Exception, attempts: int) -> str:
+            """Recreates the polite error message style from the providers."""
+            
+            detail = getattr(error, "message", None) or str(error)
+            detail = detail.strip() if isinstance(detail, str) else ""
+            
+            parts = [f"Request failed after {attempts} retries"]
+            code = getattr(error, "code", None)
+            status = getattr(error, "status_code", None)
+            
+            if code: parts.append(f"(code: {code})")
+            if status: parts.append(f"(status={status})")
+            
+            message_line = " ".join(parts)
+            if detail:
+                # Remove excessive newlines from raw JSON
+                clean_detail = detail.replace("\n", " ")
+                # Limit length to avoid flooding chat, but keep enough to read
+                if len(clean_detail) > 300:
+                    clean_detail = clean_detail[:297] + "..."
+                message_line = f"{message_line}: {clean_detail}"
+
+            return (
+                f"⚠️ **System Error:** {message_line}\n"
+                f"\n*Your context is preserved. You can try sending the message again.*"
+            )
+
+        # --- 3. The Retry Logic ---
         async def send_wrapper(message, agent_name):
             last_error = None
             
@@ -326,26 +355,31 @@ class AgentApp:
                     return await self.send(message, agent_name, request_params)
                 
                 except Exception as e:
-                    # Crash immediately on fatal setup errors or Ctrl+C
+                    # Fatal errors crash immediately
                     if _is_fatal_error(e):
                         raise e
                     
-                    # Retry for everything else
                     last_error = e
+
                     if attempt < retries:
-                        # LINEAR BACKOFF: 10s, 20s, 30s...
-                        wait_time = 10 * (attempt + 1)
+                        wait_time = 10 * (attempt + 1) # 10s, 20s, 30s...
                         
                         with progress_display.paused():
-                            rich_print(f"\n[yellow]⚠ API Error ({type(e).__name__}): {str(e)}[/yellow]")
-                            rich_print(f"[bold yellow]⟳ Retrying in {wait_time}s... (Attempt {attempt+1}/{retries})[/bold yellow]")
+                            error_preview = str(e).replace("\n", " ")[:300]
+                            rich_print(f"\n[yellow]⚠ Provider Error: {error_preview}...[/yellow]")
+                            rich_print(f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt+1}/{retries})[/dim]")
                         
                         await asyncio.sleep(wait_time)
                     else:
-                        rich_print(f"\n[red]❌ All {retries} retries failed.[/red]")
+                        # Final failure
+                        with progress_display.paused():
+                            rich_print(f"\n[red]❌ All {retries} retries failed.[/red]")
 
-            # Return error as text instead of crashing
-            return f"⚠️ **System Error:** Failed after {retries} retries.\nError details: {str(last_error)}\n\n*Your context is preserved. You can try sending the message again.*"
+            # Check if last_error exists before using it
+            if last_error is None:
+                return "⚠️ **System Error:** Operation failed with no captured exception."
+
+            return _format_final_error(last_error, retries)
 
         return await prompt.prompt_loop(
             send_func=send_wrapper,
