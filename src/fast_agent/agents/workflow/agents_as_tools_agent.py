@@ -38,28 +38,31 @@ Benefits over iterative_planner/orchestrator:
 Algorithm
 ---------
 1. **Initialization**
-   - Parent agent receives list of child agents
-   - Each child agent is mapped to a tool name: `agent__{child_name}`
-   - Tool schemas advertise text/json input capabilities
+   - `AgentsAsToolsAgent` is itself an `McpAgent` (with its own MCP servers + tools) and receives a list of **child agents**.
+   - Each child agent is mapped to a synthetic tool name: `agent__{child_name}`.
+   - Child tool schemas advertise text/json input capabilities.
 
 2. **Tool Discovery (list_tools)**
-   - Parent LLM receives one tool per child agent
-   - Each tool schema includes child agent's instruction as description
-   - LLM decides which tools (child agents) to call based on user request
+   - `list_tools()` starts from the base `McpAgent.list_tools()` (MCP + local tools).
+   - Synthetic child tools `agent__ChildName` are added on top when their names do not collide with existing tools.
+   - The parent LLM therefore sees a **merged surface**: MCP tools and agent-tools in a single list.
 
 3. **Tool Execution (call_tool)**
-   - Route tool name to corresponding child template
-   - Convert tool arguments (text or JSON) to child input
-   - Execution itself is performed by detached clones created inside `run_tools`
-   - Responses are converted to `CallToolResult` objects (errors propagate as `isError=True`)
+   - If the requested tool name resolves to a child agent (either `child_name` or `agent__child_name`):
+     - Convert tool arguments (text or JSON) to a child user message.
+     - Execute via detached clones created inside `run_tools` (see below).
+     - Responses are converted to `CallToolResult` objects (errors propagate as `isError=True`).
+   - Otherwise, delegate to the base `McpAgent.call_tool` implementation (MCP tools, shell, human-input, etc.).
 
 4. **Parallel Execution (run_tools)**
-   - Collect all tool calls from parent LLM response
-   - For each call, spawn a detached clone with its own LLM + MCP aggregator and suffixed name
-   - Emit `ProgressAction.CHATTING` for each instance and keep parent status untouched
-   - Execute tasks concurrently via `asyncio.gather`
-   - On completion, mark instance lines `FINISHED` (no hiding) and merge usage back into the template
-   - Aggregate results and return them to the parent LLM
+   - Collect all tool calls from the parent LLM response.
+   - Partition them into **child-agent tools** and **regular MCP/local tools**.
+   - Child-agent tools are executed in parallel:
+     - For each child tool call, spawn a detached clone with its own LLM + MCP aggregator and suffixed name.
+     - Emit `ProgressAction.CHATTING` / `ProgressAction.FINISHED` events for each instance and keep parent status untouched.
+     - Merge each clone's usage back into the template child after shutdown.
+   - Remaining MCP/local tools are delegated to `McpAgent.run_tools()`.
+   - Child and MCP results (and their error text from `FAST_AGENT_ERROR_CHANNEL`) are merged into a single `PromptMessageExtended` that is returned to the parent LLM.
 
 Progress Panel Behavior
 -----------------------
@@ -190,9 +193,10 @@ from mcp.types import CallToolResult
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import get_text, is_text_content, text_content
 from fast_agent.ui.message_primitives import MessageType
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -200,13 +204,19 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 logger = get_logger(__name__)
 
 
-class AgentsAsToolsAgent(ToolAgent):
-    """
-    An agent that makes each child agent available as an MCP Tool to the parent LLM.
+class AgentsAsToolsAgent(McpAgent):
+    """MCP-enabled agent that exposes child agents as additional tools.
 
-    - list_tools() advertises one tool per child agent
-    - call_tool() routes execution to the corresponding child agent
-    - run_tools() is overridden to process multiple tool calls in parallel
+    This hybrid agent:
+
+    - Inherits all MCP behavior from :class:`McpAgent` (servers, MCP tool discovery, local tools).
+    - Exposes each child agent as an additional synthetic tool (`agent__ChildName`).
+    - Merges **MCP tools** and **agent-tools** into a single `list_tools()` surface.
+    - Routes `call_tool()` to child agents when the name matches a child, otherwise delegates
+      to the base `McpAgent.call_tool` implementation.
+    - Overrides `run_tools()` to fan out child-agent tools in parallel using detached clones,
+      while delegating any remaining MCP/local tools to the base `McpAgent.run_tools` and
+      merging all results into a single tool-loop response.
     """
 
     def __init__(
@@ -219,13 +229,12 @@ class AgentsAsToolsAgent(ToolAgent):
         """Initialize AgentsAsToolsAgent.
         
         Args:
-            config: Agent configuration
+            config: Agent configuration for this parent agent (including MCP servers/tools)
             agents: List of child agents to expose as tools
             context: Optional context for agent execution
-            **kwargs: Additional arguments passed to ToolAgent
+            **kwargs: Additional arguments passed through to :class:`McpAgent` and its bases
         """
-        # Initialize as a ToolAgent but without local FastMCP tools; we'll override list_tools
-        super().__init__(config=config, tools=[], context=context)
+        super().__init__(config=config, context=context, **kwargs)
         self._child_agents: dict[str, LlmAgent] = {}
 
         # Build tool name mapping for children
@@ -265,13 +274,16 @@ class AgentsAsToolsAgent(ToolAgent):
                 logger.warning(f"Error shutting down child agent {agent.name}: {e}")
 
     async def list_tools(self) -> ListToolsResult:
-        """List all available tools (one per child agent).
-        
-        Returns:
-            ListToolsResult containing tool schemas for all child agents
-        """
-        tools: list[Tool] = []
+        """List MCP tools plus child agents exposed as tools."""
+
+        base = await super().list_tools()
+        tools = list(base.tools)
+        existing_names = {tool.name for tool in tools}
+
         for tool_name, agent in self._child_agents.items():
+            if tool_name in existing_names:
+                continue
+
             input_schema: dict[str, Any] = {
                 "type": "object",
                 "properties": {
@@ -287,6 +299,8 @@ class AgentsAsToolsAgent(ToolAgent):
                     inputSchema=input_schema,
                 )
             )
+            existing_names.add(tool_name)
+
         return ListToolsResult(tools=tools)
 
     def _ensure_display_maps_initialized(self) -> None:
@@ -380,20 +394,17 @@ class AgentsAsToolsAgent(ToolAgent):
             if suppress_display:
                 self._release_child_display(child)
 
+    def _resolve_child_agent(self, name: str) -> LlmAgent | None:
+        return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
+
     async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
-        """Execute a child agent by name.
-        
-        Args:
-            name: Tool name (agent name with prefix)
-            arguments: Optional arguments to pass to the child agent
-            
-        Returns:
-            CallToolResult containing the child agent's response
-        """
-        child = self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
-        if child is None:
-            return CallToolResult(content=[text_content(f"Unknown agent-tool: {name}")], isError=True)
-        return await self._invoke_child_agent(child, arguments)
+        """Route tool execution to child agents first, then MCP/local tools."""
+
+        child = self._resolve_child_agent(name)
+        if child is not None:
+            return await self._invoke_child_agent(child, arguments)
+
+        return await super().call_tool(name, arguments)
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
@@ -473,17 +484,56 @@ class AgentsAsToolsAgent(ToolAgent):
                 )
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
-        """
-        Override ToolAgent.run_tools to execute multiple tool calls in parallel.
-        """
+        """Handle mixed MCP + agent-tool batches."""
+
         if not request.tool_calls:
             logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
+        child_ids: list[str] = []
+        for correlation_id, tool_request in request.tool_calls.items():
+            if self._resolve_child_agent(tool_request.params.name):
+                child_ids.append(correlation_id)
+
+        if not child_ids:
+            return await super().run_tools(request)
+
+        child_results, child_error = await self._run_child_tools(request, set(child_ids))
+
+        if len(child_ids) == len(request.tool_calls):
+            return self._finalize_tool_results(child_results, tool_loop_error=child_error)
+
+        # Execute remaining MCP/local tools via base implementation
+        remaining_ids = [cid for cid in request.tool_calls.keys() if cid not in child_ids]
+        mcp_request = PromptMessageExtended(
+            role=request.role,
+            content=request.content,
+            tool_calls={cid: request.tool_calls[cid] for cid in remaining_ids},
+        )
+        mcp_message = await super().run_tools(mcp_request)
+        mcp_results = mcp_message.tool_results or {}
+        mcp_error = self._extract_error_text(mcp_message)
+
+        combined_results = {}
+        combined_results.update(child_results)
+        combined_results.update(mcp_results)
+
+        tool_loop_error = child_error or mcp_error
+        return self._finalize_tool_results(combined_results, tool_loop_error=tool_loop_error)
+
+    async def _run_child_tools(
+        self,
+        request: PromptMessageExtended,
+        target_ids: set[str],
+    ) -> tuple[dict[str, CallToolResult], str | None]:
+        """Run only the child-agent tool calls from the request."""
+
+        if not target_ids:
+            return {}, None
+
         tool_results: dict[str, CallToolResult] = {}
         tool_loop_error: str | None = None
 
-        # Snapshot available tools for validation and UI
         try:
             listed = await self.list_tools()
             available_tools = [t.name for t in listed.tools]
@@ -491,13 +541,15 @@ class AgentsAsToolsAgent(ToolAgent):
             logger.warning(f"Failed to list tools before execution: {exc}")
             available_tools = list(self._child_agents.keys())
 
-        # Build aggregated view of all tool calls
         call_descriptors: list[dict[str, Any]] = []
         descriptor_by_id: dict[str, dict[str, Any]] = {}
         tasks: list[asyncio.Task] = []
         id_list: list[str] = []
-        
+
         for correlation_id, tool_request in request.tool_calls.items():
+            if correlation_id not in target_ids:
+                continue
+
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
 
@@ -521,23 +573,13 @@ class AgentsAsToolsAgent(ToolAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
-        pending_count = len(id_list)
-        parent_base_names: set[str] = set()
-        for cid in id_list:
-            tool_name = descriptor_by_id[cid]["tool"]
-            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
-            if child:
-                parent_base_names.add(child.name)
-        
-        # Import progress_display at outer scope to ensure same instance
         from fast_agent.event_progress import ProgressAction, ProgressEvent
         from fast_agent.ui.progress_display import progress_display as outer_progress_display
 
-        # Create wrapper coroutine that sets names and emits progress for instance
         async def call_with_instance_name(
             tool_name: str, tool_args: dict[str, Any], instance: int
         ) -> CallToolResult:
-            child = self._child_agents.get(tool_name) or self._child_agents.get(self._make_tool_name(tool_name))
+            child = self._resolve_child_agent(tool_name)
             if not child:
                 error_msg = f"Unknown agent-tool: {tool_name}"
                 return CallToolResult(content=[text_content(error_msg)], isError=True)
@@ -600,17 +642,14 @@ class AgentsAsToolsAgent(ToolAgent):
                             agent_name=instance_name,
                         )
                     )
-        
-        # Create tasks with instance-specific wrappers
+
         for i, cid in enumerate(id_list, 1):
             tool_name = descriptor_by_id[cid]["tool"]
             tool_args = descriptor_by_id[cid]["args"]
             tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i)))
 
-        # Show aggregated tool call(s)
         self._show_parallel_tool_calls(call_descriptors)
 
-        # Execute concurrently
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
             for i, result in enumerate(results):
@@ -627,9 +666,8 @@ class AgentsAsToolsAgent(ToolAgent):
                     tool_results[correlation_id] = result
                     descriptor_by_id[correlation_id]["status"] = "error" if result.isError else "done"
 
-        # Show aggregated result(s)
         ordered_records: list[dict[str, Any]] = []
-        for cid in request.tool_calls.keys():
+        for cid in id_list:
             result = tool_results.get(cid)
             if result is None:
                 continue
@@ -638,4 +676,19 @@ class AgentsAsToolsAgent(ToolAgent):
 
         self._show_parallel_tool_results(ordered_records)
 
-        return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
+        return tool_results, tool_loop_error
+
+    def _extract_error_text(self, message: PromptMessageExtended) -> str | None:
+        if not message.channels:
+            return None
+
+        error_blocks = message.channels.get(FAST_AGENT_ERROR_CHANNEL)
+        if not error_blocks:
+            return None
+
+        for block in error_blocks:
+            text = get_text(block)
+            if text:
+                return text
+
+        return None

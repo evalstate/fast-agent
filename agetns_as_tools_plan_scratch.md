@@ -97,28 +97,28 @@ This snapshot should stay in sync with the actual code to document why the detac
 
 Location: `src/fast_agent/agents/workflow/agents_as_tools_agent.py`.
 
-Base class: **`ToolAgent`** (not `McpAgent`).
+Base class: **`McpAgent`** (inherits `ToolAgent` and manages MCP connections).
 
 Responsibilities:
 
-- Adapter between **LLM tool schema** and **child agents**.
-- `list_tools()` → synthetic tools for children.
-- `call_tool()` → executes the appropriate child.
-- `run_tools()` → parallel fan-out + fan-in.
-- UI integration via a **small display adapter**, not raw access to progress internals.
+- Adapter between **LLM tool schema**, **child agents**, and **MCP tools**.
+- `list_tools()` → MCP tools (from `McpAgent`) plus synthetic tools for children.
+- `call_tool()` → executes child agents first; falls back to MCP/local tools.
+- `run_tools()` → parallel fan-out for child agents plus integration with the base MCP `run_tools` for mixed batches.
 
 Constructor:
 
 ```python
-class AgentsAsToolsAgent(ToolAgent):
+class AgentsAsToolsAgent(McpAgent):
     def __init__(
         self,
         config: AgentConfig,
         agents: list[LlmAgent],
         context: Context | None = None,
+        **kwargs: Any,
     ) -> None:
-        super().__init__(config=config, tools=[], context=context)
-        self._children: dict[str, LlmAgent] = {}
+        super().__init__(config=config, context=context, **kwargs)
+        self._child_agents: dict[str, LlmAgent] = {}
         # Maps tool name -> child agent (keys are agent__ChildName)
 ```
 
@@ -167,13 +167,13 @@ class AgentsAsToolsAgent(ToolAgent):
     ```
 
 - Implementation sketch:
-  - For each child in `self._children`:
+  - For each child in `self._child_agents`:
     - Build an `mcp.Tool`:
       - `name = tool_name`
       - `description = child.instruction`
       - `inputSchema = schema_above`.
 
-**Open design choice:** whether to **merge** these tools with MCP tools if the parent is also an MCP-enabled agent. For from-scratch, keep them **separate**: Agents-as-Tools is the *only* tool surface of this agent.
+- In the current implementation these child tools are **merged** with the MCP tools exposed by `McpAgent.list_tools()`: `AgentsAsToolsAgent.list_tools()` returns a single combined surface (MCP tools + `agent__Child` tools), adding child tools only when their names do not conflict with existing MCP/local tool names.
 
 ### 4.2. Argument mapping (`call_tool`)
 
@@ -239,11 +239,11 @@ Rationale: children can still be run standalone (outside Agents-as-Tools) with f
 
 ### 4.4. Parallel `run_tools` semantics
 
-**Goal:** replace `ToolAgent.run_tools` with a parallel implementation that preserves its contract but allows: 
+**Goal:** replace `ToolAgent.run_tools` with a parallel implementation that preserves its contract but allows:
 
 - multiple tool calls per LLM turn;
 - concurrent execution via `asyncio.gather`;
-- clear UI for each virtual instance.
+- clear UI for each per-call instance.
 
 #### 4.4.1. Data structures
 
@@ -254,80 +254,85 @@ Rationale: children can still be run standalone (outside Agents-as-Tools) with f
 - `tasks: list[Task[CallToolResult]]`.
 - `ids_in_order: list[str]` for stable correlation.
 
-#### 4.4.2. Algorithm
+#### 4.4.2. Algorithm (current implementation)
 
 1. **Validate tool calls**
    - Snapshot `available_tools` from `list_tools()`.
    - For each `request.tool_calls[correlation_id]`:
-     - If name not in available_tools → create `CallToolResult(isError=True, ...)`, mark descriptor as `status="error"`, skip task.
+     - If name not in `available_tools` → create `CallToolResult(isError=True, ...)`, mark descriptor as `status="error"`, skip task.
      - Else → `status="pending"`, add to `ids_in_order`.
 
-2. **Prepare virtual instance names**
+2. **Create detached instances and names**
 
-   - `pending_count = len(ids_in_order)`.
-   - If `pending_count <= 1`:
-     - No instance suffixing; just run sequentially or as a trivial gather.
-   - Else:
-     - For each `tool_name` used:
-       - Capture `original_name = child.name` in a dict for later restoration.
+   - For each `correlation_id` in `ids_in_order` assign `instance_index = 1..N`.
+   - Resolve the template child from `_child_agents`.
+   - Compute `base_name = child.name` and `instance_name = f"{base_name}[{instance_index}]"`.
+   - Use `instance_name` consistently for:
+     - the detached clone (`spawn_detached_instance(name=instance_name)`),
+     - progress events (`agent_name=instance_name`, `target=instance_name`),
+     - chat/tool headers (`tool_name[instance_index]`).
 
 3. **Instance execution wrapper**
 
-   Define:
+   Conceptually (simplified):
 
    ```python
-   async def _run_instance(tool_name, args, instance_index) -> CallToolResult:
-       child = self._children[tool_name]
-       instance_name = f"{child.name}[{instance_index}]" if pending_count > 1 else child.name
-       # UI: start instance line
-       self._display_adapter.start_instance(parent=self, child=child, instance_name=instance_name)
+   async def call_with_instance_name(tool_name, tool_args, instance_index) -> CallToolResult:
+       child = resolve_template_child(tool_name)
+       base_name = child.name
+       instance_name = f"{base_name}[{instance_index}]"
+
+       clone = await child.spawn_detached_instance(name=instance_name)
+
+       progress_display.update(ProgressEvent(
+           action=ProgressAction.CHATTING,
+           target=instance_name,
+           agent_name=instance_name,
+       ))
+
        try:
-           return await self.call_tool(tool_name, args)
+           # Handles argument → text mapping, display suppression, error channel, etc.
+           return await self._invoke_child_agent(clone, tool_args)
        finally:
-           self._display_adapter.finish_instance(instance_name)
+           await clone.shutdown()
+           child.merge_usage_from(clone)
+           progress_display.update(ProgressEvent(
+               action=ProgressAction.FINISHED,
+               target=instance_name,
+               agent_name=instance_name,
+               details="Completed",
+           ))
    ```
 
-4. **Display adapter abstraction**
+   - All interaction with the Rich progress panel goes through `ProgressEvent` objects and the shared `progress_display.update(...)` API.
+   - `RichProgressDisplay.update` is responsible for marking `FINISHED` lines complete without hiding other tasks.
 
-To avoid touching `RichProgressDisplay` internals from this class, introduce a tiny adapter:
+4. **Parallel execution and UI**
 
-- `AgentsAsToolsDisplayAdapter` (internal helper, same module or `ui/agents_as_tools_display.py`):
+   - For each `correlation_id` with a valid tool call, create a task:
 
-  - Depends only on:
-    - `progress_display: RichProgressDisplay`
-    - `ConsoleDisplay` of the parent agent.
+     ```python
+     tasks.append(asyncio.create_task(
+         call_with_instance_name(tool_name, tool_args, instance_index=i)
+     ))
+     ```
 
-  - Responsibilities:
-    - `start_parent_waiting(original_parent_name)` → emit `ProgressAction.READY`.
-    - `start_instance(parent, child, instance_name)` → emit `ProgressAction.CHATTING` or `CALLING_TOOL` with `agent_name=instance_name`.
-    - `finish_instance(instance_name)` → emit `ProgressAction.FINISHED` for the instance and rely on the standard progress UI for visibility.
-    - `_show_parallel_tool_calls(call_descriptors)` → call `parent.display.show_tool_call` with `[i]` suffixes.
-    - `_show_parallel_tool_results(ordered_records)` → call `parent.display.show_tool_result` with `[i]` suffixes.
+   - `_show_parallel_tool_calls(call_descriptors)` and `_show_parallel_tool_results(ordered_records)` use `tool_name[i]` labels in the chat panels and bottom status items, but do not touch `RichProgressDisplay` internals.
+   - `results = await asyncio.gather(*tasks, return_exceptions=True)` collects all results and maps them back to `correlation_id` in input order.
 
-The `AgentsAsToolsAgent` itself:
-
-- Holds a `self._display_adapter` instance.
-- Delegates all UI updates to it.
-
-5. **Parallel execution**
-
-- For each `correlation_id` with a valid tool call, create a task:
-
-  ```python
-  tasks.append(asyncio.create_task(
-      _run_instance(tool_name, tool_args, instance_index=i)
-  ))
-  ```
-
-- Show aggregated calls via display adapter.
-- `results = await asyncio.gather(*tasks, return_exceptions=True)`.
-- Map each result back to `correlation_id`.
-
-6. **Finalize**
+5. **Finalize**
 
 - Build ordered `records = [{"descriptor": ..., "result": ...}, ...]` in input order.
-- Ask display adapter to show results.
+- Call `_show_parallel_tool_results(records)`.
 - Return `self._finalize_tool_results(tool_results, tool_loop_error)` for consistency with `ToolAgent`.
+
+6. **Mixed MCP + agent-tools batches**
+
+- If `request.tool_calls` contains both child-agent tools and regular MCP tools:
+  - Split `tool_calls` into two subsets: child-agent calls and remaining MCP/local tools.
+  - Run child-agent calls via the parallel `call_with_instance_name(...)` path described above.
+  - Delegate the remaining tools to the base `McpAgent.run_tools()` implementation.
+  - Merge `tool_results` and error text from both branches (using the `FAST_AGENT_ERROR_CHANNEL` error channel) into a single `PromptMessageExtended`.
 
 ### 4.5. Stats and history integration
 
@@ -346,40 +351,14 @@ No new data model types are needed for stats.
 
 ---
 
-## 5. Engineering Model & Separation of Concerns
+## 5. Engineering notes
 
-To make the design understandable and maintainable, structure it into three layers:
+In the current implementation `AgentsAsToolsAgent` combines both:
 
-1. **Core runtime (no UI)**
+- core runtime concerns (tool mapping, argument normalization, `run_tools` orchestration), and
+- UI wiring (progress events and chat/tool panels).
 
-   - Handles:
-     - Tool name mapping (`agent__Child`).
-     - `list_tools`, `call_tool`, `run_tools` logic.
-     - Argument normalization.
-     - Result collation.
-   - Exposes hooks:
-     - `on_tool_call_start(tool_name, instance_index, correlation_id)`
-     - `on_tool_call_end(tool_name, instance_index, correlation_id, result)`
-   - No knowledge of Rich, ConsoleDisplay, or MCP.
-
-2. **UI adapter layer**
-
-   - Subscribes to core runtime hooks.
-   - Responsible for:
-     - Creating/updating progress tasks.
-     - Formatting tool call & result panels.
-   - Talks to:
-     - `RichProgressDisplay`
-     - Parent agents `ConsoleDisplay`.
-
-3. **Integration/glue layer (factory + decorators)**
-
-   - Binds user-level config/decorators to concrete runtime instances.
-   - Ensures that:
-     - Children are created before parents.
-     - The same context (settings, logs, executor) is reused.
-
-This layered model allows future refactors such as a **web UI** or a **non-Rich CLI** to adopt the core Agents-as-Tools runtime without touching orchestration logic.
+This keeps the surface area small and matches the needs of the CLI UI. A future refactor could still extract a pure runtime helper and a separate UI adapter (see §7), but that split is **not** required for the feature to work today.
 
 ---
 
@@ -429,38 +408,22 @@ This layered model allows future refactors such as a **web UI** or a **non-Rich 
 
 ## 7. Potential Future Extensions
 
-The above design keeps the surface area small. After it is stable, consider these additions:
+The current implementation is intentionally minimal. The items below are still **future** additions (not implemented as of Nov 2025).
 
 1. **Per-instance stats & traces**
 
-- Extend core runtime to emit per-instance events with:
-  - `instance_id` (UUID or (tool_name, index)).
-  - `start_time`, `end_time`, `duration_ms`.
-- Expose hooks so UI can show:
-  - Per-instance durations.
-  - Aggregate bars per instance in a detail view.
+   - Extend the runtime to emit per-instance stats objects with `instance_id`, `start_time`, `end_time`, `duration_ms`.
+   - Allow a richer UI (CLI or web) to display per-instance timing bars and aggregates.
 
 2. **Recursive Agents-as-Tools**
 
-- Allow children themselves to be `AgentsAsToolsAgent`.
-- This already works logically, but we can:
-  - Make it explicit in docs.
-  - Ensure UI still renders nested tool calls clearly.
+   - Explicitly document and test scenarios where children are themselves `AgentsAsToolsAgent` instances.
+   - Ensure nested tool calls remain readable in progress and history views.
 
-3. **Merged MCP + agent-tools view**
+3. **Correlation-friendly logging**
 
-- Add an optional mode where `list_tools()` returns:
-  - All MCP tools from connected servers.
-  - All agent-tools.
-- Provide filters via `AgentConfig.tools` to control which surface is visible per parent.
-
-4. **Correlation-friendly logging**
-
-- Standardize structured log fields for tools:
-  - `agent_name`, `instance_name`, `correlation_id`, `tool_name`.
-- Make `history_display` able to group tool rows per correlation id + instance.
-
----
+   - Standardize structured log fields for tools (`agent_name`, `instance_name`, `correlation_id`, `tool_name`).
+   - Make `history_display` able to group tool rows per `(correlation_id, instance)` so parallel runs are easier to inspect.
 
 ## 8. Summary
 
