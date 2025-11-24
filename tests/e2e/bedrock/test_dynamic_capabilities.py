@@ -1,5 +1,4 @@
 import sys
-from typing import List
 
 import pytest
 
@@ -16,7 +15,7 @@ def debug_cache_at_end():
     BedrockLLM.debug_cache()
 
 
-def _bedrock_models_for_capability_tests() -> List[str]:
+def _bedrock_models_for_capability_tests() -> list[str]:
     """Return Bedrock models if AWS is configured, otherwise return empty list."""
     try:
         return all_bedrock_models(prefix="")

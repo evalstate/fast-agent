@@ -1,5 +1,5 @@
 import unittest
-from typing import Any, Dict
+from typing import Any
 
 from mcp.types import TextContent
 
@@ -7,7 +7,7 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import Anth
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
-def apply_cache_control_to_message(message: Dict[str, Any], position: int) -> bool:
+def apply_cache_control_to_message(message: dict[str, Any], position: int) -> bool:
     """
     Apply cache control to a message at the specified position.
 

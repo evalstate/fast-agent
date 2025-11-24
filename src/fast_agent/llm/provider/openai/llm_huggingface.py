@@ -36,8 +36,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _base_url(self) -> str:
         base_url = None
-        if self.context.config and self.context.config.huggingface:
-            base_url = self.context.config.huggingface.base_url
+        if self.context.config and self.context.config.hf:
+            base_url = self.context.config.hf.base_url
 
         return base_url if base_url else HUGGINGFACE_BASE_URL
 
@@ -60,8 +60,8 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
     def _resolve_default_provider(self) -> str | None:
         config_provider = None
-        if self.context and self.context.config and self.context.config.huggingface:
-            config_provider = self.context.config.huggingface.default_provider
+        if self.context and self.context.config and self.context.config.hf:
+            config_provider = self.context.config.hf.default_provider
         env_provider = os.getenv("HF_DEFAULT_PROVIDER")
         return config_provider or env_provider
 

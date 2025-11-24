@@ -4,6 +4,8 @@ This replaces the traditional FastAgent with a more streamlined approach that
 directly creates Agent instances without proxies.
 """
 
+from __future__ import annotations
+
 import argparse
 import asyncio
 import inspect
@@ -19,10 +21,7 @@ from typing import (
     AsyncIterator,
     Awaitable,
     Callable,
-    Dict,
-    List,
     Literal,
-    Optional,
     ParamSpec,
     TypeVar,
 )
@@ -31,7 +30,6 @@ import yaml
 from opentelemetry import trace
 
 from fast_agent import config
-from fast_agent.context import Context
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.direct_decorators import (
@@ -73,6 +71,10 @@ from fast_agent.core.exceptions import (
     ServerInitializationError,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt_templates import (
+    apply_template_variables,
+    enrich_with_environment_context,
+)
 from fast_agent.core.validation import (
     validate_provider_keys_post_creation,
     validate_server_references,
@@ -80,6 +82,7 @@ from fast_agent.core.validation import (
 )
 from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.skills import SkillManifest, SkillRegistry
+from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
 if TYPE_CHECKING:
@@ -87,6 +90,7 @@ if TYPE_CHECKING:
     from pydantic import AnyUrl
 
     from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+    from fast_agent.context import Context
     from fast_agent.interfaces import AgentProtocol
     from fast_agent.types import PromptMessageExtended
 
@@ -127,10 +131,10 @@ class FastAgent:
         self._skills_directory_override = (
             Path(skills_directory).expanduser() if skills_directory else None
         )
-        self._default_skill_manifests: List[SkillManifest] = []
+        self._default_skill_manifests: list[SkillManifest] = []
         self._server_instance_factory = None
         self._server_instance_dispose = None
-        self._server_managed_instances: List[AgentInstance] = []
+        self._server_managed_instances: list[AgentInstance] = []
 
         # --- Wrap argument parsing logic ---
         if parse_cli_args:
@@ -170,9 +174,9 @@ class FastAgent:
             )
             parser.add_argument(
                 "--transport",
-                choices=["sse", "http", "stdio"],
-                default="http",
-                help="Transport protocol to use when running as a server (sse or stdio)",
+                choices=["sse", "http", "stdio", "acp"],
+                default=None,
+                help="Transport protocol to use when running as a server (sse, http, stdio, or acp)",
             )
             parser.add_argument(
                 "--port",
@@ -208,6 +212,29 @@ class FastAgent:
                 # if unknown and not ignore_unknown_args:
                 #     logger.warning(f"Ignoring unknown command line arguments: {unknown}")
 
+            # Track whether CLI flags were explicitly provided
+            cli_args = sys.argv[1:]
+            server_flag_used = "--server" in cli_args
+            transport_flag_used = any(
+                arg == "--transport" or arg.startswith("--transport=") for arg in cli_args
+            )
+
+            # If a transport was provided, assume server mode even without --server
+            if transport_flag_used and not getattr(self.args, "server", False):
+                self.args.server = True
+
+            # Default the transport if still unset
+            if getattr(self.args, "transport", None) is None:
+                self.args.transport = "http"
+
+            # Warn that --server is deprecated when the user supplied it explicitly
+            if server_flag_used:
+                print(
+                    "--server is deprecated; server mode is implied when --transport is provided. "
+                    "This flag will be removed in a future release.",
+                    file=sys.stderr,
+                )
+
             # Handle version flag
             if self.args.version:
                 try:
@@ -217,6 +244,12 @@ class FastAgent:
                 print(f"fast-agent-mcp v{app_version}")
                 sys.exit(0)
         # --- End of wrapped logic ---
+
+        # Force quiet mode automatically when running ACP transport
+        transport = getattr(self.args, "transport", None)
+        if transport == "acp":
+            self._programmatic_quiet = True
+            setattr(self.args, "quiet", True)
 
         # Apply programmatic quiet setting (overrides CLI if both are set)
         if self._programmatic_quiet:
@@ -267,7 +300,7 @@ class FastAgent:
             raise SystemExit(1)
 
         # Dictionary to store agent configurations from decorators
-        self.agents: Dict[str, Dict[str, Any]] = {}
+        self.agents: dict[str, dict[str, Any]] = {}
 
     def _load_config(self) -> None:
         """Load configuration from YAML file including secrets using get_settings
@@ -310,20 +343,20 @@ class FastAgent:
         def agent(
             self,
             name: str = "default",
-            instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+            instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
-            servers: List[str] = [],
-            tools: Optional[Dict[str, List[str]]] = None,
-            resources: Optional[Dict[str, List[str]]] = None,
-            prompts: Optional[Dict[str, List[str]]] = None,
-            skills: Optional[List[SkillManifest | SkillRegistry | Path | str | None]] = None,
-            model: Optional[str] = None,
+            servers: list[str] = [],
+            tools: dict[str, list[str]] | None = None,
+            resources: dict[str, list[str]] | None = None,
+            prompts: dict[str, list[str]] | None = None,
+            skills: list[SkillManifest | SkillRegistry | Path | str | None] | None = None,
+            model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
             human_input: bool = False,
             default: bool = False,
-            elicitation_handler: Optional[ElicitationFnT] = None,
+            elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
         ) -> Callable[
             [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
@@ -333,19 +366,19 @@ class FastAgent:
             self,
             cls,
             name: str = "default",
-            instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+            instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = "You are a helpful agent.",
-            servers: List[str] = [],
-            tools: Optional[Dict[str, List[str]]] = None,
-            resources: Optional[Dict[str, List[str]]] = None,
-            prompts: Optional[Dict[str, List[str]]] = None,
-            model: Optional[str] = None,
+            servers: list[str] = [],
+            tools: dict[str, list[str]] | None = None,
+            resources: dict[str, list[str]] | None = None,
+            prompts: dict[str, list[str]] | None = None,
+            model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
             human_input: bool = False,
             default: bool = False,
-            elicitation_handler: Optional[ElicitationFnT] = None,
+            elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -353,11 +386,11 @@ class FastAgent:
             self,
             name: str,
             *,
-            agents: List[str],
+            agents: list[str],
             instruction: str
             | Path
             | AnyUrl = "You are an expert planner. Given an objective task and a list of Agents\n(which are collections of capabilities), your job is to break down the objective\ninto a series of steps, which can be performed by these agents.\n",
-            model: Optional[str] = None,
+            model: str | None = None,
             request_params: RequestParams | None = None,
             use_history: bool = False,
             human_input: bool = False,
@@ -371,9 +404,9 @@ class FastAgent:
             self,
             name: str,
             *,
-            agents: List[str],
+            agents: list[str],
             instruction: str | Path | AnyUrl = "You are an expert planner. Plan iteratively.",
-            model: Optional[str] = None,
+            model: str | None = None,
             request_params: RequestParams | None = None,
             plan_iterations: int = -1,
             default: bool = False,
@@ -384,18 +417,18 @@ class FastAgent:
             self,
             name: str,
             *,
-            agents: List[str],
-            instruction: Optional[str | Path | AnyUrl] = None,
-            servers: List[str] = [],
-            tools: Optional[Dict[str, List[str]]] = None,
-            resources: Optional[Dict[str, List[str]]] = None,
-            prompts: Optional[Dict[str, List[str]]] = None,
-            model: Optional[str] = None,
+            agents: list[str],
+            instruction: str | Path | AnyUrl | None = None,
+            servers: list[str] = [],
+            tools: dict[str, list[str]] | None = None,
+            resources: dict[str, list[str]] | None = None,
+            prompts: dict[str, list[str]] | None = None,
+            model: str | None = None,
             use_history: bool = False,
             request_params: RequestParams | None = None,
             human_input: bool = False,
             default: bool = False,
-            elicitation_handler: Optional[ElicitationFnT] = None,
+            elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -403,8 +436,8 @@ class FastAgent:
             self,
             name: str,
             *,
-            sequence: List[str],
-            instruction: Optional[str | Path | AnyUrl] = None,
+            sequence: list[str],
+            instruction: str | Path | AnyUrl | None = None,
             cumulative: bool = False,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
@@ -413,9 +446,9 @@ class FastAgent:
             self,
             name: str,
             *,
-            fan_out: List[str],
+            fan_out: list[str],
             fan_in: str | None = None,
-            instruction: Optional[str | Path | AnyUrl] = None,
+            instruction: str | Path | AnyUrl | None = None,
             include_request: bool = True,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
@@ -426,7 +459,7 @@ class FastAgent:
             *,
             generator: str,
             evaluator: str,
-            instruction: Optional[str | Path | AnyUrl] = None,
+            instruction: str | Path | AnyUrl | None = None,
             min_rating: str = "GOOD",
             max_refinements: int = 3,
             default: bool = False,
@@ -442,22 +475,40 @@ class FastAgent:
     parallel = parallel_decorator
     evaluator_optimizer = evaluator_optimizer_decorator
 
+    def _get_acp_server_class(self):
+        """Import and return the ACP server class with helpful error handling."""
+        try:
+            from fast_agent.acp.server import AgentACPServer
+
+            return AgentACPServer
+        except ModuleNotFoundError as exc:
+            if exc.name == "acp":
+                raise ServerInitializationError(
+                    "ACP transport requires the 'agent-client-protocol' package. "
+                    "Install it via `pip install fast-agent-mcp[acp]` or "
+                    "`pip install agent-client-protocol`."
+                ) from exc
+            raise
+
     @asynccontextmanager
     async def run(self) -> AsyncIterator["AgentApp"]:
         """
         Context manager for running the application.
         Initializes all registered agents.
         """
-        active_agents: Dict[str, AgentProtocol] = {}
+        active_agents: dict[str, AgentProtocol] = {}
         had_error = False
         await self.app.initialize()
 
         # Handle quiet mode and CLI model override safely
         # Define these *before* they are used, checking if self.args exists and has the attributes
-        quiet_mode = hasattr(self.args, "quiet") and self.args.quiet
-        cli_model_override = (
-            self.args.model if hasattr(self.args, "model") and self.args.model else None
-        )  # Define cli_model_override here
+        # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
+        quiet_mode = getattr(self.args, "quiet", False)
+        if getattr(self.args, "transport", None) in ["stdio", "acp"] and getattr(
+            self.args, "server", False
+        ):
+            quiet_mode = True
+        cli_model_override = getattr(self.args, "model", None)
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
             try:
@@ -471,7 +522,7 @@ class FastAgent:
                         self.context.skill_registry = override_registry
                         registry = override_registry
 
-                    default_skills: List[SkillManifest] = []
+                    default_skills: list[SkillManifest] = []
                     if registry:
                         default_skills = registry.load_manifests()
 
@@ -513,6 +564,32 @@ class FastAgent:
                     managed_instances: list[AgentInstance] = []
                     instance_lock = asyncio.Lock()
 
+                    # Determine whether to apply global environment template variables.
+                    apply_global_prompt_context = not (
+                        getattr(self.args, "server", False)
+                        and getattr(self.args, "transport", None) == "acp"
+                    )
+                    global_prompt_context: dict[str, str] | None = None
+                    if apply_global_prompt_context:
+                        context_variables: dict[str, str] = {}
+                        client_info: dict[str, str] = {"name": self.name}
+                        cli_name = getattr(self.args, "name", None)
+                        if cli_name:
+                            client_info["title"] = cli_name
+
+                        # Pass skills directory override if configured
+                        skills_override = (
+                            str(self._skills_directory_override)
+                            if self._skills_directory_override
+                            else None
+                        )
+
+                        enrich_with_environment_context(
+                            context_variables, str(Path.cwd()), client_info, skills_override
+                        )
+                        if context_variables:
+                            global_prompt_context = context_variables
+
                     async def instantiate_agent_instance() -> AgentInstance:
                         async with instance_lock:
                             agents_map = await create_agents_in_dependency_order(
@@ -523,6 +600,8 @@ class FastAgent:
                             validate_provider_keys_post_creation(agents_map)
                             instance = AgentInstance(AgentApp(agents_map), agents_map)
                             managed_instances.append(instance)
+                            if global_prompt_context:
+                                self._apply_instruction_context(instance, global_prompt_context)
                             return instance
 
                     async def dispose_agent_instance(instance: AgentInstance) -> None:
@@ -555,47 +634,91 @@ class FastAgent:
                     # Handle --server option
                     # Check if parse_cli_args was True before checking self.args.server
                     if hasattr(self.args, "server") and self.args.server:
+                        # For stdio/acp transports, use stderr to avoid interfering with JSON-RPC
+                        import sys
+
+                        is_stdio_transport = self.args.transport in ["stdio", "acp"]
+                        configure_console_stream("stderr" if is_stdio_transport else "stdout")
+                        output_stream = sys.stderr if is_stdio_transport else sys.stdout
+
                         try:
                             # Print info message if not in quiet mode
                             if not quiet_mode:
-                                print(f"Starting FastAgent '{self.name}' in server mode")
-                                print(f"Transport: {self.args.transport}")
+                                print(
+                                    f"Starting fast-agent  '{self.name}' in server mode",
+                                    file=output_stream,
+                                )
+                                print(f"Transport: {self.args.transport}", file=output_stream)
                                 if self.args.transport == "sse":
-                                    print(f"Listening on {self.args.host}:{self.args.port}")
-                                print("Press Ctrl+C to stop")
+                                    print(
+                                        f"Listening on {self.args.host}:{self.args.port}",
+                                        file=output_stream,
+                                    )
+                                print("Press Ctrl+C to stop", file=output_stream)
 
-                            # Create the MCP server
-                            from fast_agent.mcp.server import AgentMCPServer
+                            # Check which server type to use based on transport
+                            if self.args.transport == "acp":
+                                # Create and run ACP server
+                                AgentACPServer = self._get_acp_server_class()
 
-                            tool_description = getattr(self.args, "tool_description", None)
-                            server_description = getattr(self.args, "server_description", None)
-                            server_name = getattr(self.args, "server_name", None)
-                            instance_scope = getattr(self.args, "instance_scope", "shared")
-                            mcp_server = AgentMCPServer(
-                                primary_instance=primary_instance,
-                                create_instance=self._server_instance_factory,
-                                dispose_instance=self._server_instance_dispose,
-                                instance_scope=instance_scope,
-                                server_name=server_name or f"{self.name}-MCP-Server",
-                                server_description=server_description,
-                                tool_description=tool_description,
-                            )
+                                server_name = getattr(self.args, "server_name", None)
+                                instance_scope = getattr(self.args, "instance_scope", "shared")
 
-                            # Run the server directly (this is a blocking call)
-                            await mcp_server.run_async(
-                                transport=self.args.transport,
-                                host=self.args.host,
-                                port=self.args.port,
-                            )
+                                # Pass skills directory override if configured
+                                skills_override = (
+                                    str(self._skills_directory_override)
+                                    if self._skills_directory_override
+                                    else None
+                                )
+
+                                acp_server = AgentACPServer(
+                                    primary_instance=primary_instance,
+                                    create_instance=self._server_instance_factory,
+                                    dispose_instance=self._server_instance_dispose,
+                                    instance_scope=instance_scope,
+                                    server_name=server_name or f"{self.name}",
+                                    skills_directory_override=skills_override,
+                                )
+
+                                # Run the ACP server (this is a blocking call)
+                                await acp_server.run_async()
+                            else:
+                                # Create the MCP server
+                                from fast_agent.mcp.server import AgentMCPServer
+
+                                tool_description = getattr(self.args, "tool_description", None)
+                                server_description = getattr(self.args, "server_description", None)
+                                server_name = getattr(self.args, "server_name", None)
+                                instance_scope = getattr(self.args, "instance_scope", "shared")
+                                mcp_server = AgentMCPServer(
+                                    primary_instance=primary_instance,
+                                    create_instance=self._server_instance_factory,
+                                    dispose_instance=self._server_instance_dispose,
+                                    instance_scope=instance_scope,
+                                    server_name=server_name or f"{self.name}-MCP-Server",
+                                    server_description=server_description,
+                                    tool_description=tool_description,
+                                )
+
+                                # Run the server directly (this is a blocking call)
+                                await mcp_server.run_async(
+                                    transport=self.args.transport,
+                                    host=self.args.host,
+                                    port=self.args.port,
+                                )
                         except KeyboardInterrupt:
                             if not quiet_mode:
-                                print("\nServer stopped by user (Ctrl+C)")
+                                print("\nServer stopped by user (Ctrl+C)", file=output_stream)
+                            raise SystemExit(0)
                         except Exception as e:
                             if not quiet_mode:
                                 import traceback
 
                                 traceback.print_exc()
-                                print(f"\nServer stopped with error: {e}")
+                                print(f"\nServer stopped with error: {e}", file=output_stream)
+                            else:
+                                print(f"\nServer stopped with error: {e}", file=output_stream)
+                            raise SystemExit(1)
 
                         # Exit after server shutdown
                         raise SystemExit(0)
@@ -629,7 +752,7 @@ class FastAgent:
 
                     if hasattr(self.args, "prompt_file") and self.args.prompt_file:
                         agent_name = self.args.agent
-                        prompt: List[PromptMessageExtended] = load_prompt(
+                        prompt: list[PromptMessageExtended] = load_prompt(
                             Path(self.args.prompt_file)
                         )
                         if agent_name not in active_agents:
@@ -714,7 +837,34 @@ class FastAgent:
                         except Exception:
                             pass
 
-    def _apply_skills_to_agent_configs(self, default_skills: List[SkillManifest]) -> None:
+    def _apply_instruction_context(
+        self, instance: AgentInstance, context_vars: dict[str, str]
+    ) -> None:
+        """Resolve late-binding placeholders for all agents in the provided instance."""
+        if not context_vars:
+            return
+
+        for agent in instance.agents.values():
+            template = getattr(agent, "instruction", None)
+            if not template:
+                continue
+
+            resolved = apply_template_variables(template, context_vars)
+            if resolved == template:
+                continue
+
+            agent.instruction = resolved
+
+            # Note: We intentionally do NOT modify config.instruction here.
+            # The config should preserve the original template so that
+            # downstream logic (like MCP display) can check for template
+            # variables like {{serverInstructions}}.
+
+            request_params = getattr(agent, "_default_request_params", None)
+            if request_params is not None:
+                request_params.systemPrompt = resolved
+
+    def _apply_skills_to_agent_configs(self, default_skills: list[SkillManifest]) -> None:
         self._default_skill_manifests = list(default_skills)
 
         for agent_data in self.agents.values():
@@ -736,13 +886,13 @@ class FastAgent:
         | SkillRegistry
         | Path
         | str
-        | List[SkillManifest | SkillRegistry | Path | str | None]
+        | list[SkillManifest | SkillRegistry | Path | str | None]
         | None,
-    ) -> List[SkillManifest]:
+    ) -> list[SkillManifest]:
         if entry is None:
             return []
         if isinstance(entry, list):
-            manifests: List[SkillManifest] = []
+            manifests: list[SkillManifest] = []
             for item in entry:
                 manifests.extend(self._resolve_skills(item))
             return manifests
@@ -769,15 +919,15 @@ class FastAgent:
         return []
 
     @staticmethod
-    def _deduplicate_skills(manifests: List[SkillManifest]) -> List[SkillManifest]:
-        unique: Dict[str, SkillManifest] = {}
+    def _deduplicate_skills(manifests: list[SkillManifest]) -> list[SkillManifest]:
+        unique: dict[str, SkillManifest] = {}
         for manifest in manifests:
             key = manifest.name.lower()
             if key not in unique:
                 unique[key] = manifest
         return list(unique.values())
 
-    def _handle_error(self, e: Exception, error_type: Optional[str] = None) -> None:
+    def _handle_error(self, e: Exception, error_type: str | None = None) -> None:
         """
         Handle errors with consistent formatting and messaging.
 
@@ -813,7 +963,7 @@ class FastAgent:
             handle_error(
                 e,
                 "Model Configuration Error",
-                "Common models: gpt-4.1, o3-mini, sonnet, haiku. for o3, set reasoning effort with o3-mini.high",
+                "Common models: gpt-5.1, kimi, sonnet, haiku. Set reasoning effort on supported models with gpt-5-mini.high",
             )
         elif isinstance(e, CircularDependencyError):
             handle_error(
@@ -844,9 +994,9 @@ class FastAgent:
         transport: str = "http",
         host: str = "0.0.0.0",
         port: int = 8000,
-        server_name: Optional[str] = None,
-        server_description: Optional[str] = None,
-        tool_description: Optional[str] = None,
+        server_name: str | None = None,
+        server_description: str | None = None,
+        tool_description: str | None = None,
         instance_scope: str = "shared",
     ) -> None:
         """
@@ -883,9 +1033,12 @@ class FastAgent:
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
+        # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
         )
+        if transport in ["stdio", "acp"]:
+            self.args.quiet = True
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
@@ -904,9 +1057,9 @@ class FastAgent:
         transport: str = "sse",
         host: str = "0.0.0.0",
         port: int = 8000,
-        server_name: Optional[str] = None,
-        server_description: Optional[str] = None,
-        tool_description: Optional[str] = None,
+        server_name: str | None = None,
+        server_description: str | None = None,
+        tool_description: str | None = None,
         instance_scope: str = "shared",
     ) -> None:
         """
@@ -961,10 +1114,12 @@ class FastAgent:
         # Just check if the flag is set, no action here
         # The actual server code will be handled by run()
         return hasattr(self, "args") and self.args.server
+
+
 @dataclass
 class AgentInstance:
     app: AgentApp
-    agents: Dict[str, "AgentProtocol"]
+    agents: dict[str, "AgentProtocol"]
 
     async def shutdown(self) -> None:
         for agent in self.agents.values():

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Awaitable, Callable, List, Literal, Optional, Union
+from typing import Any, Awaitable, Callable, Literal, Union
 
 from mcp.server.fastmcp.tools import Tool as FastMCPTool
 from mcp.types import Tool as McpTool
@@ -28,21 +28,21 @@ This module lives in fast_agent to avoid circular imports and provides:
 
 class OptionItem(BaseModel):
     value: Union[str, int, float, bool]
-    label: Optional[str] = None
+    label: str | None = None
 
 
 class FormField(BaseModel):
     name: str
     type: Literal["text", "textarea", "number", "checkbox", "radio"]
-    label: Optional[str] = None
-    help: Optional[str] = None
-    default: Optional[Union[str, int, float, bool]] = None
-    required: Optional[bool] = None
+    label: str | None = None
+    help: str | None = None
+    default: Union[str, int, float, bool] | None = None
+    required: bool | None = None
     # number constraints
-    min: Optional[float] = None
-    max: Optional[float] = None
+    min: float | None = None
+    max: float | None = None
     # select options (for radio)
-    options: Optional[List[OptionItem]] = None
+    options: list[OptionItem] | None = None
 
 
 class HumanFormArgs(BaseModel):
@@ -51,10 +51,10 @@ class HumanFormArgs(BaseModel):
     Preferred shape for LLMs.
     """
 
-    title: Optional[str] = None
-    description: Optional[str] = None
-    message: Optional[str] = None
-    fields: List[FormField] = Field(default_factory=list, max_length=7)
+    title: str | None = None
+    description: str | None = None
+    message: str | None = None
+    fields: list[FormField] = Field(default_factory=list, max_length=7)
 
 
 # -----------------------
@@ -136,7 +136,7 @@ def get_elicitation_tool() -> McpTool:
 # Elicitation input callback registry
 # -----------------------
 
-ElicitationCallback = Callable[[dict, Optional[str], Optional[str], Optional[dict]], Awaitable[str]]
+ElicitationCallback = Callable[[dict, str | None, str | None, dict | None], Awaitable[str]]
 
 _elicitation_input_callback: ElicitationCallback | None = None
 
@@ -344,10 +344,10 @@ async def run_elicitation_form(arguments: dict | str, agent_name: str | None = N
 
 def get_elicitation_fastmcp_tool() -> FastMCPTool:
     async def elicit(
-        title: Optional[str] = None,
-        description: Optional[str] = None,
-        message: Optional[str] = None,
-        fields: List[FormField] = Field(default_factory=list, max_length=7),
+        title: str | None = None,
+        description: str | None = None,
+        message: str | None = None,
+        fields: list[FormField] = Field(default_factory=list, max_length=7),
     ) -> str:
         args = {
             "title": title,

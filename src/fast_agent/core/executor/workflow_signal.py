@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from abc import ABC, abstractmethod
-from typing import Any, Callable, Dict, Generic, List, Protocol, TypeVar
+from typing import Any, Callable, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
@@ -14,7 +14,7 @@ class Signal(BaseModel, Generic[SignalValueT]):
     name: str
     description: str | None = "Workflow Signal"
     payload: SignalValueT | None = None
-    metadata: Dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
     workflow_id: str | None = None
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -56,7 +56,7 @@ class SignalHandler(Protocol, Generic[SignalValueT]):
         """
 
 
-class PendingSignal(BaseModel):
+class PendingSignal(BaseModel, Generic[SignalValueT]):
     """Tracks a waiting signal handler and its event."""
 
     registration: SignalRegistration
@@ -71,9 +71,9 @@ class BaseSignalHandler(ABC, Generic[SignalValueT]):
 
     def __init__(self) -> None:
         # Map signal_name -> list of PendingSignal objects
-        self._pending_signals: Dict[str, List[PendingSignal]] = {}
+        self._pending_signals: dict[str, list[PendingSignal]] = {}
         # Map signal_name -> list of (unique_name, handler) tuples
-        self._handlers: Dict[str, List[tuple[str, Callable]]] = {}
+        self._handlers: dict[str, list[tuple[str, Callable]]] = {}
         self._lock = asyncio.Lock()
 
     async def cleanup(self, signal_name: str | None = None) -> None:
@@ -132,8 +132,8 @@ class ConsoleSignalHandler(SignalHandler[str]):
     """Simple console-based signal handling (blocks on input)."""
 
     def __init__(self) -> None:
-        self._pending_signals: Dict[str, List[PendingSignal]] = {}
-        self._handlers: Dict[str, List[Callable]] = {}
+        self._pending_signals: dict[str, list[PendingSignal]] = {}
+        self._handlers: dict[str, list[Callable]] = {}
 
     async def wait_for_signal(self, signal, timeout_seconds=None):
         """Block and wait for console input."""
@@ -182,7 +182,8 @@ class ConsoleSignalHandler(SignalHandler[str]):
         if signal.name in self._pending_signals:
             for ps in self._pending_signals[signal.name]:
                 ps.value = signal.payload
-                ps.event.set()
+                if ps.event is not None:
+                    ps.event.set()
 
 
 class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
@@ -200,7 +201,9 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
             workflow_id=signal.workflow_id,
         )
 
-        pending_signal = PendingSignal(registration=registration, event=event)
+        pending_signal: PendingSignal[SignalValueT] = PendingSignal(
+            registration=registration, event=event
+        )
 
         async with self._lock:
             # Add to pending signals
@@ -213,6 +216,9 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
             else:
                 await event.wait()
 
+            # After event is set, value should be populated
+            if pending_signal.value is None:
+                raise ValueError(f"Signal {signal.name} was received but value is None")
             return pending_signal.value
         except asyncio.TimeoutError as e:
             raise TimeoutError(f"Timeout waiting for signal {signal.name}") from e
@@ -248,7 +254,8 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
                 pending = self._pending_signals[signal.name]
                 for ps in pending:
                     ps.value = signal.payload
-                    ps.event.set()
+                    if ps.event is not None:
+                        ps.event.set()
 
         # Notify any registered handler functions
         tasks = []
@@ -268,7 +275,7 @@ class LocalSignalStore:
 
     def __init__(self) -> None:
         # For each signal_name, store a list of futures that are waiting for it
-        self._waiters: Dict[str, List[asyncio.Future]] = {}
+        self._waiters: dict[str, list[asyncio.Future]] = {}
 
     async def emit(self, signal_name: str, payload: Any) -> None:
         # If we have waiting futures, set their result
@@ -304,7 +311,7 @@ class SignalWaitCallback(Protocol):
         signal_name: str,
         request_id: str | None = None,
         workflow_id: str | None = None,
-        metadata: Dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
         """
         Receive a notification that a workflow is pausing on a signal.

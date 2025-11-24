@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Sequence
+from typing import Sequence
 
 import frontmatter
 
@@ -33,7 +33,7 @@ class SkillRegistry:
         self._base_dir = base_dir or Path.cwd()
         self._directory: Path | None = None
         self._override_failed: bool = False
-        self._errors: List[dict[str, str]] = []
+        self._errors: list[dict[str, str]] = []
         if override_directory:
             resolved = self._resolve_directory(override_directory)
             if resolved and resolved.exists() and resolved.is_dir():
@@ -55,18 +55,31 @@ class SkillRegistry:
     def override_failed(self) -> bool:
         return self._override_failed
 
-    def load_manifests(self) -> List[SkillManifest]:
+    def load_manifests(self) -> list[SkillManifest]:
         self._errors = []
         if not self._directory:
             return []
-        return self._load_directory(self._directory, self._errors)
+        manifests = self._load_directory(self._directory, self._errors)
 
-    def load_manifests_with_errors(self) -> tuple[List[SkillManifest], List[dict[str, str]]]:
+        # Recompute relative paths to be from base_dir (workspace root) instead of skills directory
+        adjusted_manifests: list[SkillManifest] = []
+        for manifest in manifests:
+            try:
+                relative_path = manifest.path.relative_to(self._base_dir)
+                adjusted_manifest = replace(manifest, relative_path=relative_path)
+                adjusted_manifests.append(adjusted_manifest)
+            except ValueError:
+                # If we can't compute relative path, keep the original
+                adjusted_manifests.append(manifest)
+
+        return adjusted_manifests
+
+    def load_manifests_with_errors(self) -> tuple[list[SkillManifest], list[dict[str, str]]]:
         manifests = self.load_manifests()
         return manifests, list(self._errors)
 
     @property
-    def errors(self) -> List[dict[str, str]]:
+    def errors(self) -> list[dict[str, str]]:
         return list(self._errors)
 
     def _find_default_directory(self) -> Path | None:
@@ -82,7 +95,7 @@ class SkillRegistry:
         return (self._base_dir / directory).resolve()
 
     @classmethod
-    def load_directory(cls, directory: Path) -> List[SkillManifest]:
+    def load_directory(cls, directory: Path) -> list[SkillManifest]:
         if not directory.exists() or not directory.is_dir():
             logger.debug(
                 "Skills directory not found",
@@ -94,8 +107,8 @@ class SkillRegistry:
     @classmethod
     def load_directory_with_errors(
         cls, directory: Path
-    ) -> tuple[List[SkillManifest], List[dict[str, str]]]:
-        errors: List[dict[str, str]] = []
+    ) -> tuple[list[SkillManifest], list[dict[str, str]]]:
+        errors: list[dict[str, str]] = []
         manifests = cls._load_directory(directory, errors)
         return manifests, errors
 
@@ -103,9 +116,9 @@ class SkillRegistry:
     def _load_directory(
         cls,
         directory: Path,
-        errors: List[dict[str, str]] | None = None,
-    ) -> List[SkillManifest]:
-        manifests: List[SkillManifest] = []
+        errors: list[dict[str, str]] | None = None,
+    ) -> list[SkillManifest]:
+        manifests: list[SkillManifest] = []
         for entry in sorted(directory.iterdir()):
             if not entry.is_dir():
                 continue
@@ -182,13 +195,14 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
 
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
-        "relevant to the Users task, intent or would increase effectiveness. \n"
-        "The 'execute' tool gives you direct shell access to the current working directory (agent workspace) "
-        "and outputted files are visible to the User.\n"
+        "relevant to the Users task, intent or would increase your effectiveness. \n"
+        "Use 'execute' to run shell commands in the agent workspace. Files you create will be visible to the user."
         "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
-        "Only use skills listed in <available_skills> below.\n\n"
+        "Paths in Skill documentation are relative to that Skill's directory, NOT the workspace root.\n"
+        "For example if the 'test' skill has scripts/example.py access it with <skill_folder>/scripts/example.py.\n"
+        "Only use Skills listed in <available_skills> below.\n\n"
     )
-    formatted_parts: List[str] = []
+    formatted_parts: list[str] = []
 
     for manifest in manifests:
         description = (manifest.description or "").strip()
@@ -197,7 +211,7 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
         if relative_path is None and manifest.path:
             path_attr = f' path="{manifest.path}"'
 
-        block_lines: List[str] = [f'<agent-skill name="{manifest.name}"{path_attr}>']
+        block_lines: list[str] = [f'<agent-skill name="{manifest.name}"{path_attr}>']
         if description:
             block_lines.append(f"{description}")
         block_lines.append("</agent-skill>")

@@ -214,7 +214,24 @@ class RouterAgent(LlmAgent):
 
             # Dispatch the request to the selected agent
             # discarded request_params: use llm defaults for subagents
-            return await agent.generate_impl(messages)
+            telemetry_arguments = {
+                "agent": route.agent,
+                "confidence": route.confidence,
+                "reasoning": route.reasoning,
+            }
+            async with self.workflow_telemetry.start_step(
+                "router.delegate",
+                server_name=self.name,
+                arguments=telemetry_arguments,
+            ) as step:
+                if route.reasoning:
+                    await step.update(message=route.reasoning)
+                result = await agent.generate_impl(messages)
+                await step.finish(
+                    True,
+                    text=f"Delegated to {agent.name}",
+                )
+                return result
 
     async def structured_impl(
         self,
@@ -247,7 +264,24 @@ class RouterAgent(LlmAgent):
             agent: LlmAgent = self.agent_map[route.agent]
 
             # Dispatch the request to the selected agent
-            return await agent.structured_impl(messages, model, request_params)
+            telemetry_arguments = {
+                "agent": route.agent,
+                "confidence": route.confidence,
+                "reasoning": route.reasoning,
+            }
+            async with self.workflow_telemetry.start_step(
+                "router.delegate_structured",
+                server_name=self.name,
+                arguments=telemetry_arguments,
+            ) as step:
+                if route.reasoning:
+                    await step.update(message=route.reasoning)
+                structured_response = await agent.structured_impl(messages, model, request_params)
+                await step.finish(
+                    True,
+                    text=f"{agent.name} produced structured output",
+                )
+                return structured_response
 
     async def _route_request(
         self, message: PromptMessageExtended

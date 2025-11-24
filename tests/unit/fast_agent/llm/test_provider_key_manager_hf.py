@@ -51,7 +51,7 @@ def test_get_api_key_from_config():
     original = _set_hf_token(None)
     try:
         config = Settings(huggingface=HuggingFaceSettings(api_key="hf_config_token"))
-        api_key = ProviderKeyManager.get_api_key("huggingface", config)
+        api_key = ProviderKeyManager.get_api_key("hf", config)
         assert api_key == "hf_config_token"
     finally:
         _restore_hf_token(original)
@@ -62,7 +62,7 @@ def test_config_takes_precedence_over_env():
     original = _set_hf_token("hf_env_token")
     try:
         config = Settings(huggingface=HuggingFaceSettings(api_key="hf_config_priority"))
-        api_key = ProviderKeyManager.get_api_key("huggingface", config)
+        api_key = ProviderKeyManager.get_api_key("hf", config)
         assert api_key == "hf_config_priority"
     finally:
         _restore_hf_token(original)
@@ -70,20 +70,20 @@ def test_config_takes_precedence_over_env():
 
 def test_get_config_file_key():
     """Test extracting HuggingFace API key from config object."""
-    config = {"huggingface": {"api_key": "hf_test_key"}}
-    key = ProviderKeyManager.get_config_file_key("huggingface", config)
+    config = {"hf": {"api_key": "hf_test_key"}}
+    key = ProviderKeyManager.get_config_file_key("hf", config)
     assert key == "hf_test_key"
 
 
 def test_get_config_file_key_no_provider():
     """Test extracting API key when provider is not in config."""
     config = {"other_provider": {"api_key": "other_key"}}
-    key = ProviderKeyManager.get_config_file_key("huggingface", config)
+    key = ProviderKeyManager.get_config_file_key("hf", config)
     assert key is None
 
 
 def test_get_config_file_key_hint_text():
     """Test that hint text is treated as no key."""
-    config = {"huggingface": {"api_key": "<your-api-key-here>"}}
-    key = ProviderKeyManager.get_config_file_key("huggingface", config)
+    config = {"hf": {"api_key": "<your-api-key-here>"}}
+    key = ProviderKeyManager.get_config_file_key("hf", config)
     assert key is None

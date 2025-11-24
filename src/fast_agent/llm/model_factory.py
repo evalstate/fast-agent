@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Optional, Type, Union
+from typing import Type, Union
 
 from pydantic import BaseModel
 
@@ -61,6 +61,9 @@ class ModelFactory:
         "gpt-4.1-mini": Provider.OPENAI,
         "gpt-4.1-nano": Provider.OPENAI,
         "gpt-5": Provider.OPENAI,
+        "gpt-5.1": Provider.OPENAI,
+        "gpt-5.1-mini": Provider.OPENAI,
+        "gpt-5.1-nano": Provider.OPENAI,
         "gpt-5-mini": Provider.OPENAI,
         "gpt-5-nano": Provider.OPENAI,
         "o1-mini": Provider.OPENAI,
@@ -106,6 +109,7 @@ class ModelFactory:
     }
 
     MODEL_ALIASES = {
+        "gpt51": "openai.gpt-5.1",
         "sonnet": "claude-sonnet-4-5",
         "sonnet4": "claude-sonnet-4-0",
         "sonnet45": "claude-sonnet-4-5",
@@ -132,8 +136,9 @@ class ModelFactory:
         "gpt-oss": "hf.openai/gpt-oss-120b",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm": "hf.zai-org/GLM-4.6",
-        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
+        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
     }
 
     @staticmethod
@@ -150,11 +155,11 @@ class ModelFactory:
             return False
 
     # Mapping of providers to their LLM classes
-    PROVIDER_CLASSES: Dict[Provider, LLMClass] = {}
+    PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
     # Mapping of special model names to their specific LLM classes
     # This overrides the provider-based class selection
-    MODEL_SPECIFIC_CLASSES: Dict[str, LLMClass] = {
+    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {
         "playback": PlaybackLLM,
         "silent": SilentLLM,
         "slow": SlowLLM,
@@ -259,7 +264,7 @@ class ModelFactory:
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
-            agent: AgentProtocol, request_params: Optional[RequestParams] = None, **kwargs
+            agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs
         ) -> FastAgentLLMProtocol:
             base_params = RequestParams()
             base_params.model = config.model_name

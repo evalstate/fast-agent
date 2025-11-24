@@ -12,11 +12,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
     Iterable,
-    List,
     Mapping,
-    Optional,
     Sequence,
     TypeVar,
     Union,
@@ -108,7 +105,7 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
-        manifests: List[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
+        manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
         if not manifests and context and getattr(context, "skill_registry", None):
             try:
                 manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
@@ -116,7 +113,7 @@ class McpAgent(ABC, ToolAgent):
                 manifests = []
 
         self._skill_manifests = list(manifests)
-        self._skill_map: Dict[str, SkillManifest] = {
+        self._skill_map: dict[str, SkillManifest] = {
             manifest.name: manifest for manifest in manifests
         }
         self._agent_skills_warning_shown = False
@@ -171,6 +168,12 @@ class McpAgent(ABC, ToolAgent):
         self._bash_tool = self._shell_runtime.tool
         if self._shell_runtime_enabled:
             self._shell_runtime.announce()
+
+        # Allow external runtime injection (e.g., for ACP terminal support)
+        self._external_runtime = None
+
+        # Allow filesystem runtime injection (e.g., for ACP filesystem support)
+        self._filesystem_runtime = None
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -238,7 +241,7 @@ class McpAgent(ABC, ToolAgent):
         """
         await self._aggregator.close()
 
-    async def get_server_status(self) -> Dict[str, ServerStatus]:
+    async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""
         if not self._aggregator:
             return {}
@@ -307,7 +310,7 @@ class McpAgent(ABC, ToolAgent):
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 
     def _format_server_instructions(
-        self, instructions_data: Dict[str, tuple[str | None, List[str]]]
+        self, instructions_data: dict[str, tuple[str | None, list[str]]]
     ) -> str:
         """
         Format server instructions with XML tags and tool lists.
@@ -455,17 +458,68 @@ class McpAgent(ABC, ToolAgent):
         patterns = config_tools.get(server_name, [])
         return any(self._matches_pattern(resource_name, pattern) for pattern in patterns)
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+    def set_external_runtime(self, runtime) -> None:
+        """
+        Set an external runtime (e.g., ACPTerminalRuntime) to replace ShellRuntime.
+
+        This allows ACP mode to inject terminal support that uses the client's
+        terminal capabilities instead of local process execution.
+
+        Args:
+            runtime: Runtime instance with tool and execute() method
+        """
+        self._external_runtime = runtime
+        self.logger.info(
+            f"External runtime injected: {type(runtime).__name__}",
+            runtime_type=type(runtime).__name__,
+        )
+
+    def set_filesystem_runtime(self, runtime) -> None:
+        """
+        Set a filesystem runtime (e.g., ACPFilesystemRuntime) to add filesystem tools.
+
+        This allows ACP mode to inject filesystem support that uses the client's
+        filesystem capabilities for reading and writing files.
+
+        Args:
+            runtime: Runtime instance with tools property and read_text_file/write_text_file methods
+        """
+        self._filesystem_runtime = runtime
+        self.logger.info(
+            f"Filesystem runtime injected: {type(runtime).__name__}",
+            runtime_type=type(runtime).__name__,
+        )
+
+    async def call_tool(
+        self, name: str, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
 
         Args:
             name: Name of the tool to call
             arguments: Arguments to pass to the tool
+            tool_use_id: LLM's tool use ID (for matching with stream events)
 
         Returns:
             Result of the tool call
         """
+        # Check external runtime first (e.g., ACP terminal)
+        if self._external_runtime and hasattr(self._external_runtime, "tool"):
+            if self._external_runtime.tool and name == self._external_runtime.tool.name:
+                return await self._external_runtime.execute(arguments, tool_use_id)
+
+        # Check filesystem runtime (e.g., ACP filesystem)
+        if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
+            for tool in self._filesystem_runtime.tools:
+                if tool.name == name:
+                    # Route to the appropriate method based on tool name
+                    if name == "read_text_file":
+                        return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
+                    elif name == "write_text_file":
+                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
+
+        # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
             return await self._shell_runtime.execute(arguments)
 
@@ -476,10 +530,10 @@ class McpAgent(ABC, ToolAgent):
         if name in self._execution_tools:
             return await super().call_tool(name, arguments)
         else:
-            return await self._aggregator.call_tool(name, arguments)
+            return await self._aggregator.call_tool(name, arguments, tool_use_id)
 
     async def _call_human_input_tool(
-        self, arguments: Dict[str, Any] | None = None
+        self, arguments: dict[str, Any] | None = None
     ) -> CallToolResult:
         """
         Handle human input via an elicitation form.
@@ -536,7 +590,7 @@ class McpAgent(ABC, ToolAgent):
     async def get_prompt(
         self,
         prompt_name: str,
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         namespace: str | None = None,
         server_name: str | None = None,
     ) -> GetPromptResult:
@@ -557,7 +611,7 @@ class McpAgent(ABC, ToolAgent):
     async def apply_prompt(
         self,
         prompt: Union[str, GetPromptResult],
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
         **_: Any,
@@ -622,7 +676,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def get_embedded_resources(
         self, resource_uri: str, server_name: str | None = None
-    ) -> List[EmbeddedResource]:
+    ) -> list[EmbeddedResource]:
         """
         Get a resource from an MCP server and return it as a list of embedded resources ready for use in prompts.
 
@@ -640,7 +694,7 @@ class McpAgent(ABC, ToolAgent):
         result: ReadResourceResult = await self._aggregator.get_resource(resource_uri, server_name)
 
         # Convert each resource content to an EmbeddedResource
-        embedded_resources: List[EmbeddedResource] = []
+        embedded_resources: list[EmbeddedResource] = []
         for resource_content in result.contents:
             embedded_resource = EmbeddedResource(
                 type="resource", resource=resource_content, annotations=None
@@ -692,7 +746,7 @@ class McpAgent(ABC, ToolAgent):
             The agent's response as a string
         """
         # Get the embedded resources
-        embedded_resources: List[EmbeddedResource] = await self.get_embedded_resources(
+        embedded_resources: list[EmbeddedResource] = await self.get_embedded_resources(
             resource_uri, namespace if namespace is not None else server_name
         )
 
@@ -722,11 +776,14 @@ class McpAgent(ABC, ToolAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Override ToolAgent's run_tools to use MCP tools via aggregator."""
+        import time
+
         if not request.tool_calls:
             self.logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
+        tool_timings: dict[str, float] = {}  # Track timing for each tool call
         tool_loop_error: str | None = None
 
         # Cache available tool names exactly as advertised to the LLM for display/highlighting
@@ -751,6 +808,7 @@ class McpAgent(ABC, ToolAgent):
         for correlation_id, tool_request in request.tool_calls.items():
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
+            # correlation_id is the tool_use_id from the LLM
 
             # Determine which tool we are calling (namespaced MCP, local, etc.)
             namespaced_tool = namespaced_tools.get(tool_name)
@@ -773,9 +831,24 @@ class McpAgent(ABC, ToolAgent):
                 else tool_name
             )
 
+            # Check if tool is available from various sources
+            is_external_runtime_tool = (
+                self._external_runtime
+                and hasattr(self._external_runtime, "tool")
+                and self._external_runtime.tool
+                and tool_name == self._external_runtime.tool.name
+            )
+            is_filesystem_runtime_tool = (
+                self._filesystem_runtime
+                and hasattr(self._filesystem_runtime, "tools")
+                and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
+            )
+
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
                 or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+                or is_external_runtime_tool
+                or is_filesystem_runtime_tool
                 or namespaced_tool is not None
                 or local_tool is not None
                 or candidate_namespaced_tool is not None
@@ -798,6 +871,10 @@ class McpAgent(ABC, ToolAgent):
                 and tool_name == self._shell_runtime.tool.name
             ):
                 metadata = self._shell_runtime.metadata(tool_args.get("command"))
+            elif is_external_runtime_tool and hasattr(self._external_runtime, "metadata"):
+                metadata = self._external_runtime.metadata()
+            elif is_filesystem_runtime_tool and hasattr(self._filesystem_runtime, "metadata"):
+                metadata = self._filesystem_runtime.metadata()
 
             display_tool_name, bottom_items, highlight_index = self._prepare_tool_display(
                 tool_name=tool_name,
@@ -818,9 +895,14 @@ class McpAgent(ABC, ToolAgent):
             )
 
             try:
-                # Use the appropriate handler for this tool
-                result = await self.call_tool(tool_name, tool_args)
+                # Track timing for tool execution
+                start_time = time.perf_counter()
+                result = await self.call_tool(tool_name, tool_args, correlation_id)
+                end_time = time.perf_counter()
+                duration_ms = round((end_time - start_time) * 1000, 2)
+
                 tool_results[correlation_id] = result
+                tool_timings[correlation_id] = duration_ms
 
                 # Show tool result (like ToolAgent does)
                 skybridge_config = None
@@ -836,6 +918,7 @@ class McpAgent(ABC, ToolAgent):
                         result=result,
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
+                        timing_ms=duration_ms,
                     )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
@@ -850,7 +933,7 @@ class McpAgent(ABC, ToolAgent):
                 # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
-        return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
+        return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
 
     def _prepare_tool_display(
         self,
@@ -936,7 +1019,7 @@ class McpAgent(ABC, ToolAgent):
             return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
     async def apply_prompt_messages(
-        self, prompts: List[PromptMessageExtended], request_params: RequestParams | None = None
+        self, prompts: list[PromptMessageExtended], request_params: RequestParams | None = None
     ) -> str:
         """
         Apply a list of prompt messages and return the result.
@@ -954,7 +1037,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_prompts(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Mapping[str, List[mcp.types.Prompt]]:
+    ) -> Mapping[str, list[mcp.types.Prompt]]:
         """
         List all prompts available to this agent, filtered by configuration.
 
@@ -976,7 +1059,7 @@ class McpAgent(ABC, ToolAgent):
 
     async def list_resources(
         self, namespace: str | None = None, server_name: str | None = None
-    ) -> Dict[str, List[str]]:
+    ) -> dict[str, list[str]]:
         """
         List all resources available to this agent, filtered by configuration.
 
@@ -996,7 +1079,7 @@ class McpAgent(ABC, ToolAgent):
             lambda resource: resource,
         )
 
-    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
+    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, list[Tool]]:
         """
         List all tools available to this agent, grouped by server and filtered by configuration.
 
@@ -1037,9 +1120,22 @@ class McpAgent(ABC, ToolAgent):
                 merged_tools.append(tool)
                 existing_names.add(tool.name)
 
-        if self._bash_tool and self._bash_tool.name not in existing_names:
+        # Add external runtime tool (e.g., ACP terminal) if available, otherwise bash tool
+        if self._external_runtime and hasattr(self._external_runtime, "tool"):
+            external_tool = self._external_runtime.tool
+            if external_tool and external_tool.name not in existing_names:
+                merged_tools.append(external_tool)
+                existing_names.add(external_tool.name)
+        elif self._bash_tool and self._bash_tool.name not in existing_names:
             merged_tools.append(self._bash_tool)
             existing_names.add(self._bash_tool.name)
+
+        # Add filesystem runtime tools (e.g., ACP filesystem) if available
+        if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
+            for fs_tool in self._filesystem_runtime.tools:
+                if fs_tool and fs_tool.name not in existing_names:
+                    merged_tools.append(fs_tool)
+                    existing_names.add(fs_tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)
@@ -1061,7 +1157,7 @@ class McpAgent(ABC, ToolAgent):
         Return an A2A card describing this Agent
         """
 
-        skills: List[AgentSkill] = []
+        skills: list[AgentSkill] = []
         tools: ListToolsResult = await self.list_tools()
         for tool in tools.tools:
             skills.append(await self.convert(tool))
@@ -1082,12 +1178,12 @@ class McpAgent(ABC, ToolAgent):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional["Text"] = None,
+        additional_message: Union["Text", None] = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -1131,7 +1227,7 @@ class McpAgent(ABC, ToolAgent):
             additional_message=additional_message,
         )
 
-    def _extract_servers_from_message(self, message: PromptMessageExtended) -> List[str]:
+    def _extract_servers_from_message(self, message: PromptMessageExtended) -> list[str]:
         """
         Extract server names from tool calls in the message.
 
@@ -1211,7 +1307,7 @@ class McpAgent(ABC, ToolAgent):
         )
 
     @property
-    def message_history(self) -> List[PromptMessageExtended]:
+    def message_history(self) -> list[PromptMessageExtended]:
         """
         Return the agent's message history as PromptMessageExtended objects.
 
@@ -1221,12 +1317,11 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             List of PromptMessageExtended objects representing the conversation history
         """
-        if self._llm:
-            return self._llm.message_history
-        return []
+        # Conversation history is maintained at the agent layer; LLM history is diagnostic only.
+        return super().message_history
 
     @property
-    def usage_accumulator(self) -> Optional["UsageAccumulator"]:
+    def usage_accumulator(self) -> Union["UsageAccumulator", None]:
         """
         Return the usage accumulator for tracking token usage across turns.
 

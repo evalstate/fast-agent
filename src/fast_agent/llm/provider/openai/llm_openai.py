@@ -1,4 +1,5 @@
-from typing import Any, Dict, List
+import asyncio
+from typing import Any
 
 from mcp import Tool
 from mcp.types import (
@@ -34,8 +35,8 @@ from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
 
-DEFAULT_OPENAI_MODEL = "gpt-4.1-mini"
-DEFAULT_REASONING_EFFORT = "medium"
+DEFAULT_OPENAI_MODEL = "gpt-5-mini"
+DEFAULT_REASONING_EFFORT = "low"
 
 
 class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
@@ -202,7 +203,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 },
             )
 
-    async def _process_stream(self, stream, model: str):
+    async def _process_stream(
+        self,
+        stream,
+        model: str,
+    ):
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
@@ -226,7 +231,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         notified_tool_indices: set[int] = set()
 
         # Process the stream chunks
+        # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
+
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
@@ -405,7 +412,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if len(lowered) % len(candidate) == 0:
                 repetitions = len(lowered) // len(candidate)
                 if candidate * repetitions == lowered:
-                    self.logger.warning(
+                    self.logger.info(
                         "Collapsing repeated role value from provider",
                         data={
                             "original_role": role,
@@ -422,7 +429,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     # TODO - as per other comment this needs to go in another class. There are a number of "special" cases dealt with
     # here to deal with OpenRouter idiosyncrasies between e.g. Anthropic and Gemini models.
-    async def _process_stream_manual(self, stream, model: str):
+    async def _process_stream_manual(
+        self,
+        stream,
+        model: str,
+    ):
         """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
 
         from openai.types.chat import ChatCompletionMessageToolCall
@@ -444,7 +455,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         notified_tool_indices: set[int] = set()
 
         # Process the stream chunks manually
+        # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
+
             # Process streaming events for tool calls
             if chunk.choices:
                 choice = chunk.choices[0]
@@ -677,9 +690,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     async def _openai_completion(
         self,
-        message: List[OpenAIMessage] | None,
+        message: list[OpenAIMessage] | None,
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Process a query using an LLM and available tools.
@@ -689,20 +702,20 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         request_params = self.get_request_params(request_params=request_params)
 
-        response_content_blocks: List[ContentBlock] = []
+        response_content_blocks: list[ContentBlock] = []
         model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
 
         # TODO -- move this in to agent context management / agent group handling
-        messages: List[ChatCompletionMessageParam] = []
+        messages: list[ChatCompletionMessageParam] = []
         system_prompt = self.instruction or request_params.systemPrompt
         if system_prompt:
             messages.append(ChatCompletionSystemMessageParam(role="system", content=system_prompt))
 
-        messages.extend(self.history.get(include_completion_history=request_params.use_history))
-        if message is not None:
+        # The caller supplies the full history; convert it directly
+        if message:
             messages.extend(message)
 
-        available_tools: List[ChatCompletionToolParam] | None = [
+        available_tools: list[ChatCompletionToolParam] | None = [
             {
                 "type": "function",
                 "function": {
@@ -738,6 +751,14 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
                 response = await self._process_stream(stream, model_name)
+        except asyncio.CancelledError as e:
+            reason = str(e) if e.args else "cancelled"
+            self.logger.info(f"OpenAI completion cancelled: {reason}")
+            # Return a response indicating cancellation
+            return Prompt.assistant(
+                TextContent(type="text", text=""),
+                stop_reason=LlmStopReason.CANCELLED,
+            )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
             return self._stream_failure_response(error, model_name)
@@ -797,7 +818,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         messages.append(message_dict)
         stop_reason = LlmStopReason.END_TURN
-        requested_tool_calls: Dict[str, CallToolRequest] | None = None
+        requested_tool_calls: dict[str, CallToolRequest] | None = None
         if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
             requested_tool_calls = {}
             stop_reason = LlmStopReason.TOOL_USE
@@ -821,17 +842,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             stop_reason = LlmStopReason.SAFETY
             self.logger.debug(" Stopping because finish_reason is 'content_filter'")
 
-        if request_params.use_history:
-            # Get current prompt messages
-            prompt_messages = self.history.get(include_completion_history=False)
-
-            # Calculate new conversation messages (excluding prompts)
-            new_messages = messages[len(prompt_messages) :]
-
-            if system_prompt:
-                new_messages = new_messages[1:]
-
-            self.history.set(new_messages)
+        # Update diagnostic snapshot (never read again)
+        # This provides a snapshot of what was sent to the provider for debugging
+        self.history.set(messages)
 
         self._log_chat_finished(model=self.default_request_params.model)
 
@@ -891,49 +904,33 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
-        # Determine effective params to respect use_history for this turn
+        """
+        Provider-specific prompt application.
+        Templates are handled by the agent; messages already include them.
+        """
+        # Determine effective params
         req_params = self.get_request_params(request_params)
 
         last_message = multipart_messages[-1]
-
-        # Prepare prior messages (everything before the last user message), or all if last is assistant
-        messages_to_add = (
-            multipart_messages[:-1] if last_message.role == "user" else multipart_messages
-        )
-
-        converted_prior: List[ChatCompletionMessageParam] = []
-        for msg in messages_to_add:
-            # convert_to_openai now returns a list of messages
-            converted_prior.extend(OpenAIConverter.convert_to_openai(msg))
 
         # If the last message is from the assistant, no inference required
         if last_message.role == "assistant":
             return last_message
 
-        # Convert the last user message
-        converted_last = OpenAIConverter.convert_to_openai(last_message)
-        if not converted_last:
-            # Fallback for empty conversion
-            converted_last = [{"role": "user", "content": ""}]
+        # Convert the supplied history/messages directly
+        converted_messages = self._convert_to_provider_format(multipart_messages)
+        if not converted_messages:
+            converted_messages = [{"role": "user", "content": ""}]
 
-        # History-aware vs stateless turn construction
-        if req_params.use_history:
-            # Persist prior context to provider memory; send only the last message for this turn
-            self.history.extend(converted_prior, is_prompt=is_template)
-            turn_messages = converted_last
-        else:
-            # Do NOT persist; inline the full turn context to the provider call
-            turn_messages = converted_prior + converted_last
-
-        return await self._openai_completion(turn_messages, req_params, tools)
+        return await self._openai_completion(converted_messages, req_params, tools)
 
     def _prepare_api_request(
-        self, messages, tools: List[ChatCompletionToolParam] | None, request_params: RequestParams
+        self, messages, tools: list[ChatCompletionToolParam] | None, request_params: RequestParams
     ) -> dict[str, str]:
         # Create base arguments dictionary
 
@@ -958,12 +955,33 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             if tools:
                 base_args["parallel_tool_calls"] = request_params.parallel_tool_calls
 
-        arguments: Dict[str, str] = self.prepare_provider_arguments(
+        arguments: dict[str, str] = self.prepare_provider_arguments(
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
         return arguments
 
-    def adjust_schema(self, inputSchema: Dict) -> Dict:
+    def _convert_extended_messages_to_provider(
+        self, messages: list[PromptMessageExtended]
+    ) -> list[ChatCompletionMessageParam]:
+        """
+        Convert PromptMessageExtended list to OpenAI ChatCompletionMessageParam format.
+        This is called fresh on every API call from _convert_to_provider_format().
+
+        Args:
+            messages: List of PromptMessageExtended objects
+
+        Returns:
+            List of OpenAI ChatCompletionMessageParam objects
+        """
+        converted: list[ChatCompletionMessageParam] = []
+
+        for msg in messages:
+            # convert_to_openai returns a list of messages
+            converted.extend(OpenAIConverter.convert_to_openai(msg))
+
+        return converted
+
+    def adjust_schema(self, inputSchema: dict) -> dict:
         # return inputSchema
         if self.provider not in [Provider.OPENAI, Provider.AZURE]:
             return inputSchema

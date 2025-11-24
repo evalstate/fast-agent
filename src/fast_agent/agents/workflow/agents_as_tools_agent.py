@@ -397,14 +397,25 @@ class AgentsAsToolsAgent(McpAgent):
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
         return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
 
-    async def call_tool(self, name: str, arguments: dict[str, Any] | None = None) -> CallToolResult:
-        """Route tool execution to child agents first, then MCP/local tools."""
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+    ) -> CallToolResult:
+        """Route tool execution to child agents first, then MCP/local tools.
+
+        The signature matches :meth:`McpAgent.call_tool` so that upstream tooling
+        can safely pass the LLM's ``tool_use_id`` as a positional argument.
+        """
 
         child = self._resolve_child_agent(name)
         if child is not None:
+            # Child agents don't currently use tool_use_id, they operate via
+            # a plain PromptMessageExtended tool call.
             return await self._invoke_child_agent(child, arguments)
 
-        return await super().call_tool(name, arguments)
+        return await super().call_tool(name, arguments, tool_use_id)
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.

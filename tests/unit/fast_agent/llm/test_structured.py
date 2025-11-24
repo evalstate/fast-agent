@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import Literal
 
 import pytest
 from pydantic import BaseModel
@@ -15,7 +15,7 @@ class StructuredResponseCategory(BaseModel):
 
 
 class StructuredResponse(BaseModel):
-    categories: List[StructuredResponseCategory]
+    categories: list[StructuredResponseCategory]
 
 
 @pytest.mark.asyncio

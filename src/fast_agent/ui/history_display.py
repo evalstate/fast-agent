@@ -2,17 +2,19 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping, Sequence
 from shutil import get_terminal_size
-from typing import TYPE_CHECKING, Optional, Sequence
+from typing import TYPE_CHECKING
 
 from rich import print as rich_print
 from rich.text import Text
 
+from fast_agent.constants import FAST_AGENT_TIMING, FAST_AGENT_TOOL_TIMING
 from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.types.conversation_summary import ConversationSummary
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
-    from collections.abc import Mapping
-
     from rich.console import Console
 
     from fast_agent.llm.usage_tracking import UsageAccumulator
@@ -25,7 +27,7 @@ SUMMARY_COUNT = 8
 ROLE_COLUMN_WIDTH = 17
 
 
-def _normalize_text(value: Optional[str]) -> str:
+def _normalize_text(value: str | None) -> str:
     return "" if not value else " ".join(value.split())
 
 
@@ -44,7 +46,7 @@ class Colours:
     TOOL_DETAIL = "dim magenta"
 
 
-def _char_count(value: Optional[str]) -> int:
+def _char_count(value: str | None) -> int:
     return len(_normalize_text(value))
 
 
@@ -81,10 +83,10 @@ def _truncate_text_segment(segment: Text, width: int) -> Text:
 
 def _compose_summary_text(
     preview: Text,
-    detail: Optional[Text],
+    detail: Text | None,
     *,
     include_non_text: bool,
-    max_width: Optional[int],
+    max_width: int | None,
 ) -> Text:
     marker_component = Text()
     if include_non_text:
@@ -171,7 +173,7 @@ def _compose_summary_text(
     return combined
 
 
-def _preview_text(value: Optional[str], limit: int = 80) -> str:
+def _preview_text(value: str | None, limit: int = 80) -> str:
     normalized = _normalize_text(value)
     if not normalized:
         return "<no text>"
@@ -189,7 +191,7 @@ def _has_non_text_content(message: PromptMessageExtended) -> bool:
 
 
 def _extract_tool_result_summary(result, *, limit: int = 80) -> tuple[str, int, bool]:
-    preview: Optional[str] = None
+    preview: str | None = None
     total_chars = 0
     saw_non_text = False
 
@@ -218,6 +220,56 @@ def format_chars(value: int) -> str:
     return str(value)
 
 
+def _extract_timing_ms(message: PromptMessageExtended) -> float | None:
+    """Extract timing duration in milliseconds from message channels."""
+    channels = getattr(message, "channels", None)
+    if not channels:
+        return None
+
+    timing_blocks = channels.get(FAST_AGENT_TIMING, [])
+    if not timing_blocks:
+        return None
+
+    timing_text = get_text(timing_blocks[0])
+    if not timing_text:
+        return None
+
+    try:
+        timing_data = json.loads(timing_text)
+        return timing_data.get("duration_ms")
+    except (json.JSONDecodeError, AttributeError, KeyError):
+        return None
+
+
+def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, float]:
+    """Extract tool timing data from message channels."""
+    channels = getattr(message, "channels", None)
+    if not channels:
+        return {}
+
+    timing_blocks = channels.get(FAST_AGENT_TOOL_TIMING, [])
+    if not timing_blocks:
+        return {}
+
+    timing_text = get_text(timing_blocks[0])
+    if not timing_text:
+        return {}
+
+    try:
+        return json.loads(timing_text)
+    except (json.JSONDecodeError, TypeError):
+        return {}
+
+
+def format_time(value: float | None) -> str:
+    """Format timing value for display."""
+    if value is None:
+        return "-"
+    if value < 1000:
+        return f"{value:.0f}ms"
+    return f"{value / 1000:.1f}s"
+
+
 def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
     rows: list[dict] = []
     call_name_lookup: dict[str, str] = {}
@@ -238,8 +290,12 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
         preview = _preview_text(text)
         non_text = _has_non_text_content(message) or chars == 0
 
-        tool_calls: Optional[Mapping[str, object]] = getattr(message, "tool_calls", None)
-        tool_results: Optional[Mapping[str, object]] = getattr(message, "tool_results", None)
+        # Extract timing data
+        timing_ms = _extract_timing_ms(message)
+        tool_timings = _extract_tool_timings(message)
+
+        tool_calls: Mapping[str, object] | None = getattr(message, "tool_calls", None)
+        tool_results: Mapping[str, object] | None = getattr(message, "tool_results", None)
 
         detail_sections: list[Text] = []
         row_non_text = non_text
@@ -277,6 +333,8 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 detail = _format_tool_detail("result→", [tool_name])
                 is_error = getattr(result, "isError", False)
                 tool_result_has_error = tool_result_has_error or is_error
+                # Get timing for this specific tool call
+                tool_timing = tool_timings.get(call_id)
                 result_rows.append(
                     {
                         "role": "tool",
@@ -289,6 +347,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                         "hide_summary": False,
                         "include_in_timeline": False,
                         "is_error": is_error,
+                        "timing_ms": tool_timing,
                     }
                 )
             if role == "user":
@@ -327,6 +386,7 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 "hide_summary": hide_in_summary,
                 "include_in_timeline": include_in_timeline,
                 "is_error": row_is_error,
+                "timing_ms": timing_ms,
             }
         )
         rows.extend(result_rows)
@@ -392,7 +452,7 @@ def _build_history_bar(entries: Sequence[dict], width: int = TIMELINE_WIDTH) -> 
 
 def _build_context_bar_line(
     current: int,
-    window: Optional[int],
+    window: int | None,
     width: int = TIMELINE_WIDTH,
 ) -> tuple[Text, Text]:
     bar = Text(" context |", style="dim")
@@ -427,7 +487,7 @@ def _build_context_bar_line(
     return bar, detail
 
 
-def _render_header_line(agent_name: str, *, console: Optional[Console], printer) -> None:
+def _render_header_line(agent_name: str, *, console: Console | None, printer) -> None:
     header = Text()
     header.append("▎", style=Colours.HEADER)
     header.append("●", style=f"dim {Colours.HEADER}")
@@ -451,12 +511,70 @@ def _render_header_line(agent_name: str, *, console: Optional[Console], printer)
     printer("")
 
 
+def _render_statistics(
+    summary: ConversationSummary,
+    *,
+    console: Console | None,
+    printer,
+) -> None:
+    """Render compact conversation statistics section."""
+
+    # Format timing values
+    llm_time = (
+        format_time(summary.total_elapsed_time_ms) if summary.total_elapsed_time_ms > 0 else "-"
+    )
+    runtime = format_time(summary.conversation_span_ms) if summary.conversation_span_ms > 0 else "-"
+
+    # Build compact statistics lines
+    stats_lines = []
+
+    if summary.total_elapsed_time_ms > 0 or summary.conversation_span_ms > 0:
+        timing_line = Text("  ", style="dim")
+        timing_line.append("LLM Time: ", style="dim")
+        timing_line.append(llm_time, style="default")
+        timing_line.append("  •  ", style="dim")
+        timing_line.append("Runtime: ", style="dim")
+        timing_line.append(runtime, style="default")
+        stats_lines.append(timing_line)
+
+    tool_counts = Text("  ", style="dim")
+    tool_counts.append("Tool Calls: ", style="dim")
+    tool_counts.append(str(summary.tool_calls), style="default")
+    if summary.tool_calls > 0:
+        tool_counts.append(
+            f" (successes: {summary.tool_successes}, errors: {summary.tool_errors})", style="dim"
+        )
+    stats_lines.append(tool_counts)
+
+    # Tool Usage Breakdown (if tools were used)
+    if summary.tool_calls > 0 and summary.tool_call_map:
+        # Get top tools sorted by count
+        sorted_tools = sorted(summary.tool_call_map.items(), key=lambda x: x[1], reverse=True)
+
+        # Show compact breakdown
+        tool_details = Text("  ", style="dim")
+        tool_details.append("Tools: ", style="dim")
+
+        tool_parts = []
+        for tool_name, count in sorted_tools[:5]:  # Show max 5 tools
+            tool_parts.append(f"{tool_name} ({count})")
+
+        tool_details.append(", ".join(tool_parts), style=Colours.TOOL_DETAIL)
+        stats_lines.append(tool_details)
+
+    # Print all statistics lines
+    for line in stats_lines:
+        printer(line)
+
+    printer("")
+
+
 def display_history_overview(
     agent_name: str,
     history: Sequence[PromptMessageExtended],
-    usage_accumulator: Optional["UsageAccumulator"] = None,
+    usage_accumulator: "UsageAccumulator" | None = None,
     *,
-    console: Optional[Console] = None,
+    console: Console | None = None,
 ) -> None:
     if not history:
         printer = console.print if console else rich_print
@@ -464,6 +582,9 @@ def display_history_overview(
         return
 
     printer = console.print if console else rich_print
+
+    # Create conversation summary for statistics
+    summary = ConversationSummary(messages=list(history))
 
     rows = _build_history_rows(history)
     timeline_entries = _aggregate_timeline_entries(rows)
@@ -478,6 +599,9 @@ def display_history_overview(
     context_bar, context_detail = _build_context_bar_line(current_tokens, window)
 
     _render_header_line(agent_name, console=console, printer=printer)
+
+    # Render conversation statistics
+    _render_statistics(summary, console=console, printer=printer)
 
     gap = Text("   ")
     combined_line = Text()
@@ -509,15 +633,6 @@ def display_history_overview(
         Text(" " + "─" * (history_bar.cell_len + context_bar.cell_len + gap.cell_len), style="dim")
     )
 
-    header_line = Text(" ")
-    header_line.append(" #", style="dim")
-    header_line.append(" ", style="dim")
-    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
-    header_line.append(f" {'Chars':>7}", style="dim")
-    header_line.append("  ", style="dim")
-    header_line.append("Summary", style="dim")
-    printer(header_line)
-
     summary_candidates = [row for row in rows if not row.get("hide_summary")]
     summary_rows = summary_candidates[-SUMMARY_COUNT:]
     start_index = len(summary_candidates) - len(summary_rows) + 1
@@ -529,6 +644,22 @@ def display_history_overview(
         total_width = console.width if console else get_terminal_size().columns
     except Exception:
         total_width = 80
+
+    # Responsive column layout based on terminal width
+    show_time = total_width >= 60
+    show_chars = total_width >= 50
+
+    header_line = Text(" ")
+    header_line.append(" #", style="dim")
+    header_line.append(" ", style="dim")
+    header_line.append(f"    {'Role':<{ROLE_COLUMN_WIDTH}}", style="dim")
+    if show_time:
+        header_line.append(f" {'Time':>7}", style="dim")
+    if show_chars:
+        header_line.append(f" {'Chars':>7}", style="dim")
+    header_line.append("  ", style="dim")
+    header_line.append("Summary", style="dim")
+    printer(header_line)
 
     for offset, row in enumerate(summary_rows):
         role = row["role"]
@@ -547,6 +678,9 @@ def display_history_overview(
         if detail_text.cell_len == 0:
             detail_text = None
 
+        timing_ms = row.get("timing_ms")
+        timing_str = format_time(timing_ms)
+
         line = Text(" ")
         line.append(f"{start_index + offset:>2}", style="dim")
         line.append(" ")
@@ -555,7 +689,10 @@ def display_history_overview(
         line.append(arrow, style=color)
         line.append(" ")
         line.append(f"{label:<{ROLE_COLUMN_WIDTH}}", style=color)
-        line.append(f" {format_chars(chars):>7}", style="dim")
+        if show_time:
+            line.append(f" {timing_str:>7}", style="dim")
+        if show_chars:
+            line.append(f" {format_chars(chars):>7}", style="dim")
         line.append("  ")
         summary_width = max(0, total_width - line.cell_len)
         summary_text = _compose_summary_text(

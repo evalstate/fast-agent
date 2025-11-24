@@ -92,7 +92,9 @@ class ToolAgent(LlmAgent):
 
         while True:
             result = await super().generate_impl(
-                messages, request_params=request_params, tools=tools
+                messages,
+                request_params=request_params,
+                tools=tools,
             )
 
             if LlmStopReason.TOOL_USE == result.stop_reason:
@@ -131,11 +133,14 @@ class ToolAgent(LlmAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Runs the tools in the request, and returns a new User message with the results"""
+        import time
+
         if not request.tool_calls:
             logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
+        tool_timings: dict[str, float] = {}  # Track timing for each tool call
         tool_loop_error: str | None = None
         # TODO -- use gather() for parallel results, update display
         tool_schemas = (await self.list_tools()).tools
@@ -171,12 +176,17 @@ class ToolAgent(LlmAgent):
                 max_item_length=12,
             )
 
-            # Delegate to call_tool for execution (overridable by subclasses)
+            # Track timing for tool execution
+            start_time = time.perf_counter()
             result = await self.call_tool(tool_name, tool_args)
-            tool_results[correlation_id] = result
-            self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name)
+            end_time = time.perf_counter()
+            duration_ms = round((end_time - start_time) * 1000, 2)
 
-        return self._finalize_tool_results(tool_results, tool_loop_error=tool_loop_error)
+            tool_results[correlation_id] = result
+            tool_timings[correlation_id] = duration_ms
+            self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms)
+
+        return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
 
     def _mark_tool_loop_error(
         self,
@@ -197,8 +207,15 @@ class ToolAgent(LlmAgent):
         self,
         tool_results: dict[str, CallToolResult],
         *,
+        tool_timings: dict[str, float] | None = None,
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
+        import json
+
+        from mcp.types import TextContent
+
+        from fast_agent.constants import FAST_AGENT_TOOL_TIMING
+
         channels = None
         content = []
         if tool_loop_error:
@@ -206,6 +223,15 @@ class ToolAgent(LlmAgent):
             channels = {
                 FAST_AGENT_ERROR_CHANNEL: [text_content(tool_loop_error)],
             }
+
+        # Add tool timing data to channels
+        if tool_timings:
+            if channels is None:
+                channels = {}
+            channels[FAST_AGENT_TOOL_TIMING] = [
+                TextContent(type="text", text=json.dumps(tool_timings))
+            ]
+
         return PromptMessageExtended(
             role="user",
             content=content,

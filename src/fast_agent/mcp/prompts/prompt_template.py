@@ -7,7 +7,7 @@ Provides clean, testable classes for managing template substitution.
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Set
+from typing import Any, Literal
 
 from mcp.types import (
     EmbeddedResource,
@@ -33,8 +33,8 @@ class PromptMetadata(BaseModel):
 
     name: str
     description: str
-    template_variables: Set[str] = set()
-    resource_paths: List[str] = []
+    template_variables: set[str] = set()
+    resource_paths: list[str] = []
     file_path: Path
 
 
@@ -47,7 +47,7 @@ class PromptContent(BaseModel):
 
     text: str
     role: str = "user"
-    resources: List[str] = []
+    resources: list[str] = []
 
     @field_validator("role")
     @classmethod
@@ -57,7 +57,7 @@ class PromptContent(BaseModel):
             raise ValueError(f"Invalid role: {role}. Must be one of: user, assistant")
         return role
 
-    def apply_substitutions(self, context: Dict[str, Any]) -> "PromptContent":
+    def apply_substitutions(self, context: dict[str, Any]) -> "PromptContent":
         """Apply variable substitutions to the text and resources"""
 
         # Define placeholder pattern once to avoid repetition
@@ -88,8 +88,8 @@ class PromptTemplate:
     def __init__(
         self,
         template_text: str,
-        delimiter_map: Optional[Dict[str, str]] = None,
-        template_file_path: Optional[Path] = None,
+        delimiter_map: dict[str, str] | None = None,
+        template_file_path: Path | None = None,
     ) -> None:
         """
         Initialize a prompt template.
@@ -108,8 +108,8 @@ class PromptTemplate:
     @classmethod
     def from_multipart_messages(
         cls,
-        messages: List[PromptMessageExtended],
-        delimiter_map: Optional[Dict[str, str]] = None,
+        messages: list[PromptMessageExtended],
+        delimiter_map: dict[str, str] | None = None,
     ) -> "PromptTemplate":
         """
         Create a PromptTemplate from a list of PromptMessageExtended objects.
@@ -143,16 +143,16 @@ class PromptTemplate:
         return cls(content, delimiter_map)
 
     @property
-    def template_variables(self) -> Set[str]:
+    def template_variables(self) -> set[str]:
         """Get the template variables in this template"""
         return self._template_variables
 
     @property
-    def content_sections(self) -> List[PromptContent]:
+    def content_sections(self) -> list[PromptContent]:
         """Get the parsed content sections"""
         return self._parsed_content
 
-    def apply_substitutions(self, context: Dict[str, Any]) -> List[PromptContent]:
+    def apply_substitutions(self, context: dict[str, Any]) -> list[PromptContent]:
         """
         Apply variable substitutions to the template.
 
@@ -166,8 +166,8 @@ class PromptTemplate:
         return [section.apply_substitutions(context) for section in self._parsed_content]
 
     def apply_substitutions_to_extended(
-        self, context: Dict[str, Any]
-    ) -> List[PromptMessageExtended]:
+        self, context: dict[str, Any]
+    ) -> list[PromptMessageExtended]:
         """
         Apply variable substitutions to the template and return PromptMessageExtended objects.
 
@@ -205,13 +205,13 @@ class PromptTemplate:
 
         return multiparts
 
-    def _extract_template_variables(self, text: str) -> Set[str]:
+    def _extract_template_variables(self, text: str) -> set[str]:
         """Extract template variables from text using regex"""
         variable_pattern = r"{{([^}]+)}}"
         matches = re.findall(variable_pattern, text)
         return set(matches)
 
-    def to_extended_messages(self) -> List[PromptMessageExtended]:
+    def to_extended_messages(self) -> list[PromptMessageExtended]:
         """
         Convert this template to a list of PromptMessageExtended objects.
 
@@ -243,7 +243,7 @@ class PromptTemplate:
 
         return multiparts
 
-    def _parse_template(self) -> List[PromptContent]:
+    def _parse_template(self) -> list[PromptContent]:
         """
         Parse the template into sections based on delimiters.
         If no delimiters are found, treat the entire template as a single user message.
@@ -324,7 +324,7 @@ class PromptTemplateLoader:
     Loads and processes prompt templates from files.
     """
 
-    def __init__(self, delimiter_map: Optional[Dict[str, str]] = None) -> None:
+    def __init__(self, delimiter_map: dict[str, str] | None = None) -> None:
         """
         Initialize the loader with optional custom delimiters.
 
@@ -348,7 +348,7 @@ class PromptTemplateLoader:
 
         return PromptTemplate(content, self.delimiter_map, template_file_path=file_path)
 
-    def load_from_multipart(self, messages: List[PromptMessageExtended]) -> PromptTemplate:
+    def load_from_multipart(self, messages: list[PromptMessageExtended]) -> PromptTemplate:
         """
         Create a PromptTemplate from a list of PromptMessageExtended objects.
 

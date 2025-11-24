@@ -6,11 +6,9 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
-    List,
     Mapping,
-    Optional,
     TypeVar,
+    Union,
     cast,
 )
 
@@ -41,6 +39,7 @@ from fast_agent.mcp.skybridge import (
     SkybridgeServerConfig,
     SkybridgeToolConfig,
 )
+from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
@@ -91,7 +90,7 @@ class ServerStatus(BaseModel):
     last_call_at: datetime | None = None
     last_error_at: datetime | None = None
     staleness_seconds: float | None = None
-    call_counts: Dict[str, int] = Field(default_factory=dict)
+    call_counts: dict[str, int] = Field(default_factory=dict)
     error_message: str | None = None
     instructions_available: bool | None = None
     instructions_enabled: bool | None = None
@@ -120,7 +119,7 @@ class MCPAggregator(ContextDependent):
     connection_persistence: bool = False
     """Whether to maintain a persistent connection to the server."""
 
-    server_names: List[str]
+    server_names: list[str]
     """A list of server names to connect to."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
@@ -162,17 +161,19 @@ class MCPAggregator(ContextDependent):
 
     def __init__(
         self,
-        server_names: List[str],
+        server_names: list[str],
         connection_persistence: bool = True,
-        context: Optional["Context"] = None,
+        context: Union["Context", None] = None,
         name: str | None = None,
-        config: Optional[Any] = None,  # Accept the agent config for elicitation_handler access
+        config: Any | None = None,  # Accept the agent config for elicitation_handler access
+        tool_handler: ToolExecutionHandler | None = None,
         **kwargs,
     ) -> None:
         """
         :param server_names: A list of server names to connect to.
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
+        :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -187,32 +188,38 @@ class MCPAggregator(ContextDependent):
         self._persistent_connection_manager: MCPConnectionManager | None = None
         self._owns_connection_manager = False
 
+        # Store tool execution handler for integration with ACP or other protocols
+        # Default to NoOpToolExecutionHandler if none provided
+        self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+
         # Set up logger with agent name in namespace if available
         global logger
         logger_name = f"{__name__}.{name}" if name else __name__
         logger = get_logger(logger_name)
 
         # Maps namespaced_tool_name -> namespaced tool info
-        self._namespaced_tool_map: Dict[str, NamespacedTool] = {}
+        self._namespaced_tool_map: dict[str, NamespacedTool] = {}
         # Maps server_name -> list of tools
-        self._server_to_tool_map: Dict[str, List[NamespacedTool]] = {}
+        self._server_to_tool_map: dict[str, list[NamespacedTool]] = {}
         self._tool_map_lock = Lock()
 
         # Cache for prompt objects, maps server_name -> list of prompt objects
-        self._prompt_cache: Dict[str, List[Prompt]] = {}
+        self._prompt_cache: dict[str, list[Prompt]] = {}
         self._prompt_cache_lock = Lock()
 
         # Lock for refreshing tools from a server
         self._refresh_lock = Lock()
 
         # Track runtime stats per server
-        self._server_stats: Dict[str, ServerStats] = {}
+        self._server_stats: dict[str, ServerStats] = {}
         self._stats_lock = Lock()
 
         # Track discovered Skybridge configurations per server
-        self._skybridge_configs: Dict[str, SkybridgeServerConfig] = {}
+        self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
 
-    def _create_progress_callback(self, server_name: str, tool_name: str) -> "ProgressFnT":
+    def _create_progress_callback(
+        self, server_name: str, tool_name: str, tool_call_id: str
+    ) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
 
         async def progress_callback(
@@ -231,6 +238,12 @@ class MCPAggregator(ContextDependent):
                     "details": message or "",  # Put the message in details column
                 },
             )
+
+            # Forward progress to tool handler (e.g., for ACP notifications)
+            try:
+                await self._tool_handler.on_tool_progress(tool_call_id, progress, total, message)
+            except Exception as e:
+                logger.error(f"Error in tool progress handler: {e}", exc_info=True)
 
         return progress_callback
 
@@ -256,7 +269,7 @@ class MCPAggregator(ContextDependent):
     @classmethod
     async def create(
         cls,
-        server_names: List[str],
+        server_names: list[str],
         connection_persistence: bool = False,
     ) -> "MCPAggregator":
         """
@@ -367,7 +380,7 @@ class MCPAggregator(ContextDependent):
                 },
             )
 
-        async def fetch_tools(server_name: str) -> List[Tool]:
+        async def fetch_tools(server_name: str) -> list[Tool]:
             # Only fetch tools if the server supports them
             if not await self.server_supports_feature(server_name, "tools"):
                 logger.debug(f"Server '{server_name}' does not support tools")
@@ -386,7 +399,7 @@ class MCPAggregator(ContextDependent):
                 logger.error(f"Error loading tools from server '{server_name}'", data=e)
                 return []
 
-        async def fetch_prompts(server_name: str) -> List[Prompt]:
+        async def fetch_prompts(server_name: str) -> list[Prompt]:
             # Only fetch prompts if the server supports them
             if not await self.server_supports_feature(server_name, "prompts"):
                 logger.debug(f"Server '{server_name}' does not support prompts")
@@ -406,8 +419,8 @@ class MCPAggregator(ContextDependent):
                 return []
 
         async def load_server_data(server_name: str):
-            tools: List[Tool] = []
-            prompts: List[Prompt] = []
+            tools: list[Tool] = []
+            prompts: list[Prompt] = []
 
             # Use _execute_on_server for consistent tracking regardless of connection mode
             tools = await fetch_tools(server_name)
@@ -494,7 +507,7 @@ class MCPAggregator(ContextDependent):
         config = SkybridgeServerConfig(server_name=server_name)
 
         tool_entries = self._server_to_tool_map.get(server_name, [])
-        tool_configs: List[SkybridgeToolConfig] = []
+        tool_configs: list[SkybridgeToolConfig] = []
 
         for namespaced_tool in tool_entries:
             tool_meta = getattr(namespaced_tool.tool, "meta", None) or {}
@@ -573,7 +586,7 @@ class MCPAggregator(ContextDependent):
                 continue
 
             contents = getattr(read_result, "contents", []) or []
-            seen_mime_types: List[str] = []
+            seen_mime_types: list[str] = []
 
             for content in contents:
                 mime_type = getattr(content, "mimeType", None)
@@ -711,7 +724,7 @@ class MCPAggregator(ContextDependent):
         except Exception:  # noqa: BLE001
             return True
 
-    async def list_servers(self) -> List[str]:
+    async def list_servers(self) -> list[str]:
         """Return the list of server names aggregated by this agent."""
         if not self.initialized:
             await self.load_servers()
@@ -725,7 +738,7 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        tools: List[Tool] = []
+        tools: list[Tool] = []
 
         for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items():
             tool_copy = namespaced_tool.tool.model_copy(
@@ -805,7 +818,7 @@ class MCPAggregator(ContextDependent):
                 "Failed to notify stdio transport activity for %s", server_name, exc_info=True
             )
 
-    async def get_server_instructions(self) -> Dict[str, tuple[str, List[str]]]:
+    async def get_server_instructions(self) -> dict[str, tuple[str, list[str]]]:
         """
         Get instructions from all connected servers along with their tool names.
 
@@ -836,13 +849,13 @@ class MCPAggregator(ContextDependent):
 
         return instructions
 
-    async def collect_server_status(self) -> Dict[str, ServerStatus]:
+    async def collect_server_status(self) -> dict[str, ServerStatus]:
         """Return aggregated status information for each configured server."""
         if not self.initialized:
             await self.load_servers()
 
         now = datetime.now(timezone.utc)
-        status_map: Dict[str, ServerStatus] = {}
+        status_map: dict[str, ServerStatus] = {}
 
         for server_name in self.server_names:
             stats = self._server_stats.get(server_name)
@@ -1007,7 +1020,7 @@ class MCPAggregator(ContextDependent):
 
         return status_map
 
-    async def get_skybridge_configs(self) -> Dict[str, SkybridgeServerConfig]:
+    async def get_skybridge_configs(self) -> dict[str, SkybridgeServerConfig]:
         """Expose discovered Skybridge configurations keyed by server."""
         if not self.initialized:
             await self.load_servers()
@@ -1025,7 +1038,7 @@ class MCPAggregator(ContextDependent):
         operation_type: str,
         operation_name: str,
         method_name: str,
-        method_args: Dict[str, Any] = None,
+        method_args: dict[str, Any] = None,
         error_factory: Callable[[str], R] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> R:
@@ -1204,9 +1217,16 @@ class MCPAggregator(ContextDependent):
         # For all other resource types, use the first server
         return (self.server_names[0] if self.server_names else None, name)
 
-    async def call_tool(self, name: str, arguments: dict | None = None) -> CallToolResult:
+    async def call_tool(
+        self, name: str, arguments: dict | None = None, tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Call a namespaced tool, e.g., 'server_name__tool_name'.
+
+        Args:
+            name: Tool name (possibly namespaced)
+            arguments: Tool arguments
+            tool_use_id: LLM's tool use ID (for matching with stream events)
         """
         if not self.initialized:
             await self.load_servers()
@@ -1231,28 +1251,71 @@ class MCPAggregator(ContextDependent):
             },
         )
 
+        # Notify tool handler that execution is starting
+        try:
+            tool_call_id = await self._tool_handler.on_tool_start(
+                local_tool_name, server_name, arguments, tool_use_id
+            )
+        except Exception as e:
+            logger.error(f"Error in tool start handler: {e}", exc_info=True)
+            # Generate fallback ID if handler fails
+            import uuid
+            tool_call_id = str(uuid.uuid4())
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
 
             # Create progress callback for this tool execution
-            progress_callback = self._create_progress_callback(server_name, local_tool_name)
-
-            return await self._execute_on_server(
-                server_name=server_name,
-                operation_type="tools/call",
-                operation_name=local_tool_name,
-                method_name="call_tool",
-                method_args={
-                    "name": local_tool_name,
-                    "arguments": arguments,
-                },
-                error_factory=lambda msg: CallToolResult(
-                    isError=True, content=[TextContent(type="text", text=msg)]
-                ),
-                progress_callback=progress_callback,
+            progress_callback = self._create_progress_callback(
+                server_name, local_tool_name, tool_call_id
             )
+
+            try:
+                result = await self._execute_on_server(
+                    server_name=server_name,
+                    operation_type="tools/call",
+                    operation_name=local_tool_name,
+                    method_name="call_tool",
+                    method_args={
+                        "name": local_tool_name,
+                        "arguments": arguments,
+                    },
+                    error_factory=lambda msg: CallToolResult(
+                        isError=True, content=[TextContent(type="text", text=msg)]
+                    ),
+                    progress_callback=progress_callback,
+                )
+
+                # Notify tool handler of completion
+                try:
+                    # Pass the full content blocks to the handler
+                    content = result.content if result.content else None
+
+                    # If there's an error, extract error text
+                    error_text = None
+                    if result.isError and content:
+                        # Extract text from content for error message
+                        text_parts = [c.text for c in content if hasattr(c, "text") and c.text]
+                        error_text = "\n".join(text_parts) if text_parts else None
+                        content = None  # Don't send content when there's an error
+
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, not result.isError, content, error_text
+                    )
+                except Exception as e:
+                    logger.error(f"Error in tool complete handler: {e}", exc_info=True)
+
+                return result
+
+            except Exception as e:
+                # Notify tool handler of error
+                try:
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
+                except Exception as handler_error:
+                    logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                raise
 
     async def get_prompt(
         self,
@@ -1490,7 +1553,7 @@ class MCPAggregator(ContextDependent):
 
     async def list_prompts(
         self, server_name: str | None = None, agent_name: str | None = None
-    ) -> Mapping[str, List[Prompt]]:
+    ) -> Mapping[str, list[Prompt]]:
         """
         List available prompts from one or all servers.
 
@@ -1502,7 +1565,7 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        results: Dict[str, List[Prompt]] = {}
+        results: dict[str, list[Prompt]] = {}
 
         # If specific server requested
         if server_name:
@@ -1785,7 +1848,7 @@ class MCPAggregator(ContextDependent):
 
     async def _list_resources_from_server(
         self, server_name: str, *, check_support: bool = True
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Internal helper method to list resources from a specific server.
 
@@ -1809,7 +1872,7 @@ class MCPAggregator(ContextDependent):
 
         return getattr(result, "resources", []) or []
 
-    async def list_resources(self, server_name: str | None = None) -> Dict[str, List[str]]:
+    async def list_resources(self, server_name: str | None = None) -> dict[str, list[str]]:
         """
         List available resources from one or all servers.
 
@@ -1823,7 +1886,7 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        results: Dict[str, List[str]] = {}
+        results: dict[str, list[str]] = {}
 
         # Get the list of servers to check
         servers_to_check = [server_name] if server_name else self.server_names
@@ -1844,7 +1907,7 @@ class MCPAggregator(ContextDependent):
 
             try:
                 resources = await self._list_resources_from_server(s_name, check_support=False)
-                formatted_resources: List[str] = []
+                formatted_resources: list[str] = []
                 for resource in resources:
                     uri = getattr(resource, "uri", None)
                     if uri is not None:
@@ -1855,7 +1918,7 @@ class MCPAggregator(ContextDependent):
 
         return results
 
-    async def list_mcp_tools(self, server_name: str | None = None) -> Dict[str, List[Tool]]:
+    async def list_mcp_tools(self, server_name: str | None = None) -> dict[str, list[Tool]]:
         """
         List available tools from one or all servers, grouped by server name.
 
@@ -1869,7 +1932,7 @@ class MCPAggregator(ContextDependent):
         if not self.initialized:
             await self.load_servers()
 
-        results: Dict[str, List[Tool]] = {}
+        results: dict[str, list[Tool]] = {}
 
         # Get the list of servers to check
         servers_to_check = [server_name] if server_name else self.server_names

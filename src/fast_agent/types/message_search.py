@@ -16,7 +16,7 @@ Note: The search looks at text content extracted with get_text(), not raw Conten
 """
 
 import re
-from typing import List, Literal, Tuple
+from typing import Literal
 
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -25,10 +25,10 @@ SearchScope = Literal["user", "assistant", "tool_calls", "tool_results", "all"]
 
 
 def search_messages(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
     pattern: str | re.Pattern,
     scope: SearchScope = "all",
-) -> List[PromptMessageExtended]:
+) -> list[PromptMessageExtended]:
     """
     Find messages containing content that matches a pattern.
 
@@ -61,10 +61,10 @@ def search_messages(
 
 
 def find_matches(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
     pattern: str | re.Pattern,
     scope: SearchScope = "all",
-) -> List[Tuple[PromptMessageExtended, re.Match]]:
+) -> list[tuple[PromptMessageExtended, re.Match]]:
     """
     Find all pattern matches in messages, returning match objects.
 
@@ -103,7 +103,7 @@ def find_matches(
 
 
 def extract_first(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
     pattern: str | re.Pattern,
     scope: SearchScope = "all",
     group: int = 0,
@@ -142,7 +142,7 @@ def extract_first(
 
 
 def extract_last(
-    messages: List[PromptMessageExtended],
+    messages: list[PromptMessageExtended],
     pattern: str | re.Pattern,
     scope: SearchScope = "all",
     group: int = 0,
@@ -198,7 +198,7 @@ def _find_in_message(
     msg: PromptMessageExtended,
     pattern: re.Pattern,
     scope: SearchScope,
-) -> List[re.Match]:
+) -> list[re.Match]:
     """Find all matches of pattern in a message."""
     texts = _extract_searchable_text(msg, scope)
     matches = []
@@ -211,7 +211,7 @@ def _find_in_message(
 def _extract_searchable_text(
     msg: PromptMessageExtended,
     scope: SearchScope,
-) -> List[str]:
+) -> list[str]:
     """Extract text from message based on scope."""
     texts = []
 

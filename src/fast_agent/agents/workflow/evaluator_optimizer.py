@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, List, Optional, Tuple, Type
 
 from mcp import Tool
+from opentelemetry import trace
 from pydantic import BaseModel, Field
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -119,88 +120,123 @@ class EvaluatorOptimizerAgent(LlmAgent):
         Returns:
             The optimized response after evaluation and refinement
         """
-        # Initialize tracking variables
-        refinement_count = 0
-        best_response = None
-        best_rating = QualityRating.POOR
-        self.refinement_history = []
+        tracer = trace.get_tracer(__name__)
+        with tracer.start_as_current_span(f"EvaluatorOptimizer: '{self._name}' generate"):
+            # Initialize tracking variables
+            refinement_count = 0
+            best_response = None
+            best_rating = QualityRating.POOR
+            self.refinement_history = []
 
-        # Extract the user request
-        request = messages[-1].all_text() if messages else ""
+            # Extract the user request
+            request = messages[-1].all_text() if messages else ""
 
-        # Initial generation
-        response = await self.generator_agent.generate(messages, request_params)
-        best_response = response
+            # Initial generation
+            async with self.workflow_telemetry.start_step(
+                "evaluator_optimizer.generate",
+                server_name=self.name,
+                arguments={"agent": self.generator_agent.name, "iteration": 0},
+            ) as step:
+                response = await self.generator_agent.generate(messages, request_params)
+                best_response = response
+                await step.finish(True, text=f"{self.generator_agent.name} generated initial response")
 
-        # Refinement loop
-        while refinement_count < self.max_refinements:
-            logger.debug(f"Evaluating response (iteration {refinement_count + 1})")
+            # Refinement loop
+            while refinement_count < self.max_refinements:
+                logger.debug(f"Evaluating response (iteration {refinement_count + 1})")
 
-            # Evaluate current response
-            eval_prompt = self._build_eval_prompt(
-                request=request, response=response.last_text() or "", iteration=refinement_count
-            )
+                # Evaluate current response
+                async with self.workflow_telemetry.start_step(
+                    "evaluator_optimizer.evaluate",
+                    server_name=self.name,
+                    arguments={
+                        "agent": self.evaluator_agent.name,
+                        "iteration": refinement_count + 1,
+                        "max_refinements": self.max_refinements,
+                    },
+                ) as step:
+                    eval_prompt = self._build_eval_prompt(
+                        request=request, response=response.last_text() or "", iteration=refinement_count
+                    )
 
-            # Create evaluation message and get structured evaluation result
-            eval_message = Prompt.user(eval_prompt)
-            evaluation_result, _ = await self.evaluator_agent.structured(
-                [eval_message], EvaluationResult, request_params
-            )
+                    # Create evaluation message and get structured evaluation result
+                    eval_message = Prompt.user(eval_prompt)
+                    evaluation_result, _ = await self.evaluator_agent.structured(
+                        [eval_message], EvaluationResult, request_params
+                    )
 
-            # If structured parsing failed, use default evaluation
-            if evaluation_result is None:
-                logger.warning("Structured parsing failed, using default evaluation")
-                evaluation_result = EvaluationResult(
-                    rating=QualityRating.POOR,
-                    feedback="Failed to parse evaluation",
-                    needs_improvement=True,
-                    focus_areas=["Improve overall quality"],
+                    # If structured parsing failed, use default evaluation
+                    if evaluation_result is None:
+                        logger.warning("Structured parsing failed, using default evaluation")
+                        evaluation_result = EvaluationResult(
+                            rating=QualityRating.POOR,
+                            feedback="Failed to parse evaluation",
+                            needs_improvement=True,
+                            focus_areas=["Improve overall quality"],
+                        )
+
+                    await step.finish(
+                        True,
+                        text=f"Evaluation {refinement_count + 1}/{self.max_refinements}: {evaluation_result.rating.value}",
+                    )
+
+                # Track iteration
+                self.refinement_history.append(
+                    {
+                        "attempt": refinement_count + 1,
+                        "response": response.all_text(),
+                        "evaluation": evaluation_result.model_dump(),
+                    }
                 )
 
-            # Track iteration
-            self.refinement_history.append(
-                {
-                    "attempt": refinement_count + 1,
-                    "response": response.all_text(),
-                    "evaluation": evaluation_result.model_dump(),
-                }
-            )
+                logger.debug(f"Evaluation result: {evaluation_result.rating}")
 
-            logger.debug(f"Evaluation result: {evaluation_result.rating}")
+                # Track best response based on rating
+                if QUALITY_RATING_VALUES[evaluation_result.rating] > QUALITY_RATING_VALUES[best_rating]:
+                    best_rating = evaluation_result.rating
+                    best_response = response
+                    logger.debug(f"New best response (rating: {best_rating})")
 
-            # Track best response based on rating
-            if QUALITY_RATING_VALUES[evaluation_result.rating] > QUALITY_RATING_VALUES[best_rating]:
-                best_rating = evaluation_result.rating
-                best_response = response
-                logger.debug(f"New best response (rating: {best_rating})")
+                # Check if we've reached acceptable quality
+                if not evaluation_result.needs_improvement:
+                    logger.debug("Improvement not needed, stopping refinement")
+                    # When evaluator says no improvement needed, use the current response
+                    best_response = response
+                    break
 
-            # Check if we've reached acceptable quality
-            if not evaluation_result.needs_improvement:
-                logger.debug("Improvement not needed, stopping refinement")
-                # When evaluator says no improvement needed, use the current response
-                best_response = response
-                break
+                if (
+                    QUALITY_RATING_VALUES[evaluation_result.rating]
+                    >= QUALITY_RATING_VALUES[self.min_rating]
+                ):
+                    logger.debug(f"Acceptable quality reached ({evaluation_result.rating})")
+                    break
 
-            if (
-                QUALITY_RATING_VALUES[evaluation_result.rating]
-                >= QUALITY_RATING_VALUES[self.min_rating]
-            ):
-                logger.debug(f"Acceptable quality reached ({evaluation_result.rating})")
-                break
+                # Generate refined response
+                async with self.workflow_telemetry.start_step(
+                    "evaluator_optimizer.refine",
+                    server_name=self.name,
+                    arguments={
+                        "agent": self.generator_agent.name,
+                        "iteration": refinement_count + 1,
+                        "previous_rating": evaluation_result.rating.value,
+                    },
+                ) as step:
+                    refinement_prompt = self._build_refinement_prompt(
+                        feedback=evaluation_result,
+                        iteration=refinement_count,
+                    )
 
-            # Generate refined response
-            refinement_prompt = self._build_refinement_prompt(
-                feedback=evaluation_result,
-                iteration=refinement_count,
-            )
+                    # Create refinement message and get refined response
+                    refinement_message = Prompt.user(refinement_prompt)
+                    response = await self.generator_agent.generate([refinement_message], request_params)
+                    await step.finish(
+                        True,
+                        text=f"{self.generator_agent.name} refined response (iteration {refinement_count + 1})",
+                    )
 
-            # Create refinement message and get refined response
-            refinement_message = Prompt.user(refinement_prompt)
-            response = await self.generator_agent.generate([refinement_message], request_params)
+                refinement_count += 1
 
-            refinement_count += 1
-
-        return best_response
+            return best_response
 
     async def structured_impl(
         self,

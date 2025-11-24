@@ -1,4 +1,4 @@
-from typing import List
+from typing import Any
 
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
@@ -16,13 +16,19 @@ class StubLLM(FastAgentLLM):
 
     async def _apply_prompt_provider_specific(
         self,
-        multipart_messages: List["PromptMessageExtended"],
+        multipart_messages: list["PromptMessageExtended"],
         request_params: RequestParams | None = None,
         tools=None,
         is_template: bool = False,
     ) -> PromptMessageExtended:
         """Implement the abstract method with minimal functionality"""
         return multipart_messages[-1]
+
+    def _convert_extended_messages_to_provider(
+        self, messages: list[PromptMessageExtended]
+    ) -> list[Any]:
+        """Convert messages to provider format - stub returns empty list"""
+        return []
 
 
 class TestRequestParamsInLLM:

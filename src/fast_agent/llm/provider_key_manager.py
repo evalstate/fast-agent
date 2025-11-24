@@ -4,17 +4,23 @@ Centralizes API key handling logic to make provider implementations more generic
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
 
-PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
+PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the
     # provider name and suffix "_API_KEY" - so no specific mapping needed unless overriding
     "hf": "HF_TOKEN",
     "responses": "OPENAI_API_KEY",  # Temporary workaround
+}
+PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
+    # HuggingFace historically used "huggingface" (full name) in config files,
+    # while the provider id is "hf". Support both spellings.
+    "hf": ("hf", "huggingface"),
+    "huggingface": ("huggingface", "hf"),
 }
 API_KEY_HINT_TEXT = "<your-api-key-here>"
 
@@ -39,13 +45,27 @@ class ProviderKeyManager:
         api_key = None
         if isinstance(config, BaseModel):
             config = config.model_dump()
-        provider_settings = config.get(provider_name)
-        if provider_settings:
+        provider_name = provider_name.lower()
+        provider_keys = ProviderKeyManager._get_provider_config_keys(provider_name)
+        for key in provider_keys:
+            provider_settings = config.get(key)
+            if not provider_settings:
+                continue
             api_key = provider_settings.get("api_key", API_KEY_HINT_TEXT)
             if api_key == API_KEY_HINT_TEXT:
                 api_key = None
+            break
 
         return api_key
+
+    @staticmethod
+    def _get_provider_config_keys(provider_name: str) -> list[str]:
+        """Return config key candidates for a provider (provider id + aliases)."""
+        keys = [provider_name]
+        for alias in PROVIDER_CONFIG_KEY_ALIASES.get(provider_name, ()):
+            if alias not in keys:
+                keys.append(alias)
+        return keys
 
     @staticmethod
     def get_api_key(provider_name: str, config: Any) -> str:

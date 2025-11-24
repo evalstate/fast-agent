@@ -195,6 +195,7 @@ async def _run_agent(
             fan_out=fan_out_agents,
             fan_in="aggregate",
             include_request=True,
+            default=True,
         )
         async def cli_agent():
             async with fast.run() as agent:
@@ -208,7 +209,7 @@ async def _run_agent(
                     display = ConsoleDisplay(config=None)
                     display.show_parallel_results(agent.parallel)
                 else:
-                    await agent.interactive(agent_name="parallel", pretty_print_parallel=True)
+                    await agent.interactive(pretty_print_parallel=True)
     else:
         # Single model - use original behavior
         # Define the agent with specified parameters
@@ -285,8 +286,8 @@ def run_async_agent(
                 # Merge both lists
                 server_list.extend(list(url_servers.keys()))
         except ValueError as e:
-            print(f"Error parsing URLs: {e}")
-            return
+            print(f"Error parsing URLs: {e}", file=sys.stderr)
+            sys.exit(1)
 
     # Generate STDIO server configurations if provided
     stdio_servers = None
@@ -298,7 +299,7 @@ def run_async_agent(
             try:
                 parsed_command = shlex.split(stdio_cmd)
                 if not parsed_command:
-                    print(f"Error: Empty stdio command: {stdio_cmd}")
+                    print(f"Error: Empty stdio command: {stdio_cmd}", file=sys.stderr)
                     continue
 
                 command = parsed_command[0]
@@ -339,7 +340,7 @@ def run_async_agent(
                     server_list.append(server_name)
 
             except ValueError as e:
-                print(f"Error parsing stdio command '{stdio_cmd}': {e}")
+                print(f"Error parsing stdio command '{stdio_cmd}': {e}", file=sys.stderr)
                 continue
 
     # Check if we're already in an event loop

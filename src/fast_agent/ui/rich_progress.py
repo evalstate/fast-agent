@@ -2,7 +2,7 @@
 
 import time
 from contextlib import contextmanager
-from typing import Optional
+from typing import Any
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
@@ -14,7 +14,7 @@ from fast_agent.ui.console import console as default_console
 class RichProgressDisplay:
     """Rich-based display for progress events."""
 
-    def __init__(self, console: Optional[Console] = None) -> None:
+    def __init__(self, console: Console | None = None) -> None:
         """Initialize the progress display."""
         self.console = console or default_console
         self._taskmap: dict[str, TaskID] = {}
@@ -138,7 +138,7 @@ class RichProgressDisplay:
             description = f"[{self._get_action_style(event.action)}]▎ {event.action.value:<15}"
 
         # Update basic task information
-        update_kwargs: dict[str, object] = {
+        update_kwargs: dict[str, Any] = {
             "description": description,
             "target": event.target or task_name,  # Use task_name as fallback for target
             "details": event.details or "",

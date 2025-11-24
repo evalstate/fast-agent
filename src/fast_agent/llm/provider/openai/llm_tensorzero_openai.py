@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam
 
@@ -64,10 +64,10 @@ class TensorZeroOpenAILLM(OpenAILLM):
 
     def _prepare_api_request(
         self,
-        messages: List[ChatCompletionMessageParam],
-        tools: Optional[List[Any]],
+        messages: list[ChatCompletionMessageParam],
+        tools: list[Any] | None,
         request_params: RequestParams,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Prepares the API request for the TensorZero OpenAI-compatible endpoint.
         This method injects system template variables and other TensorZero-specific

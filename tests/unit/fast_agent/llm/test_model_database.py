@@ -1,6 +1,7 @@
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
+from fast_agent.constants import DEFAULT_MAX_ITERATIONS
 from fast_agent.context import Context
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
@@ -109,8 +110,9 @@ def test_openai_provider_preserves_all_settings():
     params = llm.default_request_params
     assert params.model == "gpt-4o"
     assert params.parallel_tool_calls  # Should come from base
-    assert params.max_iterations == 20  # Should come from base (now 20)
-    assert params.use_history  # Should come from base
+    assert (
+        params.max_iterations == DEFAULT_MAX_ITERATIONS
+    )  # Should come from default setting    assert params.use_history  # Should come from base
     assert (
         params.systemPrompt == "You are a helpful assistant"
     )  # Should come from base (self.instruction)
@@ -164,7 +166,7 @@ def _hf_request_args(llm: HuggingFaceLLM):
 
 
 def _make_hf_llm(model: str, hf_settings: HuggingFaceSettings | None = None) -> HuggingFaceLLM:
-    settings = Settings(huggingface=hf_settings or HuggingFaceSettings())
+    settings = Settings(hf=hf_settings or HuggingFaceSettings())
     context = Context(config=settings)
     return HuggingFaceLLM(context=context, model=model, name="test-agent")
 

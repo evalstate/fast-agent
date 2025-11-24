@@ -1,4 +1,4 @@
-from typing import Generic, List, Optional, Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar
 
 # Define our own type variable for implementation use
 MessageParamT = TypeVar("MessageParamT")
@@ -7,23 +7,30 @@ MessageParamT = TypeVar("MessageParamT")
 class Memory(Protocol, Generic[MessageParamT]):
     """
     Simple memory management for storing past interactions in-memory.
+
+    IMPORTANT: As of the conversation history architecture refactor,
+    provider history is DIAGNOSTIC ONLY. Messages are generated fresh
+    from _message_history on each API call via _convert_to_provider_format().
+
+    The get() method should NOT be called by provider code for API calls.
+    It may still be used for debugging/inspection purposes.
     """
 
     # TODO: saqadri - add checkpointing and other advanced memory capabilities
 
     def __init__(self) -> None: ...
 
-    def extend(self, messages: List[MessageParamT], is_prompt: bool = False) -> None: ...
+    def extend(self, messages: list[MessageParamT], is_prompt: bool = False) -> None: ...
 
-    def set(self, messages: List[MessageParamT], is_prompt: bool = False) -> None: ...
+    def set(self, messages: list[MessageParamT], is_prompt: bool = False) -> None: ...
 
     def append(self, message: MessageParamT, is_prompt: bool = False) -> None: ...
 
-    def get(self, include_completion_history: bool = True) -> List[MessageParamT]: ...
+    def get(self, include_completion_history: bool = True) -> list[MessageParamT]: ...
 
     def clear(self, clear_prompts: bool = False) -> None: ...
 
-    def pop(self, *, from_prompts: bool = False) -> Optional[MessageParamT]: ...
+    def pop(self, *, from_prompts: bool = False) -> MessageParamT | None: ...
 
 
 class SimpleMemory(Memory, Generic[MessageParamT]):
@@ -35,15 +42,15 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
     """
 
     def __init__(self) -> None:
-        self.history: List[MessageParamT] = []
-        self.prompt_messages: List[MessageParamT] = []  # Always included
-        self.conversation_cache_positions: List[
+        self.history: list[MessageParamT] = []
+        self.prompt_messages: list[MessageParamT] = []  # Always included
+        self.conversation_cache_positions: list[
             int
         ] = []  # Track active conversation cache positions
         self.cache_walk_distance: int = 6  # Messages between cache blocks
         self.max_conversation_cache_blocks: int = 2  # Maximum conversation cache blocks
 
-    def extend(self, messages: List[MessageParamT], is_prompt: bool = False) -> None:
+    def extend(self, messages: list[MessageParamT], is_prompt: bool = False) -> None:
         """
         Add multiple messages to history.
 
@@ -56,7 +63,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         else:
             self.history.extend(messages)
 
-    def set(self, messages: List[MessageParamT], is_prompt: bool = False) -> None:
+    def set(self, messages: list[MessageParamT], is_prompt: bool = False) -> None:
         """
         Replace messages in history.
 
@@ -82,9 +89,14 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         else:
             self.history.append(message)
 
-    def get(self, include_completion_history: bool = True) -> List[MessageParamT]:
+    def get(self, include_completion_history: bool = True) -> list[MessageParamT]:
         """
         Get all messages in memory.
+
+        DEPRECATED: Provider history is now diagnostic only. This method returns
+        a diagnostic snapshot and should NOT be used for API calls. Messages for
+        API calls are generated fresh from _message_history via
+        _convert_to_provider_format().
 
         Args:
             include_history: If True, include regular history messages
@@ -92,7 +104,12 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
 
         Returns:
             Combined list of prompt messages and optionally history messages
+            (for diagnostic/inspection purposes only)
         """
+        # Note: We don't emit a warning here because this method is still
+        # legitimately used for diagnostic purposes and by some internal code.
+        # The important change is that provider completion methods no longer
+        # call this for API message construction.
         if include_completion_history:
             return self.prompt_messages + self.history
         else:
@@ -110,7 +127,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         if clear_prompts:
             self.prompt_messages = []
 
-    def pop(self, *, from_prompts: bool = False) -> Optional[MessageParamT]:
+    def pop(self, *, from_prompts: bool = False) -> MessageParamT | None:
         """
         Remove and return the most recent message from history or prompt messages.
 
@@ -151,7 +168,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
             self.conversation_cache_positions
         )
 
-    def _calculate_cache_positions(self, total_conversation_messages: int) -> List[int]:
+    def _calculate_cache_positions(self, total_conversation_messages: int) -> list[int]:
         """
         Calculate where cache blocks should be placed using walking algorithm.
 
@@ -210,7 +227,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
         self.conversation_cache_positions = updates["active"].copy()
 
     def remove_cache_control_from_messages(
-        self, messages: List[MessageParamT], positions: List[int]
+        self, messages: list[MessageParamT], positions: list[int]
     ) -> None:
         """
         Remove cache control from specified message positions.
@@ -230,7 +247,7 @@ class SimpleMemory(Memory, Generic[MessageParamT]):
                                 del content_block["cache_control"]
 
     def add_cache_control_to_messages(
-        self, messages: List[MessageParamT], positions: List[int]
+        self, messages: list[MessageParamT], positions: list[int]
     ) -> int:
         """
         Add cache control to specified message positions.

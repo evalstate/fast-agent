@@ -10,10 +10,7 @@ from typing import (
     Any,
     Awaitable,
     Callable,
-    Dict,
-    List,
     Literal,
-    Optional,
     ParamSpec,
     Protocol,
     TypeVar,
@@ -49,7 +46,7 @@ class DecoratedAgentProtocol(Protocol[P, R]):
 class DecoratedOrchestratorProtocol(DecoratedAgentProtocol[P, R], Protocol):
     """Protocol for decorated orchestrator functions with additional metadata."""
 
-    _child_agents: List[str]
+    _child_agents: list[str]
     _plan_type: Literal["full", "iterative"]
 
 
@@ -57,21 +54,21 @@ class DecoratedOrchestratorProtocol(DecoratedAgentProtocol[P, R], Protocol):
 class DecoratedRouterProtocol(DecoratedAgentProtocol[P, R], Protocol):
     """Protocol for decorated router functions with additional metadata."""
 
-    _router_agents: List[str]
+    _router_agents: list[str]
 
 
 # Protocol for chain functions
 class DecoratedChainProtocol(DecoratedAgentProtocol[P, R], Protocol):
     """Protocol for decorated chain functions with additional metadata."""
 
-    _chain_agents: List[str]
+    _chain_agents: list[str]
 
 
 # Protocol for parallel functions
 class DecoratedParallelProtocol(DecoratedAgentProtocol[P, R], Protocol):
     """Protocol for decorated parallel functions with additional metadata."""
 
-    _fan_out: List[str]
+    _fan_out: list[str]
     _fan_in: str
 
 
@@ -111,6 +108,9 @@ def _apply_templates(text: str) -> str:
     Supported templates:
         {{currentDate}} - Current date in format "24 July 2025"
         {{url:https://...}} - Content fetched from the specified URL
+
+    Note: File templates ({{file:...}} and {{file_silent:...}}) are resolved later
+    during runtime to ensure they're relative to the workspaceRoot.
 
     Args:
         text: The text to process
@@ -174,18 +174,21 @@ def _decorator_impl(
     name: str,
     instruction: str,
     *,
-    servers: List[str] = [],
-    model: Optional[str] = None,
+    servers: list[str] = [],
+    model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
-    tools: Optional[Dict[str, List[str]]] = None,
-    resources: Optional[Dict[str, List[str]]] = None,
-    prompts: Optional[Dict[str, List[str]]] = None,
-    skills: SkillManifest | SkillRegistry | Path | str | List[
-        SkillManifest | SkillRegistry | Path | str | None
-    ] | None = None,
+    tools: dict[str, list[str]] | None = None,
+    resources: dict[str, list[str]] | None = None,
+    prompts: dict[str, list[str]] | None = None,
+    skills: SkillManifest
+    | SkillRegistry
+    | Path
+    | str
+    | list[SkillManifest | SkillRegistry | Path | str | None]
+    | None = None,
     **extra_kwargs,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -254,21 +257,21 @@ def _decorator_impl(
 def agent(
     self,
     name: str = "default",
-    instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+    instruction_or_kwarg: str | Path | AnyUrl | None = None,
     *,
     instruction: str | Path | AnyUrl = "You are a helpful agent.",
-    agents: List[str] = [],
-    servers: List[str] = [],
-    tools: Optional[Dict[str, List[str]]] = None,
-    resources: Optional[Dict[str, List[str]]] = None,
-    prompts: Optional[Dict[str, List[str]]] = None,
+    agents: list[str] | None = None,
+    servers: list[str] = [],
+    tools: dict[str, list[str]] | None = None,
+    resources: dict[str, list[str]] | None = None,
+    prompts: dict[str, list[str]] | None = None,
     skills: SkillManifest | SkillRegistry | Path | str | None = None,
-    model: Optional[str] = None,
+    model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
-    elicitation_handler: Optional[ElicitationFnT] = None,
+    elicitation_handler: ElicitationFnT | None = None,
     api_key: str | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -323,20 +326,20 @@ def custom(
     self,
     cls,
     name: str = "default",
-    instruction_or_kwarg: Optional[str | Path | AnyUrl] = None,
+    instruction_or_kwarg: str | Path | AnyUrl | None = None,
     *,
     instruction: str | Path | AnyUrl = "You are a helpful agent.",
-    servers: List[str] = [],
-    tools: Optional[Dict[str, List[str]]] = None,
-    resources: Optional[Dict[str, List[str]]] = None,
-    prompts: Optional[Dict[str, List[str]]] = None,
+    servers: list[str] = [],
+    tools: dict[str, list[str]] | None = None,
+    resources: dict[str, list[str]] | None = None,
+    prompts: dict[str, list[str]] | None = None,
     skills: SkillManifest | SkillRegistry | Path | str | None = None,
-    model: Optional[str] = None,
+    model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
-    elicitation_handler: Optional[ElicitationFnT] = None,
+    elicitation_handler: ElicitationFnT | None = None,
     api_key: str | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -393,9 +396,9 @@ def orchestrator(
     self,
     name: str,
     *,
-    agents: List[str],
+    agents: list[str],
     instruction: str | Path | AnyUrl = DEFAULT_INSTRUCTION_ORCHESTRATOR,
-    model: Optional[str] = None,
+    model: str | None = None,
     request_params: RequestParams | None = None,
     use_history: bool = False,
     human_input: bool = False,
@@ -448,9 +451,9 @@ def iterative_planner(
     self,
     name: str,
     *,
-    agents: List[str],
+    agents: list[str],
     instruction: str | Path | AnyUrl = ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE,
-    model: Optional[str] = None,
+    model: str | None = None,
     request_params: RequestParams | None = None,
     plan_iterations: int = -1,
     default: bool = False,
@@ -498,20 +501,19 @@ def router(
     self,
     name: str,
     *,
-    agents: List[str],
-    instruction: Optional[str | Path | AnyUrl] = None,
-    servers: List[str] = [],
-    tools: Optional[Dict[str, List[str]]] = None,
-    resources: Optional[Dict[str, List[str]]] = None,
-    prompts: Optional[Dict[str, List[str]]] = None,
-    model: Optional[str] = None,
+    agents: list[str],
+    instruction: str | Path | AnyUrl | None = None,
+    servers: list[str] = [],
+    tools: dict[str, list[str]] | None = None,
+    resources: dict[str, list[str]] | None = None,
+    prompts: dict[str, list[str]] | None = None,
+    model: str | None = None,
     use_history: bool = False,
     request_params: RequestParams | None = None,
     human_input: bool = False,
     default: bool = False,
-    elicitation_handler: Optional[
-        ElicitationFnT
-    ] = None,  ## exclude from docs, decide whether allowable
+    elicitation_handler: ElicitationFnT
+    | None = None,  ## exclude from docs, decide whether allowable
     api_key: str | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -557,8 +559,8 @@ def chain(
     self,
     name: str,
     *,
-    sequence: List[str],
-    instruction: Optional[str | Path | AnyUrl] = None,
+    sequence: list[str],
+    instruction: str | Path | AnyUrl | None = None,
     cumulative: bool = False,
     default: bool = False,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
@@ -581,10 +583,7 @@ def chain(
 
         raise AgentConfigError(f"Chain '{name}' requires at least one agent in the sequence")
 
-    default_instruction = """
-    You are a chain that processes requests through a series of specialized agents in sequence.
-    Pass the output of each agent to the next agent in the chain.
-    """
+    default_instruction = """Chain processes requests through a series of agents in sequence, the output of each agent is passed to the next."""
     resolved_instruction = _resolve_instruction(instruction or default_instruction)
 
     return _decorator_impl(
@@ -602,9 +601,9 @@ def parallel(
     self,
     name: str,
     *,
-    fan_out: List[str],
+    fan_out: list[str],
     fan_in: str | None = None,
-    instruction: Optional[str | Path | AnyUrl] = None,
+    instruction: str | Path | AnyUrl | None = None,
     include_request: bool = True,
     default: bool = False,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
@@ -647,7 +646,7 @@ def evaluator_optimizer(
     *,
     generator: str,
     evaluator: str,
-    instruction: Optional[str | Path | AnyUrl] = None,
+    instruction: str | Path | AnyUrl | None = None,
     min_rating: str = "GOOD",
     max_refinements: int = 3,
     default: bool = False,

@@ -4,7 +4,7 @@ Clean utilities for converting between PromptMessageExtended and OpenAI message 
 Each function handles all content types consistently and is designed for simple testing.
 """
 
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 
 from mcp.types import (
     BlobResourceContents,
@@ -25,9 +25,9 @@ def openai_to_extended(
     message: Union[
         ChatCompletionMessage,
         ChatCompletionMessageParam,
-        List[Union[ChatCompletionMessage, ChatCompletionMessageParam]],
+        list[Union[ChatCompletionMessage, ChatCompletionMessageParam]],
     ],
-) -> Union[PromptMessageExtended, List[PromptMessageExtended]]:
+) -> Union[PromptMessageExtended, list[PromptMessageExtended]]:
     """
     Convert OpenAI messages to PromptMessageExtended format.
 
@@ -43,7 +43,7 @@ def openai_to_extended(
 
 
 def _openai_message_to_extended(
-    message: Union[ChatCompletionMessage, Dict[str, Any]],
+    message: Union[ChatCompletionMessage, dict[str, Any]],
 ) -> PromptMessageExtended:
     """Convert a single OpenAI message to PromptMessageExtended."""
     # Get role and content from message
