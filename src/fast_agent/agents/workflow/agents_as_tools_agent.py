@@ -168,7 +168,7 @@ async def writer(): pass
 @fast.agent(
     name="coordinator",
     instruction="Coordinate research and writing",
-    child_agents=["researcher", "writer"]  # Exposes children as tools
+    agents=["researcher", "writer"],  # Exposes children as tools
 )
 async def coordinator(): pass
 ```
@@ -177,8 +177,10 @@ The parent LLM can now naturally call researcher and writer as tools.
 
 References
 ----------
-- OpenAI Agents SDK: https://openai.github.io/openai-agents-python/tools
-- GitHub Issue: https://github.com/evalstate/fast-agent/issues/XXX
+- Design doc: ``agetns_as_tools_plan_scratch.md`` (repo root).
+- Docs: [`evalstate/fast-agent-docs`](https://github.com/evalstate/fast-agent-docs) (Agents-as-Tools section).
+- OpenAI Agents SDK: <https://openai.github.io/openai-agents-python/tools>
+- GitHub Issue: [#458](https://github.com/evalstate/fast-agent/issues/458)
 """
 
 from __future__ import annotations
