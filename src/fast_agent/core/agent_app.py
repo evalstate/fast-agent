@@ -2,6 +2,8 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
+import asyncio
+import os
 from typing import Mapping, Union
 
 from deprecated import deprecated
@@ -13,6 +15,7 @@ from fast_agent.interfaces import AgentProtocol
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.core.exceptions import ProviderKeyError, AgentConfigError, ServerConfigError
 
 
 class AgentApp:
@@ -260,6 +263,7 @@ class AgentApp:
         default_prompt: str = "",
         pretty_print_parallel: bool = False,
         request_params: RequestParams | None = None,
+        retries: int | None = None,
     ) -> str:
         """
         Interactive prompt for sending messages with advanced features.
@@ -273,7 +277,9 @@ class AgentApp:
         Returns:
             The result of the interactive session
         """
-
+        # Get the number of retries
+        if retries is None:
+            retries = int(os.getenv("FAST_AGENT_RETRIES", "3"))
         # Get the default agent name if none specified
         if agent_name:
             # Validate that this agent exists
@@ -300,25 +306,47 @@ class AgentApp:
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
 
+        def _is_fatal_error(e: Exception) -> bool:
+            if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+                return True
+            # Google 429s look like Auth errors but are actually retriable
+            if isinstance(e, ProviderKeyError):
+                msg = str(e).lower()
+                if "429" in msg or "quota" in msg or "exhausted" in msg:
+                    return False
+                return True
+            return False
+        
         # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
-            result = await self.send(message, agent_name, request_params)
+            last_error = None
+            
+            for attempt in range(retries + 1):
+                try:
+                    return await self.send(message, agent_name, request_params)
+                
+                except Exception as e:
+                    # Crash immediately on fatal setup errors or Ctrl+C
+                    if _is_fatal_error(e):
+                        raise e
+                    
+                    # Retry for everything else
+                    last_error = e
+                    if attempt < retries:
+                        # LINEAR BACKOFF: 10s, 20s, 30s...
+                        wait_time = 10 * (attempt + 1)
+                        
+                        with progress_display.paused():
+                            rich_print(f"\n[yellow]⚠ API Error ({type(e).__name__}): {str(e)}[/yellow]")
+                            rich_print(f"[bold yellow]⟳ Retrying in {wait_time}s... (Attempt {attempt+1}/{retries})[/bold yellow]")
+                        
+                        await asyncio.sleep(wait_time)
+                    else:
+                        rich_print(f"\n[red]❌ All {retries} retries failed.[/red]")
 
-            # Show parallel results if enabled and this is a parallel agent
-            if pretty_print_parallel:
-                agent = self._agents.get(agent_name)
-                if agent and agent.agent_type == AgentType.PARALLEL:
-                    from fast_agent.ui.console_display import ConsoleDisplay
+            # Return error as text instead of crashing
+            return f"⚠️ **System Error:** Failed after {retries} retries.\nError details: {str(last_error)}\n\n*Your context is preserved. You can try sending the message again.*"
 
-                    display = ConsoleDisplay(config=None)
-                    display.show_parallel_results(agent)
-
-            # Show usage info after each turn if progress display is enabled
-            self._show_turn_usage(agent_name)
-
-            return result
-
-        # Start the prompt loop with the agent name (not the agent object)
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
