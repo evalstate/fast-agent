@@ -263,7 +263,6 @@ class AgentApp:
         default_prompt: str = "",
         pretty_print_parallel: bool = False,
         request_params: RequestParams | None = None,
-        retries: int | None = None,
     ) -> str:
         """
         Interactive prompt for sending messages with advanced features.
@@ -277,9 +276,6 @@ class AgentApp:
         Returns:
             The result of the interactive session
         """
-        # Get the number of retries
-        if retries is None:
-            retries = int(os.getenv("FAST_AGENT_RETRIES", "3"))
         # Get the default agent name if none specified
         if agent_name:
             # Validate that this agent exists
@@ -305,81 +301,33 @@ class AgentApp:
 
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
-
-        def _is_fatal_error(e: Exception) -> bool:
-            if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
-                return True
-            # Google 429s look like Auth errors but are actually retriable
-            if isinstance(e, ProviderKeyError):
-                msg = str(e).lower()
-                retry_keywords = ["429", "503", "quota", "exhausted", "overloaded", "unavailable", "timeout"]
-                if any(k in msg for k in retry_keywords):
-                    return False
-                return True
-            return False
         
-        # Define the wrapper for send function
-        def _format_final_error(error: Exception, attempts: int) -> str:
-            """Recreates the polite error message style from the providers."""
-            
+        # Helper for pretty formatting the FINAL error    
+        def _format_final_error(error: Exception) -> str:
             detail = getattr(error, "message", None) or str(error)
             detail = detail.strip() if isinstance(detail, str) else ""
+            clean_detail = detail.replace("\n", " ")
+            if len(clean_detail) > 300:
+                clean_detail = clean_detail[:297] + "..."
             
-            parts = [f"Request failed after {attempts} retries"]
-            code = getattr(error, "code", None)
-            status = getattr(error, "status_code", None)
-            
-            if code: parts.append(f"(code: {code})")
-            if status: parts.append(f"(status={status})")
-            
-            message_line = " ".join(parts)
-            if detail:
-                # Remove excessive newlines from raw JSON
-                clean_detail = detail.replace("\n", " ")
-                # Limit length to avoid flooding chat, but keep enough to read
-                if len(clean_detail) > 300:
-                    clean_detail = clean_detail[:297] + "..."
-                message_line = f"{message_line}: {clean_detail}"
-
             return (
-                f"⚠️ **System Error:** {message_line}\n"
+                f"⚠️ **System Error:** The agent failed after repeated attempts.\n"
+                f"Error details: {clean_detail}\n"
                 f"\n*Your context is preserved. You can try sending the message again.*"
             )
 
-        # --- 3. The Retry Logic ---
         async def send_wrapper(message, agent_name):
-            last_error = None
+            try:
+                # The LLM layer will handle the 10s/20s/30s retries internally.
+                return await self.send(message, agent_name, request_params)
             
-            for attempt in range(retries + 1):
-                try:
-                    return await self.send(message, agent_name, request_params)
+            except Exception as e:
+                # If we catch an exception here, it means all retries FAILED.
+                if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+                    raise e
                 
-                except Exception as e:
-                    # Fatal errors crash immediately
-                    if _is_fatal_error(e):
-                        raise e
-                    
-                    last_error = e
-
-                    if attempt < retries:
-                        wait_time = 10 * (attempt + 1) # 10s, 20s, 30s...
-                        
-                        with progress_display.paused():
-                            error_preview = str(e).replace("\n", " ")[:300]
-                            rich_print(f"\n[yellow]⚠ Provider Error: {error_preview}...[/yellow]")
-                            rich_print(f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt+1}/{retries})[/dim]")
-                        
-                        await asyncio.sleep(wait_time)
-                    else:
-                        # Final failure
-                        with progress_display.paused():
-                            rich_print(f"\n[red]❌ All {retries} retries failed.[/red]")
-
-            # Check if last_error exists before using it
-            if last_error is None:
-                return "⚠️ **System Error:** Operation failed with no captured exception."
-
-            return _format_final_error(last_error, retries)
+                # Return pretty text for API failures (keeps session alive)
+                return _format_final_error(e)
 
         return await prompt.prompt_loop(
             send_func=send_wrapper,

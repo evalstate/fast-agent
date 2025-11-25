@@ -1,18 +1,21 @@
 import json
 import time
+import asyncio
+import os
 from abc import abstractmethod
 from contextvars import ContextVar
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
+    Awaitable,
     Generic,
     Type,
     TypeVar,
     Union,
     cast,
 )
-
+from rich import print as rich_print
 from mcp import Tool
 from mcp.types import (
     GetPromptResult,
@@ -42,6 +45,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.core.exceptions import ProviderKeyError, AgentConfigError, ServerConfigError
 
 # Define type variables locally
 MessageParamT = TypeVar("MessageParamT")
@@ -179,6 +183,61 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             use_history=True,
         )
 
+
+
+    async def _execute_with_retry(self, func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+        """
+        Executes a function with robust retry logic for transient API errors.
+        """
+        # Load retry count from env (default to 3)
+        retries = int(os.getenv("FAST_AGENT_RETRIES", "3"))
+        
+        def _is_fatal_error(e: Exception) -> bool:
+            if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+                return True
+            if isinstance(e, ProviderKeyError):
+                msg = str(e).lower()
+                # Retry on Rate Limits (429, Quota, Overloaded)
+                keywords = ["429", "503", "quota", "exhausted", "overloaded", "unavailable", "timeout"]
+                if any(k in msg for k in keywords):
+                    return False 
+                return True
+            return False
+
+        last_error = None
+        
+        for attempt in range(retries + 1):
+            try:
+                # Await the async function
+                return await func(*args, **kwargs)
+            except Exception as e:
+                if _is_fatal_error(e):
+                    raise e
+                
+                last_error = e
+                if attempt < retries:
+                    wait_time = 10 * (attempt + 1)
+                    
+                    # Try to import progress_display safely
+                    try:
+                        from fast_agent.ui.progress_display import progress_display
+                        with progress_display.paused():
+                            rich_print(f"\n[yellow]⚠ Provider Error: {str(e)[:300]}...[/yellow]")
+                            rich_print(f"[dim]⟳ Retrying in {wait_time}s... (Attempt {attempt+1}/{retries})[/dim]")
+                    except ImportError:
+                        print(f"⚠ Provider Error: {str(e)[:300]}...")
+                        print(f"⟳ Retrying in {wait_time}s... (Attempt {attempt+1}/{retries})")
+
+                    await asyncio.sleep(wait_time)
+        
+        # If all retries fail, RAISE the error.
+        if last_error:
+            raise last_error
+            
+        # This line satisfies Pylance that we never implicitly return None
+        raise RuntimeError("Retry loop finished without success or exception")
+        
+        
     async def generate(
         self,
         messages: list[PromptMessageExtended],
@@ -226,8 +285,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Track timing for this generation
         start_time = time.perf_counter()
-        assistant_response: PromptMessageExtended = await self._apply_prompt_provider_specific(
-            full_history, request_params, tools
+        assistant_response: PromptMessageExtended = await self._execute_with_retry(
+            self._apply_prompt_provider_specific,
+            full_history, 
+            request_params, 
+            tools
         )
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
@@ -305,8 +367,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Track timing for this structured generation
         start_time = time.perf_counter()
-        result, assistant_response = await self._apply_prompt_provider_specific_structured(
-            full_history, model, request_params
+        result, assistant_response = await self._execute_with_retry(
+            self._apply_prompt_provider_specific_structured,
+            full_history, 
+            model, 
+            request_params
         )
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
