@@ -24,6 +24,12 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ModelT
 from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.workflow_telemetry import (
+    NoOpPlanTelemetryProvider,
+    PlanEntry,
+    PlanEntryStatus,
+    PlanTelemetryProvider,
+)
 
 logger = get_logger(__name__)
 
@@ -195,6 +201,18 @@ class IterativePlanner(LlmAgent):
         super().__init__(config, context=context, **kwargs)
 
         self.plan_iterations = plan_iterations
+        self._plan_telemetry_provider: PlanTelemetryProvider = NoOpPlanTelemetryProvider()
+
+    @property
+    def plan_telemetry(self) -> PlanTelemetryProvider:
+        """Telemetry provider for emitting plan updates."""
+        return self._plan_telemetry_provider
+
+    @plan_telemetry.setter
+    def plan_telemetry(self, provider: PlanTelemetryProvider | None) -> None:
+        if provider is None:
+            provider = NoOpPlanTelemetryProvider()
+        self._plan_telemetry_provider = provider
 
     async def initialize(self) -> None:
         """Initialize the orchestrator agent and worker agents."""
@@ -310,6 +328,9 @@ class IterativePlanner(LlmAgent):
         terminate_plan: str | None = None
         plan_result = PlanResult(objective=objective, step_results=[])
 
+        # Track plan entries for telemetry
+        plan_entries: list[PlanEntry] = []
+
         while not objective_met and not terminate_plan:
             next_step: PlanningStep | None = await self._get_next_step(
                 objective, plan_result, request_params
@@ -325,6 +346,10 @@ class IterativePlanner(LlmAgent):
             if next_step.is_complete:
                 objective_met = True
                 terminate_plan = "Plan completed successfully"
+                # Mark all entries as completed
+                for entry in plan_entries:
+                    entry.status = "completed"
+                await self.plan_telemetry.update_plan(plan_entries)
                 break
 
             plan = Plan(steps=[next_step], is_complete=next_step.is_complete)
@@ -336,9 +361,22 @@ class IterativePlanner(LlmAgent):
                 )
                 break
 
+            # Add subtasks as plan entries for telemetry so clients see actionable work
+            step_entries = self._build_plan_entries_for_step(next_step)
+            plan_entries.extend(step_entries)
+            await self.plan_telemetry.update_plan(plan_entries)
+
+            # Mark subtasks as in progress while they execute
+            self._set_plan_entries_status(step_entries, "in_progress")
+            await self.plan_telemetry.update_plan(plan_entries)
+
             for step in plan.steps:  # this will only be one for iterative (change later)
                 step_result = await self._execute_step(step, plan_result)
                 plan_result.add_step_result(step_result)
+
+                # Mark subtasks as completed
+                self._set_plan_entries_status(step_entries, "completed")
+                await self.plan_telemetry.update_plan(plan_entries)
 
             # Store plan in result
             plan_result.plan = plan
@@ -579,3 +617,36 @@ class IterativePlanner(LlmAgent):
         )
         assert self._llm, "LLM must be initialized before generating text"
         return await self._llm.generate([prompt], request_params)
+
+    @staticmethod
+    def _build_plan_entries_for_step(step: PlanningStep | Step) -> list[PlanEntry]:
+        """
+        Build plan entries for telemetry using individual step tasks when available.
+        """
+        if step.tasks:
+            entries = []
+            for task in step.tasks:
+                agent_name = getattr(task, "agent", None) or "Unknown agent"
+                entries.append(
+                    PlanEntry(
+                        content=f"{agent_name}: {task.description}",
+                        priority="high",
+                        status="pending",
+                    )
+                )
+            return entries
+
+        # Fallback to a single entry if the planner supplied no explicit tasks
+        return [
+            PlanEntry(
+                content=step.description,
+                priority="high",
+                status="pending",
+            )
+        ]
+
+    @staticmethod
+    def _set_plan_entries_status(entries: list[PlanEntry], status: PlanEntryStatus) -> None:
+        """Helper to bulk update plan entry statuses."""
+        for entry in entries:
+            entry.status = status

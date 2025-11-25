@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -213,7 +213,7 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
 
 
 async def _display_all_agents_with_hierarchy(
-    available_agents: List[str], agent_provider: "AgentApp | None"
+    available_agents: list[str], agent_provider: "AgentApp | None"
 ) -> None:
     """Display all agents with tree structure for workflow agents."""
     # Track which agents are children to avoid displaying them twice
@@ -352,8 +352,8 @@ class AgentCompleter(Completer):
 
     def __init__(
         self,
-        agents: List[str],
-        commands: List[str] = None,
+        agents: list[str],
+        commands: list[str] = None,
         agent_types: dict = None,
         is_human_input: bool = False,
     ) -> None:
@@ -385,13 +385,85 @@ class AgentCompleter(Completer):
             self.commands.pop("usage", None)  # Remove usage command in human input mode
         self.agent_types = agent_types or {}
 
+    def _complete_history_files(self, partial: str):
+        """Generate completions for history files (.json and .md)."""
+        from pathlib import Path
+
+        # Determine directory and prefix to search
+        if partial:
+            partial_path = Path(partial)
+            if partial.endswith("/") or partial.endswith(os.sep):
+                search_dir = partial_path
+                prefix = ""
+            else:
+                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                prefix = partial_path.name
+        else:
+            search_dir = Path(".")
+            prefix = ""
+
+        # Ensure search_dir exists
+        if not search_dir.exists():
+            return
+
+        try:
+            # List directory contents
+            for entry in sorted(search_dir.iterdir()):
+                name = entry.name
+
+                # Skip hidden files
+                if name.startswith("."):
+                    continue
+
+                # Check if name matches prefix
+                if not name.lower().startswith(prefix.lower()):
+                    continue
+
+                # Build the completion text
+                if search_dir == Path("."):
+                    completion_text = name
+                else:
+                    completion_text = str(search_dir / name)
+
+                # Handle directories - add trailing slash
+                if entry.is_dir():
+                    yield Completion(
+                        completion_text + "/",
+                        start_position=-len(partial),
+                        display=name + "/",
+                        display_meta="directory",
+                    )
+                # Handle .json and .md files
+                elif entry.is_file() and (name.endswith(".json") or name.endswith(".md")):
+                    file_type = "JSON history" if name.endswith(".json") else "Markdown"
+                    yield Completion(
+                        completion_text,
+                        start_position=-len(partial),
+                        display=name,
+                        display_meta=file_type,
+                    )
+        except PermissionError:
+            pass  # Skip directories we can't read
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
-        text = document.text_before_cursor.lower()
+        text = document.text_before_cursor
+        text_lower = text.lower()
+
+        # Sub-completion for /load_history - show .json and .md files
+        if text_lower.startswith("/load_history ") or text_lower.startswith("/load "):
+            # Extract the partial path after the command
+            if text_lower.startswith("/load_history "):
+                partial = text[len("/load_history "):]
+            else:
+                partial = text[len("/load "):]
+
+            yield from self._complete_history_files(partial)
+            return
 
         # Complete commands
-        if text.startswith("/"):
-            cmd = text[1:]
+        if text_lower.startswith("/"):
+            cmd = text_lower[1:]
             # Simple command completion - match beginning of command
             for command, description in self.commands.items():
                 if command.lower().startswith(cmd):
@@ -609,7 +681,7 @@ async def get_enhanced_input(
     show_default: bool = False,
     show_stop_hint: bool = False,
     multiline: bool = False,
-    available_agent_names: List[str] = None,
+    available_agent_names: list[str] = None,
     agent_types: dict[str, AgentType] = None,
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
@@ -1097,11 +1169,11 @@ async def get_enhanced_input(
 
 async def get_selection_input(
     prompt_text: str,
-    options: List[str] = None,
+    options: list[str] = None,
     default: str = None,
     allow_cancel: bool = True,
     complete_options: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """
     Display a selection prompt and return the user's selection.
 
@@ -1146,7 +1218,7 @@ async def get_argument_input(
     arg_name: str,
     description: str = None,
     required: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """
     Prompt for an argument value with formatting and help text.
 
@@ -1194,7 +1266,7 @@ async def get_argument_input(
 
 async def handle_special_commands(
     command: Any, agent_app: "AgentApp | None" = None
-) -> bool | Dict[str, Any]:
+) -> bool | dict[str, Any]:
     """
     Handle special input commands.
 

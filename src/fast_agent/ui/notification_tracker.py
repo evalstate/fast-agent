@@ -4,7 +4,6 @@ Tracks both active events (sampling/elicitation) and completed notifications.
 """
 
 from datetime import datetime
-from typing import Dict, List, Optional
 
 # Display metadata for toolbar summaries (singular, plural, compact label)
 _EVENT_ORDER = ("tool_update", "sampling", "elicitation")
@@ -15,10 +14,10 @@ _EVENT_DISPLAY = {
 }
 
 # Active events currently in progress
-active_events: Dict[str, Dict[str, str]] = {}
+active_events: dict[str, dict[str, str]] = {}
 
 # Completed notifications history
-notifications: List[Dict[str, str]] = []
+notifications: list[dict[str, str]] = []
 
 
 def add_tool_update(server_name: str) -> None:
@@ -115,7 +114,7 @@ def end_elicitation(server_name: str) -> None:
         pass
 
 
-def get_active_status() -> Optional[Dict[str, str]]:
+def get_active_status() -> dict[str, str] | None:
     """Get currently active operation, if any.
 
     Returns:
@@ -139,14 +138,14 @@ def get_count() -> int:
     return len(notifications)
 
 
-def get_latest() -> Dict[str, str] | None:
+def get_latest() -> dict[str, str] | None:
     """Get the most recent completed notification."""
     return notifications[-1] if notifications else None
 
 
-def get_counts_by_type() -> Dict[str, int]:
+def get_counts_by_type() -> dict[str, int]:
     """Aggregate completed notifications by event type."""
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for notification in notifications:
         event_type = notification['type']
         counts[event_type] = counts.get(event_type, 0) + 1
@@ -154,7 +153,7 @@ def get_counts_by_type() -> Dict[str, int]:
     if not counts:
         return {}
 
-    ordered: Dict[str, int] = {}
+    ordered: dict[str, int] = {}
     for event_type in _EVENT_ORDER:
         if event_type in counts:
             ordered[event_type] = counts[event_type]

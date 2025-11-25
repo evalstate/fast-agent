@@ -7,7 +7,7 @@ different form types and validation patterns.
 
 import logging
 import sys
-from typing import List, Optional, TypedDict
+from typing import Optional, TypedDict
 
 from mcp import ReadResourceResult
 from mcp.server.elicitation import (
@@ -69,18 +69,11 @@ async def event_registration() -> ReadResourceResult:
     class EventRegistration(BaseModel):
         name: str = Field(description="Your full name", min_length=2, max_length=100)
         email: str = Field(description="Your email address", json_schema_extra={"format": "email"})
-        company_website: Optional[str] = Field(
+        company_website: str | None = Field(
             None, description="Your company website (optional)", json_schema_extra={"format": "uri"}
         )
         event_date: str = Field(
             description="Which event date works for you?", json_schema_extra={"format": "date"}
-        )
-        workshops: List[str] = Field(
-            default=["ai_basics", "llm_apps"],
-            description="Select workshops to attend (2-4 required)",
-            min_length=2,
-            max_length=4,
-            json_schema_extra={"items": {"type": "string", "anyOf": _create_enum_schema_options(workshop_names)}},
         )
         dietary_requirements: Optional[str] = Field(
             None, description="Any dietary requirements? (optional)", max_length=200
@@ -152,7 +145,7 @@ One minor issue:
 
 Overall, highly recommended!""",
             min_length=10,
-            max_length=1000
+            max_length=1000,
         )
 
     result = await mcp.get_context().elicit(

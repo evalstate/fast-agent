@@ -13,6 +13,7 @@ from typing import Any, Awaitable, Callable
 from acp import Agent as ACPAgent
 from acp import (
     AgentSideConnection,
+    CancelNotification,
     InitializeRequest,
     InitializeResponse,
     NewSessionRequest,
@@ -38,6 +39,11 @@ from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_progress import ACPToolProgressManager
+from fast_agent.constants import (
+    DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    TERMINAL_AVG_BYTES_PER_TOKEN,
+    TERMINAL_OUTPUT_TOKEN_RATIO,
+)
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import (
@@ -45,9 +51,10 @@ from fast_agent.core.prompt_templates import (
     enrich_with_environment_context,
 )
 from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
-from fast_agent.workflow_telemetry import ToolHandlerWorkflowTelemetry
+from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
 
@@ -84,6 +91,7 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
         LlmStopReason.ERROR.value: REFUSAL,  # Errors are mapped to refusal
         LlmStopReason.TIMEOUT.value: REFUSAL,  # Timeouts are mapped to refusal
         LlmStopReason.SAFETY.value: REFUSAL,  # Safety triggers are mapped to refusal
+        LlmStopReason.CANCELLED.value: "cancelled",  # User cancellation
     }
 
     return mapping.get(key, END_TURN)
@@ -181,6 +189,9 @@ class AgentACPServer(ACPAgent):
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
 
+        # Track asyncio tasks per session for proper task-based cancellation
+        self._session_tasks: dict[str, asyncio.Task] = {}
+
         # Track current agent per session for ACP mode support
         self._session_current_agent: dict[str, str] = {}
 
@@ -220,6 +231,27 @@ class AgentACPServer(ACPAgent):
             instance_scope=instance_scope,
             primary_agent=self.primary_agent_name,
         )
+
+    def _calculate_terminal_output_limit(self, agent: Any) -> int:
+        """
+        Determine a default terminal output byte limit based on the agent's model.
+
+        Args:
+            agent: Agent instance that may expose an llm with model metadata.
+        """
+        # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
+        llm = getattr(agent, "_llm", None)
+        model_name = getattr(llm, "model_name", None)
+        if not model_name:
+            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+        max_tokens = ModelDatabase.get_max_output_tokens(model_name)
+        if not max_tokens:
+            return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+
+        estimated_tokens = max(int(max_tokens * TERMINAL_OUTPUT_TOKEN_RATIO), 1)
+        estimated_bytes = int(estimated_tokens * TERMINAL_AVG_BYTES_PER_TOKEN)
+        return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, estimated_bytes)
 
     async def initialize(self, params: InitializeRequest) -> InitializeResponse:
         """
@@ -401,6 +433,12 @@ class AgentACPServer(ACPAgent):
         """
         Apply late-binding template variables to an agent's instruction for this session.
         """
+        # Only apply per-session system prompts when the target agent actually has an LLM.
+        # Workflow wrappers (chain/parallel) don't attach an LLM and will forward params
+        # to their children, which can override their instructions if we keep the prompt.
+        if not getattr(agent, "_llm", None):
+            return None
+
         # Prefer cached resolved instructions to avoid reprocessing templates
         resolved_cache = self._session_resolved_instructions.get(session_id, {})
         resolved = resolved_cache.get(getattr(agent, "name", ""), None)
@@ -478,10 +516,22 @@ class AgentACPServer(ACPAgent):
                     if hasattr(agent, "workflow_telemetry"):
                         agent.workflow_telemetry = workflow_telemetry
 
+                    # Set up plan telemetry for agents that support it (e.g., IterativePlanner)
+                    if hasattr(agent, "plan_telemetry"):
+                        plan_telemetry = ACPPlanTelemetryProvider(self._connection, session_id)
+                        agent.plan_telemetry = plan_telemetry
+                        logger.info(
+                            "ACP plan telemetry registered",
+                            name="acp_plan_telemetry_registered",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
+
                     # Register tool handler as stream listener to get early tool start events
-                    if hasattr(agent, "llm") and hasattr(agent.llm, "add_tool_stream_listener"):
+                    llm = getattr(agent, "_llm", None)
+                    if llm and hasattr(llm, "add_tool_stream_listener"):
                         try:
-                            agent.llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
+                            llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
                             logger.info(
                                 "ACP tool handler registered as stream listener",
                                 name="acp_tool_stream_listener_registered",
@@ -502,12 +552,14 @@ class AgentACPServer(ACPAgent):
                     for agent_name, agent in instance.agents.items():
                         if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
                             # Create ACPTerminalRuntime for this session
+                            default_limit = self._calculate_terminal_output_limit(agent)
                             terminal_runtime = ACPTerminalRuntime(
                                 connection=self._connection,
                                 session_id=session_id,
                                 activation_reason="via ACP terminal support",
                                 timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                                 tool_handler=tool_handler,
+                                default_output_byte_limit=default_limit,
                             )
 
                             # Inject into agent
@@ -520,6 +572,7 @@ class AgentACPServer(ACPAgent):
                                     name="acp_terminal_injected",
                                     session_id=session_id,
                                     agent_name=agent_name,
+                                    default_output_limit=default_limit,
                                 )
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
@@ -725,6 +778,11 @@ class AgentACPServer(ACPAgent):
             # Mark this session as having an active prompt
             self._active_prompts.add(session_id)
 
+            # Track the current task for proper cancellation via asyncio.Task.cancel()
+            current_task = asyncio.current_task()
+            if current_task:
+                self._session_tasks[session_id] = current_task
+
         # Use try/finally to ensure session is always removed from active prompts
         try:
             # Get the agent instance for this session
@@ -873,7 +931,8 @@ class AgentACPServer(ACPAgent):
                             agent, session_id
                         )
                         result = await agent.generate(
-                            prompt_message, request_params=session_request_params
+                            prompt_message,
+                            request_params=session_request_params,
                         )
                         response_text = result.last_text() or "No content generated"
 
@@ -984,15 +1043,60 @@ class AgentACPServer(ACPAgent):
             return PromptResponse(
                 stopReason=acp_stop_reason,
             )
+        except asyncio.CancelledError:
+            # Task was cancelled - return appropriate response
+            logger.info(
+                "Prompt cancelled by user",
+                name="acp_prompt_cancelled",
+                session_id=session_id,
+            )
+            return PromptResponse(stopReason="cancelled")
         finally:
-            # Always remove session from active prompts, even on error
+            # Always remove session from active prompts and cleanup task
             async with self._session_lock:
                 self._active_prompts.discard(session_id)
+                self._session_tasks.pop(session_id, None)
             logger.debug(
                 "Removed session from active prompts",
                 name="acp_prompt_complete",
                 session_id=session_id,
             )
+
+    async def cancel(self, params: CancelNotification) -> None:
+        """
+        Handle session/cancel notification from the client.
+
+        This cancels any in-progress prompt for the specified session.
+        Per ACP protocol, we should stop all LLM requests and tool invocations
+        as soon as possible.
+
+        Uses asyncio.Task.cancel() for proper async cancellation, which raises
+        asyncio.CancelledError in the running task.
+        """
+        session_id = params.sessionId
+
+        logger.info(
+            "ACP cancel request received",
+            name="acp_cancel",
+            session_id=session_id,
+        )
+
+        # Get the task for this session and cancel it
+        async with self._session_lock:
+            task = self._session_tasks.get(session_id)
+            if task and not task.done():
+                task.cancel()
+                logger.info(
+                    "Task cancelled for session",
+                    name="acp_cancel_task",
+                    session_id=session_id,
+                )
+            else:
+                logger.warning(
+                    "No active prompt to cancel for session",
+                    name="acp_cancel_no_active",
+                    session_id=session_id,
+                )
 
     async def run_async(self) -> None:
         """
@@ -1115,6 +1219,9 @@ class AgentACPServer(ACPAgent):
 
             # Clean up session current agent mapping
             self._session_current_agent.clear()
+
+            # Clear tasks
+            self._session_tasks.clear()
 
             # Clear stored prompt contexts
             self._session_prompt_context.clear()

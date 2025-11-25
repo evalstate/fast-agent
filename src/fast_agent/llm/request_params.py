@@ -2,7 +2,7 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import Any, Dict, List
+from typing import Any
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
@@ -16,7 +16,7 @@ class RequestParams(CreateMessageRequestParams):
     Parameters to configure the FastAgentLLM 'generate' requests.
     """
 
-    messages: List[SamplingMessage] = Field(exclude=True, default=[])
+    messages: list[SamplingMessage] = Field(exclude=True, default=[])
     """
     Ignored. 'messages' are removed from CreateMessageRequestParams 
     to avoid confusion with the 'message' parameter on 'generate' method.
@@ -50,12 +50,12 @@ class RequestParams(CreateMessageRequestParams):
     Override response format for structured calls. Prefer sending pydantic model - only use in exceptional circumstances
     """
 
-    template_vars: Dict[str, Any] = Field(default_factory=dict)
+    template_vars: dict[str, Any] = Field(default_factory=dict)
     """
     Optional dictionary of template variables for dynamic templates. Currently only works for TensorZero inference backend
     """
 
-    mcp_metadata: Dict[str, Any] | None = None
+    mcp_metadata: dict[str, Any] | None = None
     """
     Metadata to pass through to MCP tool calls via the _meta field.
     """

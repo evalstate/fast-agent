@@ -4,19 +4,19 @@ Centralizes API key handling logic to make provider implementations more generic
 """
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 from pydantic import BaseModel
 
 from fast_agent.core.exceptions import ProviderKeyError
 
-PROVIDER_ENVIRONMENT_MAP: Dict[str, str] = {
+PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # default behaviour in _get_env_key_name is to capitalize the
     # provider name and suffix "_API_KEY" - so no specific mapping needed unless overriding
     "hf": "HF_TOKEN",
     "responses": "OPENAI_API_KEY",  # Temporary workaround
 }
-PROVIDER_CONFIG_KEY_ALIASES: Dict[str, tuple[str, ...]] = {
+PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # HuggingFace historically used "huggingface" (full name) in config files,
     # while the provider id is "hf". Support both spellings.
     "hf": ("hf", "huggingface"),

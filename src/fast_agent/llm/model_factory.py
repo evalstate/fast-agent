@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Dict, Optional, Type, Union
+from typing import Type, Union
 
 from pydantic import BaseModel
 
@@ -84,6 +84,7 @@ class ModelFactory:
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "claude-opus-4-0": Provider.ANTHROPIC,
         "claude-opus-4-1": Provider.ANTHROPIC,
+        "claude-opus-4-5": Provider.ANTHROPIC,
         "claude-opus-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
@@ -115,13 +116,14 @@ class ModelFactory:
         "sonnet45": "claude-sonnet-4-5",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
-        "claude": "claude-sonnet-4-0",
+        "claude": "claude-sonnet-4-5",
         "haiku": "claude-haiku-4-5",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
         "hauku45": "claude-haiku-4-5",
-        "opus": "claude-opus-4-1",
+        "opus": "claude-opus-4-5",
         "opus4": "claude-opus-4-1",
+        "opus45": "claude-opus-4-5",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
@@ -136,7 +138,7 @@ class ModelFactory:
         "gpt-oss": "hf.openai/gpt-oss-120b",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm": "hf.zai-org/GLM-4.6",
-        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct",
+        "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
     }
@@ -155,11 +157,11 @@ class ModelFactory:
             return False
 
     # Mapping of providers to their LLM classes
-    PROVIDER_CLASSES: Dict[Provider, LLMClass] = {}
+    PROVIDER_CLASSES: dict[Provider, LLMClass] = {}
 
     # Mapping of special model names to their specific LLM classes
     # This overrides the provider-based class selection
-    MODEL_SPECIFIC_CLASSES: Dict[str, LLMClass] = {
+    MODEL_SPECIFIC_CLASSES: dict[str, LLMClass] = {
         "playback": PlaybackLLM,
         "silent": SilentLLM,
         "slow": SlowLLM,
@@ -264,7 +266,7 @@ class ModelFactory:
             llm_class = cls.PROVIDER_CLASSES[config.provider]
 
         def factory(
-            agent: AgentProtocol, request_params: Optional[RequestParams] = None, **kwargs
+            agent: AgentProtocol, request_params: RequestParams | None = None, **kwargs
         ) -> FastAgentLLMProtocol:
             base_params = RequestParams()
             base_params.model = config.model_name

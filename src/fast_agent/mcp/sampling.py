@@ -97,7 +97,7 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
         server_config = get_server_config(mcp_ctx)
 
         # First priority: explicitly configured sampling model
-        if server_config and hasattr(server_config, "sampling") and server_config.sampling:
+        if server_config and server_config.sampling:
             model = server_config.sampling.model
 
         # Second priority: auto_sampling fallback (if enabled at application level)

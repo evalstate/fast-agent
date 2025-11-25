@@ -9,12 +9,8 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
-    Dict,
-    List,
     Mapping,
-    Optional,
     Sequence,
-    Tuple,
     Type,
     TypeVar,
     Union,
@@ -42,7 +38,11 @@ from opentelemetry import trace
 from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
+from fast_agent.constants import (
+    CONTROL_MESSAGE_SAVE_HISTORY,
+    FAST_AGENT_ERROR_CHANNEL,
+    FAST_AGENT_REMOVED_METADATA_CHANNEL,
+)
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import (
@@ -89,7 +89,7 @@ class StreamingAgentMixin(StreamingAgentProtocol):
         return llm.add_stream_listener(listener)
 
     def add_tool_stream_listener(
-        self, listener: Callable[[str, Dict[str, Any] | None], None]
+        self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]:
         llm = getattr(self, "_llm", None)
         if not llm:
@@ -121,10 +121,21 @@ class RemovedContentSummary:
     """Summary information about removed content for the last turn."""
 
     model_name: str | None
-    counts: Dict[str, int]
-    category_mimes: Dict[str, Tuple[str, ...]]
+    counts: dict[str, int]
+    category_mimes: dict[str, tuple[str, ...]]
     alert_flags: frozenset[str]
     message: str
+
+
+@dataclass
+class _CallContext:
+    """Internal helper for assembling an LLM call."""
+
+    full_history: list[PromptMessageExtended]
+    call_params: RequestParams | None
+    persist_history: bool
+    sanitized_messages: list[PromptMessageExtended]
+    summary: RemovedContentSummary | None
 
 
 class LlmDecorator(StreamingAgentMixin, AgentProtocol):
@@ -150,11 +161,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._tracer = trace.get_tracer(__name__)
         self.instruction = self.config.instruction
 
+        # Agent-owned conversation state (PromptMessageExtended only)
+        self._message_history: list[PromptMessageExtended] = []
+
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
 
         # Initialize the LLM to None (will be set by attach_llm)
-        self._llm: Optional[FastAgentLLMProtocol] = None
+        self._llm: FastAgentLLMProtocol | None = None
         self._initialized = False
 
     @property
@@ -273,7 +287,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             Sequence[Union[str, PromptMessage, PromptMessageExtended]],
         ],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Create a completion with the LLM using the provided messages.
@@ -300,13 +314,15 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
-            return await self.generate_impl(multipart_messages, final_request_params, tools)
+            return await self.generate_impl(
+                multipart_messages, final_request_params, tools
+            )
 
     async def generate_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
         Implementation method for generate.
@@ -323,7 +339,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             The LLM's response as a PromptMessageExtended
         """
-        response, _ = await self._generate_with_summary(messages, request_params, tools)
+        response, _ = await self._generate_with_summary(
+            messages, request_params, tools
+        )
         return response
 
     async def apply_prompt_template(self, prompt_result: GetPromptResult, prompt_name: str) -> str:
@@ -338,13 +356,22 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             String representation of the assistant's response if generated
         """
+        from fast_agent.types import PromptMessageExtended
+
         assert self._llm
+
+        multipart_messages = PromptMessageExtended.parse_get_prompt_result(prompt_result)
+        for msg in multipart_messages:
+            msg.is_template = True
+
+        self._message_history = [msg.model_copy(deep=True) for msg in multipart_messages]
+
         return await self._llm.apply_prompt_template(prompt_result, prompt_name)
 
     async def apply_prompt(
         self,
         prompt: Union[str, GetPromptResult],
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         as_template: bool = False,
         namespace: str | None = None,
     ) -> str:
@@ -375,6 +402,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if not self._llm:
             return
         self._llm.clear(clear_prompts=clear_prompts)
+        if clear_prompts:
+            self._message_history = []
+        else:
+            template_prefix = self._template_prefix_messages()
+            self._message_history = [msg.model_copy(deep=True) for msg in template_prefix]
 
     async def structured(
         self,
@@ -386,7 +418,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         ],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Apply the prompt and return the result as a Pydantic model.
 
@@ -416,10 +448,10 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def structured_impl(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[ModelT | None, PromptMessageExtended]:
+    ) -> tuple[ModelT | None, PromptMessageExtended]:
         """
         Implementation method for structured.
 
@@ -440,35 +472,101 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def _generate_with_summary(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
-        tools: List[Tool] | None = None,
-    ) -> Tuple[PromptMessageExtended, RemovedContentSummary | None]:
+        tools: list[Tool] | None = None,
+    ) -> tuple[PromptMessageExtended, RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
-        sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        response = await self._llm.generate(sanitized_messages, request_params, tools)
-        return response, summary
+        call_ctx = self._prepare_llm_call(messages, request_params)
+
+        response = await self._llm.generate(
+            call_ctx.full_history, call_ctx.call_params, tools
+        )
+
+        if call_ctx.persist_history:
+            self._persist_history(call_ctx.sanitized_messages, response)
+
+        return response, call_ctx.summary
 
     async def _structured_with_summary(
         self,
-        messages: List[PromptMessageExtended],
+        messages: list[PromptMessageExtended],
         model: Type[ModelT],
         request_params: RequestParams | None = None,
-    ) -> Tuple[Tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:
+    ) -> tuple[tuple[ModelT | None, PromptMessageExtended], RemovedContentSummary | None]:
         assert self._llm, "LLM is not attached"
+        call_ctx = self._prepare_llm_call(messages, request_params)
+
+        structured_result = await self._llm.structured(
+            call_ctx.full_history, model, call_ctx.call_params
+        )
+
+        if call_ctx.persist_history:
+            try:
+                _, assistant_message = structured_result
+                self._persist_history(call_ctx.sanitized_messages, assistant_message)
+            except Exception:
+                pass
+        return structured_result, call_ctx.summary
+
+    def _prepare_llm_call(
+        self, messages: list[PromptMessageExtended], request_params: RequestParams | None = None
+    ) -> _CallContext:
+        """Normalize template/history handling for both generate and structured."""
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        structured_result = await self._llm.structured(sanitized_messages, model, request_params)
-        return structured_result, summary
+        final_request_params = self._llm.get_request_params(request_params)
+
+        use_history = final_request_params.use_history if final_request_params else True
+        call_params = final_request_params.model_copy() if final_request_params else None
+        if call_params and not call_params.use_history:
+            call_params.use_history = True
+
+        base_history = self._message_history if use_history else self._template_prefix_messages()
+        full_history = [msg.model_copy(deep=True) for msg in base_history]
+        full_history.extend(sanitized_messages)
+
+        return _CallContext(
+            full_history=full_history,
+            call_params=call_params,
+            persist_history=use_history,
+            sanitized_messages=sanitized_messages,
+            summary=summary,
+        )
+
+    def _persist_history(
+        self,
+        sanitized_messages: list[PromptMessageExtended],
+        assistant_message: PromptMessageExtended,
+    ) -> None:
+        """Persist the last turn unless explicitly disabled by control text."""
+        if not sanitized_messages:
+            return
+        if sanitized_messages[-1].first_text().startswith(CONTROL_MESSAGE_SAVE_HISTORY):
+            return
+
+        history_messages = [self._strip_removed_metadata(msg) for msg in sanitized_messages]
+        self._message_history.extend(history_messages)
+        self._message_history.append(assistant_message)
+
+    @staticmethod
+    def _strip_removed_metadata(message: PromptMessageExtended) -> PromptMessageExtended:
+        """Remove per-turn removed-content metadata before persisting to history."""
+        msg_copy = message.model_copy(deep=True)
+        if msg_copy.channels and FAST_AGENT_REMOVED_METADATA_CHANNEL in msg_copy.channels:
+            channels = dict(msg_copy.channels)
+            channels.pop(FAST_AGENT_REMOVED_METADATA_CHANNEL, None)
+            msg_copy.channels = channels if channels else None
+        return msg_copy
 
     def _sanitize_messages_for_llm(
-        self, messages: List[PromptMessageExtended]
-    ) -> Tuple[List[PromptMessageExtended], RemovedContentSummary | None]:
+        self, messages: list[PromptMessageExtended]
+    ) -> tuple[list[PromptMessageExtended], RemovedContentSummary | None]:
         """Filter out content blocks that the current model cannot tokenize."""
         if not messages:
             return [], None
 
-        removed_blocks: List[_RemovedBlock] = []
-        sanitized_messages: List[PromptMessageExtended] = []
+        removed_blocks: list[_RemovedBlock] = []
+        sanitized_messages: list[PromptMessageExtended] = []
 
         for message in messages:
             sanitized, removed = self._sanitize_message_for_llm(message)
@@ -491,17 +589,17 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def _sanitize_message_for_llm(
         self, message: PromptMessageExtended
-    ) -> Tuple[PromptMessageExtended, List[_RemovedBlock]]:
+    ) -> tuple[PromptMessageExtended, list[_RemovedBlock]]:
         """Return a sanitized copy of a message and any removed content blocks."""
         msg_copy = message.model_copy(deep=True)
-        removed: List[_RemovedBlock] = []
+        removed: list[_RemovedBlock] = []
 
         msg_copy.content = self._filter_block_list(
             list(msg_copy.content or []), removed, source="message"
         )
 
         if msg_copy.tool_results:
-            new_tool_results: Dict[str, CallToolResult] = {}
+            new_tool_results: dict[str, CallToolResult] = {}
             for tool_id, tool_result in msg_copy.tool_results.items():
                 original_blocks = list(tool_result.content or [])
                 filtered_blocks = self._filter_block_list(
@@ -537,12 +635,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def _filter_block_list(
         self,
         blocks: Sequence[ContentBlock],
-        removed: List[_RemovedBlock],
+        removed: list[_RemovedBlock],
         *,
         source: str,
         tool_id: str | None = None,
-    ) -> List[ContentBlock]:
-        kept: List[ContentBlock] = []
+    ) -> list[ContentBlock]:
+        kept: list[ContentBlock] = []
         for block in blocks or []:
             mime_type, category = self._extract_block_metadata(block)
             if self._block_supported(mime_type, category):
@@ -581,7 +679,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return False
 
-    def _extract_block_metadata(self, block: ContentBlock) -> Tuple[str | None, str]:
+    def _extract_block_metadata(self, block: ContentBlock) -> tuple[str | None, str]:
         """Infer the MIME type and high-level category for a content block."""
         if isinstance(block, TextContent):
             return "text/plain", "text"
@@ -613,9 +711,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return None, "document"
 
-    def _build_error_channel_entries(self, removed: List[_RemovedBlock]) -> List[ContentBlock]:
+    def _build_error_channel_entries(self, removed: list[_RemovedBlock]) -> list[ContentBlock]:
         """Create informative entries for the error channel."""
-        entries: List[ContentBlock] = []
+        entries: list[ContentBlock] = []
         model_name = self._llm.model_name if self._llm else None
         model_display = model_name or "current model"
 
@@ -638,8 +736,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
         return entries
 
-    def _build_metadata_entries(self, removed: List[_RemovedBlock]) -> List[ContentBlock]:
-        entries: List[ContentBlock] = []
+    def _build_metadata_entries(self, removed: list[_RemovedBlock]) -> list[ContentBlock]:
+        entries: list[ContentBlock] = []
         for item in removed:
             metadata_text = text_content(
                 json.dumps(
@@ -655,13 +753,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             entries.append(metadata_text)
         return entries
 
-    def _build_removed_summary(self, removed: List[_RemovedBlock]) -> RemovedContentSummary | None:
+    def _build_removed_summary(self, removed: list[_RemovedBlock]) -> RemovedContentSummary | None:
         if not removed:
             return None
 
         counts = Counter(item.category for item in removed)
-        category_mimes: Dict[str, Tuple[str, ...]] = {}
-        mime_accumulator: Dict[str, set[str]] = defaultdict(set)
+        category_mimes: dict[str, tuple[str, ...]] = {}
+        mime_accumulator: dict[str, set[str]] = defaultdict(set)
 
         for item in removed:
             mime_accumulator[item.category].add(item.mime_type or "unknown")
@@ -680,7 +778,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         model_display = model_name or "current model"
 
         category_order = ["vision", "document", "other", "text"]
-        segments: List[str] = []
+        segments: list[str] = []
         for category in category_order:
             if category not in counts:
                 continue
@@ -751,7 +849,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         return "content"
 
     @property
-    def message_history(self) -> List[PromptMessageExtended]:
+    def message_history(self) -> list[PromptMessageExtended]:
         """
         Return the agent's message history as PromptMessageExtended objects.
 
@@ -761,9 +859,27 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             List of PromptMessageExtended objects representing the conversation history
         """
-        if self._llm:
-            return self._llm.message_history
-        return []
+        return self._message_history
+
+    @property
+    def template_messages(self) -> list[PromptMessageExtended]:
+        """
+        Return the template prefix of the message history.
+
+        Templates are identified via the is_template flag and are expected to
+        appear as a contiguous prefix of the history.
+        """
+        return [msg.model_copy(deep=True) for msg in self._template_prefix_messages()]
+
+    def _template_prefix_messages(self) -> list[PromptMessageExtended]:
+        """Return the leading messages marked as templates (non-copy)."""
+        prefix: list[PromptMessageExtended] = []
+        for msg in self._message_history:
+            if msg.is_template:
+                prefix.append(msg)
+            else:
+                break
+        return prefix
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
@@ -790,20 +906,20 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---
 
-    async def list_prompts(self, namespace: str | None = None) -> Mapping[str, List[Prompt]]:
+    async def list_prompts(self, namespace: str | None = None) -> Mapping[str, list[Prompt]]:
         """Default: no prompts; return empty mapping."""
         return {}
 
     async def get_prompt(
         self,
         prompt_name: str,
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         namespace: str | None = None,
     ) -> GetPromptResult:
         """Default: prompts unsupported; return empty GetPromptResult."""
         return GetPromptResult(description="", messages=[])
 
-    async def list_resources(self, namespace: str | None = None) -> Mapping[str, List[str]]:
+    async def list_resources(self, namespace: str | None = None) -> Mapping[str, list[str]]:
         """Default: no resources; return empty mapping."""
         return {}
 
@@ -811,7 +927,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Default: no tools; return empty ListToolsResult."""
         return ListToolsResult(tools=[])
 
-    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, List[Tool]]:
+    async def list_mcp_tools(self, namespace: str | None = None) -> Mapping[str, list[Tool]]:
         """Default: no tools; return empty mapping."""
         return {}
 
@@ -896,11 +1012,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
-        bottom_items: List[str] | None = None,
-        highlight_items: str | List[str] | None = None,
+        bottom_items: list[str] | None = None,
+        highlight_items: str | list[str] | None = None,
         max_item_length: int | None = None,
         name: str | None = None,
         model: str | None = None,
-        additional_message: Optional["Text"] = None,
+        additional_message: Union["Text", None] = None,
     ) -> None:
         pass

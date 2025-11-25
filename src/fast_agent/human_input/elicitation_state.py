@@ -1,13 +1,12 @@
 """Simple state management for elicitation Cancel All functionality."""
 
-from typing import Set
 
 
 class ElicitationState:
     """Manages global state for elicitation requests, including disabled servers."""
 
     def __init__(self):
-        self.disabled_servers: Set[str] = set()
+        self.disabled_servers: set[str] = set()
 
     def disable_server(self, server_name: str) -> None:
         """Disable elicitation requests for a specific server."""
@@ -25,7 +24,7 @@ class ElicitationState:
         """Clear all disabled servers."""
         self.disabled_servers.clear()
 
-    def get_disabled_servers(self) -> Set[str]:
+    def get_disabled_servers(self) -> set[str]:
         """Get a copy of all disabled servers."""
         return self.disabled_servers.copy()
 

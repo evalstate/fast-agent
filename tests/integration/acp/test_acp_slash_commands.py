@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 from mcp.types import TextContent
@@ -30,12 +32,12 @@ END_TURN: StopReason = "end_turn"
 
 @dataclass
 class StubAgent:
-    message_history: List[Any] = field(default_factory=list)
+    message_history: list[Any] = field(default_factory=list)
     _llm: Any = None
     cleared: bool = False
     popped: bool = False
 
-    def clear(self) -> None:
+    def clear(self, clear_prompts: bool = False) -> None:
         self.cleared = True
         self.message_history.clear()
 
@@ -48,7 +50,7 @@ class StubAgent:
 
 @dataclass
 class StubAgentInstance:
-    agents: Dict[str, Any] = field(default_factory=dict)
+    agents: dict[str, Any] = field(default_factory=dict)
 
 
 def _handler(
@@ -220,9 +222,9 @@ async def test_slash_command_save_conversation() -> None:
     class RecordingHistoryExporter:
         def __init__(self, default_name: str = "24_01_01_12_00-conversation.json") -> None:
             self.default_name = default_name
-            self.calls: List[tuple[Any, Optional[str]]] = []
+            self.calls: list[tuple[Any, str | None]] = []
 
-        async def save(self, agent, filename: Optional[str] = None) -> str:
+        async def save(self, agent, filename: str | None = None) -> str:
             self.calls.append((agent, filename))
             return filename or self.default_name
 
@@ -325,3 +327,94 @@ async def test_slash_command_not_detected_for_comments() -> None:
     # However, the integration test test_acp_resource_only_prompt_not_slash_command
     # verifies that resource content with "//" is NOT treated as a slash command
     # because the slash command check only applies to pure text content, not resources
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_load_history() -> None:
+    """Test that /load loads history from a file."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    # Create a temporary history file
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+        history_data = {
+            "messages": [
+                {"role": "user", "content": [{"type": "text", "text": "hello"}]},
+                {"role": "assistant", "content": [{"type": "text", "text": "hi there"}]},
+            ]
+        }
+        json.dump(history_data, f)
+        temp_path = f.name
+
+    try:
+        response = await handler.execute_command("load", temp_path)
+
+        assert "load conversation" in response.lower()
+        assert "loaded successfully" in response.lower()
+        assert temp_path in response
+        assert "Messages: 2" in response
+        assert len(stub_agent.message_history) == 2
+        assert stub_agent.cleared is True  # History should be cleared before loading
+    finally:
+        Path(temp_path).unlink()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_load_without_filename() -> None:
+    """Test /load error handling when no filename is provided."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    response = await handler.execute_command("load", "")
+
+    assert "load conversation" in response.lower()
+    assert "filename required" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_load_file_not_found() -> None:
+    """Test /load error handling when file does not exist."""
+    stub_agent = StubAgent(message_history=[])
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    handler = _handler(instance)
+
+    response = await handler.execute_command("load", "nonexistent_file.json")
+
+    assert "load conversation" in response.lower()
+    assert "file not found" in response.lower()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_load_without_agent() -> None:
+    """Test /load error handling when the agent is missing."""
+    handler = _handler(StubAgentInstance(), agent_name="missing-agent")
+
+    response = await handler.execute_command("load", "somefile.json")
+
+    assert "load conversation" in response.lower()
+    assert "Unable to locate agent" in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_load_available_in_commands() -> None:
+    """Test that /load is in the available commands list."""
+    handler = _handler(StubAgentInstance())
+
+    commands = handler.get_available_commands()
+    command_names = {cmd.name for cmd in commands}
+
+    assert "load" in command_names
+
+    load_cmd = next(cmd for cmd in commands if cmd.name == "load")
+    assert load_cmd.description
+    assert load_cmd.input is not None  # Should have input hint

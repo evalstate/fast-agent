@@ -2,7 +2,7 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Dict, List, Mapping, Optional, Union
+from typing import Mapping, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -27,7 +27,7 @@ class AgentApp:
     calls to the default agent (the first agent in the container).
     """
 
-    def __init__(self, agents: Dict[str, AgentProtocol]) -> None:
+    def __init__(self, agents: dict[str, AgentProtocol]) -> None:
         """
         Initialize the DirectAgentApp.
 
@@ -83,7 +83,7 @@ class AgentApp:
     async def send(
         self,
         message: Union[str, PromptMessage, PromptMessageExtended],
-        agent_name: Optional[str] = None,
+        agent_name: str | None = None,
         request_params: RequestParams | None = None,
     ) -> str:
         """
@@ -117,7 +117,7 @@ class AgentApp:
     async def apply_prompt(
         self,
         prompt: Union[str, GetPromptResult],
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         agent_name: str | None = None,
         as_template: bool = False,
     ) -> str:
@@ -159,7 +159,7 @@ class AgentApp:
     async def get_prompt(
         self,
         prompt_name: str,
-        arguments: Dict[str, str] | None = None,
+        arguments: dict[str, str] | None = None,
         server_name: str | None = None,
         agent_name: str | None = None,
     ):
@@ -206,7 +206,7 @@ class AgentApp:
         self,
         server_name: str | None = None,
         agent_name: str | None = None,
-    ) -> Mapping[str, List[str]]:
+    ) -> Mapping[str, list[str]]:
         """
         List available resources from one or all servers.
 
@@ -393,7 +393,7 @@ class AgentApp:
                     f"[dim]  {prefix} {usage_data['name']}: {usage_data['display_text']}[/dim]{usage_data['cache_suffix']}"
                 )
 
-    def _format_agent_usage(self, agent) -> Optional[Dict]:
+    def _format_agent_usage(self, agent) -> dict | None:
         """Format usage information for a single agent."""
         if not agent or not agent.usage_accumulator:
             return None

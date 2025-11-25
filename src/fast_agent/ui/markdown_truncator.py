@@ -30,7 +30,7 @@ This ensures truncated content still renders correctly as markdown.
 """
 
 from dataclasses import dataclass
-from typing import Iterable, List, Optional
+from typing import Iterable
 
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
@@ -71,7 +71,7 @@ class TableInfo:
     thead_end_pos: int
     tbody_start_pos: int
     tbody_end_pos: int
-    header_lines: List[str]  # Header + separator rows
+    header_lines: list[str]  # Header + separator rows
 
 
 class MarkdownTruncator:
@@ -92,11 +92,11 @@ class MarkdownTruncator:
         self._last_terminal_height: int | None = None
         # Markdown parse cache
         self._cache_source: str | None = None
-        self._cache_tokens: List[Token] | None = None
-        self._cache_lines: List[str] | None = None
-        self._cache_safe_points: List[TruncationPoint] | None = None
-        self._cache_code_blocks: List[CodeBlockInfo] | None = None
-        self._cache_tables: List[TableInfo] | None = None
+        self._cache_tokens: list[Token] | None = None
+        self._cache_lines: list[str] | None = None
+        self._cache_safe_points: list[TruncationPoint] | None = None
+        self._cache_code_blocks: list[CodeBlockInfo] | None = None
+        self._cache_tables: list[TableInfo] | None = None
 
     def truncate(
         self,
@@ -305,7 +305,7 @@ class MarkdownTruncator:
         self._cache_code_blocks = None
         self._cache_tables = None
 
-    def _find_safe_truncation_points(self, text: str) -> List[TruncationPoint]:
+    def _find_safe_truncation_points(self, text: str) -> list[TruncationPoint]:
         """Find safe positions to truncate at (block boundaries).
 
         Args:
@@ -321,7 +321,7 @@ class MarkdownTruncator:
         assert self._cache_tokens is not None
         assert self._cache_lines is not None
 
-        safe_points: List[TruncationPoint] = []
+        safe_points: list[TruncationPoint] = []
         tokens = self._cache_tokens
         lines = self._cache_lines
 
@@ -347,7 +347,7 @@ class MarkdownTruncator:
         self._cache_safe_points = safe_points
         return list(safe_points)
 
-    def _get_code_block_info(self, text: str) -> List[CodeBlockInfo]:
+    def _get_code_block_info(self, text: str) -> list[CodeBlockInfo]:
         """Extract code block positions and metadata using markdown-it.
 
         Uses same technique as prepare_markdown_content in markdown_helpers.py:
@@ -368,7 +368,7 @@ class MarkdownTruncator:
 
         tokens = self._cache_tokens
         lines = self._cache_lines
-        code_blocks: List[CodeBlockInfo] = []
+        code_blocks: list[CodeBlockInfo] = []
 
         for token in self._flatten_tokens(tokens):
             if token.type in ("fence", "code_block") and token.map:
@@ -417,7 +417,7 @@ class MarkdownTruncator:
 
         return None
 
-    def _get_table_info(self, text: str) -> List[TableInfo]:
+    def _get_table_info(self, text: str) -> list[TableInfo]:
         """Extract table positions and metadata using markdown-it.
 
         Uses same technique as _get_code_block_info: parse once with markdown-it,
@@ -438,7 +438,7 @@ class MarkdownTruncator:
 
         tokens = self._cache_tokens
         lines = self._cache_lines
-        tables: List[TableInfo] = []
+        tables: list[TableInfo] = []
 
         for i, token in enumerate(tokens):
             if token.type == "table_open" and token.map:
@@ -511,12 +511,12 @@ class MarkdownTruncator:
     def _find_best_truncation_point(
         self,
         text: str,
-        safe_points: List[TruncationPoint],
+        safe_points: list[TruncationPoint],
         target_height: int,
         console: Console,
         code_theme: str,
         keep_beginning: bool = False,
-    ) -> Optional[TruncationPoint]:
+    ) -> TruncationPoint | None:
         """Find the truncation point that gets closest to target height.
 
         Args:

@@ -4,7 +4,6 @@ import platform
 import sys
 from importlib.metadata import version
 from pathlib import Path
-from typing import Optional
 
 import typer
 import yaml
@@ -22,7 +21,7 @@ app = typer.Typer(
 )
 
 
-def find_config_files(start_path: Path) -> dict[str, Optional[Path]]:
+def find_config_files(start_path: Path) -> dict[str, Path | None]:
     """Find FastAgent configuration files, preferring secrets file next to config file."""
     from fast_agent.config import find_fastagent_config_files
 
@@ -43,7 +42,7 @@ def get_system_info() -> dict:
     }
 
 
-def get_secrets_summary(secrets_path: Optional[Path]) -> dict:
+def get_secrets_summary(secrets_path: Path | None) -> dict:
     """Extract information from the secrets file."""
     result = {
         "status": "not_found",  # Default status: not found
@@ -143,7 +142,7 @@ def get_fastagent_version() -> str:
         return "unknown"
 
 
-def get_config_summary(config_path: Optional[Path]) -> dict:
+def get_config_summary(config_path: Path | None) -> dict:
     """Extract key information from the configuration file."""
     from fast_agent.config import MCPTimelineSettings, Settings
 
@@ -727,7 +726,7 @@ def show_check_summary() -> None:
 
 @app.command()
 def show(
-    path: Optional[str] = typer.Argument(None, help="Path to configuration file to display"),
+    path: str | None = typer.Argument(None, help="Path to configuration file to display"),
     secrets: bool = typer.Option(
         False, "--secrets", "-s", help="Show secrets file instead of config"
     ),

@@ -166,6 +166,11 @@ class LlmAgent(LlmDecorator):
                         Text("\n\nAn error occurred during generation.", style="dim red italic")
                     )
 
+            case LlmStopReason.CANCELLED:
+                additional_segments.append(
+                    Text("\n\nGeneration cancelled by user.", style="dim yellow italic")
+                )
+
             case _:
                 if message.stop_reason:
                     additional_segments.append(
@@ -285,7 +290,9 @@ class LlmAgent(LlmDecorator):
 
             await self.show_assistant_message(result, additional_message=summary_text)
         else:
-            result, summary = await self._generate_with_summary(messages, request_params, tools)
+            result, summary = await self._generate_with_summary(
+                messages, request_params, tools
+            )
 
             summary_text = (
                 Text(f"\n\n{summary.message}", style="dim red italic") if summary else None

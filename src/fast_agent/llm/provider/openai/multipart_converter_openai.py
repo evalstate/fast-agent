@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Union
 
 from mcp.types import (
     CallToolResult,
@@ -30,8 +30,8 @@ from fast_agent.types import PromptMessageExtended
 _logger = get_logger("multipart_converter_openai")
 
 # Define type aliases for content blocks
-ContentBlock = Dict[str, Any]
-OpenAIMessage = Dict[str, Any]
+ContentBlock = dict[str, Any]
+OpenAIMessage = dict[str, Any]
 
 
 class OpenAIConverter:
@@ -55,7 +55,7 @@ class OpenAIConverter:
     @staticmethod
     def convert_to_openai(
         multipart_msg: PromptMessageExtended, concatenate_text_blocks: bool = False
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Convert a PromptMessageExtended message to OpenAI API format.
 
@@ -70,7 +70,7 @@ class OpenAIConverter:
         # assistant message with tool_calls per OpenAI format to establish the
         # required call IDs before tool responses appear.
         if multipart_msg.role == "assistant" and multipart_msg.tool_calls:
-            tool_calls_list: List[Dict[str, Any]] = []
+            tool_calls_list: list[dict[str, Any]] = []
             for tool_id, req in multipart_msg.tool_calls.items():
                 name = None
                 arguments = {}
@@ -122,7 +122,7 @@ class OpenAIConverter:
     @staticmethod
     def _convert_content_to_message(
         content: list, role: str, concatenate_text_blocks: bool = False
-    ) -> Dict[str, Any] | None:
+    ) -> dict[str, Any] | None:
         """
         Convert content blocks to a single OpenAI message.
 
@@ -143,7 +143,7 @@ class OpenAIConverter:
             return {"role": role, "content": get_text(content[0])}
 
         # For user messages, convert each content block
-        content_blocks: List[ContentBlock] = []
+        content_blocks: list[ContentBlock] = []
 
         _logger.debug(f"Converting {len(content)} content items for role '{role}'")
 
@@ -195,7 +195,7 @@ class OpenAIConverter:
         return result
 
     @staticmethod
-    def _concatenate_text_blocks(blocks: List[ContentBlock]) -> List[ContentBlock]:
+    def _concatenate_text_blocks(blocks: list[ContentBlock]) -> list[ContentBlock]:
         """
         Combine adjacent text blocks into single blocks.
 
@@ -208,7 +208,7 @@ class OpenAIConverter:
         if not blocks:
             return []
 
-        combined_blocks: List[ContentBlock] = []
+        combined_blocks: list[ContentBlock] = []
         current_text = ""
 
         for block in blocks:
@@ -298,7 +298,7 @@ class OpenAIConverter:
     @staticmethod
     def _convert_embedded_resource(
         resource: EmbeddedResource,
-    ) -> Optional[ContentBlock]:
+    ) -> ContentBlock | None:
         """
         Convert EmbeddedResource to appropriate OpenAI content block.
 
@@ -393,7 +393,7 @@ class OpenAIConverter:
 
     @staticmethod
     def _extract_text_from_content_blocks(
-        content: Union[str, List[ContentBlock]],
+        content: Union[str, list[ContentBlock]],
     ) -> str:
         """
         Extract and combine text from content blocks.
@@ -423,7 +423,7 @@ class OpenAIConverter:
         tool_result: CallToolResult,
         tool_call_id: str,
         concatenate_text_blocks: bool = False,
-    ) -> Union[Dict[str, Any], Tuple[Dict[str, Any], List[Dict[str, Any]]]]:
+    ) -> Union[dict[str, Any], tuple[dict[str, Any], list[dict[str, Any]]]]:
         """
         Convert a CallToolResult to an OpenAI tool message.
 
@@ -507,9 +507,9 @@ class OpenAIConverter:
 
     @staticmethod
     def convert_function_results_to_openai(
-        results: Dict[str, CallToolResult],
+        results: dict[str, CallToolResult],
         concatenate_text_blocks: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Convert function call results to OpenAI messages.
 

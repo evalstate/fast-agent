@@ -92,7 +92,9 @@ class ToolAgent(LlmAgent):
 
         while True:
             result = await super().generate_impl(
-                messages, request_params=request_params, tools=tools
+                messages,
+                request_params=request_params,
+                tools=tools,
             )
 
             if LlmStopReason.TOOL_USE == result.stop_reason:

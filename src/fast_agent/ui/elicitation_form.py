@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Tuple
 
 from mcp.types import ElicitRequestedSchema
 from prompt_toolkit import Application
@@ -33,9 +33,7 @@ text_navigation_mode = False
 class SimpleNumberValidator(Validator):
     """Simple number validator with real-time feedback."""
 
-    def __init__(
-        self, field_type: str, minimum: Optional[float] = None, maximum: Optional[float] = None
-    ):
+    def __init__(self, field_type: str, minimum: float | None = None, maximum: float | None = None):
         self.field_type = field_type
         self.minimum = minimum
         self.maximum = maximum
@@ -70,9 +68,9 @@ class SimpleStringValidator(Validator):
 
     def __init__(
         self,
-        min_length: Optional[int] = None,
-        max_length: Optional[int] = None,
-        pattern: Optional[str] = None,
+        min_length: int | None = None,
+        max_length: int | None = None,
+        pattern: str | None = None,
     ):
         self.min_length = min_length
         self.max_length = max_length
@@ -409,9 +407,7 @@ class ElicitationForm:
             arrow_right = "→"
 
             if text_navigation_mode:
-                actions_line = (
-                    "  <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server."
-                )
+                actions_line = "  <ESC> cancel. <Cancel All> Auto-Cancel further elicitations from this Server."
                 navigation_tail = (
                     " | <CTRL+T> toggle text mode. <TAB> navigate. <ENTER> insert new line."
                 )
@@ -486,7 +482,7 @@ class ElicitationForm:
         self.app.invalidate()  # Ensure layout is built
         set_initial_focus()
 
-    def _extract_enum_schema_options(self, schema_def: Dict[str, Any]) -> List[Tuple[str, str]]:
+    def _extract_enum_schema_options(self, schema_def: dict[str, Any]) -> list[Tuple[str, str]]:
         """Extract options from oneOf/anyOf/enum schema patterns.
 
         Args:
@@ -496,7 +492,7 @@ class ElicitationForm:
             List of (value, title) tuples for the options
         """
         values = []
-        
+
         # First check for bare enum (most common pattern for arrays)
         if "enum" in schema_def:
             enum_values = schema_def["enum"]
@@ -504,7 +500,7 @@ class ElicitationForm:
             for val, name in zip(enum_values, enum_names):
                 values.append((val, str(name)))
             return values
-        
+
         # Then check for oneOf/anyOf patterns
         options = schema_def.get("oneOf", [])
         if not options:
@@ -518,7 +514,7 @@ class ElicitationForm:
 
         return values
 
-    def _extract_string_constraints(self, field_def: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_string_constraints(self, field_def: dict[str, Any]) -> dict[str, Any]:
         """Extract string constraints from field definition, handling anyOf schemas."""
         constraints = {}
 
@@ -544,7 +540,7 @@ class ElicitationForm:
 
         return constraints
 
-    def _create_field(self, field_name: str, field_def: Dict[str, Any]):
+    def _create_field(self, field_name: str, field_def: dict[str, Any]):
         """Create a field widget."""
 
         field_type = field_def.get("type", "string")
@@ -780,7 +776,7 @@ class ElicitationForm:
 
             return HSplit([label, Frame(text_input)])
 
-    def _validate_form(self) -> tuple[bool, Optional[str]]:
+    def _validate_form(self) -> tuple[bool, str | None]:
         """Validate the entire form."""
 
         # First, check all fields for validation errors from their validators
@@ -821,9 +817,9 @@ class ElicitationForm:
 
         return True, None
 
-    def _get_form_data(self) -> Dict[str, Any]:
+    def _get_form_data(self) -> dict[str, Any]:
         """Extract data from form fields."""
-        data: Dict[str, Any] = {}
+        data: dict[str, Any] = {}
 
         for field_name, field_def in self.properties.items():
             widget = self.field_widgets.get(field_name)
@@ -931,7 +927,7 @@ class ElicitationForm:
             self.app.layout.container = new_layout
             self.app.invalidate()
 
-    async def run_async(self) -> tuple[str, Optional[Dict[str, Any]]]:
+    async def run_async(self) -> tuple[str, dict[str, Any] | None]:
         """Run the form and return result."""
         try:
             await self.app.run_async()
@@ -944,7 +940,7 @@ class ElicitationForm:
 
 async def show_simple_elicitation_form(
     schema: ElicitRequestedSchema, message: str, agent_name: str, server_name: str
-) -> tuple[str, Optional[Dict[str, Any]]]:
+) -> tuple[str, dict[str, Any] | None]:
     """Show the simplified elicitation form."""
     form = ElicitationForm(schema, message, agent_name, server_name)
     return await form.run_async()

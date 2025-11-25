@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Literal
+from typing import Literal
 
 from mcp.server.fastmcp.prompts.base import (
     AssistantMessage,
@@ -9,6 +9,7 @@ from mcp.server.fastmcp.prompts.base import (
 from mcp.types import PromptMessage, TextContent
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp import mime_utils, resource_utils
 from fast_agent.mcp.prompts.prompt_template import (
     PromptContent,
@@ -30,8 +31,8 @@ def cast_message_role(role: str) -> MessageRole:
 
 
 def create_messages_with_resources(
-    content_sections: List[PromptContent], prompt_files: List[Path]
-) -> List[PromptMessage]:
+    content_sections: list[PromptContent], prompt_files: list[Path]
+) -> list[PromptMessage]:
     """
     Create a list of messages from content sections, with resources properly handled.
 
@@ -98,7 +99,7 @@ def create_resource_message(
         return message_class(content=embedded_resource)
 
 
-def load_prompt(file: Path) -> List[PromptMessageExtended]:
+def load_prompt(file: Path) -> list[PromptMessageExtended]:
     """
     Load a prompt from a file and return as PromptMessageExtended objects.
 
@@ -156,3 +157,28 @@ def load_prompt_as_get_prompt_result(file: Path):
 
     # Convert to GetPromptResult (loses extended fields)
     return to_get_prompt_result(messages)
+
+
+def load_history_into_agent(agent: AgentProtocol, file_path: Path) -> None:
+    """
+    Load conversation history directly into agent without triggering LLM call.
+
+    This function restores saved conversation state by directly setting the
+    agent's _message_history. No LLM API calls are made.
+
+    Args:
+        agent: Agent instance to restore history into (FastAgentLLM or subclass)
+        file_path: Path to saved history file (JSON or template format)
+
+    Note:
+        - The agent's history is cleared before loading
+        - Provider diagnostic history will be updated on the next API call
+        - Templates are NOT cleared by this function
+    """
+    messages = load_prompt(file_path)
+
+    # Direct restoration - no LLM call
+    agent.clear(clear_prompts=True)
+    agent.message_history.extend(messages)
+
+    # Note: Provider diagnostic history will be updated on next API call

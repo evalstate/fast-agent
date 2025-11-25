@@ -1,5 +1,4 @@
 import types
-from typing import Optional
 
 import pytest
 
@@ -12,11 +11,11 @@ class DummyLogger:
 
 class DummyAzureConfig:
     def __init__(self):
-        self.api_key: Optional[str] = "test-key"
-        self.resource_name: Optional[str] = "test-resource"
-        self.azure_deployment: Optional[str] = "test-deployment"
-        self.api_version: Optional[str] = "2023-05-15"
-        self.base_url: Optional[str] = None
+        self.api_key: str | None = "test-key"
+        self.resource_name: str | None = "test-resource"
+        self.azure_deployment: str | None = "test-deployment"
+        self.api_version: str | None = "2023-05-15"
+        self.base_url: str | None = None
         self.use_default_azure_credential: bool = False
 
     def get(self, key, default=None):

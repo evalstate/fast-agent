@@ -6,7 +6,7 @@ for the application configuration.
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Literal
 
 from mcp import Implementation
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
@@ -138,10 +138,10 @@ class MCPRootSettings(BaseModel):
     uri: str
     """The URI identifying the root. Must start with file://"""
 
-    name: Optional[str] = None
+    name: str | None = None
     """Optional name for the root."""
 
-    server_uri_alias: Optional[str] = None
+    server_uri_alias: str | None = None
     """Optional URI alias for presentation to the server"""
 
     @field_validator("uri", "server_uri_alias")
@@ -172,7 +172,7 @@ class MCPServerSettings(BaseModel):
     command: str | None = None
     """The command to execute the server (e.g. npx)."""
 
-    args: List[str] | None = None
+    args: list[str] | None = None
     """The arguments for the server command."""
 
     read_timeout_seconds: int | None = None
@@ -184,16 +184,16 @@ class MCPServerSettings(BaseModel):
     url: str | None = None
     """The URL for the server (e.g. for SSE/SHTTP transport)."""
 
-    headers: Dict[str, str] | None = None
+    headers: dict[str, str] | None = None
     """Headers dictionary for HTTP connections"""
 
     auth: MCPServerAuthSettings | None = None
     """The authentication configuration for the server."""
 
-    roots: Optional[List[MCPRootSettings]] = None
+    roots: list[MCPRootSettings] | None = None
     """Root directories this server has access to."""
 
-    env: Dict[str, str] | None = None
+    env: dict[str, str] | None = None
     """Environment variables to pass to the server process."""
 
     sampling: MCPSamplingSettings | None = None
@@ -250,7 +250,7 @@ class MCPServerSettings(BaseModel):
 class MCPSettings(BaseModel):
     """Configuration for all MCP servers."""
 
-    servers: Dict[str, MCPServerSettings] = {}
+    servers: dict[str, MCPServerSettings] = {}
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -478,7 +478,7 @@ class LoggerSettings(BaseModel):
     """Streaming renderer for assistant responses"""
 
 
-def find_fastagent_config_files(start_path: Path) -> Tuple[Optional[Path], Optional[Path]]:
+def find_fastagent_config_files(start_path: Path) -> tuple[Path | None, Path | None]:
     """
     Find FastAgent configuration files with standardized behavior.
 
@@ -581,7 +581,7 @@ class Settings(BaseSettings):
     generic: GenericSettings | None = None
     """Settings for using Generic models in the fast-agent application"""
 
-    tensorzero: Optional[TensorZeroSettings] = None
+    tensorzero: TensorZeroSettings | None = None
     """Settings for using TensorZero inference gateway"""
 
     azure: AzureSettings | None = None
@@ -645,7 +645,7 @@ class Settings(BaseSettings):
 _settings: Settings | None = None
 
 
-def get_settings(config_path: str | None = None) -> Settings:
+def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
     """Get settings instance, automatically loading from config file if available."""
 
     def resolve_env_vars(config_item: Any) -> Any:
