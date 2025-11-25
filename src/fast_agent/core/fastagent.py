@@ -865,6 +865,15 @@ class FastAgent:
             if request_params is not None:
                 request_params.systemPrompt = resolved
 
+            # TODO -- find a cleaner way of doing this
+            # Keep any attached LLM in sync so the provider sees the resolved prompt
+            llm = getattr(agent, "_llm", None)
+            if llm is not None:
+                if getattr(llm, "default_request_params", None) is not None:
+                    llm.default_request_params.systemPrompt = resolved
+                if hasattr(llm, "instruction"):
+                    llm.instruction = resolved
+
     def _apply_skills_to_agent_configs(self, default_skills: list[SkillManifest]) -> None:
         self._default_skill_manifests = list(default_skills)
 
