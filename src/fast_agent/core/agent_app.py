@@ -2,8 +2,6 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-import asyncio
-import os
 from typing import Mapping, Union
 
 from deprecated import deprecated
@@ -11,11 +9,11 @@ from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
-from fast_agent.core.exceptions import ProviderKeyError, AgentConfigError, ServerConfigError
 
 
 class AgentApp:
