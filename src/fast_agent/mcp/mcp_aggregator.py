@@ -42,6 +42,16 @@ from fast_agent.mcp.skybridge import (
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
+# Optional import for permission handler - only used when ACP permissions are enabled
+try:
+    from fast_agent.acp.tool_permission_handler import (
+        PERMISSION_DENIED_MESSAGE,
+        ToolPermissionHandler,
+    )
+except ImportError:
+    ToolPermissionHandler = None  # type: ignore[misc,assignment]
+    PERMISSION_DENIED_MESSAGE = "The User declined this operation."
+
 if TYPE_CHECKING:
     from fast_agent.context import Context
 
@@ -164,6 +174,7 @@ class MCPAggregator(ContextDependent):
         name: str | None = None,
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
+        permission_handler: "ToolPermissionHandler | None" = None,
         **kwargs,
     ) -> None:
         """
@@ -171,6 +182,7 @@ class MCPAggregator(ContextDependent):
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
         :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
+        :param permission_handler: Optional handler for tool permission checks (e.g., for ACP permissions).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -186,6 +198,9 @@ class MCPAggregator(ContextDependent):
         # Store tool execution handler for integration with ACP or other protocols
         # Default to NoOpToolExecutionHandler if none provided
         self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+
+        # Store permission handler for tool execution authorization (e.g., ACP permissions)
+        self._permission_handler = permission_handler
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -1245,6 +1260,31 @@ class MCPAggregator(ContextDependent):
                 "agent_name": self.agent_name,
             },
         )
+
+        # Check permission before executing (if permission handler is configured)
+        if self._permission_handler:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    tool_name=local_tool_name,
+                    server_name=server_name,
+                    arguments=arguments,
+                )
+                if not permission_result.allowed:
+                    logger.info(
+                        f"Tool execution denied by permission handler: {server_name}/{local_tool_name}",
+                        name="tool_permission_denied",
+                    )
+                    return CallToolResult(
+                        isError=True,
+                        content=[TextContent(type="text", text=PERMISSION_DENIED_MESSAGE)],
+                    )
+            except Exception as e:
+                # On permission check error, deny execution (fail-safe)
+                logger.error(f"Error in permission handler: {e}", exc_info=True)
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=PERMISSION_DENIED_MESSAGE)],
+                )
 
         # Notify tool handler that execution is starting
         try:

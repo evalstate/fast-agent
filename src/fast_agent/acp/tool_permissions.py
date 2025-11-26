@@ -1,16 +1,21 @@
 """
-ACP Tool Call Permissions
+ACP Tool Permission Manager
 
-Provides a permission handler that requests tool execution permission from the ACP client.
-This follows the same pattern as elicitation handlers but for tool execution authorization.
+Implements the ToolPermissionHandler protocol for ACP sessions.
+Requests tool execution permission from the ACP client when needed,
+with support for persistent permissions via .fast-agent/auths.md.
 """
 
-import asyncio
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
-from acp.schema import PermissionOption, RequestPermissionRequest
+from acp.schema import PermissionOption, RequestPermissionRequest, ToolCall
 
+from fast_agent.acp.permission_store import PermissionStore
+from fast_agent.acp.tool_permission_handler import (
+    PERMISSION_DENIED_MESSAGE,
+    PermissionResult,
+)
 from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
@@ -19,98 +24,110 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-@dataclass
-class ToolPermissionRequest:
-    """Request for tool execution permission."""
-
-    tool_name: str
-    server_name: str
-    arguments: dict[str, Any] | None
-    tool_call_id: str | None = None
-
-
-@dataclass
-class ToolPermissionResponse:
-    """Response from tool permission request."""
-
-    allowed: bool
-    remember: bool  # Whether to remember this decision
-    cancelled: bool = False
-
-
-# Type for permission handler callbacks
-ToolPermissionHandlerT = Callable[[ToolPermissionRequest], asyncio.Future[ToolPermissionResponse]]
-
-
 class ACPToolPermissionManager:
     """
     Manages tool execution permission requests via ACP.
 
-    This class provides a handler that can be used to request permission
-    from the ACP client before executing tools.
+    Implements ToolPermissionHandler protocol. Checks persistent permissions
+    first, then requests permission from the ACP client if needed.
+
+    On error (e.g., client disconnect), defaults to DENY for safety.
     """
 
-    def __init__(self, connection: "AgentSideConnection") -> None:
+    def __init__(
+        self,
+        connection: "AgentSideConnection",
+        session_id: str,
+        store: PermissionStore | None = None,
+        base_path: Path | None = None,
+    ) -> None:
         """
         Initialize the permission manager.
 
         Args:
             connection: The ACP connection to send permission requests on
+            session_id: The ACP session ID
+            store: Optional permission store (creates one if not provided)
+            base_path: Base path for permission store (defaults to cwd)
         """
         self._connection = connection
-        self._remembered_permissions: dict[str, bool] = {}
-        self._lock = asyncio.Lock()
+        self._session_id = session_id
+        self._store = store or PermissionStore(base_path)
 
-    def _get_permission_key(self, tool_name: str, server_name: str) -> str:
-        """Get a unique key for remembering permissions."""
+    def _make_permission_key(self, server_name: str, tool_name: str) -> str:
+        """Create a display key for logging."""
         return f"{server_name}/{tool_name}"
 
-    async def request_permission(
+    async def check_permission(
         self,
-        session_id: str,
         tool_name: str,
         server_name: str,
-        arguments: dict[str, Any] | None = None,
-        tool_call_id: str | None = None,
-    ) -> ToolPermissionResponse:
+        arguments: dict[str, Any] | None,
+    ) -> PermissionResult:
         """
-        Request permission to execute a tool.
+        Check if tool execution is permitted.
+
+        Implements ToolPermissionHandler.check_permission.
+
+        1. Checks persistent store for remembered permissions
+        2. If not found, requests permission from ACP client
+        3. On error, returns DENY (fail-safe)
 
         Args:
-            session_id: The ACP session ID
-            tool_name: Name of the tool to execute
-            server_name: Name of the MCP server providing the tool
+            tool_name: Name of the tool
+            server_name: Name of the server/runtime
             arguments: Tool arguments
-            tool_call_id: Optional tool call ID for tracking
 
         Returns:
-            ToolPermissionResponse indicating whether execution is allowed
+            PermissionResult indicating whether to proceed
         """
-        permission_key = self._get_permission_key(tool_name, server_name)
+        permission_key = self._make_permission_key(server_name, tool_name)
 
-        # Check remembered permissions
-        async with self._lock:
-            if permission_key in self._remembered_permissions:
-                allowed = self._remembered_permissions[permission_key]
-                logger.debug(
-                    f"Using remembered permission for {permission_key}: {allowed}",
-                    name="acp_tool_permission_remembered",
-                )
-                return ToolPermissionResponse(allowed=allowed, remember=True)
+        # 1. Check persistent store first
+        stored = await self._store.get(server_name, tool_name)
+        if stored == "allow_always":
+            logger.debug(
+                f"Using stored permission for {permission_key}: allow_always",
+                name="acp_permission_stored",
+            )
+            return PermissionResult.allow(remember=True)
+        if stored == "reject_always":
+            logger.debug(
+                f"Using stored permission for {permission_key}: reject_always",
+                name="acp_permission_stored",
+            )
+            return PermissionResult.deny(remember=True, message=PERMISSION_DENIED_MESSAGE)
 
-        # Build prompt message
-        prompt_parts = [f"Allow execution of tool: {server_name}/{tool_name}"]
-        if arguments:
-            # Show key arguments (limit to avoid overwhelming the user)
-            arg_items = list(arguments.items())[:3]
-            arg_str = ", ".join(f"{k}={v}" for k, v in arg_items)
-            if len(arguments) > 3:
-                arg_str += ", ..."
-            prompt_parts.append(f"Arguments: {arg_str}")
+        # 2. Request permission from ACP client
+        return await self._request_permission(tool_name, server_name, arguments)
 
-        prompt = "\n".join(prompt_parts)
+    async def _request_permission(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None,
+    ) -> PermissionResult:
+        """
+        Request permission from the ACP client.
 
-        # Create permission request with options using SDK's PermissionOption type
+        Args:
+            tool_name: Name of the tool
+            server_name: Name of the server/runtime
+            arguments: Tool arguments
+
+        Returns:
+            PermissionResult based on user's decision
+        """
+        permission_key = self._make_permission_key(server_name, tool_name)
+
+        # Build tool call info for the permission request
+        tool_call = ToolCall(
+            toolCallId=f"perm_{server_name}_{tool_name}",
+            title=f"{server_name}/{tool_name}",
+            rawInput=arguments,
+        )
+
+        # Create permission options
         options = [
             PermissionOption(
                 optionId="allow_once",
@@ -135,16 +152,15 @@ class ACPToolPermissionManager:
         ]
 
         request = RequestPermissionRequest(
-            sessionId=session_id,
-            prompt=prompt,
+            sessionId=self._session_id,
+            toolCall=tool_call,
             options=options,
-            toolCall=tool_call_id,
         )
 
         try:
             logger.info(
                 f"Requesting permission for {permission_key}",
-                name="acp_tool_permission_request",
+                name="acp_permission_request",
                 tool_name=tool_name,
                 server_name=server_name,
             )
@@ -153,111 +169,90 @@ class ACPToolPermissionManager:
             response = await self._connection.requestPermission(request)
 
             # Handle response
-            outcome = response.outcome
-            if hasattr(outcome, "outcome"):
-                outcome_type = outcome.outcome
-
-                if outcome_type == "cancelled":
-                    logger.info(
-                        f"Permission request cancelled for {permission_key}",
-                        name="acp_tool_permission_cancelled",
-                    )
-                    return ToolPermissionResponse(allowed=False, remember=False, cancelled=True)
-
-                elif outcome_type == "selected":
-                    option_id = getattr(outcome, "optionId", None)
-
-                    if option_id == "allow_once":
-                        return ToolPermissionResponse(allowed=True, remember=False)
-
-                    elif option_id == "allow_always":
-                        async with self._lock:
-                            self._remembered_permissions[permission_key] = True
-                        logger.info(
-                            f"Remembering allow for {permission_key}",
-                            name="acp_tool_permission_remember_allow",
-                        )
-                        return ToolPermissionResponse(allowed=True, remember=True)
-
-                    elif option_id == "reject_once":
-                        return ToolPermissionResponse(allowed=False, remember=False)
-
-                    elif option_id == "reject_always":
-                        async with self._lock:
-                            self._remembered_permissions[permission_key] = False
-                        logger.info(
-                            f"Remembering reject for {permission_key}",
-                            name="acp_tool_permission_remember_reject",
-                        )
-                        return ToolPermissionResponse(allowed=False, remember=True)
-
-            # Default to rejection if we can't parse the response
-            logger.warning(
-                f"Unknown permission response for {permission_key}, defaulting to reject",
-                name="acp_tool_permission_unknown",
+            return await self._handle_permission_response(
+                response, server_name, tool_name, permission_key
             )
-            return ToolPermissionResponse(allowed=False, remember=False)
 
         except Exception as e:
+            # FAIL SAFE: deny on error
             logger.error(
-                f"Error requesting tool permission: {e}",
-                name="acp_tool_permission_error",
+                f"Error requesting permission for {permission_key}: {e}",
+                name="acp_permission_error",
                 exc_info=True,
             )
-            # Default to allowing on error to avoid breaking execution
-            # Real implementations might want to configure this behavior
-            return ToolPermissionResponse(allowed=True, remember=False)
+            return PermissionResult.deny(message=f"Permission check failed: {e}")
 
-    async def clear_remembered_permissions(self, tool_name: str | None = None, server_name: str | None = None) -> None:
+    async def _handle_permission_response(
+        self,
+        response: Any,
+        server_name: str,
+        tool_name: str,
+        permission_key: str,
+    ) -> PermissionResult:
         """
-        Clear remembered permissions.
+        Handle the permission response from the client.
 
         Args:
-            tool_name: Optional tool name to clear (clears all if None)
-            server_name: Optional server name to clear (clears all if None)
+            response: The RequestPermissionResponse from the client
+            server_name: Name of the server/runtime
+            tool_name: Name of the tool
+            permission_key: Display key for logging
+
+        Returns:
+            PermissionResult based on user's decision
         """
-        async with self._lock:
-            if tool_name and server_name:
-                permission_key = self._get_permission_key(tool_name, server_name)
-                self._remembered_permissions.pop(permission_key, None)
+        outcome = response.outcome
+
+        if hasattr(outcome, "outcome"):
+            outcome_type = outcome.outcome
+
+            if outcome_type == "cancelled":
                 logger.info(
-                    f"Cleared permission for {permission_key}",
-                    name="acp_tool_permission_cleared",
+                    f"Permission cancelled for {permission_key}",
+                    name="acp_permission_cancelled",
                 )
-            else:
-                self._remembered_permissions.clear()
-                logger.info(
-                    "Cleared all remembered permissions",
-                    name="acp_tool_permissions_cleared_all",
-                )
+                return PermissionResult.deny(message="Permission request was cancelled.")
 
+            elif outcome_type == "selected":
+                option_id = getattr(outcome, "optionId", None)
 
-def create_acp_permission_handler(
-    permission_manager: ACPToolPermissionManager,
-    session_id: str,
-) -> ToolPermissionHandlerT:
-    """
-    Create a tool permission handler for ACP integration.
+                if option_id == "allow_once":
+                    logger.info(
+                        f"Permission granted (once) for {permission_key}",
+                        name="acp_permission_allow_once",
+                    )
+                    return PermissionResult.allow(remember=False)
 
-    This creates a handler that can be injected into the tool execution
-    pipeline to request permission before executing tools.
+                elif option_id == "allow_always":
+                    # Store persistent permission
+                    await self._store.set(server_name, tool_name, "allow_always")
+                    logger.info(
+                        f"Permission granted (always) for {permission_key}",
+                        name="acp_permission_allow_always",
+                    )
+                    return PermissionResult.allow(remember=True)
 
-    Args:
-        permission_manager: The ACPToolPermissionManager instance
-        session_id: The ACP session ID
+                elif option_id == "reject_once":
+                    logger.info(
+                        f"Permission denied (once) for {permission_key}",
+                        name="acp_permission_reject_once",
+                    )
+                    return PermissionResult.deny(message=PERMISSION_DENIED_MESSAGE)
 
-    Returns:
-        A permission handler function
-    """
+                elif option_id == "reject_always":
+                    # Store persistent permission
+                    await self._store.set(server_name, tool_name, "reject_always")
+                    logger.info(
+                        f"Permission denied (always) for {permission_key}",
+                        name="acp_permission_reject_always",
+                    )
+                    return PermissionResult.deny(
+                        remember=True, message=PERMISSION_DENIED_MESSAGE
+                    )
 
-    async def handler(request: ToolPermissionRequest) -> ToolPermissionResponse:
-        """Handle tool permission request."""
-        return await permission_manager.request_permission(
-            session_id=session_id,
-            tool_name=request.tool_name,
-            server_name=request.server_name,
-            arguments=request.arguments,
-            tool_call_id=request.tool_call_id,
+        # Unknown response - fail safe to deny
+        logger.warning(
+            f"Unknown permission response for {permission_key}, denying",
+            name="acp_permission_unknown",
         )
-
-    return handler
+        return PermissionResult.deny(message="Unknown permission response.")

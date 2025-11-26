@@ -18,6 +18,7 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
+    from fast_agent.acp.tool_permission_handler import ToolPermissionHandler
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 logger = get_logger(__name__)
@@ -46,6 +47,7 @@ class ACPTerminalRuntime:
         timeout_seconds: int = 90,
         tool_handler: "ToolExecutionHandler | None" = None,
         default_output_byte_limit: int = DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+        permission_handler: "ToolPermissionHandler | None" = None,
     ):
         """
         Initialize the ACP terminal runtime.
@@ -57,6 +59,7 @@ class ACPTerminalRuntime:
             logger_instance: Optional logger instance
             timeout_seconds: Default timeout for command execution
             tool_handler: Optional tool execution handler for telemetry
+            permission_handler: Optional handler for tool permission checks
         """
         self.connection = connection
         self.session_id = session_id
@@ -65,6 +68,7 @@ class ACPTerminalRuntime:
         self.timeout_seconds = timeout_seconds
         self._tool_handler = tool_handler
         self._default_output_byte_limit = default_output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self._permission_handler = permission_handler
 
         # Tool definition for LLM
         self._tool = Tool(
@@ -150,6 +154,35 @@ class ACPTerminalRuntime:
             session_id=self.session_id,
             command=command[:100],  # Log first 100 chars
         )
+
+        # Check permission before executing (if permission handler is configured)
+        if self._permission_handler:
+            try:
+                from fast_agent.acp.tool_permission_handler import PERMISSION_DENIED_MESSAGE
+
+                permission_result = await self._permission_handler.check_permission(
+                    tool_name="execute",
+                    server_name="acp_terminal",
+                    arguments=arguments,
+                )
+                if not permission_result.allowed:
+                    self.logger.info(
+                        "Terminal execution denied by permission handler",
+                        name="terminal_permission_denied",
+                    )
+                    return CallToolResult(
+                        isError=True,
+                        content=[text_content(PERMISSION_DENIED_MESSAGE)],
+                    )
+            except Exception as e:
+                # On permission check error, deny execution (fail-safe)
+                from fast_agent.acp.tool_permission_handler import PERMISSION_DENIED_MESSAGE
+
+                self.logger.error(f"Error in permission handler: {e}", exc_info=True)
+                return CallToolResult(
+                    isError=True,
+                    content=[text_content(PERMISSION_DENIED_MESSAGE)],
+                )
 
         # Notify tool handler that execution is starting
         tool_call_id = None

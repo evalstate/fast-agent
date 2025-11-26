@@ -54,7 +54,10 @@ class TestClient(Client):
     ) -> RequestPermissionResponse:
         if self.permission_outcomes:
             return self.permission_outcomes.pop()
-        return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
+        # Default to auto-allow for existing tests that don't explicitly queue permissions
+        return RequestPermissionResponse(
+            outcome=AllowedOutcome(optionId="allow_once", outcome="selected")
+        )
 
     async def writeTextFile(self, params: WriteTextFileRequest) -> WriteTextFileResponse:
         self.files[str(params.path)] = params.content

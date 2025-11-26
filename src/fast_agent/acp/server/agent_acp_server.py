@@ -36,8 +36,10 @@ from acp.stdio import stdio_streams
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_permissions import ACPToolPermissionManager
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -153,6 +155,7 @@ class AgentACPServer(ACPAgent):
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
         skills_directory_override: str | None = None,
+        request_tool_permissions: bool = True,
     ) -> None:
         """
         Initialize the ACP server.
@@ -165,6 +168,7 @@ class AgentACPServer(ACPAgent):
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
+            request_tool_permissions: Whether to request user permission before tool execution (default: True)
         """
         super().__init__()
 
@@ -220,6 +224,13 @@ class AgentACPServer(ACPAgent):
         self._client_capabilities: dict | None = None
         self._client_info: dict | None = None
         self._protocol_version: str | None = None
+
+        # Tool permission configuration
+        self._request_tool_permissions = request_tool_permissions
+        # Shared permission store across sessions (persists to .fast-agent/auths.md)
+        self._permission_store: PermissionStore | None = None
+        # Per-session permission managers
+        self._session_permission_managers: dict[str, ACPToolPermissionManager] = {}
 
         # Determine primary agent using FastAgent default flag when available
         self.primary_agent_name = self._select_primary_agent(primary_instance)
@@ -500,17 +511,43 @@ class AgentACPServer(ACPAgent):
                     session_id=session_id,
                 )
 
+                # Create permission manager for this session (if enabled)
+                permission_handler = None
+                if self._request_tool_permissions:
+                    # Initialize shared permission store on first session (uses cwd from params)
+                    if self._permission_store is None:
+                        from pathlib import Path
+
+                        base_path = Path(params.cwd) if params.cwd else Path.cwd()
+                        self._permission_store = PermissionStore(base_path)
+
+                    permission_handler = ACPToolPermissionManager(
+                        connection=self._connection,
+                        session_id=session_id,
+                        store=self._permission_store,
+                    )
+                    self._session_permission_managers[session_id] = permission_handler
+                    logger.info(
+                        "ACP permission manager created for session",
+                        name="acp_permission_init",
+                        session_id=session_id,
+                    )
+
                 # Register tool handler with agents' aggregators
                 for agent_name, agent in instance.agents.items():
                     if hasattr(agent, "_aggregator"):
                         aggregator = agent._aggregator
                         aggregator._tool_handler = tool_handler
+                        # Also register permission handler if enabled
+                        if permission_handler:
+                            aggregator._permission_handler = permission_handler
 
                         logger.info(
                             "ACP tool handler registered",
                             name="acp_tool_handler_registered",
                             session_id=session_id,
                             agent_name=agent_name,
+                            permissions_enabled=permission_handler is not None,
                         )
 
                     if hasattr(agent, "workflow_telemetry"):
@@ -560,6 +597,7 @@ class AgentACPServer(ACPAgent):
                                 timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
+                                permission_handler=permission_handler,
                             )
 
                             # Inject into agent
@@ -585,6 +623,7 @@ class AgentACPServer(ACPAgent):
                         enable_read=self._client_supports_fs_read,
                         enable_write=self._client_supports_fs_write,
                         tool_handler=tool_handler,
+                        permission_handler=permission_handler,
                     )
                     self._session_filesystem_runtimes[session_id] = filesystem_runtime
 
@@ -1213,6 +1252,9 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_filesystem_runtimes.clear()
+
+            # Clean up permission managers
+            self._session_permission_managers.clear()
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
