@@ -42,6 +42,7 @@ FAST_AGENT_CMD = (
     "passthrough",
     "--name",
     "fast-agent-acp-test",
+    "--no-permissions",  # Disable permission prompts for tool notification tests
 )
 
 

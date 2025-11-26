@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Mapping,
     TypeVar,
@@ -43,6 +44,7 @@ from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, Tool
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
+    from fast_agent.acp.tool_permissions import ToolPermissionRequest, ToolPermissionResponse
     from fast_agent.context import Context
 
 
@@ -164,6 +166,9 @@ class MCPAggregator(ContextDependent):
         name: str | None = None,
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
+        permission_handler: Callable[
+            ["ToolPermissionRequest"], Awaitable["ToolPermissionResponse"]
+        ] | None = None,
         **kwargs,
     ) -> None:
         """
@@ -171,6 +176,7 @@ class MCPAggregator(ContextDependent):
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
         :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
+        :param permission_handler: Optional handler for tool permission requests (e.g., for ACP permission flow).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -186,6 +192,9 @@ class MCPAggregator(ContextDependent):
         # Store tool execution handler for integration with ACP or other protocols
         # Default to NoOpToolExecutionHandler if none provided
         self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+
+        # Store permission handler for tool execution authorization (e.g., ACP permissions)
+        self._permission_handler = permission_handler
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -260,6 +269,20 @@ class MCPAggregator(ContextDependent):
                 self.initialized = False
             except Exception as e:
                 logger.error(f"Error during connection manager cleanup: {e}")
+
+    def set_permission_handler(
+        self,
+        handler: Callable[
+            ["ToolPermissionRequest"], Awaitable["ToolPermissionResponse"]
+        ] | None,
+    ) -> None:
+        """
+        Set the permission handler for tool execution authorization.
+
+        Args:
+            handler: Permission handler function or None to disable permission checks
+        """
+        self._permission_handler = handler
 
     @classmethod
     async def create(
@@ -1245,6 +1268,44 @@ class MCPAggregator(ContextDependent):
                 "agent_name": self.agent_name,
             },
         )
+
+        # Check permission before executing if a handler is configured
+        if self._permission_handler:
+            from fast_agent.acp.tool_permissions import ToolPermissionRequest
+
+            permission_request = ToolPermissionRequest(
+                tool_name=local_tool_name,
+                server_name=server_name,
+                arguments=arguments,
+                tool_call_id=tool_use_id,
+            )
+
+            try:
+                permission_response = await self._permission_handler(permission_request)
+
+                if not permission_response.allowed:
+                    logger.info(
+                        "Tool execution denied by user",
+                        data={
+                            "tool_name": local_tool_name,
+                            "server_name": server_name,
+                            "agent_name": self.agent_name,
+                            "cancelled": permission_response.cancelled,
+                        },
+                    )
+                    return CallToolResult(
+                        isError=True,
+                        content=[
+                            TextContent(
+                                type="text",
+                                text="The User declined this operation.",
+                            )
+                        ],
+                    )
+            except Exception as e:
+                logger.error(f"Error checking tool permission: {e}", exc_info=True)
+                # On error, allow execution to proceed (configurable behavior)
+                # This prevents permission check failures from blocking all tool use
 
         # Notify tool handler that execution is starting
         try:
