@@ -172,9 +172,6 @@ class RichProgressDisplay:
                 details=f" / Elapsed Time {time.strftime('%H:%M:%S', time.gmtime(self._progress.tasks[task_id].elapsed))}",
                 task_name=task_name,
             )
-            for task in self._progress.tasks:
-                if task.id != task_id:
-                    task.visible = False
         elif event.action == ProgressAction.FATAL_ERROR:
             self._progress.update(
                 task_id,
@@ -184,8 +181,5 @@ class RichProgressDisplay:
                 details=f" / {event.details}",
                 task_name=task_name,
             )
-            for task in self._progress.tasks:
-                if task.id != task_id:
-                    task.visible = False
         else:
             self._progress.reset(task_id)

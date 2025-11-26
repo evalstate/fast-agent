@@ -97,7 +97,6 @@ if TYPE_CHECKING:
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
 
-
 class FastAgent:
     """
     A simplified FastAgent implementation that directly creates Agent instances
