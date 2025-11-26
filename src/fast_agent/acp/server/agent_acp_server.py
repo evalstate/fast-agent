@@ -38,6 +38,7 @@ from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_permissions import ACPToolPermissionManager
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -488,8 +489,26 @@ class AgentACPServer(ACPAgent):
             # Create tool progress manager for this session if connection is available
             tool_handler = None
             if self._connection:
-                # Create a progress manager for this session
-                tool_handler = ACPToolProgressManager(self._connection, session_id)
+                # Create permission manager for this session
+                # Permissions are enabled by default
+                permission_manager = ACPToolPermissionManager(
+                    _connection=self._connection,
+                    _session_id=session_id,
+                    _cwd=params.cwd,
+                    _enabled=True,  # Permissions enabled by default
+                )
+
+                logger.info(
+                    "ACP permission manager created for session",
+                    name="acp_permission_manager_init",
+                    session_id=session_id,
+                    cwd=params.cwd,
+                )
+
+                # Create a progress manager for this session with permission manager
+                tool_handler = ACPToolProgressManager(
+                    self._connection, session_id, permission_manager=permission_manager
+                )
                 workflow_telemetry = ToolHandlerWorkflowTelemetry(
                     tool_handler, server_name=self.server_name
                 )

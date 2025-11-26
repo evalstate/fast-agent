@@ -6,6 +6,7 @@ When MCP tools execute and report progress, this module:
 1. Sends initial tool_call notifications to the ACP client
 2. Updates with progress via tool_call_update notifications
 3. Handles status transitions (pending -> in_progress -> completed/failed)
+4. Handles permission requests via ACPToolPermissionManager
 """
 
 import asyncio
@@ -41,6 +42,8 @@ from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespa
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
+    from fast_agent.acp.tool_permissions import ACPToolPermissionManager
+
 logger = get_logger(__name__)
 
 
@@ -53,18 +56,26 @@ class ACPToolProgressManager:
     tools execute and report progress.
 
     Uses the SDK's ToolCallTracker for state management and notification generation.
+    Optionally uses ACPToolPermissionManager for permission requests.
     """
 
-    def __init__(self, connection: "AgentSideConnection", session_id: str) -> None:
+    def __init__(
+        self,
+        connection: "AgentSideConnection",
+        session_id: str,
+        permission_manager: "ACPToolPermissionManager | None" = None,
+    ) -> None:
         """
         Initialize the progress manager.
 
         Args:
             connection: The ACP connection to send notifications on
             session_id: The ACP session ID for this manager
+            permission_manager: Optional permission manager for tool execution authorization
         """
         self._connection = connection
         self._session_id = session_id
+        self._permission_manager = permission_manager
         # Use SDK's ToolCallTracker for state management
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
@@ -74,6 +85,51 @@ class ACPToolProgressManager:
         # Track pending stream notification tasks
         self._stream_tasks: dict[str, asyncio.Task] = {}  # tool_use_id → task
         self._lock = asyncio.Lock()
+
+    def set_permission_manager(self, permission_manager: "ACPToolPermissionManager") -> None:
+        """
+        Set the permission manager for tool authorization.
+
+        Args:
+            permission_manager: The permission manager to use
+        """
+        self._permission_manager = permission_manager
+
+    async def on_tool_permission(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """
+        Called before tool execution to check/request permission.
+
+        Implements ToolExecutionHandler.on_tool_permission protocol method.
+
+        Args:
+            tool_name: Name of the tool being called
+            server_name: Name of the MCP server providing the tool
+            arguments: Tool arguments
+            tool_use_id: LLM's tool use ID (for matching with stream events)
+
+        Returns:
+            Tuple of (allowed, error_message).
+            If allowed is False, error_message describes why.
+        """
+        # If no permission manager, allow all by default
+        if not self._permission_manager:
+            return True, None
+
+        # Request permission via the manager
+        response = await self._permission_manager.request_permission(
+            tool_name=tool_name,
+            server_name=server_name,
+            arguments=arguments,
+            tool_call_id=tool_use_id,
+        )
+
+        return response.allowed, response.error_message
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """

@@ -1246,6 +1246,39 @@ class MCPAggregator(ContextDependent):
             },
         )
 
+        # Check permission before executing the tool
+        try:
+            allowed, error_message = await self._tool_handler.on_tool_permission(
+                local_tool_name, server_name, arguments, tool_use_id
+            )
+            if not allowed:
+                logger.info(
+                    f"Tool execution denied: {server_name}/{local_tool_name}",
+                    name="tool_permission_denied",
+                    reason=error_message,
+                )
+                return CallToolResult(
+                    isError=True,
+                    content=[
+                        TextContent(
+                            type="text",
+                            text=error_message or "The User declined this operation",
+                        )
+                    ],
+                )
+        except Exception as e:
+            logger.error(f"Error checking tool permission: {e}", exc_info=True)
+            # On error, deny by default with specific message
+            return CallToolResult(
+                isError=True,
+                content=[
+                    TextContent(
+                        type="text",
+                        text="An error occurred requesting permission for the call",
+                    )
+                ],
+            )
+
         # Notify tool handler that execution is starting
         try:
             tool_call_id = await self._tool_handler.on_tool_start(
@@ -1255,6 +1288,7 @@ class MCPAggregator(ContextDependent):
             logger.error(f"Error in tool start handler: {e}", exc_info=True)
             # Generate fallback ID if handler fails
             import uuid
+
             tool_call_id = str(uuid.uuid4())
 
         tracer = trace.get_tracer(__name__)

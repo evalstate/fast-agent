@@ -50,6 +50,8 @@ FAST_AGENT_CMD = (
 async def test_acp_tool_call_notifications() -> None:
     """Test that tool calls generate appropriate ACP notifications."""
     client = TestClient()
+    # Queue permission response so tool execution proceeds
+    client.queue_permission_selected("allow_once")
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize
@@ -124,6 +126,8 @@ async def test_acp_tool_call_notifications() -> None:
 async def test_acp_tool_progress_updates() -> None:
     """Test that tool progress updates are sent via tool_call_update notifications."""
     client = TestClient()
+    # Queue permission response so tool execution proceeds
+    client.queue_permission_selected("allow_once")
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize
@@ -178,6 +182,8 @@ async def test_acp_tool_progress_updates() -> None:
 async def test_acp_tool_kinds_inferred() -> None:
     """Test that tool kinds are properly inferred from tool names."""
     client = TestClient()
+    # Queue permission response so tool execution proceeds
+    client.queue_permission_selected("allow_once")
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize

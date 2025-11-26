@@ -19,6 +19,28 @@ class ToolExecutionHandler(Protocol):
     request permissions, or send notifications (e.g., for ACP).
     """
 
+    async def on_tool_permission(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """
+        Called before tool execution to check/request permission.
+
+        Args:
+            tool_name: Name of the tool being called
+            server_name: Name of the MCP server providing the tool
+            arguments: Tool arguments
+            tool_use_id: LLM's tool use ID (for matching with stream events)
+
+        Returns:
+            Tuple of (allowed, error_message).
+            If allowed is False, error_message should describe why.
+        """
+        ...
+
     async def on_tool_start(
         self,
         tool_name: str,
@@ -80,6 +102,16 @@ class ToolExecutionHandler(Protocol):
 class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
 
+    async def on_tool_permission(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None,
+        tool_use_id: str | None = None,
+    ) -> tuple[bool, str | None]:
+        """No-op - always allow by default."""
+        return True, None
+
     async def on_tool_start(
         self,
         tool_name: str,
@@ -89,6 +121,7 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> str:
         """Generate a simple UUID for tracking."""
         import uuid
+
         return str(uuid.uuid4())
 
     async def on_tool_progress(
