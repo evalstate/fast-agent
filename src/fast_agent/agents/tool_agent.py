@@ -183,7 +183,11 @@ class ToolAgent(LlmAgent):
             duration_ms = round((end_time - start_time) * 1000, 2)
 
             tool_results[correlation_id] = result
-            tool_timings[correlation_id] = duration_ms
+            # Store timing info (transport_channel not available for local tools)
+            tool_timings[correlation_id] = {
+                "timing_ms": duration_ms,
+                "transport_channel": None
+            }
             self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms)
 
         return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
@@ -207,7 +211,7 @@ class ToolAgent(LlmAgent):
         self,
         tool_results: dict[str, CallToolResult],
         *,
-        tool_timings: dict[str, float] | None = None,
+        tool_timings: dict[str, dict[str, float | str | None]] | None = None,
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
         import json
