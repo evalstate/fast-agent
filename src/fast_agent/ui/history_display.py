@@ -241,8 +241,19 @@ def _extract_timing_ms(message: PromptMessageExtended) -> float | None:
         return None
 
 
-def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, float]:
-    """Extract tool timing data from message channels."""
+def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, dict[str, float | str | None]]:
+    """Extract tool timing data from message channels.
+
+    Returns a dict mapping tool_id to timing info:
+    {
+        "tool_id": {
+            "timing_ms": 123.45,
+            "transport_channel": "post-sse"
+        }
+    }
+
+    Handles backward compatibility with old format where values were just floats.
+    """
     channels = getattr(message, "channels", None)
     if not channels:
         return {}
@@ -256,7 +267,20 @@ def _extract_tool_timings(message: PromptMessageExtended) -> dict[str, float]:
         return {}
 
     try:
-        return json.loads(timing_text)
+        raw_data = json.loads(timing_text)
+        # Normalize to new format for backward compatibility
+        normalized = {}
+        for tool_id, value in raw_data.items():
+            if isinstance(value, dict):
+                # New format - already has timing_ms and transport_channel
+                normalized[tool_id] = value
+            else:
+                # Old format - value is just a float (timing in ms)
+                normalized[tool_id] = {
+                    "timing_ms": value,
+                    "transport_channel": None
+                }
+        return normalized
     except (json.JSONDecodeError, TypeError):
         return {}
 
@@ -333,8 +357,10 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                 detail = _format_tool_detail("result→", [tool_name])
                 is_error = getattr(result, "isError", False)
                 tool_result_has_error = tool_result_has_error or is_error
-                # Get timing for this specific tool call
-                tool_timing = tool_timings.get(call_id)
+                # Get timing info for this specific tool call
+                tool_timing_info = tool_timings.get(call_id)
+                timing_ms = tool_timing_info.get("timing_ms") if tool_timing_info else None
+                transport_channel = tool_timing_info.get("transport_channel") if tool_timing_info else None
                 result_rows.append(
                     {
                         "role": "tool",
@@ -347,7 +373,8 @@ def _build_history_rows(history: Sequence[PromptMessageExtended]) -> list[dict]:
                         "hide_summary": False,
                         "include_in_timeline": False,
                         "is_error": is_error,
-                        "timing_ms": tool_timing,
+                        "timing_ms": timing_ms,
+                        "transport_channel": transport_channel,
                     }
                 )
             if role == "user":

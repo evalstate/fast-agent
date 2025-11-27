@@ -89,6 +89,38 @@ class ConsoleDisplay:
         return enabled, streaming_mode
 
     @staticmethod
+    def _looks_like_markdown(text: str) -> bool:
+        """
+        Heuristic to detect markdown-ish content.
+
+        We keep this lightweight: focus on common structures that benefit from markdown
+        rendering without requiring strict syntax validation.
+        """
+        import re
+
+        if not text or len(text) < 3:
+            return False
+
+        if "```" in text:
+            return True
+
+        markdown_patterns = [
+            r"^#{1,6}\s+\S",  # headings
+            r"^\s*[-*+]\s+\S",  # unordered list
+            r"^\s*\d+\.\s+\S",  # ordered list
+            r"`[^`]+`",  # inline code
+            r"\*\*[^*]+\*\*",
+            r"__[^_]+__",
+            r"^\s*>\s+\S",  # blockquote
+            r"\[.+?\]\(.+?\)",  # links
+            r"!\[.*?\]\(.+?\)",  # images
+            r"^\s*\|.+\|\s*$",  # simple tables
+            r"^\s*[-*_]{3,}\s*$",  # horizontal rules
+        ]
+
+        return any(re.search(pattern, text, re.MULTILINE) for pattern in markdown_patterns)
+
+    @staticmethod
     def _format_elapsed(elapsed: float) -> str:
         """Format elapsed seconds for display."""
         if elapsed < 0:
@@ -233,7 +265,7 @@ class ConsoleDisplay:
                     console.console.print(syntax, markup=self._markup)
                 elif check_markdown_markers:
                     # Check for markdown markers before deciding to use markdown rendering
-                    if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                    if self._looks_like_markdown(content):
                         # Has markdown markers - render as markdown with escaping
                         prepared_content = prepare_markdown_content(content, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
@@ -253,7 +285,7 @@ class ConsoleDisplay:
                             console.console.print(content, markup=self._markup)
                 else:
                     # Check if it looks like markdown
-                    if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                    if self._looks_like_markdown(content):
                         # Escape HTML/XML tags while preserving code blocks
                         prepared_content = prepare_markdown_content(content, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
@@ -278,7 +310,7 @@ class ConsoleDisplay:
             plain_text = content.plain
 
             # Check if the plain text contains markdown markers
-            if any(marker in plain_text for marker in ["##", "**", "*", "`", "---", "###"]):
+            if self._looks_like_markdown(plain_text):
                 # Split the Text object into segments
                 # We need to handle the main content (which may have markdown)
                 # and any styled segments that were appended
@@ -295,9 +327,7 @@ class ConsoleDisplay:
                     markdown_part = plain_text[:markdown_end]
 
                     # Check if the first part has markdown
-                    if any(
-                        marker in markdown_part for marker in ["##", "**", "*", "`", "---", "###"]
-                    ):
+                    if self._looks_like_markdown(markdown_part):
                         # Render markdown part
                         prepared_content = prepare_markdown_content(markdown_part, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
