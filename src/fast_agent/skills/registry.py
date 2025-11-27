@@ -69,8 +69,9 @@ class SkillRegistry:
                 adjusted_manifest = replace(manifest, relative_path=relative_path)
                 adjusted_manifests.append(adjusted_manifest)
             except ValueError:
-                # If we can't compute relative path, keep the original
-                adjusted_manifests.append(manifest)
+                # Path is outside workspace - clear relative_path so absolute path is used
+                adjusted_manifest = replace(manifest, relative_path=None)
+                adjusted_manifests.append(adjusted_manifest)
 
         return adjusted_manifests
 

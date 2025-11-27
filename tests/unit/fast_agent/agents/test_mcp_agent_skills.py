@@ -6,7 +6,7 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
-from fast_agent.skills.registry import SkillRegistry
+from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
 
 
 def create_skill(directory: Path, name: str, description: str = "desc", body: str = "Body") -> None:
@@ -89,3 +89,32 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
 
     mock_warning.assert_called_once()
     assert "system prompt does not include {{agentSkills}}" in mock_warning.call_args[0][0]
+
+
+def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:
+    """When skills dir is outside base_dir, absolute paths should be used in prompts."""
+    # Create skills in tmp_path (simulates /tmp/foo)
+    skills_root = tmp_path / "external_skills"
+    create_skill(skills_root, "external", description="External skill")
+
+    # Use a different base_dir that doesn't contain skills_root
+    base_dir = tmp_path / "workspace"
+    base_dir.mkdir()
+
+    # Create registry with base_dir different from skills directory
+    registry = SkillRegistry(base_dir=base_dir, override_directory=skills_root)
+    manifests = registry.load_manifests()
+
+    assert len(manifests) == 1
+    manifest = manifests[0]
+
+    # relative_path should be None since skills_root is outside base_dir
+    assert manifest.relative_path is None
+
+    # The absolute path should still be set
+    assert manifest.path is not None
+    assert manifest.path.is_absolute()
+
+    # format_skills_for_prompt should use the absolute path
+    prompt = format_skills_for_prompt(manifests)
+    assert f'path="{manifest.path}"' in prompt
