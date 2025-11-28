@@ -32,9 +32,11 @@ class SkillRegistry:
     ) -> None:
         self._base_dir = base_dir or Path.cwd()
         self._directory: Path | None = None
+        self._original_override_directory: Path | None = None  # Store original before resolution
         self._override_failed: bool = False
         self._errors: list[dict[str, str]] = []
         if override_directory:
+            self._original_override_directory = override_directory
             resolved = self._resolve_directory(override_directory)
             if resolved and resolved.exists() and resolved.is_dir():
                 self._directory = resolved
@@ -69,8 +71,18 @@ class SkillRegistry:
                 adjusted_manifest = replace(manifest, relative_path=relative_path)
                 adjusted_manifests.append(adjusted_manifest)
             except ValueError:
-                # Path is outside workspace - clear relative_path so absolute path is used
-                adjusted_manifest = replace(manifest, relative_path=None)
+                # Path is outside workspace - compute relative to skills directory
+                # and prepend the original override path (e.g., ../skills/my-skill/SKILL.md)
+                if self._original_override_directory is not None:
+                    try:
+                        skill_relative = manifest.path.relative_to(self._directory)
+                        relative_path = self._original_override_directory / skill_relative
+                        adjusted_manifest = replace(manifest, relative_path=relative_path)
+                    except ValueError:
+                        # Fallback to absolute path if we can't compute relative
+                        adjusted_manifest = replace(manifest, relative_path=None)
+                else:
+                    adjusted_manifest = replace(manifest, relative_path=None)
                 adjusted_manifests.append(adjusted_manifest)
 
         return adjusted_manifests

@@ -92,7 +92,7 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
 
 
 def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:
-    """When skills dir is outside base_dir, absolute paths should be used in prompts."""
+    """When skills dir is outside base_dir with absolute override, absolute paths should be used."""
     # Create skills in tmp_path (simulates /tmp/foo)
     skills_root = tmp_path / "external_skills"
     create_skill(skills_root, "external", description="External skill")
@@ -101,20 +101,49 @@ def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:
     base_dir = tmp_path / "workspace"
     base_dir.mkdir()
 
-    # Create registry with base_dir different from skills directory
+    # Create registry with base_dir different from skills directory (absolute override)
     registry = SkillRegistry(base_dir=base_dir, override_directory=skills_root)
     manifests = registry.load_manifests()
 
     assert len(manifests) == 1
     manifest = manifests[0]
 
-    # relative_path should be None since skills_root is outside base_dir
-    assert manifest.relative_path is None
+    # relative_path should be computed from the override directory
+    # Since override_directory was absolute, it stays as the absolute path prefix
+    assert manifest.relative_path is not None
+    assert str(manifest.relative_path).endswith("external/SKILL.md")
 
     # The absolute path should still be set
     assert manifest.path is not None
     assert manifest.path.is_absolute()
 
-    # format_skills_for_prompt should use the absolute path
+    # format_skills_for_prompt should use the relative path from override
     prompt = format_skills_for_prompt(manifests)
-    assert f'path="{manifest.path}"' in prompt
+    assert f'path="{manifest.relative_path}"' in prompt
+
+
+def test_skills_relative_dir_outside_cwd(tmp_path: Path) -> None:
+    """When skills dir is specified with relative path like ../skills, preserve that path."""
+    # Create workspace and external skills directories as siblings
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "my-skill", description="My skill")
+
+    # Use relative path like ../skills
+    override_dir = Path("../skills")
+
+    # Create registry with workspace as base_dir and relative override
+    registry = SkillRegistry(base_dir=workspace, override_directory=override_dir)
+    manifests = registry.load_manifests()
+
+    assert len(manifests) == 1
+    manifest = manifests[0]
+
+    # relative_path should preserve the original relative path prefix
+    assert manifest.relative_path is not None
+    assert str(manifest.relative_path) == "../skills/my-skill/SKILL.md"
+
+    # format_skills_for_prompt should use the relative path
+    prompt = format_skills_for_prompt(manifests)
+    assert 'path="../skills/my-skill/SKILL.md"' in prompt

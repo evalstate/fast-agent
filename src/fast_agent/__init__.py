@@ -30,6 +30,7 @@ from fast_agent.config import (
 
 # Prompt helpers (safe - no heavy dependencies)
 from fast_agent.mcp.prompt import Prompt
+from fast_agent.mcp.prompts.prompt_load import load_prompt
 
 # Type definitions and enums (safe - no dependencies)
 from fast_agent.types import (
@@ -153,6 +154,7 @@ __all__ = [
     "extract_last",
     # Prompt helpers (eagerly loaded)
     "Prompt",
+    "load_prompt",
     # Agents (lazy loaded)
     "LlmAgent",
     "LlmDecorator",
