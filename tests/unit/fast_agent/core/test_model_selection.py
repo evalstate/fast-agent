@@ -4,8 +4,6 @@ Tests for model selection source detection logic.
 
 import os
 
-import pytest
-
 from fast_agent.core.direct_factory import get_default_model_source
 
 
