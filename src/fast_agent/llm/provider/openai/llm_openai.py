@@ -20,7 +20,7 @@ from openai.types.chat import (
 )
 from pydantic_core import from_json
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -207,10 +207,13 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self,
         stream,
         model: str,
-    ):
+    ) -> tuple[Any, list[str]]:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
+        reasoning_active = False
+        reasoning_segments: list[str] = []
+        reasoning_mode = ModelDatabase.get_reasoning(model)
 
         # For providers/models that emit non-OpenAI deltas, fall back to manual accumulation
         stream_mode = ModelDatabase.get_stream_mode(model)
@@ -233,13 +236,21 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Process the stream chunks
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
-
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
             if chunk.choices:
                 choice = chunk.choices[0]
                 delta = choice.delta
+                reasoning_text = self._extract_reasoning_text(
+                    getattr(delta, "reasoning_content", None)
+                )
+                if reasoning_text and reasoning_mode == "tags":
+                    if not reasoning_active:
+                        self._notify_stream_listeners("<think>")
+                        reasoning_active = True
+                    self._notify_stream_listeners(reasoning_text)
+                    reasoning_segments.append(reasoning_text)
 
                 # Handle tool call streaming
                 if delta.tool_calls:
@@ -317,6 +328,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
                 # Handle text content streaming
                 if delta.content:
+                    if reasoning_active:
+                        self._notify_stream_listeners("</think>")
+                        reasoning_active = False
+
                     content = delta.content
                     # Use base class method for token estimation and progress emission
                     estimated_tokens = self._update_streaming_progress(
@@ -366,6 +381,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Get the final completion with usage data (may include structured output parsing)
             final_completion = state.get_final_completion()
 
+        if reasoning_active:
+            self._notify_stream_listeners("</think>")
+            reasoning_active = False
+
         # Log final usage information
         if hasattr(final_completion, "usage") and final_completion.usage:
             actual_tokens = final_completion.usage.completion_tokens
@@ -395,7 +414,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             model=model,
         )
 
-        return final_completion
+        return final_completion, reasoning_segments
 
     def _normalize_role(self, role: str | None) -> str:
         """Ensure the role string matches MCP expectations."""
@@ -433,13 +452,16 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self,
         stream,
         model: str,
-    ):
+    ) -> tuple[Any, list[str]]:
         """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
 
         from openai.types.chat import ChatCompletionMessageToolCall
 
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
+        reasoning_active = False
+        reasoning_segments: list[str] = []
+        reasoning_mode = ModelDatabase.get_reasoning(model)
 
         # Manual accumulation of response data
         accumulated_content = ""
@@ -457,11 +479,20 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Process the stream chunks manually
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
-
             # Process streaming events for tool calls
             if chunk.choices:
                 choice = chunk.choices[0]
                 delta = choice.delta
+
+                reasoning_text = self._extract_reasoning_text(
+                    getattr(delta, "reasoning_content", None)
+                )
+                if reasoning_text and reasoning_mode == "tags":
+                    if not reasoning_active:
+                        self._notify_stream_listeners("<think>")
+                        reasoning_active = True
+                    self._notify_stream_listeners(reasoning_text)
+                    reasoning_segments.append(reasoning_text)
 
                 # Handle tool call streaming
                 if delta.tool_calls:
@@ -537,6 +568,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
                 # Handle text content streaming
                 if delta.content:
+                    if reasoning_active:
+                        self._notify_stream_listeners("</think>")
+                        reasoning_active = False
+
                     content = delta.content
                     accumulated_content += content
                     # Use base class method for token estimation and progress emission
@@ -652,6 +687,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             audio=None,
         )
 
+        if reasoning_active:
+            self._notify_stream_listeners("</think>")
+            reasoning_active = False
+
         from types import SimpleNamespace
 
         final_completion = SimpleNamespace()
@@ -686,7 +725,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             model=model,
         )
 
-        return final_completion
+        return final_completion, reasoning_segments
 
     async def _openai_completion(
         self,
@@ -750,7 +789,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             async with self._openai_client() as client:
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
-                response = await self._process_stream(stream, model_name)
+                response, streamed_reasoning = await self._process_stream(stream, model_name)
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             self.logger.info(f"OpenAI completion cancelled: {reason}")
@@ -762,6 +801,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
             return self._stream_failure_response(error, model_name)
+        except Exception:
+            streamed_reasoning = []
+            raise
         # Track usage if response is valid and has usage data
         if (
             hasattr(response, "usage")
@@ -848,8 +890,16 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         self._log_chat_finished(model=self.default_request_params.model)
 
-        return Prompt.assistant(
-            *response_content_blocks, stop_reason=stop_reason, tool_calls=requested_tool_calls
+        reasoning_blocks: list[ContentBlock] | None = None
+        if streamed_reasoning:
+            reasoning_blocks = [TextContent(type="text", text="".join(streamed_reasoning))]
+
+        return PromptMessageExtended(
+            role="assistant",
+            content=response_content_blocks,
+            tool_calls=requested_tool_calls,
+            channels={REASONING: reasoning_blocks} if reasoning_blocks else None,
+            stop_reason=stop_reason,
         )
 
     def _stream_failure_response(self, error: APIError, model_name: str) -> PromptMessageExtended:
@@ -959,6 +1009,52 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             base_args, request_params, self.OPENAI_EXCLUDE_FIELDS.union(self.BASE_EXCLUDE_FIELDS)
         )
         return arguments
+
+    @staticmethod
+    def _extract_reasoning_text(reasoning_content: Any) -> str:
+        """Extract text from provider-specific reasoning content payloads, with debug tracing."""
+        if not reasoning_content:
+            return ""
+
+        parts: list[str] = []
+        summary: list[dict[str, Any]] = []
+        for item in reasoning_content:
+            text = None
+            try:
+                text = getattr(item, "text", None)
+            except Exception:
+                text = None
+
+            keys: list[str] = []
+            if hasattr(item, "model_dump"):
+                try:
+                    keys = list(item.model_dump(exclude_none=True).keys())  # type: ignore[arg-type]
+                except Exception:
+                    keys = []
+            elif isinstance(item, dict):
+                keys = list(item.keys())
+
+            if text is None and isinstance(item, dict):
+                text = item.get("text")
+
+            if text is None and item is not None:
+                text = str(item)
+
+            summary.append(
+                {
+                    "type": type(item).__name__,
+                    "len": len(text) if text else 0,
+                    "keys": keys[:5],
+                }
+            )
+
+            if text:
+                parts.append(text)
+
+        extracted = "".join(parts)
+        if extracted.strip() == "":
+            return ""
+        return extracted
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
