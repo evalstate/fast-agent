@@ -5,9 +5,89 @@ Provides a clean interface for hooking into tool execution lifecycle,
 similar to how elicitation handlers work.
 """
 
-from typing import Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import Any, Protocol, runtime_checkable
 
 from mcp.types import ContentBlock
+
+
+@dataclass
+class ToolPermissionCheckResult:
+    """
+    Result of a permission check for tool execution.
+
+    Used to communicate the outcome of a permission check from the
+    ToolPermissionHandler to the MCP aggregator.
+    """
+
+    allowed: bool
+    """Whether the tool execution is permitted."""
+
+    error_message: str | None = None
+    """Optional error message to return if not allowed."""
+
+    def __bool__(self) -> bool:
+        """Allow boolean evaluation for simple checks."""
+        return self.allowed
+
+    @classmethod
+    def allow(cls) -> "ToolPermissionCheckResult":
+        """Create a result that permits execution."""
+        return cls(allowed=True)
+
+    @classmethod
+    def deny(cls, message: str = "Tool execution denied") -> "ToolPermissionCheckResult":
+        """Create a result that denies execution."""
+        return cls(allowed=False, error_message=message)
+
+
+@runtime_checkable
+class ToolPermissionHandler(Protocol):
+    """
+    Protocol for checking tool execution permissions.
+
+    Implementations can hook into tool execution to request user permission
+    before tools are executed (e.g., for ACP permission requests).
+    """
+
+    async def check_permission(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None,
+        tool_call_id: str | None = None,
+    ) -> ToolPermissionCheckResult:
+        """
+        Check if a tool execution is permitted.
+
+        This is called BEFORE tool execution begins. If the result
+        indicates denial, the tool will not be executed and an error
+        result will be returned to the LLM.
+
+        Args:
+            tool_name: Name of the tool to execute
+            server_name: Name of the MCP server providing the tool
+            arguments: Tool arguments
+            tool_call_id: Optional tool call ID for tracking
+
+        Returns:
+            ToolPermissionCheckResult indicating whether to proceed
+        """
+        ...
+
+
+class NoOpToolPermissionHandler(ToolPermissionHandler):
+    """Default handler that allows all tool executions."""
+
+    async def check_permission(
+        self,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None,
+        tool_call_id: str | None = None,
+    ) -> ToolPermissionCheckResult:
+        """Always allow tool execution."""
+        return ToolPermissionCheckResult.allow()
 
 
 @runtime_checkable

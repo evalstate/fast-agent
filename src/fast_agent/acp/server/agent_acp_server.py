@@ -38,6 +38,7 @@ from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_permissions import ACPPermissionHandlerAdapter, ACPToolPermissionManager
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -153,6 +154,7 @@ class AgentACPServer(ACPAgent):
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
         skills_directory_override: str | None = None,
+        permissions_enabled: bool = True,
     ) -> None:
         """
         Initialize the ACP server.
@@ -165,6 +167,7 @@ class AgentACPServer(ACPAgent):
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
+            permissions_enabled: Whether to request tool execution permissions from the client (default: True)
         """
         super().__init__()
 
@@ -174,6 +177,7 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
+        self._permissions_enabled = permissions_enabled
         # Use provided version or get fast-agent version
         if server_version is None:
             try:
@@ -200,6 +204,9 @@ class AgentACPServer(ACPAgent):
 
         # Filesystem runtime tracking
         self._session_filesystem_runtimes: dict[str, ACPFilesystemRuntime] = {}
+
+        # Permission manager tracking (per session for cwd-specific permission persistence)
+        self._session_permission_managers: dict[str, ACPToolPermissionManager] = {}
 
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
@@ -500,15 +507,39 @@ class AgentACPServer(ACPAgent):
                     session_id=session_id,
                 )
 
-                # Register tool handler with agents' aggregators
+                # Create permission manager for this session
+                # Uses params.cwd for permission persistence in .fast-agent/auths.md
+                permission_manager = ACPToolPermissionManager(
+                    connection=self._connection,
+                    cwd=params.cwd,
+                    permissions_enabled=self._permissions_enabled,
+                )
+                self._session_permission_managers[session_id] = permission_manager
+
+                # Create permission handler adapter for MCP aggregator integration
+                permission_handler = ACPPermissionHandlerAdapter(
+                    permission_manager=permission_manager,
+                    session_id=session_id,
+                )
+
+                logger.info(
+                    "ACP permission manager created for session",
+                    name="acp_permission_manager_init",
+                    session_id=session_id,
+                    permissions_enabled=self._permissions_enabled,
+                    cwd=params.cwd,
+                )
+
+                # Register tool handler and permission handler with agents' aggregators
                 for agent_name, agent in instance.agents.items():
                     if hasattr(agent, "_aggregator"):
                         aggregator = agent._aggregator
                         aggregator._tool_handler = tool_handler
+                        aggregator._permission_handler = permission_handler
 
                         logger.info(
-                            "ACP tool handler registered",
-                            name="acp_tool_handler_registered",
+                            "ACP tool handler and permission handler registered",
+                            name="acp_handlers_registered",
                             session_id=session_id,
                             agent_name=agent_name,
                         )
@@ -1213,6 +1244,9 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_filesystem_runtimes.clear()
+
+            # Clean up permission managers
+            self._session_permission_managers.clear()
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
