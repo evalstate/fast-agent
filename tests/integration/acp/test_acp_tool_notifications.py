@@ -42,6 +42,8 @@ FAST_AGENT_CMD = (
     "passthrough",
     "--name",
     "fast-agent-acp-test",
+    # Disable permissions for these tests as they focus on notifications, not permissions
+    "--no-permissions",
 )
 
 
