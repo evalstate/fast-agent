@@ -3,6 +3,7 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
+import os
 from functools import partial
 from typing import Any, Protocol, TypeVar
 
@@ -81,6 +82,9 @@ class AgentCreatorProtocol(Protocol):
     ) -> AgentDict: ...
 
 
+HARDCODED_DEFAULT_MODEL = "gpt-5-mini.low"
+
+
 def get_model_factory(
     context,
     model: str | None = None,
@@ -92,6 +96,13 @@ def get_model_factory(
     Get model factory using specified or default model.
     Model string is parsed by ModelFactory to determine provider and reasoning effort.
 
+    Precedence (lowest to highest):
+        1. Hardcoded default (gpt-5-mini.low)
+        2. FAST_AGENT_MODEL environment variable
+        3. Config file default_model
+        4. CLI --model argument
+        5. Decorator model parameter
+
     Args:
         context: Application context
         model: Optional model specification string (highest precedence)
@@ -102,8 +113,17 @@ def get_model_factory(
     Returns:
         ModelFactory instance for the specified or default model
     """
-    # Config has lowest precedence
-    model_spec = default_model or context.config.default_model
+    # Hardcoded default has lowest precedence
+    model_spec = HARDCODED_DEFAULT_MODEL
+
+    # Environment variable has next precedence
+    env_model = os.getenv("FAST_AGENT_MODEL")
+    if env_model:
+        model_spec = env_model
+
+    # Config has next precedence
+    if default_model or context.config.default_model:
+        model_spec = default_model or context.config.default_model
 
     # Command line override has next precedence
     if cli_model:
@@ -121,6 +141,33 @@ def get_model_factory(
 
     # Let model factory handle the model string parsing and setup
     return ModelFactory.create_factory(model_spec)
+
+
+def get_default_model_source(
+    config_default_model: str | None = None,
+    cli_model: str | None = None,
+) -> str | None:
+    """
+    Determine the source of the default model selection.
+    Returns "environment variable", "config file", or None (if CLI or hardcoded default).
+
+    This is used to display informational messages about where the model
+    configuration is coming from. Only shows a message for env var or config file,
+    not for explicit CLI usage or the hardcoded system default.
+    """
+    # CLI model is explicit - no message needed
+    if cli_model:
+        return None
+
+    # Check if config file has a default model
+    if config_default_model:
+        return "config file"
+
+    # Check if environment variable is set
+    if os.getenv("FAST_AGENT_MODEL"):
+        return "environment variable"
+
+    return None
 
 
 async def create_agents_by_type(

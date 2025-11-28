@@ -58,6 +58,7 @@ from fast_agent.core.direct_decorators import (
 )
 from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
+    get_default_model_source,
     get_model_factory,
 )
 from fast_agent.core.error_handling import handle_error
@@ -509,6 +510,15 @@ class FastAgent:
         ):
             quiet_mode = True
         cli_model_override = getattr(self.args, "model", None)
+
+        # Store the model source for UI display
+        model_source = get_default_model_source(
+            config_default_model=self.context.config.default_model,
+            cli_model=cli_model_override,
+        )
+        if self.context.config:
+            self.context.config.model_source = model_source  # type: ignore[attr-defined]
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
             try:
