@@ -469,3 +469,319 @@ class TestACPPermissionHandlerAdapter:
 
         assert result.allowed is False
         assert "Connection timeout" in result.error_message
+
+
+class TestACPTerminalRuntimePermissions:
+    """Tests for permission checking in ACPTerminalRuntime."""
+
+    @pytest.fixture
+    def mock_connection(self):
+        """Create a mock ACP connection."""
+        connection = MagicMock()
+        connection._conn = MagicMock()
+        connection._conn.send_request = AsyncMock()
+        return connection
+
+    @pytest.fixture
+    def mock_permission_handler(self):
+        """Create a mock permission handler."""
+        from fast_agent.mcp.tool_execution_handler import ToolPermissionCheckResult
+
+        handler = MagicMock()
+        handler.check_permission = AsyncMock(return_value=ToolPermissionCheckResult.allow())
+        return handler
+
+    @pytest.mark.asyncio
+    async def test_execute_without_permission_handler(self, mock_connection):
+        """Test that execute works without a permission handler."""
+        from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+
+        # Set up the mock to return terminal creation and wait results
+        mock_connection._conn.send_request.side_effect = [
+            {"terminalId": "term-123"},  # terminal/create
+            {"exitCode": 0},  # terminal/wait_for_exit
+            {"output": "Hello, World!", "truncated": False},  # terminal/output
+            None,  # terminal/release
+        ]
+
+        runtime = ACPTerminalRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=None,
+        )
+
+        result = await runtime.execute({"command": "echo 'Hello, World!'"})
+
+        # Should have executed successfully
+        assert result.isError is False
+        assert "Hello, World!" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_execute_with_permission_granted(self, mock_connection, mock_permission_handler):
+        """Test that execute works when permission is granted."""
+        from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+
+        # Set up the mock to return terminal creation and wait results
+        mock_connection._conn.send_request.side_effect = [
+            {"terminalId": "term-123"},  # terminal/create
+            {"exitCode": 0},  # terminal/wait_for_exit
+            {"output": "Success", "truncated": False},  # terminal/output
+            None,  # terminal/release
+        ]
+
+        runtime = ACPTerminalRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.execute({"command": "echo 'Success'"})
+
+        # Should have executed successfully
+        assert result.isError is False
+        # Permission handler should have been called
+        mock_permission_handler.check_permission.assert_called_once()
+        call_kwargs = mock_permission_handler.check_permission.call_args.kwargs
+        assert call_kwargs["tool_name"] == "execute"
+        assert call_kwargs["server_name"] == "acp_terminal"
+
+    @pytest.mark.asyncio
+    async def test_execute_with_permission_denied(self, mock_connection, mock_permission_handler):
+        """Test that execute is blocked when permission is denied."""
+        from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+        from fast_agent.mcp.tool_execution_handler import ToolPermissionCheckResult
+
+        # Set permission handler to deny
+        mock_permission_handler.check_permission.return_value = ToolPermissionCheckResult.deny(
+            "Permission denied for execute tool"
+        )
+
+        runtime = ACPTerminalRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.execute({"command": "rm -rf /"})
+
+        # Should have been denied
+        assert result.isError is True
+        assert "Permission denied" in result.content[0].text
+        # Terminal commands should NOT have been called
+        mock_connection._conn.send_request.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_execute_permission_check_error_denies(self, mock_connection, mock_permission_handler):
+        """Test that permission check errors result in denial (fail-safe)."""
+        from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+
+        # Make permission check raise an exception
+        mock_permission_handler.check_permission.side_effect = Exception("Connection error")
+
+        runtime = ACPTerminalRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.execute({"command": "echo 'test'"})
+
+        # Should have been denied due to error (fail-safe)
+        assert result.isError is True
+        assert "Permission check failed" in result.content[0].text
+        # Terminal commands should NOT have been called
+        mock_connection._conn.send_request.assert_not_called()
+
+
+class TestACPFilesystemRuntimePermissions:
+    """Tests for permission checking in ACPFilesystemRuntime."""
+
+    @pytest.fixture
+    def mock_connection(self):
+        """Create a mock ACP connection."""
+        connection = MagicMock()
+        connection.readTextFile = AsyncMock()
+        connection.writeTextFile = AsyncMock()
+        return connection
+
+    @pytest.fixture
+    def mock_permission_handler(self):
+        """Create a mock permission handler."""
+        from fast_agent.mcp.tool_execution_handler import ToolPermissionCheckResult
+
+        handler = MagicMock()
+        handler.check_permission = AsyncMock(return_value=ToolPermissionCheckResult.allow())
+        return handler
+
+    @pytest.mark.asyncio
+    async def test_read_without_permission_handler(self, mock_connection):
+        """Test that read works without a permission handler."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+
+        # Set up the mock to return file content
+        mock_response = MagicMock()
+        mock_response.content = "File content here"
+        mock_connection.readTextFile.return_value = mock_response
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=None,
+        )
+
+        result = await runtime.read_text_file({"path": "/test/file.txt"})
+
+        # Should have executed successfully
+        assert result.isError is False
+        assert "File content here" in result.content[0].text
+
+    @pytest.mark.asyncio
+    async def test_read_with_permission_granted(self, mock_connection, mock_permission_handler):
+        """Test that read works when permission is granted."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+
+        mock_response = MagicMock()
+        mock_response.content = "Secret file content"
+        mock_connection.readTextFile.return_value = mock_response
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.read_text_file({"path": "/etc/passwd"})
+
+        # Should have executed successfully
+        assert result.isError is False
+        # Permission handler should have been called
+        mock_permission_handler.check_permission.assert_called_once()
+        call_kwargs = mock_permission_handler.check_permission.call_args.kwargs
+        assert call_kwargs["tool_name"] == "read_text_file"
+        assert call_kwargs["server_name"] == "acp_filesystem"
+
+    @pytest.mark.asyncio
+    async def test_read_with_permission_denied(self, mock_connection, mock_permission_handler):
+        """Test that read is blocked when permission is denied."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+        from fast_agent.mcp.tool_execution_handler import ToolPermissionCheckResult
+
+        # Set permission handler to deny
+        mock_permission_handler.check_permission.return_value = ToolPermissionCheckResult.deny(
+            "Permission denied for read_text_file tool"
+        )
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.read_text_file({"path": "/etc/shadow"})
+
+        # Should have been denied
+        assert result.isError is True
+        assert "Permission denied" in result.content[0].text
+        # File read should NOT have been called
+        mock_connection.readTextFile.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_with_permission_denied(self, mock_connection, mock_permission_handler):
+        """Test that write is blocked when permission is denied."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+        from fast_agent.mcp.tool_execution_handler import ToolPermissionCheckResult
+
+        # Set permission handler to deny
+        mock_permission_handler.check_permission.return_value = ToolPermissionCheckResult.deny(
+            "Permission denied for write_text_file tool"
+        )
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.write_text_file({"path": "/etc/passwd", "content": "malicious"})
+
+        # Should have been denied
+        assert result.isError is True
+        assert "Permission denied" in result.content[0].text
+        # File write should NOT have been called
+        mock_connection.writeTextFile.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_write_with_permission_granted(self, mock_connection, mock_permission_handler):
+        """Test that write works when permission is granted."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.write_text_file({"path": "/tmp/test.txt", "content": "Hello"})
+
+        # Should have executed successfully
+        assert result.isError is False
+        # Permission handler should have been called
+        mock_permission_handler.check_permission.assert_called_once()
+        call_kwargs = mock_permission_handler.check_permission.call_args.kwargs
+        assert call_kwargs["tool_name"] == "write_text_file"
+        assert call_kwargs["server_name"] == "acp_filesystem"
+
+    @pytest.mark.asyncio
+    async def test_permission_check_error_denies_read(self, mock_connection, mock_permission_handler):
+        """Test that permission check errors result in denial for read (fail-safe)."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+
+        # Make permission check raise an exception
+        mock_permission_handler.check_permission.side_effect = Exception("Connection error")
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.read_text_file({"path": "/test/file.txt"})
+
+        # Should have been denied due to error (fail-safe)
+        assert result.isError is True
+        assert "Permission check failed" in result.content[0].text
+        # File read should NOT have been called
+        mock_connection.readTextFile.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_permission_check_error_denies_write(self, mock_connection, mock_permission_handler):
+        """Test that permission check errors result in denial for write (fail-safe)."""
+        from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+
+        # Make permission check raise an exception
+        mock_permission_handler.check_permission.side_effect = Exception("Connection error")
+
+        runtime = ACPFilesystemRuntime(
+            connection=mock_connection,
+            session_id="test-session",
+            activation_reason="test",
+            permission_handler=mock_permission_handler,
+        )
+
+        result = await runtime.write_text_file({"path": "/test/file.txt", "content": "test"})
+
+        # Should have been denied due to error (fail-safe)
+        assert result.isError is True
+        assert "Permission check failed" in result.content[0].text
+        # File write should NOT have been called
+        mock_connection.writeTextFile.assert_not_called()

@@ -17,7 +17,7 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
-    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler, ToolPermissionHandler
 
 logger = get_logger(__name__)
 
@@ -40,6 +40,7 @@ class ACPFilesystemRuntime:
         enable_read: bool = True,
         enable_write: bool = True,
         tool_handler: "ToolExecutionHandler | None" = None,
+        permission_handler: "ToolPermissionHandler | None" = None,
     ):
         """
         Initialize the ACP filesystem runtime.
@@ -52,6 +53,7 @@ class ACPFilesystemRuntime:
             enable_read: Whether to enable the read_text_file tool
             enable_write: Whether to enable the write_text_file tool
             tool_handler: Optional tool execution handler for telemetry
+            permission_handler: Optional permission handler for checking tool execution permissions
         """
         self.connection = connection
         self.session_id = session_id
@@ -60,6 +62,7 @@ class ACPFilesystemRuntime:
         self._enable_read = enable_read
         self._enable_write = enable_write
         self._tool_handler = tool_handler
+        self._permission_handler = permission_handler
 
         # Tool definition for reading text files
         self._read_tool = Tool(
@@ -171,6 +174,33 @@ class ACPFilesystemRuntime:
             session_id=self.session_id,
             path=path,
         )
+
+        # Check permissions before execution
+        if self._permission_handler:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    tool_name="read_text_file",
+                    server_name="acp_filesystem",
+                    arguments=arguments,
+                    tool_call_id=tool_use_id,
+                )
+                if not permission_result.allowed:
+                    error_msg = permission_result.error_message or "Permission denied for read_text_file tool"
+                    self.logger.info(
+                        f"Permission denied for read_text_file: {error_msg}",
+                        session_id=self.session_id,
+                    )
+                    return CallToolResult(
+                        content=[text_content(error_msg)],
+                        isError=True,
+                    )
+            except Exception as e:
+                # Fail-safe: DENY on permission check errors
+                self.logger.error(f"Error checking permission: {e}", exc_info=True)
+                return CallToolResult(
+                    content=[text_content(f"Permission check failed: {e}")],
+                    isError=True,
+                )
 
         # Notify tool handler that execution is starting
         tool_call_id = None
@@ -286,6 +316,33 @@ class ACPFilesystemRuntime:
             path=path,
             content_length=len(content),
         )
+
+        # Check permissions before execution
+        if self._permission_handler:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    tool_name="write_text_file",
+                    server_name="acp_filesystem",
+                    arguments=arguments,
+                    tool_call_id=tool_use_id,
+                )
+                if not permission_result.allowed:
+                    error_msg = permission_result.error_message or "Permission denied for write_text_file tool"
+                    self.logger.info(
+                        f"Permission denied for write_text_file: {error_msg}",
+                        session_id=self.session_id,
+                    )
+                    return CallToolResult(
+                        content=[text_content(error_msg)],
+                        isError=True,
+                    )
+            except Exception as e:
+                # Fail-safe: DENY on permission check errors
+                self.logger.error(f"Error checking permission: {e}", exc_info=True)
+                return CallToolResult(
+                    content=[text_content(f"Permission check failed: {e}")],
+                    isError=True,
+                )
 
         # Notify tool handler that execution is starting
         tool_call_id = None
