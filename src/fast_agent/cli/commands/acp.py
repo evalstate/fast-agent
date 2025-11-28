@@ -90,6 +90,11 @@ def run_acp(
         "--instance-scope",
         help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
     ),
+    no_permissions: bool = typer.Option(
+        False,
+        "--no-permissions",
+        help="Disable tool permission requests (allow all tool calls without user confirmation)",
+    ),
 ) -> None:
     """
     Run FastAgent with ACP transport defaults.
@@ -122,6 +127,7 @@ def run_acp(
         port=port,
         tool_description=description,
         instance_scope=instance_scope.value,
+        no_permissions=no_permissions,
     )
 
 

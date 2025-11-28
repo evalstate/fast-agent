@@ -98,6 +98,11 @@ def serve(
         "--instance-scope",
         help="Control how MCP clients receive isolated agent instances (shared, connection, request)",
     ),
+    no_permissions: bool = typer.Option(
+        False,
+        "--no-permissions",
+        help="Disable tool permission requests in ACP mode (allow all tool calls without user confirmation)",
+    ),
 ) -> None:
     """
     Run FastAgent as an MCP server.
@@ -134,4 +139,5 @@ def serve(
         port=port,
         tool_description=description,
         instance_scope=instance_scope.value,
+        no_permissions=no_permissions,
     )

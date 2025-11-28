@@ -43,6 +43,7 @@ from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, Tool
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
+    from fast_agent.acp.tool_permissions import ToolPermissionHandler
     from fast_agent.context import Context
 
 
@@ -164,6 +165,7 @@ class MCPAggregator(ContextDependent):
         name: str | None = None,
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
+        permission_handler: "ToolPermissionHandler | None" = None,
         **kwargs,
     ) -> None:
         """
@@ -171,6 +173,7 @@ class MCPAggregator(ContextDependent):
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
         :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
+        :param permission_handler: Optional handler for tool permission checks (e.g., for ACP permissions).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -186,6 +189,10 @@ class MCPAggregator(ContextDependent):
         # Store tool execution handler for integration with ACP or other protocols
         # Default to NoOpToolExecutionHandler if none provided
         self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+
+        # Store permission handler for tool execution authorization (ACP permissions)
+        # None means no permission checking (allow all)
+        self._permission_handler: "ToolPermissionHandler | None" = permission_handler
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -1235,6 +1242,55 @@ class MCPAggregator(ContextDependent):
                 isError=True,
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
+
+        # Check permissions before executing tool (if permission handler is set)
+        if self._permission_handler is not None:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    local_tool_name, server_name, arguments, tool_use_id
+                )
+
+                if not permission_result.allowed:
+                    logger.info(
+                        f"Tool execution denied for {server_name}/{local_tool_name}",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "tool_name": local_tool_name,
+                            "server_name": server_name,
+                            "agent_name": self.agent_name,
+                            "permission_denied": True,
+                            "cancelled": permission_result.cancelled,
+                        },
+                    )
+                    if permission_result.cancelled:
+                        return CallToolResult(
+                            isError=True,
+                            content=[TextContent(
+                                type="text",
+                                text=f"Tool execution cancelled: {server_name}/{local_tool_name}",
+                            )],
+                        )
+                    else:
+                        return CallToolResult(
+                            isError=True,
+                            content=[TextContent(
+                                type="text",
+                                text=f"Tool execution denied: {server_name}/{local_tool_name}",
+                            )],
+                        )
+            except Exception as e:
+                # FAIL-SAFE: Default to DENY on any error
+                logger.error(
+                    f"Error checking tool permission, denying execution: {e}",
+                    exc_info=True,
+                )
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(
+                        type="text",
+                        text=f"Tool execution denied due to permission check error: {server_name}/{local_tool_name}",
+                    )],
+                )
 
         logger.info(
             "Requesting tool call",
