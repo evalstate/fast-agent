@@ -5,11 +5,14 @@ Tests for:
 - PermissionStore file persistence
 - PermissionResult factory methods
 - _infer_tool_kind function
+- NoOpToolPermissionChecker
+- ACPToolPermissionManager (using test doubles)
 """
 
 import asyncio
 import tempfile
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -19,7 +22,76 @@ from fast_agent.acp.permission_store import (
     PermissionResult,
     PermissionStore,
 )
-from fast_agent.acp.tool_permissions import _infer_tool_kind
+from fast_agent.acp.tool_permissions import (
+    ACPToolPermissionManager,
+    NoOpToolPermissionChecker,
+    ToolPermissionChecker,
+    _infer_tool_kind,
+)
+
+
+# =============================================================================
+# Test Doubles for ACPToolPermissionManager Testing
+# =============================================================================
+
+
+class FakeOutcome:
+    """Fake outcome object matching ACP schema structure."""
+
+    def __init__(self, outcome: str, optionId: str | None = None):
+        self.outcome = outcome
+        self.optionId = optionId
+
+
+class FakePermissionResponse:
+    """Fake response matching ACP RequestPermissionResponse structure."""
+
+    def __init__(self, option_id: str):
+        if option_id == "cancelled":
+            self.outcome = FakeOutcome(outcome="cancelled", optionId=None)
+        else:
+            self.outcome = FakeOutcome(outcome="selected", optionId=option_id)
+
+
+class FakeAgentSideConnection:
+    """
+    Test double for AgentSideConnection.
+
+    Configure responses via constructor, then use in tests.
+    No mocking - this is a real class designed for testing.
+    """
+
+    def __init__(
+        self,
+        permission_responses: dict[str, str] | None = None,
+        should_raise: Exception | None = None,
+    ):
+        """
+        Args:
+            permission_responses: Map of "server/tool" -> option_id response
+                                  e.g., {"server1/tool1": "allow_always"}
+            should_raise: If set, requestPermission will raise this exception
+        """
+        self._responses = permission_responses or {}
+        self._should_raise = should_raise
+        self.permission_requests: list[Any] = []
+
+    async def requestPermission(self, request: Any) -> FakePermissionResponse:
+        """Fake implementation that returns configured responses."""
+        self.permission_requests.append(request)
+
+        if self._should_raise:
+            raise self._should_raise
+
+        # Extract tool info from request to determine response
+        tool_call = request.toolCall
+        if tool_call:
+            key = tool_call.title  # "server/tool" format
+        else:
+            key = "unknown"
+
+        option_id = self._responses.get(key, "reject_once")
+        return FakePermissionResponse(option_id)
 
 
 class TestPermissionResult:
@@ -273,3 +345,397 @@ class TestInferToolKind:
         assert _infer_tool_kind("READ_FILE") == "read"
         assert _infer_tool_kind("Delete_Item") == "delete"
         assert _infer_tool_kind("EXECUTE_CMD") == "execute"
+
+
+class TestPermissionStoreEdgeCases:
+    """Edge case tests for PermissionStore using real file system."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create a temporary directory for tests."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    @pytest.mark.asyncio
+    async def test_handles_malformed_markdown_file(self, temp_dir: Path) -> None:
+        """Should handle malformed markdown gracefully without crashing."""
+        permissions_file = temp_dir / ".fast-agent" / "auths.md"
+        permissions_file.parent.mkdir(parents=True)
+        permissions_file.write_text("this is not valid markdown table format\nrandom text")
+
+        store = PermissionStore(cwd=temp_dir)
+        result = await store.get("server1", "tool1")
+
+        assert result is None  # Should not crash, just return None
+
+    @pytest.mark.asyncio
+    async def test_handles_invalid_permission_values(self, temp_dir: Path) -> None:
+        """Should skip invalid permission values in file."""
+        permissions_file = temp_dir / ".fast-agent" / "auths.md"
+        permissions_file.parent.mkdir(parents=True)
+        permissions_file.write_text(
+            """# Permissions
+| Server | Tool | Permission |
+|--------|------|------------|
+| server1 | tool1 | invalid_value |
+| server2 | tool2 | allow_always |
+"""
+        )
+
+        store = PermissionStore(cwd=temp_dir)
+
+        # Invalid value should be skipped
+        result1 = await store.get("server1", "tool1")
+        assert result1 is None
+
+        # Valid value should be loaded
+        result2 = await store.get("server2", "tool2")
+        assert result2 == PermissionDecision.ALLOW_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_handles_empty_file(self, temp_dir: Path) -> None:
+        """Should handle empty permissions file."""
+        permissions_file = temp_dir / ".fast-agent" / "auths.md"
+        permissions_file.parent.mkdir(parents=True)
+        permissions_file.write_text("")
+
+        store = PermissionStore(cwd=temp_dir)
+        result = await store.get("server1", "tool1")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_handles_file_with_only_headers(self, temp_dir: Path) -> None:
+        """Should handle file with only table headers."""
+        permissions_file = temp_dir / ".fast-agent" / "auths.md"
+        permissions_file.parent.mkdir(parents=True)
+        permissions_file.write_text(
+            """# Permissions
+| Server | Tool | Permission |
+|--------|------|------------|
+"""
+        )
+
+        store = PermissionStore(cwd=temp_dir)
+        result = await store.get("server1", "tool1")
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_overwrites_existing_permission(self, temp_dir: Path) -> None:
+        """Should overwrite existing permission for same server/tool."""
+        store = PermissionStore(cwd=temp_dir)
+
+        await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
+        await store.set("server1", "tool1", PermissionDecision.REJECT_ALWAYS)
+
+        result = await store.get("server1", "tool1")
+        assert result == PermissionDecision.REJECT_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_handles_special_characters_in_names(self, temp_dir: Path) -> None:
+        """Should handle special characters in server/tool names."""
+        store = PermissionStore(cwd=temp_dir)
+
+        await store.set("server-with-dashes", "tool_with_underscores", PermissionDecision.ALLOW_ALWAYS)
+
+        result = await store.get("server-with-dashes", "tool_with_underscores")
+        assert result == PermissionDecision.ALLOW_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_handles_mixed_valid_invalid_rows(self, temp_dir: Path) -> None:
+        """Should handle files with mix of valid and malformed rows."""
+        permissions_file = temp_dir / ".fast-agent" / "auths.md"
+        permissions_file.parent.mkdir(parents=True)
+        permissions_file.write_text(
+            """# Permissions
+| Server | Tool | Permission |
+|--------|------|------------|
+| server1 | tool1 | allow_always |
+| malformed row without pipes
+| server2 | tool2 | reject_always |
+| incomplete |
+| server3 | tool3 | allow_always |
+"""
+        )
+
+        store = PermissionStore(cwd=temp_dir)
+
+        # Valid rows should be loaded
+        assert await store.get("server1", "tool1") == PermissionDecision.ALLOW_ALWAYS
+        assert await store.get("server2", "tool2") == PermissionDecision.REJECT_ALWAYS
+        assert await store.get("server3", "tool3") == PermissionDecision.ALLOW_ALWAYS
+
+
+class TestNoOpToolPermissionChecker:
+    """Tests for NoOpToolPermissionChecker - always allows."""
+
+    @pytest.mark.asyncio
+    async def test_always_allows_any_tool(self) -> None:
+        """Should always return allowed=True regardless of input."""
+        checker = NoOpToolPermissionChecker()
+
+        result = await checker.check_permission(
+            tool_name="dangerous_delete_everything",
+            server_name="any_server",
+            arguments={"recursive": True, "force": True},
+        )
+
+        assert result.allowed is True
+        assert result.remember is False
+
+    @pytest.mark.asyncio
+    async def test_allows_with_no_arguments(self) -> None:
+        """Should allow when arguments are None."""
+        checker = NoOpToolPermissionChecker()
+
+        result = await checker.check_permission(
+            tool_name="some_tool",
+            server_name="some_server",
+            arguments=None,
+        )
+
+        assert result.allowed is True
+
+    @pytest.mark.asyncio
+    async def test_allows_with_empty_arguments(self) -> None:
+        """Should allow when arguments are empty dict."""
+        checker = NoOpToolPermissionChecker()
+
+        result = await checker.check_permission(
+            tool_name="some_tool",
+            server_name="some_server",
+            arguments={},
+        )
+
+        assert result.allowed is True
+
+    def test_implements_protocol(self) -> None:
+        """Should implement ToolPermissionChecker protocol."""
+        checker = NoOpToolPermissionChecker()
+        assert isinstance(checker, ToolPermissionChecker)
+
+
+class TestACPToolPermissionManager:
+    """Tests for ACPToolPermissionManager using test doubles."""
+
+    @pytest.fixture
+    def temp_dir(self):
+        """Create a temporary directory for tests."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield Path(tmpdir)
+
+    @pytest.mark.asyncio
+    async def test_uses_stored_allow_always_without_client_call(self, temp_dir: Path) -> None:
+        """Should return allowed without calling client if store has allow_always."""
+        # Pre-populate the store
+        store = PermissionStore(cwd=temp_dir)
+        await store.set("server1", "tool1", PermissionDecision.ALLOW_ALWAYS)
+
+        connection = FakeAgentSideConnection()
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            store=store,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is True
+        assert len(connection.permission_requests) == 0  # No client call
+
+    @pytest.mark.asyncio
+    async def test_uses_stored_reject_always_without_client_call(self, temp_dir: Path) -> None:
+        """Should return rejected without calling client if store has reject_always."""
+        store = PermissionStore(cwd=temp_dir)
+        await store.set("server1", "tool1", PermissionDecision.REJECT_ALWAYS)
+
+        connection = FakeAgentSideConnection()
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            store=store,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is False
+        assert len(connection.permission_requests) == 0
+
+    @pytest.mark.asyncio
+    async def test_requests_from_client_when_not_stored(self, temp_dir: Path) -> None:
+        """Should call client when no stored decision exists."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1", {"arg": "value"})
+
+        assert result.allowed is True
+        assert result.remember is False
+        assert len(connection.permission_requests) == 1
+
+    @pytest.mark.asyncio
+    async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:
+        """Should persist allow_always decisions."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_always"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is True
+        assert result.remember is True
+
+        # Verify persisted
+        store = PermissionStore(cwd=temp_dir)
+        stored = await store.get("server1", "tool1")
+        assert stored == PermissionDecision.ALLOW_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_persists_reject_always_to_store(self, temp_dir: Path) -> None:
+        """Should persist reject_always decisions."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "reject_always"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is False
+        assert result.remember is True
+
+        # Verify persisted
+        store = PermissionStore(cwd=temp_dir)
+        stored = await store.get("server1", "tool1")
+        assert stored == PermissionDecision.REJECT_ALWAYS
+
+    @pytest.mark.asyncio
+    async def test_handles_cancelled_response(self, temp_dir: Path) -> None:
+        """Should handle cancelled permission requests."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "cancelled"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is False
+        assert result.is_cancelled is True
+
+    @pytest.mark.asyncio
+    async def test_fail_safe_denies_on_connection_error(self, temp_dir: Path) -> None:
+        """FAIL-SAFE: Should DENY when client communication fails."""
+        connection = FakeAgentSideConnection(
+            should_raise=Exception("Connection failed")
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is False  # FAIL-SAFE
+
+    @pytest.mark.asyncio
+    async def test_session_cache_avoids_repeated_client_calls(self, temp_dir: Path) -> None:
+        """Should cache allow_always in session to avoid repeated client calls."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_always"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        # First call - goes to client
+        await manager.check_permission("tool1", "server1")
+        assert len(connection.permission_requests) == 1
+
+        # Second call - should use cache (either session or store)
+        await manager.check_permission("tool1", "server1")
+        assert len(connection.permission_requests) == 1  # Still 1, not 2
+
+    @pytest.mark.asyncio
+    async def test_clears_session_cache(self, temp_dir: Path) -> None:
+        """Should be able to clear session cache."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_always"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        await manager.check_permission("tool1", "server1")
+        await manager.clear_session_cache()
+
+        # After clearing, should still use persisted store (not call client again)
+        await manager.check_permission("tool1", "server1")
+        assert len(connection.permission_requests) == 1  # Store has it
+
+    @pytest.mark.asyncio
+    async def test_reject_once_does_not_persist(self, temp_dir: Path) -> None:
+        """reject_once should not be persisted to store."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "reject_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is False
+        assert result.remember is False
+
+        # Verify NOT persisted
+        store = PermissionStore(cwd=temp_dir)
+        stored = await store.get("server1", "tool1")
+        assert stored is None
+
+    @pytest.mark.asyncio
+    async def test_allow_once_does_not_persist(self, temp_dir: Path) -> None:
+        """allow_once should not be persisted to store."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        result = await manager.check_permission("tool1", "server1")
+
+        assert result.allowed is True
+        assert result.remember is False
+
+        # Verify NOT persisted
+        store = PermissionStore(cwd=temp_dir)
+        stored = await store.get("server1", "tool1")
+        assert stored is None

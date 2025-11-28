@@ -8,7 +8,6 @@ according to the ACP protocol.
 from __future__ import annotations
 
 import asyncio
-import os
 import sys
 import tempfile
 from pathlib import Path
@@ -64,6 +63,30 @@ async def _wait_for_notifications(client: TestClient, count: int = 1, timeout: f
         await asyncio.sleep(0.05)
 
 
+def _tool_executed_successfully(client: TestClient) -> bool:
+    """Check if tool executed successfully by examining notifications.
+
+    Look for a tool_call_update notification with status 'completed'.
+    """
+    for n in client.notifications:
+        if hasattr(n.update, "sessionUpdate") and n.update.sessionUpdate == "tool_call_update":
+            if hasattr(n.update, "status") and n.update.status == "completed":
+                return True
+    return False
+
+
+def _tool_was_denied(client: TestClient) -> bool:
+    """Check if tool execution was denied by examining notifications.
+
+    Look for a tool_call_update notification with status 'failed'.
+    """
+    for n in client.notifications:
+        if hasattr(n.update, "sessionUpdate") and n.update.sessionUpdate == "tool_call_update":
+            if hasattr(n.update, "status") and n.update.status == "failed":
+                return True
+    return False
+
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_permission_request_sent_when_tool_called() -> None:
@@ -99,9 +122,12 @@ async def test_permission_request_sent_when_tool_called() -> None:
 
         # The tool should have been denied (permission cancelled)
         assert prompt_response.stopReason == END_TURN
-        # Response should contain permission denied error
-        response_text = prompt_response.message[0].text if prompt_response.message else ""
-        assert "Permission" in response_text or "denied" in response_text.lower() or "cancelled" in response_text.lower()
+
+        # Wait for notifications to be received
+        await _wait_for_notifications(client, count=2, timeout=3.0)
+
+        # Tool should not have executed successfully (permission was cancelled)
+        assert not _tool_executed_successfully(client), "Tool should not have executed when permission cancelled"
 
 
 @pytest.mark.integration
@@ -140,9 +166,12 @@ async def test_allow_once_permits_execution_without_persistence() -> None:
 
             # The tool should have executed successfully
             assert prompt_response.stopReason == END_TURN
-            response_text = prompt_response.message[0].text if prompt_response.message else ""
-            # Should have success message, not permission denied
-            assert "Successfully completed" in response_text or "1 steps" in response_text
+
+            # Wait for notifications
+            await _wait_for_notifications(client, count=3, timeout=3.0)
+
+            # Tool should have executed successfully
+            assert _tool_executed_successfully(client), "Tool should have executed with allow_once"
 
             # No auths.md file should exist (allow_once doesn't persist)
             auths_file = Path(tmpdir) / ".fast-agent" / "auths.md"
@@ -185,8 +214,12 @@ async def test_allow_always_persists() -> None:
 
             # The tool should have executed successfully
             assert prompt_response.stopReason == END_TURN
-            response_text = prompt_response.message[0].text if prompt_response.message else ""
-            assert "Successfully completed" in response_text or "1 steps" in response_text
+
+            # Wait for notifications
+            await _wait_for_notifications(client, count=3, timeout=3.0)
+
+            # Tool should have executed successfully
+            assert _tool_executed_successfully(client), "Tool should have executed with allow_always"
 
             # auths.md file should exist with allow_always
             auths_file = Path(tmpdir) / ".fast-agent" / "auths.md"
@@ -232,8 +265,12 @@ async def test_reject_once_blocks_without_persistence() -> None:
 
             # The tool should have been rejected
             assert prompt_response.stopReason == END_TURN
-            response_text = prompt_response.message[0].text if prompt_response.message else ""
-            assert "Permission denied" in response_text or "denied" in response_text.lower()
+
+            # Wait for notifications
+            await _wait_for_notifications(client, count=2, timeout=3.0)
+
+            # Tool should not have executed successfully
+            assert not _tool_executed_successfully(client), "Tool should not have executed with reject_once"
 
             # No auths.md file should exist (reject_once doesn't persist)
             auths_file = Path(tmpdir) / ".fast-agent" / "auths.md"
@@ -276,8 +313,12 @@ async def test_reject_always_blocks_and_persists() -> None:
 
             # The tool should have been rejected
             assert prompt_response.stopReason == END_TURN
-            response_text = prompt_response.message[0].text if prompt_response.message else ""
-            assert "Permission denied" in response_text or "denied" in response_text.lower()
+
+            # Wait for notifications
+            await _wait_for_notifications(client, count=2, timeout=3.0)
+
+            # Tool should not have executed successfully
+            assert not _tool_executed_successfully(client), "Tool should not have executed with reject_always"
 
             # auths.md file should exist with reject_always
             auths_file = Path(tmpdir) / ".fast-agent" / "auths.md"
@@ -321,6 +362,9 @@ async def test_no_permissions_flag_disables_checks() -> None:
 
         # The tool should have executed without permission request
         assert prompt_response.stopReason == END_TURN
-        response_text = prompt_response.message[0].text if prompt_response.message else ""
-        # Should have success message
-        assert "Successfully completed" in response_text or "1 steps" in response_text
+
+        # Wait for notifications
+        await _wait_for_notifications(client, count=3, timeout=3.0)
+
+        # Tool should have executed successfully without needing permission
+        assert _tool_executed_successfully(client), "Tool should have executed with --no-permissions flag"
