@@ -548,10 +548,11 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
-    default_model: str | None = "gpt-5-mini.low"
+    default_model: str | None = None
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
+    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """
 
     auto_sampling: bool = True

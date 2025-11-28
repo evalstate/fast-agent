@@ -142,6 +142,10 @@ async def _run_agent(
 
     fast = FastAgent(**fast_kwargs)
 
+    # Set model on args so model source detection works correctly
+    if model:
+        fast.args.model = model
+
     if shell_runtime:
         await fast.app.initialize()
         setattr(fast.app.context, "shell_runtime", True)
