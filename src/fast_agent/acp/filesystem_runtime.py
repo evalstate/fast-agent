@@ -17,6 +17,7 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
+    from fast_agent.acp.tool_permissions import ToolPermissionHandler
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 
 logger = get_logger(__name__)
@@ -40,6 +41,7 @@ class ACPFilesystemRuntime:
         enable_read: bool = True,
         enable_write: bool = True,
         tool_handler: "ToolExecutionHandler | None" = None,
+        permission_handler: "ToolPermissionHandler | None" = None,
     ):
         """
         Initialize the ACP filesystem runtime.
@@ -52,6 +54,7 @@ class ACPFilesystemRuntime:
             enable_read: Whether to enable the read_text_file tool
             enable_write: Whether to enable the write_text_file tool
             tool_handler: Optional tool execution handler for telemetry
+            permission_handler: Optional permission handler for authorization
         """
         self.connection = connection
         self.session_id = session_id
@@ -60,6 +63,7 @@ class ACPFilesystemRuntime:
         self._enable_read = enable_read
         self._enable_write = enable_write
         self._tool_handler = tool_handler
+        self._permission_handler = permission_handler
 
         # Tool definition for reading text files
         self._read_tool = Tool(
@@ -165,6 +169,42 @@ class ACPFilesystemRuntime:
                 ],
                 isError=True,
             )
+
+        # Check permission before reading (if permission handler is set)
+        if self._permission_handler is not None:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    "read_text_file", "acp_filesystem", arguments, tool_use_id
+                )
+                if not permission_result.allowed:
+                    self.logger.info(
+                        "File read denied by permission handler",
+                        session_id=self.session_id,
+                        path=path,
+                    )
+                    return CallToolResult(
+                        content=[
+                            text_content(
+                                "Error: Permission denied - file read was not authorized"
+                            )
+                        ],
+                        isError=True,
+                    )
+            except Exception as e:
+                # FAIL-SAFE: Default to DENY on any permission error
+                self.logger.error(
+                    f"Error checking file read permission: {e}",
+                    session_id=self.session_id,
+                    exc_info=True,
+                )
+                return CallToolResult(
+                    content=[
+                        text_content(
+                            "Error: Permission check failed - file read was not authorized"
+                        )
+                    ],
+                    isError=True,
+                )
 
         self.logger.info(
             "Reading file via ACP filesystem",
@@ -279,6 +319,42 @@ class ACPFilesystemRuntime:
                 ],
                 isError=True,
             )
+
+        # Check permission before writing (if permission handler is set)
+        if self._permission_handler is not None:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    "write_text_file", "acp_filesystem", arguments, tool_use_id
+                )
+                if not permission_result.allowed:
+                    self.logger.info(
+                        "File write denied by permission handler",
+                        session_id=self.session_id,
+                        path=path,
+                    )
+                    return CallToolResult(
+                        content=[
+                            text_content(
+                                "Error: Permission denied - file write was not authorized"
+                            )
+                        ],
+                        isError=True,
+                    )
+            except Exception as e:
+                # FAIL-SAFE: Default to DENY on any permission error
+                self.logger.error(
+                    f"Error checking file write permission: {e}",
+                    session_id=self.session_id,
+                    exc_info=True,
+                )
+                return CallToolResult(
+                    content=[
+                        text_content(
+                            "Error: Permission check failed - file write was not authorized"
+                        )
+                    ],
+                    isError=True,
+                )
 
         self.logger.info(
             "Writing file via ACP filesystem",
