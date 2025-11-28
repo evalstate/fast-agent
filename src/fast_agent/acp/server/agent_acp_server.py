@@ -596,6 +596,8 @@ class AgentACPServer(ACPAgent):
                         if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
                             # Create ACPTerminalRuntime for this session
                             default_limit = self._calculate_terminal_output_limit(agent)
+                            # Get permission handler if enabled for this session
+                            perm_handler = self._session_permission_handlers.get(session_id)
                             terminal_runtime = ACPTerminalRuntime(
                                 connection=self._connection,
                                 session_id=session_id,
@@ -603,6 +605,7 @@ class AgentACPServer(ACPAgent):
                                 timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
+                                permission_handler=perm_handler,
                             )
 
                             # Inject into agent
@@ -620,6 +623,8 @@ class AgentACPServer(ACPAgent):
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
                 if self._client_supports_fs_read or self._client_supports_fs_write:
+                    # Get permission handler if enabled for this session
+                    perm_handler = self._session_permission_handlers.get(session_id)
                     # Create ACPFilesystemRuntime for this session with appropriate capabilities
                     filesystem_runtime = ACPFilesystemRuntime(
                         connection=self._connection,
@@ -628,6 +633,7 @@ class AgentACPServer(ACPAgent):
                         enable_read=self._client_supports_fs_read,
                         enable_write=self._client_supports_fs_write,
                         tool_handler=tool_handler,
+                        permission_handler=perm_handler,
                     )
                     self._session_filesystem_runtimes[session_id] = filesystem_runtime
 
