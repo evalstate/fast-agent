@@ -102,8 +102,8 @@ def test_reasoning_content_preserved_with_tool_calls():
     assistant_tool_call = Prompt.assistant(
         "calling tool",
         tool_calls={"call_1": tool_call},
-        channels={REASONING: [TextContent(type="text", text=reasoning_text)]},
     )
+    assistant_tool_call.channels = {REASONING: [TextContent(type="text", text=reasoning_text)]}
 
     converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
 
