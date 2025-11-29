@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 
 from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.tool_permissions import ACPToolPermissionManager
+from fast_agent.mcp.common import create_namespaced_name
 from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler, ToolPermissionResult
 
 if TYPE_CHECKING:
@@ -81,16 +82,29 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
             tool_call_id=tool_use_id,
         )
 
+        namespaced_tool_name = create_namespaced_name(server_name, tool_name)
+
         # Convert PermissionResult to ToolPermissionResult
         if result.is_cancelled:
             return ToolPermissionResult.cancelled()
         elif result.allowed:
             return ToolPermissionResult(allowed=True, remember=result.remember)
         else:
+            # Distinguish between one-time and persistent rejection for clearer UX
+            if result.remember:
+                error_message = (
+                    f"The user has permanently declined permission to use this tool: "
+                    f"{namespaced_tool_name}"
+                )
+            else:
+                error_message = (
+                    f"The user has declined permission to use this tool: {namespaced_tool_name}"
+                )
+
             return ToolPermissionResult(
                 allowed=False,
                 remember=result.remember,
-                error_message=f"Permission denied for tool: {server_name}/{tool_name}",
+                error_message=error_message,
             )
 
     async def clear_session_cache(self) -> None:

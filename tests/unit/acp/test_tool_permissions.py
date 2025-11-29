@@ -29,7 +29,6 @@ from fast_agent.acp.tool_permissions import (
     _infer_tool_kind,
 )
 
-
 # =============================================================================
 # Test Doubles for ACPToolPermissionManager Testing
 # =============================================================================

@@ -417,6 +417,72 @@ class ACPToolProgressManager:
         # Return the ACP tool_call_id for caller to track
         return tool_call_id
 
+    async def on_tool_permission_denied(
+        self,
+        tool_name: str,
+        server_name: str,
+        tool_use_id: str | None,
+        error: str | None = None,
+    ) -> None:
+        """
+        Called when tool execution is denied before it starts.
+
+        Uses any pending stream-start notification to mark the call as failed
+        so ACP clients see the cancellation/denial.
+        """
+        if not tool_use_id:
+            return
+
+        # Wait for any pending stream notification to finish
+        pending_task = self._stream_tasks.get(tool_use_id)
+        if pending_task and not pending_task.done():
+            try:
+                await pending_task
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"Stream notification task failed for denied tool: {e}",
+                    name="acp_permission_denied_stream_task_failed",
+                    tool_use_id=tool_use_id,
+                    exc_info=True,
+                )
+
+        async with self._lock:
+            external_id = self._stream_tool_use_ids.get(tool_use_id)
+
+            if not external_id:
+                # No stream notification; nothing to update
+                return
+
+            try:
+                update_data = self._tracker.progress(
+                    external_id=external_id,
+                    status="failed",
+                    content=[tool_content(text_block(error))] if error else None,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    f"Error creating permission-denied update: {e}",
+                    name="acp_permission_denied_update_error",
+                    exc_info=True,
+                )
+                return
+
+        # Send the failure notification
+        try:
+            notification = session_notification(self._session_id, update_data)
+            await self._connection.sessionUpdate(notification)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                f"Error sending permission-denied notification: {e}",
+                name="acp_permission_denied_notification_error",
+                exc_info=True,
+            )
+        finally:
+            # Clean up tracker and mappings
+            async with self._lock:
+                self._tracker.forget(external_id)
+                self._stream_tool_use_ids.pop(tool_use_id, None)
+
     async def on_tool_progress(
         self,
         tool_call_id: str,

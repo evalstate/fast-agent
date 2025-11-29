@@ -604,9 +604,7 @@ class MCPAggregator(ContextDependent):
 
             if not sky_resource.is_skybridge:
                 observed_type = sky_resource.mime_type or "unknown MIME type"
-                warning = (
-                    f"served as '{observed_type}' instead of '{SKYBRIDGE_MIME_TYPE}'"
-                )
+                warning = f"served as '{observed_type}' instead of '{SKYBRIDGE_MIME_TYPE}'"
                 sky_resource.warning = warning
                 config.warnings.append(f"{uri_str}: {warning}")
 
@@ -1243,6 +1241,8 @@ class MCPAggregator(ContextDependent):
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
+        namespaced_tool_name = create_namespaced_name(server_name, local_tool_name)
+
         # Check tool permission before execution
         try:
             permission_result = await self._permission_handler.check_permission(
@@ -1252,9 +1252,26 @@ class MCPAggregator(ContextDependent):
                 tool_use_id=tool_use_id,
             )
             if not permission_result.allowed:
-                error_msg = permission_result.error_message or (
-                    f"Permission denied for tool: {server_name}/{local_tool_name}"
-                )
+                error_msg = permission_result.error_message
+                if error_msg is None:
+                    if permission_result.remember:
+                        error_msg = (
+                            f"The user has permanently declined permission to use this tool: "
+                            f"{namespaced_tool_name}"
+                        )
+                    else:
+                        error_msg = (
+                            f"The user has declined permission to use this tool: {namespaced_tool_name}"
+                        )
+
+                # Notify tool handler so ACP clients can reflect the cancellation/denial
+                if hasattr(self._tool_handler, "on_tool_permission_denied"):
+                    try:
+                        await self._tool_handler.on_tool_permission_denied(
+                            local_tool_name, server_name, tool_use_id, error_msg
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying permission denial: {e}", exc_info=True)
                 logger.info(
                     "Tool execution denied by permission handler",
                     data={
@@ -1294,12 +1311,14 @@ class MCPAggregator(ContextDependent):
             logger.error(f"Error in tool start handler: {e}", exc_info=True)
             # Generate fallback ID if handler fails
             import uuid
+
             tool_call_id = str(uuid.uuid4())
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
+        with tracer.start_as_current_span(f"MCP Tool: {namespaced_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
+            trace.get_current_span().set_attribute("namespaced_tool_name", namespaced_tool_name)
 
             # Create progress callback for this tool execution
             progress_callback = self._create_progress_callback(

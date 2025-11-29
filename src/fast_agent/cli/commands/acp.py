@@ -144,4 +144,16 @@ def main() -> None:
 
         root_cli_main()
         return
-    app()
+    try:
+        # Run the Typer app without triggering automatic sys.exit so we can
+        # guarantee error output goes to stderr with a non-zero exit code.
+        app(standalone_mode=False)
+    except click.ClickException as exc:
+        # Preserve Typer's rich formatting when available, otherwise fall back to plain text.
+        try:
+            import typer.rich_utils as rich_utils
+
+            rich_utils.rich_format_error(exc)
+        except Exception:
+            exc.show(file=sys.stderr)
+        sys.exit(getattr(exc, "exit_code", 1))
