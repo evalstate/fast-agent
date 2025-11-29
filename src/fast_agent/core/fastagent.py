@@ -927,10 +927,11 @@ class FastAgent:
                     data={"registry": type(entry).__name__},
                 )
                 return []
-        if isinstance(entry, Path):
-            return SkillRegistry.load_directory(entry.expanduser().resolve())
-        if isinstance(entry, str):
-            return SkillRegistry.load_directory(Path(entry).expanduser().resolve())
+        if isinstance(entry, (Path, str)):
+            # Use instance method to preserve original path for relative path computation
+            path = Path(entry) if isinstance(entry, str) else entry
+            registry = SkillRegistry(base_dir=Path.cwd(), override_directory=path)
+            return registry.load_manifests()
 
         logger.debug(
             "Unsupported skill entry type",
