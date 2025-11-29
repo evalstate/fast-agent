@@ -173,7 +173,17 @@ class ModelDatabase:
 
     # 31/08/25 switched to object mode (even though groq says schema supported and used to work..)
     KIMI_MOONSHOT = ModelParameters(
-        context_window=262144, max_output_tokens=16384, tokenizes=TEXT_ONLY, json_mode="object"
+        context_window=262144,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+    )
+    KIMI_MOONSHOT_THINKING = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="tags",
     )
 
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
@@ -295,8 +305,10 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
+        "moonshotai/kimi-k2": KIMI_MOONSHOT,
         "moonshotai/kimi-k2-instruct-0905": KIMI_MOONSHOT,
-        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT,
+        "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
+        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,

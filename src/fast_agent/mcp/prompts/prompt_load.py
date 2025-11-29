@@ -99,7 +99,7 @@ def create_resource_message(
         return message_class(content=embedded_resource)
 
 
-def load_prompt(file: Path) -> list[PromptMessageExtended]:
+def load_prompt(file: Path | str) -> list[PromptMessageExtended]:
     """
     Load a prompt from a file and return as PromptMessageExtended objects.
 
@@ -108,11 +108,13 @@ def load_prompt(file: Path) -> list[PromptMessageExtended]:
     - All other files are loaded using the template-based delimited format with resource loading
 
     Args:
-        file: Path to the prompt file
+        file: Path to the prompt file (Path object or string)
 
     Returns:
         List of PromptMessageExtended objects with full conversation state
     """
+    if isinstance(file, str):
+        file = Path(file)
     path_str = str(file).lower()
 
     if path_str.endswith(".json"):
