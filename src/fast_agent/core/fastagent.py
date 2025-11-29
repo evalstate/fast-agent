@@ -673,6 +673,7 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
+                                permissions_enabled = getattr(self.args, "permissions_enabled", True)
 
                                 # Pass skills directory override if configured
                                 skills_override = (
@@ -688,6 +689,7 @@ class FastAgent:
                                     instance_scope=instance_scope,
                                     server_name=server_name or f"{self.name}",
                                     skills_directory_override=skills_override,
+                                    permissions_enabled=permissions_enabled,
                                 )
 
                                 # Run the ACP server (this is a blocking call)
@@ -1018,6 +1020,7 @@ class FastAgent:
         server_description: str | None = None,
         tool_description: str | None = None,
         instance_scope: str = "shared",
+        permissions_enabled: bool = True,
     ) -> None:
         """
         Start the application as an MCP server.
@@ -1032,6 +1035,7 @@ class FastAgent:
             server_description: Optional description/instructions for the MCP server
             tool_description: Optional description template for the exposed send tool.
                               Use {agent} to reference the agent name.
+            permissions_enabled: Whether to request tool permissions from ACP clients (default: True)
         """
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
@@ -1053,6 +1057,7 @@ class FastAgent:
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
+        self.args.permissions_enabled = permissions_enabled
         # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False
