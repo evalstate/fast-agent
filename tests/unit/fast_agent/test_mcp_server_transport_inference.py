@@ -26,7 +26,8 @@ def test_transport_inference_both_url_and_command():
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         config = MCPServerSettings(url="http://example.com/mcp", command="npx server")
-        print(warnings)
+        for warning in w:
+            print(warning.message)
         # Check that warning was issued
         assert len(w) == 1
         assert "both 'url'" in str(w[0].message)
