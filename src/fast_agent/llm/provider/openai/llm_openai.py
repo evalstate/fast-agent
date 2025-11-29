@@ -243,7 +243,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 choice = chunk.choices[0]
                 delta = choice.delta
                 reasoning_text = self._extract_reasoning_text(
-                    getattr(delta, "reasoning_content", None)
+                    reasoning=getattr(delta, "reasoning", None),
+                    reasoning_content=getattr(delta, "reasoning_content", None),
                 )
                 if reasoning_text and reasoning_mode == "tags":
                     if not reasoning_active:
@@ -485,7 +486,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 delta = choice.delta
 
                 reasoning_text = self._extract_reasoning_text(
-                    getattr(delta, "reasoning_content", None)
+                    reasoning=getattr(delta, "reasoning", None),
+                    reasoning_content=getattr(delta, "reasoning_content", None),
                 )
                 if reasoning_text and reasoning_mode == "tags":
                     if not reasoning_active:
@@ -1011,50 +1013,47 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         return arguments
 
     @staticmethod
-    def _extract_reasoning_text(reasoning_content: Any) -> str:
-        """Extract text from provider-specific reasoning content payloads, with debug tracing."""
-        if not reasoning_content:
-            return ""
+    def _extract_reasoning_text(reasoning: Any = None, reasoning_content: Any | None = None) -> str:
+        """Extract text from provider-specific reasoning payloads.
 
-        parts: list[str] = []
-        summary: list[dict[str, Any]] = []
-        for item in reasoning_content:
-            text = None
+        Priority: explicit `reasoning` field (string/object/list) > `reasoning_content` list.
+        """
+
+        def _coerce_text(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                return str(value.get("text") or value)
+            text_attr = None
             try:
-                text = getattr(item, "text", None)
+                text_attr = getattr(value, "text", None)
             except Exception:
-                text = None
+                text_attr = None
+            if text_attr:
+                return str(text_attr)
+            return str(value)
 
-            keys: list[str] = []
-            if hasattr(item, "model_dump"):
-                try:
-                    keys = list(item.model_dump(exclude_none=True).keys())  # type: ignore[arg-type]
-                except Exception:
-                    keys = []
-            elif isinstance(item, dict):
-                keys = list(item.keys())
+        if reasoning is not None:
+            if isinstance(reasoning, (list, tuple)):
+                combined = "".join(_coerce_text(item) for item in reasoning)
+            else:
+                combined = _coerce_text(reasoning)
+            if combined.strip():
+                return combined
 
-            if text is None and isinstance(item, dict):
-                text = item.get("text")
+        if reasoning_content:
+            parts: list[str] = []
+            for item in reasoning_content:
+                text = _coerce_text(item)
+                if text:
+                    parts.append(text)
+            combined = "".join(parts)
+            if combined.strip():
+                return combined
 
-            if text is None and item is not None:
-                text = str(item)
-
-            summary.append(
-                {
-                    "type": type(item).__name__,
-                    "len": len(text) if text else 0,
-                    "keys": keys[:5],
-                }
-            )
-
-            if text:
-                parts.append(text)
-
-        extracted = "".join(parts)
-        if extracted.strip() == "":
-            return ""
-        return extracted
+        return ""
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
