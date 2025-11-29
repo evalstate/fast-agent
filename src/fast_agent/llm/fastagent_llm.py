@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import os
 import time
@@ -167,6 +168,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self._usage_accumulator = UsageAccumulator()
         self._stream_listeners: set[Callable[[str], None]] = set()
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
+        self.retry_count = self._resolve_retry_count()
+        self.retry_backoff_seconds: float = 10.0
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize default parameters for the LLM.
@@ -186,12 +189,17 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
 
 
-    async def _execute_with_retry(self, func: Callable[..., Awaitable[Any]], *args: Any, **kwargs: Any) -> Any:
+    async def _execute_with_retry(
+        self,
+        func: Callable[..., Awaitable[Any]],
+        *args: Any,
+        on_final_error: Callable[[Exception], Awaitable[Any] | Any] | None = None,
+        **kwargs: Any,
+    ) -> Any:
         """
         Executes a function with robust retry logic for transient API errors.
         """
-        # Load retry count from env (default to 3)
-        retries = int(os.getenv("FAST_AGENT_RETRIES", "3"))
+        retries = max(0, int(self.retry_count))
         
         def _is_fatal_error(e: Exception) -> bool:
             if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
@@ -217,7 +225,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
                 
                 last_error = e
                 if attempt < retries:
-                    wait_time = 10 * (attempt + 1)
+                    wait_time = self.retry_backoff_seconds * (attempt + 1)
                     
                     # Try to import progress_display safely
                     try:
@@ -231,12 +239,50 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
                     await asyncio.sleep(wait_time)
         
-        # If all retries fail, RAISE the error.
         if last_error:
+            handler = on_final_error or getattr(self, "_handle_retry_failure", None)
+            if handler:
+                handled = handler(last_error)
+                if inspect.isawaitable(handled):
+                    handled = await handled
+                if handled is not None:
+                    return handled
+
             raise last_error
-            
+
         # This line satisfies Pylance that we never implicitly return None
         raise RuntimeError("Retry loop finished without success or exception")
+        
+    def _handle_retry_failure(self, error: Exception) -> Any | None:
+        """
+        Optional hook for providers to convert an exhausted retry into a user-facing response.
+
+        Return a non-None value to short-circuit raising the final exception.
+        """
+        return None
+
+    def _resolve_retry_count(self) -> int:
+        """Resolve retries from config first, then env, defaulting to 0."""
+        config_retries = None
+        try:
+            config_retries = getattr(self.context.config, "llm_retries", None)
+        except Exception:
+            config_retries = None
+
+        if config_retries is not None:
+            try:
+                return int(config_retries)
+            except (TypeError, ValueError):
+                pass
+
+        env_retries = os.getenv("FAST_AGENT_RETRIES")
+        if env_retries is not None:
+            try:
+                return int(env_retries)
+            except (TypeError, ValueError):
+                pass
+
+        return 0
         
         
     async def generate(
@@ -368,12 +414,17 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Track timing for this structured generation
         start_time = time.perf_counter()
-        result, assistant_response = await self._execute_with_retry(
+        result_or_response = await self._execute_with_retry(
             self._apply_prompt_provider_specific_structured,
             full_history, 
             model, 
-            request_params
+            request_params,
+            on_final_error=self._handle_retry_failure,
         )
+        if isinstance(result_or_response, PromptMessageExtended):
+            result, assistant_response = self._structured_from_multipart(result_or_response, model)
+        else:
+            result, assistant_response = result_or_response
         end_time = time.perf_counter()
         duration_ms = round((end_time - start_time) * 1000, 2)
 

@@ -450,6 +450,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             stop_reason=LlmStopReason.ERROR,
         )
 
+    def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
+        """Return the legacy error-channel response when retries are exhausted."""
+        if isinstance(error, APIError):
+            model_name = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+            return self._stream_failure_response(error, model_name)
+        return None
+
     def _build_request_messages(
         self,
         params: RequestParams,
