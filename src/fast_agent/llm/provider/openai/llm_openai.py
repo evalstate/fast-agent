@@ -786,7 +786,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             )
         except APIError as error:
             self.logger.error("APIError during OpenAI completion", exc_info=error)
-            return self._stream_failure_response(error, model_name)
+            raise error
         except Exception:
             streamed_reasoning = []
             raise
@@ -934,6 +934,13 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             channels={FAST_AGENT_ERROR_CHANNEL: [error_block]},
             stop_reason=LlmStopReason.ERROR,
         )
+
+    def _handle_retry_failure(self, error: Exception) -> PromptMessageExtended | None:
+        """Return the legacy error-channel response when retries are exhausted."""
+        if isinstance(error, APIError):
+            model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
+            return self._stream_failure_response(error, model_name)
+        return None
 
     async def _is_tool_stop_reason(self, finish_reason: str) -> bool:
         return True
