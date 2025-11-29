@@ -31,7 +31,7 @@ from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConv
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
@@ -223,7 +223,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             reasoning_segments.append(reasoning_text)
             return reasoning_active
 
-        if reasoning_mode == "stream":
+        if reasoning_mode in {"stream", "reasoning_content"}:
             # Emit reasoning as-is
             self._notify_stream_listeners(StreamChunk(text=reasoning_text, is_reasoning=True))
             reasoning_segments.append(reasoning_text)
@@ -1053,10 +1053,23 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             List of OpenAI ChatCompletionMessageParam objects
         """
         converted: list[ChatCompletionMessageParam] = []
+        reasoning_mode = ModelDatabase.get_reasoning(self.default_request_params.model)
 
         for msg in messages:
             # convert_to_openai returns a list of messages
-            converted.extend(OpenAIConverter.convert_to_openai(msg))
+            openai_msgs = OpenAIConverter.convert_to_openai(msg)
+
+            if reasoning_mode == "reasoning_content" and msg.channels:
+                reasoning_blocks = msg.channels.get(REASONING) if msg.channels else None
+                if reasoning_blocks:
+                    reasoning_texts = [get_text(block) for block in reasoning_blocks]
+                    reasoning_texts = [txt for txt in reasoning_texts if txt]
+                    if reasoning_texts:
+                        reasoning_content = [{"type": "text", "text": txt} for txt in reasoning_texts]
+                        for oai_msg in openai_msgs:
+                            oai_msg["reasoning_content"] = reasoning_content
+
+            converted.extend(openai_msgs)
 
         return converted
 

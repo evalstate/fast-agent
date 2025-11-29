@@ -183,7 +183,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=TEXT_ONLY,
         json_mode="object",
-        reasoning="stream",
+        reasoning="reasoning_content",
     )
 
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
@@ -203,7 +203,7 @@ class ModelDatabase:
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
         json_mode="object",
-        reasoning="stream",
+        reasoning="reasoning_content",
         stream_mode="manual",
     )
 

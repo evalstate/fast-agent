@@ -2,6 +2,7 @@ import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
 from fast_agent.context import Context
+from fast_agent.constants import REASONING
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
@@ -66,3 +67,22 @@ async def test_apply_prompt_converts_last_message_when_history_disabled():
 
     assert isinstance(llm.captured, list)
     assert llm.captured  # should send something to completion when history is off
+
+
+def test_reasoning_content_injected_for_reasoning_content_models():
+    """Ensure reasoning_content channel is forwarded for models that support it."""
+    context = Context()
+    llm = OpenAILLM(context=context, model="moonshotai/kimi-k2-thinking")
+
+    reasoning_text = "deliberate steps"
+    msg = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={REASONING: [TextContent(type="text", text=reasoning_text)]},
+    )
+
+    converted = llm._convert_extended_messages_to_provider([msg])
+
+    assert converted, "Converted messages should not be empty"
+    assert "reasoning_content" in converted[0], "reasoning_content should be injected"
+    assert converted[0]["reasoning_content"] == [{"type": "text", "text": reasoning_text}]
