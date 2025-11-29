@@ -21,8 +21,19 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-DEFAULT_BASE_MODEL = "moonshotai/Kimi-K2-Thinking"
-DEFAULT_PROVIDER = "together"
+# DEFAULT_BASE_MODEL = "moonshotai/Kimi-K2-Thinking"
+# DEFAULT_PROVIDER = "together"
+
+# DEFAULT_BASE_MODEL = "MiniMaxAI/MiniMax-M2"
+# DEFAULT_PROVIDER = "novita"
+
+# DEFAULT_BASE_MODEL = "zai-org/GLM-4.6"
+# DEFAULT_PROVIDER = "zai-org"
+
+DEFAULT_BASE_MODEL = "openai/gpt-oss-120b"
+DEFAULT_PROVIDER = "groq"
+
+
 DEFAULT_BASE_URL = "https://router.huggingface.co/v1"
 
 

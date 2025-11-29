@@ -53,6 +53,7 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
@@ -74,7 +75,7 @@ logger = get_logger(__name__)
 class StreamingAgentMixin(StreamingAgentProtocol):
     """Mixin that forwards streaming listener registration to the attached LLM."""
 
-    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
+    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:
         llm = getattr(self, "_llm", None)
         if not llm:
             logger.debug(
@@ -87,6 +88,22 @@ class StreamingAgentMixin(StreamingAgentProtocol):
 
             return remove_listener
         return llm.add_stream_listener(listener)
+
+    def add_structured_stream_listener(
+        self, listener: Callable[[str, bool], None]
+    ) -> Callable[[], None]:
+        llm = getattr(self, "_llm", None)
+        if not llm:
+            logger.debug(
+                "Skipping structured stream listener registration because no LLM is attached",
+                name=getattr(self, "_name", "unknown"),
+            )
+
+            def remove_listener() -> None:
+                return None
+
+            return remove_listener
+        return llm.add_structured_stream_listener(listener)
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]

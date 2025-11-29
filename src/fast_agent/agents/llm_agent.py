@@ -265,7 +265,7 @@ class LlmAgent(LlmDecorator):
                 model=display_model,
             ) as stream_handle:
                 try:
-                    remove_listener = self.llm.add_stream_listener(stream_handle.update)
+                    remove_listener = self.llm.add_stream_listener(stream_handle.update_chunk)
                     remove_tool_listener = self.llm.add_tool_stream_listener(
                         stream_handle.handle_tool_event
                     )

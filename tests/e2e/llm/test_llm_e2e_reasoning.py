@@ -8,11 +8,14 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.constants import REASONING
 from fast_agent.core import Core
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 TEST_MODELS = [
-    "kimithink",
+    "hf.moonshotai/Kimi-K2-Thinking:novita",
+    "hf.moonshotai/Kimi-K2-Thinking:nebius",
+    "hf.moonshotai/Kimi-K2-Thinking:together",
     "minimax",
 ]
 
@@ -28,32 +31,15 @@ async def reasoning_agent(model_name: str) -> LlmAgent:
 
 
 def _make_stream_tracker():
-    state = {"in_think": False, "plain": 0, "reason": 0}
+    state = {"plain": 0, "reason": 0}
 
-    def on_chunk(chunk: str) -> None:
-        if not chunk:
+    def on_chunk(chunk: StreamChunk) -> None:
+        if not chunk.text:
             return
-        text = chunk
-        idx = 0
-        while idx < len(text):
-            if state["in_think"]:
-                close = text.find("</think>", idx)
-                if close == -1:
-                    state["reason"] += 1
-                    break
-                if close > idx:
-                    state["reason"] += 1
-                state["in_think"] = False
-                idx = close + len("</think>")
-            else:
-                open_idx = text.find("<think>", idx)
-                if open_idx == -1:
-                    state["plain"] += 1
-                    break
-                if open_idx > idx:
-                    state["plain"] += 1
-                state["in_think"] = True
-                idx = open_idx + len("<think>")
+        if chunk.is_reasoning:
+            state["reason"] += 1
+        else:
+            state["plain"] += 1
 
     return on_chunk, state
 
