@@ -23,7 +23,11 @@ from acp import (
     SetSessionModeRequest,
     SetSessionModeResponse,
 )
-from acp.helpers import session_notification, update_agent_message_text
+from acp.helpers import (
+    session_notification,
+    update_agent_message_text,
+    update_agent_thought_text,
+)
 from acp.schema import (
     AgentCapabilities,
     Implementation,
@@ -36,8 +40,10 @@ from acp.stdio import stdio_streams
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -54,6 +60,7 @@ from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
+from fast_agent.utils.reasoning_stream_parser import ReasoningStreamParser
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
@@ -153,6 +160,7 @@ class AgentACPServer(ACPAgent):
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
         skills_directory_override: str | None = None,
+        permissions_enabled: bool = True,
     ) -> None:
         """
         Initialize the ACP server.
@@ -165,6 +173,7 @@ class AgentACPServer(ACPAgent):
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
+            permissions_enabled: Whether to request tool permissions from client (default: True)
         """
         super().__init__()
 
@@ -174,6 +183,7 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
+        self._permissions_enabled = permissions_enabled
         # Use provided version or get fast-agent version
         if server_version is None:
             try:
@@ -200,6 +210,9 @@ class AgentACPServer(ACPAgent):
 
         # Filesystem runtime tracking
         self._session_filesystem_runtimes: dict[str, ACPFilesystemRuntime] = {}
+
+        # Permission handler tracking
+        self._session_permission_handlers: dict[str, ACPToolPermissionAdapter] = {}
 
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
@@ -545,6 +558,41 @@ class AgentACPServer(ACPAgent):
                                 exc_info=True,
                             )
 
+                # If permissions are enabled, create and register permission handler
+                if self._permissions_enabled:
+                    # Create shared permission store for this session
+                    cwd = params.cwd or "."
+                    permission_store = PermissionStore(cwd=cwd)
+
+                    # Create permission adapter
+                    permission_handler = ACPToolPermissionAdapter(
+                        connection=self._connection,
+                        session_id=session_id,
+                        store=permission_store,
+                        cwd=cwd,
+                    )
+                    self._session_permission_handlers[session_id] = permission_handler
+
+                    # Register permission handler with all agents' aggregators
+                    for agent_name, agent in instance.agents.items():
+                        if hasattr(agent, "_aggregator"):
+                            aggregator = agent._aggregator
+                            aggregator._permission_handler = permission_handler
+
+                            logger.info(
+                                "ACP permission handler registered",
+                                name="acp_permission_handler_registered",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                            )
+
+                    logger.info(
+                        "ACP tool permissions enabled for session",
+                        name="acp_permissions_init",
+                        session_id=session_id,
+                        cwd=cwd,
+                    )
+
                 # If client supports terminals and we have shell runtime enabled,
                 # inject ACP terminal runtime to replace local ShellRuntime
                 if self._client_supports_terminal:
@@ -553,6 +601,8 @@ class AgentACPServer(ACPAgent):
                         if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
                             # Create ACPTerminalRuntime for this session
                             default_limit = self._calculate_terminal_output_limit(agent)
+                            # Get permission handler if enabled for this session
+                            perm_handler = self._session_permission_handlers.get(session_id)
                             terminal_runtime = ACPTerminalRuntime(
                                 connection=self._connection,
                                 session_id=session_id,
@@ -560,6 +610,7 @@ class AgentACPServer(ACPAgent):
                                 timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
+                                permission_handler=perm_handler,
                             )
 
                             # Inject into agent
@@ -577,6 +628,8 @@ class AgentACPServer(ACPAgent):
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
                 if self._client_supports_fs_read or self._client_supports_fs_write:
+                    # Get permission handler if enabled for this session
+                    perm_handler = self._session_permission_handlers.get(session_id)
                     # Create ACPFilesystemRuntime for this session with appropriate capabilities
                     filesystem_runtime = ACPFilesystemRuntime(
                         connection=self._connection,
@@ -585,6 +638,7 @@ class AgentACPServer(ACPAgent):
                         enable_read=self._client_supports_fs_read,
                         enable_write=self._client_supports_fs_write,
                         tool_handler=tool_handler,
+                        permission_handler=perm_handler,
                     )
                     self._session_filesystem_runtimes[session_id] = filesystem_runtime
 
@@ -879,16 +933,21 @@ class AgentACPServer(ACPAgent):
                     stream_listener = None
                     remove_listener: Callable[[], None] | None = None
                     streaming_tasks: list[asyncio.Task] = []
+                    parser: ReasoningStreamParser | None = None
                     if self._connection and isinstance(agent, StreamingAgentProtocol):
                         update_lock = asyncio.Lock()
+                        parser = ReasoningStreamParser()
 
-                        async def send_stream_update(chunk: str):
+                        async def send_stream_update(chunk: str, *, is_thought: bool):
                             """Send sessionUpdate with accumulated text so far."""
                             if not chunk:
                                 return
                             try:
                                 async with update_lock:
-                                    message_chunk = update_agent_message_text(chunk)
+                                    if is_thought:
+                                        message_chunk = update_agent_thought_text(chunk)
+                                    else:
+                                        message_chunk = update_agent_message_text(chunk)
                                     notification = session_notification(session_id, message_chunk)
                                     await self._connection.sessionUpdate(notification)
                             except Exception as e:
@@ -903,17 +962,26 @@ class AgentACPServer(ACPAgent):
                             Sync callback from fast-agent streaming.
                             Sends each chunk as it arrives to the ACP client.
                             """
-                            logger.debug(
-                                f"Stream chunk received: {len(chunk)} chars",
-                                name="acp_stream_chunk",
-                                session_id=session_id,
-                                chunk_length=len(chunk),
-                            )
+                            print(f"[acp-stream] raw chunk len={len(chunk)}")
 
-                            # Send update asynchronously (don't await in sync callback)
-                            # Track task to ensure all chunks complete before returning PromptResponse
-                            task = asyncio.create_task(send_stream_update(chunk))
-                            streaming_tasks.append(task)
+                            segments = parser.feed(chunk) if parser else []
+                            if not segments:
+                                return
+
+                            for segment in segments:
+                                if not segment.text:
+                                    continue
+                                print(
+                                    f"[acp-stream] sending {'thought' if segment.is_thinking else 'final'} "
+                                    f"len={len(segment.text)}"
+                                )
+                                task = asyncio.create_task(
+                                    send_stream_update(
+                                        segment.text,
+                                        is_thought=segment.is_thinking,
+                                    )
+                                )
+                                streaming_tasks.append(task)
 
                         # Register the stream listener and keep the cleanup function
                         stream_listener = on_stream_chunk
@@ -956,6 +1024,20 @@ class AgentACPServer(ACPAgent):
                             llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
                             acp_stop_reason=acp_stop_reason,
                         )
+
+                        if parser:
+                            remaining_segments = parser.flush()
+                            for segment in remaining_segments:
+                                if not segment.text:
+                                    continue
+                                streaming_tasks.append(
+                                    asyncio.create_task(
+                                        send_stream_update(
+                                            segment.text,
+                                            is_thought=segment.is_thinking,
+                                        )
+                                    )
+                                )
 
                         # Wait for all streaming tasks to complete before sending final message
                         # and returning PromptResponse. This ensures all chunks arrive before END_TURN.
@@ -1213,6 +1295,19 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_filesystem_runtimes.clear()
+
+            # Clean up permission handlers
+            for session_id, permission_handler in list(self._session_permission_handlers.items()):
+                try:
+                    await permission_handler.clear_session_cache()
+                    logger.debug(f"Permission handler for session {session_id} cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error cleaning up permission handler for session {session_id}: {e}",
+                        name="acp_permission_cleanup_error",
+                    )
+
+            self._session_permission_handlers.clear()
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()

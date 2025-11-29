@@ -42,6 +42,8 @@ def get_fast_agent_cmd(with_shell: bool = True) -> tuple:
         "passthrough",
         "--name",
         "fast-agent-acp-runtime-telemetry-test",
+        # Disable permission checks - these tests focus on telemetry functionality
+        "--no-permissions",
     ]
     if with_shell:
         cmd.append("--shell")

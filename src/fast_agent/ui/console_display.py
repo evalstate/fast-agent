@@ -104,6 +104,12 @@ class ConsoleDisplay:
         if "```" in text:
             return True
 
+        # Simple markers for common cases that the regex might miss
+        # Note: single "*" excluded to avoid false positives
+        simple_markers = ["##", "**", "---", "###"]
+        if any(marker in text for marker in simple_markers):
+            return True
+
         markdown_patterns = [
             r"^#{1,6}\s+\S",  # headings
             r"^\s*[-*+]\s+\S",  # unordered list
@@ -284,15 +290,19 @@ class ConsoleDisplay:
                         else:
                             console.console.print(content, markup=self._markup)
                 else:
+                    # Check if content has substantial XML (mixed content)
+                    # If so, skip markdown rendering as it turns XML into an unreadable blob
+                    has_substantial_xml = content.count("<") > 5 and content.count(">") > 5
+
                     # Check if it looks like markdown
-                    if self._looks_like_markdown(content):
+                    if self._looks_like_markdown(content) and not has_substantial_xml:
                         # Escape HTML/XML tags while preserving code blocks
                         prepared_content = prepare_markdown_content(content, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
                         # Markdown handles its own styling, don't apply style
                         console.console.print(md, markup=self._markup)
                     else:
-                        # Plain text
+                        # Plain text (or mixed markdown+XML content)
                         if (
                             truncate
                             and self.config
@@ -634,7 +644,12 @@ class ConsoleDisplay:
         if not joined.strip():
             return None
 
-        return Text(joined, style="dim default")
+        # Render reasoning in dim italic and leave a blank line before main content
+        text = joined
+        if not text.endswith("\n"):
+            text += "\n"
+        text += "\n"
+        return Text(text, style="dim italic")
 
     async def show_assistant_message(
         self,

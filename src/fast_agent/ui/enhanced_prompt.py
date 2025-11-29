@@ -1027,6 +1027,11 @@ async def get_enhanced_input(
                                     f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]"
                                 )
 
+                        # Show model source if configured via env var or config file
+                        model_source = getattr(agent_context.config, "model_source", None)
+                        if model_source:
+                            rich_print(f"[dim]Model selected via {model_source}[/dim]")
+
         if shell_enabled:
             modes_display = ", ".join(shell_access_modes or ("direct",))
             shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
