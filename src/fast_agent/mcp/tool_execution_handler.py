@@ -76,6 +76,21 @@ class ToolExecutionHandler(Protocol):
         """
         ...
 
+    async def on_tool_permission_denied(
+        self,
+        tool_name: str,
+        server_name: str,
+        tool_use_id: str | None,
+        error: str | None = None,
+    ) -> None:
+        """
+        Optional hook invoked when tool execution is denied before start.
+
+        Implementations can use this to notify external systems (e.g., ACP)
+        that a tool call was cancelled or declined.
+        """
+        ...
+
 
 class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
@@ -107,6 +122,16 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
         success: bool,
         content: list[ContentBlock] | None,
         error: str | None,
+    ) -> None:
+        """No-op - does nothing."""
+        pass
+
+    async def on_tool_permission_denied(
+        self,
+        tool_name: str,
+        server_name: str,
+        tool_use_id: str | None,
+        error: str | None = None,
     ) -> None:
         """No-op - does nothing."""
         pass
