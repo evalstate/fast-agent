@@ -1,4 +1,4 @@
-# FastAgent Configuration File
+# fast-agent configuration File
 
 # Default Model Configuration:
 #
@@ -11,6 +11,10 @@
 # Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
 
 default_model: gpt-5-mini.low
+
+# otel:
+#   enabled: true
+
 # mcp-ui support: disabled, enabled or auto. "auto" opens the web browser on the asset automatically
 # mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
 # mcp_ui_mode: enabled

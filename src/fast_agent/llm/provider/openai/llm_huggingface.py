@@ -73,3 +73,13 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
         if not base:
             return model, None
         return base, suffix or None
+
+    def get_hf_display_info(self) -> dict[str, str]:
+        """Return display information for HuggingFace model and provider.
+
+        Returns:
+            dict with 'model' and 'provider' keys
+        """
+        model = self.default_request_params.model if self.default_request_params else None
+        provider = self._hf_provider_suffix or "auto-routing"
+        return {"model": model or DEFAULT_HUGGINGFACE_MODEL, "provider": provider}

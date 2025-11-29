@@ -58,9 +58,9 @@ from fast_agent.core.prompt_templates import (
 )
 from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
-from fast_agent.utils.reasoning_stream_parser import ReasoningStreamParser
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
 logger = get_logger(__name__)
@@ -933,21 +933,19 @@ class AgentACPServer(ACPAgent):
                     stream_listener = None
                     remove_listener: Callable[[], None] | None = None
                     streaming_tasks: list[asyncio.Task] = []
-                    parser: ReasoningStreamParser | None = None
                     if self._connection and isinstance(agent, StreamingAgentProtocol):
                         update_lock = asyncio.Lock()
-                        parser = ReasoningStreamParser()
 
-                        async def send_stream_update(chunk: str, *, is_thought: bool):
+                        async def send_stream_update(chunk: StreamChunk) -> None:
                             """Send sessionUpdate with accumulated text so far."""
-                            if not chunk:
+                            if not chunk.text:
                                 return
                             try:
                                 async with update_lock:
-                                    if is_thought:
-                                        message_chunk = update_agent_thought_text(chunk)
+                                    if chunk.is_reasoning:
+                                        message_chunk = update_agent_thought_text(chunk.text)
                                     else:
-                                        message_chunk = update_agent_message_text(chunk)
+                                        message_chunk = update_agent_message_text(chunk.text)
                                     notification = session_notification(session_id, message_chunk)
                                     await self._connection.sessionUpdate(notification)
                             except Exception as e:
@@ -957,31 +955,15 @@ class AgentACPServer(ACPAgent):
                                     exc_info=True,
                                 )
 
-                        def on_stream_chunk(chunk: str):
+                        def on_stream_chunk(chunk: StreamChunk):
                             """
                             Sync callback from fast-agent streaming.
                             Sends each chunk as it arrives to the ACP client.
                             """
-                            print(f"[acp-stream] raw chunk len={len(chunk)}")
-
-                            segments = parser.feed(chunk) if parser else []
-                            if not segments:
+                            if not chunk or not chunk.text:
                                 return
-
-                            for segment in segments:
-                                if not segment.text:
-                                    continue
-                                print(
-                                    f"[acp-stream] sending {'thought' if segment.is_thinking else 'final'} "
-                                    f"len={len(segment.text)}"
-                                )
-                                task = asyncio.create_task(
-                                    send_stream_update(
-                                        segment.text,
-                                        is_thought=segment.is_thinking,
-                                    )
-                                )
-                                streaming_tasks.append(task)
+                            task = asyncio.create_task(send_stream_update(chunk))
+                            streaming_tasks.append(task)
 
                         # Register the stream listener and keep the cleanup function
                         stream_listener = on_stream_chunk
@@ -1024,20 +1006,6 @@ class AgentACPServer(ACPAgent):
                             llm_stop_reason=str(result.stop_reason) if result.stop_reason else None,
                             acp_stop_reason=acp_stop_reason,
                         )
-
-                        if parser:
-                            remaining_segments = parser.flush()
-                            for segment in remaining_segments:
-                                if not segment.text:
-                                    continue
-                                streaming_tasks.append(
-                                    asyncio.create_task(
-                                        send_stream_update(
-                                            segment.text,
-                                            is_thought=segment.is_thinking,
-                                        )
-                                    )
-                                )
 
                         # Wait for all streaming tasks to complete before sending final message
                         # and returning PromptResponse. This ensures all chunks arrive before END_TURN.

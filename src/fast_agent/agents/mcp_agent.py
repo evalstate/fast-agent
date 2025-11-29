@@ -1332,6 +1332,6 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             UsageAccumulator object if LLM is attached, None otherwise
         """
-        if self._llm:
-            return self._llm.usage_accumulator
+        if self.llm:
+            return self.llm.usage_accumulator
         return None

@@ -19,6 +19,7 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -74,7 +75,7 @@ class ResponsesLLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessag
                     )
                 if isinstance(event, ResponseTextDeltaEvent):
                     # Notify stream listeners with the delta text
-                    self._notify_stream_listeners(event.delta)
+                    self._notify_stream_listeners(StreamChunk(text=event.delta, is_reasoning=False))
                     text_chars += len(event.delta)
                     await self._emit_streaming_progress(
                         model="gpt-5-mini",

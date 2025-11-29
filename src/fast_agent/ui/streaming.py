@@ -11,6 +11,7 @@ from rich.markdown import Markdown
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
@@ -36,6 +37,9 @@ class NullStreamingHandle:
     """No-op streaming handle used when streaming is disabled."""
 
     def update(self, _chunk: str) -> None:
+        return
+
+    def update_chunk(self, _chunk: StreamChunk) -> None:
         return
 
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
@@ -129,6 +133,18 @@ class StreamingMessageHandle:
             return
 
         if self._handle_chunk(chunk):
+            self._render_current_buffer()
+
+    def update_chunk(self, chunk: StreamChunk) -> None:
+        """Structured streaming update with an explicit reasoning flag."""
+        if not self._active or not chunk or not chunk.text:
+            return
+
+        if self._async_mode and self._queue is not None:
+            self._enqueue_chunk(chunk)
+            return
+
+        if self._handle_stream_chunk(chunk):
             self._render_current_buffer()
 
     def _build_header(self) -> Text:
@@ -385,7 +401,7 @@ class StreamingMessageHandle:
             total += max(1, math.ceil(expanded_len / width)) if expanded_len else 1
         return total
 
-    def _enqueue_chunk(self, chunk: str) -> None:
+    def _enqueue_chunk(self, chunk: object) -> None:
         if not self._queue or not self._loop:
             return
 
@@ -405,13 +421,13 @@ class StreamingMessageHandle:
             except RuntimeError as exc:
                 logger.debug(
                     "RuntimeError while enqueuing chunk (expected during shutdown)",
-                    data={"error": str(exc), "chunk_length": len(chunk)},
+                    data={"error": str(exc), "chunk_repr": repr(chunk)},
                 )
             except Exception as exc:
                 logger.warning(
                     "Unexpected error while enqueuing chunk",
                     exc_info=True,
-                    data={"error": str(exc), "chunk_length": len(chunk)},
+                    data={"error": str(exc), "chunk_repr": repr(chunk)},
                 )
 
     def _process_reasoning_chunk(self, chunk: str) -> bool:
@@ -451,6 +467,28 @@ class StreamingMessageHandle:
             self._buffer.append(processed)
             self._styled_buffer.append((processed, segment.is_thinking))
 
+        return True
+
+    def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
+        """Process a typed stream chunk with explicit reasoning flag."""
+        if not chunk.text:
+            return False
+
+        self._switch_to_plain_text(style=None)
+
+        processed = chunk.text
+        if self._convert_literal_newlines:
+            processed = self._decode_literal_newlines(processed)
+            if not processed:
+                return False
+        processed = self._wrap_plain_chunk(processed)
+        if self._pending_table_row:
+            self._buffer.append(self._pending_table_row)
+            self._pending_table_row = ""
+        self._buffer.append(processed)
+        self._styled_buffer.append((processed, chunk.is_reasoning))
+        if chunk.is_reasoning:
+            self._has_reasoning = True
         return True
 
     def _handle_chunk(self, chunk: str) -> bool:
@@ -639,7 +677,9 @@ class StreamingMessageHandle:
 
                 should_render = False
                 for chunk in chunks:
-                    if isinstance(chunk, str):
+                    if isinstance(chunk, StreamChunk):
+                        should_render = self._handle_stream_chunk(chunk) or should_render
+                    elif isinstance(chunk, str):
                         should_render = self._handle_chunk(chunk) or should_render
 
                 if should_render:
@@ -725,6 +765,7 @@ __all__ = [
 
 class StreamingHandle(Protocol):
     def update(self, chunk: str) -> None: ...
+    def update_chunk(self, chunk: StreamChunk) -> None: ...
 
     def finalize(self, message: "PromptMessageExtended | str") -> None: ...
 

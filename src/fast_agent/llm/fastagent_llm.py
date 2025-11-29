@@ -39,6 +39,7 @@ from fast_agent.interfaces import (
 from fast_agent.llm.memory import Memory, SimpleMemory
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage, UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -160,7 +161,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         # Initialize usage tracking
         self._usage_accumulator = UsageAccumulator()
-        self._stream_listeners: set[Callable[[str], None]] = set()
+        self._stream_listeners: set[Callable[[StreamChunk], None]] = set()
         self._tool_stream_listeners: set[Callable[[str, dict[str, Any] | None], None]] = set()
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
@@ -533,8 +534,6 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         Returns:
             Updated estimated token count
         """
-        self._notify_stream_listeners(content)
-
         # Rough estimate: 1 token per 4 characters (OpenAI's typical ratio)
         text_length = len(content)
         additional_tokens = max(1, text_length // 4)
@@ -555,12 +554,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         return new_total
 
-    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
+    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:
         """
         Register a callback invoked with streaming text chunks.
 
         Args:
-            listener: Callable receiving the text chunk emitted by the provider.
+            listener: Callable receiving a StreamChunk emitted by the provider.
 
         Returns:
             A function that removes the listener when called.
@@ -572,9 +571,9 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
 
         return remove
 
-    def _notify_stream_listeners(self, chunk: str) -> None:
-        """Notify registered listeners with a streaming text chunk."""
-        if not chunk:
+    def _notify_stream_listeners(self, chunk: StreamChunk) -> None:
+        """Notify registered listeners with a streaming chunk."""
+        if not chunk.text:
             return
         for listener in list(self._stream_listeners):
             try:

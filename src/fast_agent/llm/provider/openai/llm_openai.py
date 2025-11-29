@@ -29,8 +29,9 @@ from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
-from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended
 
 _logger = get_logger(__name__)
@@ -203,6 +204,173 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 },
             )
 
+    def _handle_reasoning_delta(
+        self,
+        *,
+        reasoning_mode: str | None,
+        reasoning_text: str,
+        reasoning_active: bool,
+        reasoning_segments: list[str],
+    ) -> bool:
+        """Stream reasoning text and track whether a thinking block is open."""
+        if not reasoning_text:
+            return reasoning_active
+
+        if reasoning_mode == "tags":
+            if not reasoning_active:
+                reasoning_active = True
+            self._notify_stream_listeners(StreamChunk(text=reasoning_text, is_reasoning=True))
+            reasoning_segments.append(reasoning_text)
+            return reasoning_active
+
+        if reasoning_mode in {"stream", "reasoning_content"}:
+            # Emit reasoning as-is
+            self._notify_stream_listeners(StreamChunk(text=reasoning_text, is_reasoning=True))
+            reasoning_segments.append(reasoning_text)
+            return reasoning_active
+
+        return reasoning_active
+
+    def _handle_tool_delta(
+        self,
+        *,
+        delta_tool_calls: Any,
+        tool_call_started: dict[int, dict[str, Any]],
+        streams_arguments: bool,
+        model: str,
+        notified_tool_indices: set[int],
+    ) -> None:
+        """Emit tool call start/delta events and keep state in sync."""
+        for tool_call in delta_tool_calls:
+            index = tool_call.index
+            if index is None:
+                continue
+
+            existing_info = tool_call_started.get(index)
+            tool_use_id = tool_call.id or (existing_info.get("tool_use_id") if existing_info else None)
+            function_name = (
+                tool_call.function.name
+                if tool_call.function and tool_call.function.name
+                else (existing_info.get("tool_name") if existing_info else None)
+            )
+
+            if existing_info is None and tool_use_id and function_name:
+                tool_call_started[index] = {
+                    "tool_name": function_name,
+                    "tool_use_id": tool_use_id,
+                    "streams_arguments": streams_arguments,
+                }
+                self._notify_tool_stream_listeners(
+                    "start",
+                    {
+                        "tool_name": function_name,
+                        "tool_use_id": tool_use_id,
+                        "index": index,
+                        "streams_arguments": streams_arguments,
+                    },
+                )
+                self.logger.info(
+                    "Model started streaming tool call",
+                    data={
+                        "progress_action": ProgressAction.CALLING_TOOL,
+                        "agent_name": self.name,
+                        "model": model,
+                        "tool_name": function_name,
+                        "tool_use_id": tool_use_id,
+                        "tool_event": "start",
+                        "streams_arguments": streams_arguments,
+                    },
+                )
+                notified_tool_indices.add(index)
+            elif existing_info:
+                if tool_use_id:
+                    existing_info["tool_use_id"] = tool_use_id
+                if function_name:
+                    existing_info["tool_name"] = function_name
+
+            if tool_call.function and tool_call.function.arguments:
+                info = tool_call_started.setdefault(
+                    index,
+                    {
+                        "tool_name": function_name,
+                        "tool_use_id": tool_use_id,
+                        "streams_arguments": streams_arguments,
+                    },
+                )
+                self._notify_tool_stream_listeners(
+                    "delta",
+                    {
+                        "tool_name": info.get("tool_name"),
+                        "tool_use_id": info.get("tool_use_id"),
+                        "index": index,
+                        "chunk": tool_call.function.arguments,
+                        "streams_arguments": info.get("streams_arguments", False),
+                    },
+                )
+
+    def _finalize_tool_calls_on_stop(
+        self,
+        *,
+        tool_call_started: dict[int, dict[str, Any]],
+        streams_arguments: bool,
+        model: str,
+        notified_tool_indices: set[int],
+    ) -> None:
+        """Emit stop events for any in-flight tool calls and clear state."""
+        for index, info in list(tool_call_started.items()):
+            self._notify_tool_stream_listeners(
+                "stop",
+                {
+                    "tool_name": info.get("tool_name"),
+                    "tool_use_id": info.get("tool_use_id"),
+                    "index": index,
+                    "streams_arguments": info.get("streams_arguments", False),
+                },
+            )
+            self.logger.info(
+                "Model finished streaming tool call",
+                data={
+                    "progress_action": ProgressAction.CALLING_TOOL,
+                    "agent_name": self.name,
+                    "model": model,
+                    "tool_name": info.get("tool_name"),
+                    "tool_use_id": info.get("tool_use_id"),
+                    "tool_event": "stop",
+                    "streams_arguments": info.get("streams_arguments", False),
+                },
+            )
+            notified_tool_indices.add(index)
+        tool_call_started.clear()
+
+    def _emit_text_delta(
+        self,
+        *,
+        content: str,
+        model: str,
+        estimated_tokens: int,
+        streams_arguments: bool,
+        reasoning_active: bool,
+    ) -> tuple[int, bool]:
+        """Emit text deltas and close any active reasoning block."""
+        if reasoning_active:
+            reasoning_active = False
+
+        self._notify_stream_listeners(StreamChunk(text=content, is_reasoning=False))
+        estimated_tokens = self._update_streaming_progress(content, model, estimated_tokens)
+        self._notify_tool_stream_listeners(
+            "text",
+            {
+                "chunk": content,
+                "streams_arguments": streams_arguments,
+            },
+        )
+
+        return estimated_tokens, reasoning_active
+
+    def _close_reasoning_if_active(self, reasoning_active: bool) -> bool:
+        """Return reasoning state; kept for symmetry."""
+        return False if reasoning_active else reasoning_active
+
     async def _process_stream(
         self,
         stream,
@@ -243,134 +411,44 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 choice = chunk.choices[0]
                 delta = choice.delta
                 reasoning_text = self._extract_reasoning_text(
-                    getattr(delta, "reasoning_content", None)
+                    reasoning=getattr(delta, "reasoning", None),
+                    reasoning_content=getattr(delta, "reasoning_content", None),
                 )
-                if reasoning_text and reasoning_mode == "tags":
-                    if not reasoning_active:
-                        self._notify_stream_listeners("<think>")
-                        reasoning_active = True
-                    self._notify_stream_listeners(reasoning_text)
-                    reasoning_segments.append(reasoning_text)
+                reasoning_active = self._handle_reasoning_delta(
+                    reasoning_mode=reasoning_mode,
+                    reasoning_text=reasoning_text,
+                    reasoning_active=reasoning_active,
+                    reasoning_segments=reasoning_segments,
+                )
 
                 # Handle tool call streaming
                 if delta.tool_calls:
-                    for tool_call in delta.tool_calls:
-                        index = tool_call.index
-
-                        # Fire "start" event on first chunk for this tool call
-                        if index is None:
-                            continue
-
-                        existing_info = tool_call_started.get(index)
-                        tool_use_id = tool_call.id or (
-                            existing_info.get("tool_use_id") if existing_info else None
-                        )
-                        function_name = (
-                            tool_call.function.name
-                            if tool_call.function and tool_call.function.name
-                            else (existing_info.get("tool_name") if existing_info else None)
-                        )
-
-                        if existing_info is None and tool_use_id and function_name:
-                            tool_call_started[index] = {
-                                "tool_name": function_name,
-                                "tool_use_id": tool_use_id,
-                                "streams_arguments": streams_arguments,
-                            }
-                            self._notify_tool_stream_listeners(
-                                "start",
-                                {
-                                    "tool_name": function_name,
-                                    "tool_use_id": tool_use_id,
-                                    "index": index,
-                                    "streams_arguments": streams_arguments,
-                                },
-                            )
-                            self.logger.info(
-                                "Model started streaming tool call",
-                                data={
-                                    "progress_action": ProgressAction.CALLING_TOOL,
-                                    "agent_name": self.name,
-                                    "model": model,
-                                    "tool_name": function_name,
-                                    "tool_use_id": tool_use_id,
-                                    "tool_event": "start",
-                                    "streams_arguments": streams_arguments,
-                                },
-                            )
-                            notified_tool_indices.add(index)
-                        elif existing_info:
-                            if tool_use_id:
-                                existing_info["tool_use_id"] = tool_use_id
-                            if function_name:
-                                existing_info["tool_name"] = function_name
-
-                        # Fire "delta" event for argument chunks
-                        if tool_call.function and tool_call.function.arguments:
-                            info = tool_call_started.setdefault(
-                                index,
-                                {
-                                    "tool_name": function_name,
-                                    "tool_use_id": tool_use_id,
-                                    "streams_arguments": streams_arguments,
-                                },
-                            )
-                            self._notify_tool_stream_listeners(
-                                "delta",
-                                {
-                                    "tool_name": info.get("tool_name"),
-                                    "tool_use_id": info.get("tool_use_id"),
-                                    "index": index,
-                                    "chunk": tool_call.function.arguments,
-                                    "streams_arguments": info.get("streams_arguments", False),
-                                },
-                            )
+                    self._handle_tool_delta(
+                        delta_tool_calls=delta.tool_calls,
+                        tool_call_started=tool_call_started,
+                        streams_arguments=streams_arguments,
+                        model=model,
+                        notified_tool_indices=notified_tool_indices,
+                    )
 
                 # Handle text content streaming
                 if delta.content:
-                    if reasoning_active:
-                        self._notify_stream_listeners("</think>")
-                        reasoning_active = False
-
-                    content = delta.content
-                    # Use base class method for token estimation and progress emission
-                    estimated_tokens = self._update_streaming_progress(
-                        content, model, estimated_tokens
-                    )
-                    self._notify_tool_stream_listeners(
-                        "text",
-                        {
-                            "chunk": content,
-                            "streams_arguments": streams_arguments,
-                        },
+                    estimated_tokens, reasoning_active = self._emit_text_delta(
+                        content=delta.content,
+                        model=model,
+                        estimated_tokens=estimated_tokens,
+                        streams_arguments=streams_arguments,
+                        reasoning_active=reasoning_active,
                     )
 
                 # Fire "stop" event when tool calls complete
                 if choice.finish_reason == "tool_calls":
-                    for index, info in list(tool_call_started.items()):
-                        self._notify_tool_stream_listeners(
-                            "stop",
-                            {
-                                "tool_name": info.get("tool_name"),
-                                "tool_use_id": info.get("tool_use_id"),
-                                "index": index,
-                                "streams_arguments": info.get("streams_arguments", False),
-                            },
-                        )
-                        self.logger.info(
-                            "Model finished streaming tool call",
-                            data={
-                                "progress_action": ProgressAction.CALLING_TOOL,
-                                "agent_name": self.name,
-                                "model": model,
-                                "tool_name": info.get("tool_name"),
-                                "tool_use_id": info.get("tool_use_id"),
-                                "tool_event": "stop",
-                                "streams_arguments": info.get("streams_arguments", False),
-                            },
-                        )
-                        notified_tool_indices.add(index)
-                    tool_call_started.clear()
+                    self._finalize_tool_calls_on_stop(
+                        tool_call_started=tool_call_started,
+                        streams_arguments=streams_arguments,
+                        model=model,
+                        notified_tool_indices=notified_tool_indices,
+                    )
 
         # Check if we hit the length limit to avoid LengthFinishReasonError
         current_snapshot = state.current_completion_snapshot
@@ -381,9 +459,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Get the final completion with usage data (may include structured output parsing)
             final_completion = state.get_final_completion()
 
-        if reasoning_active:
-            self._notify_stream_listeners("</think>")
-            reasoning_active = False
+        reasoning_active = self._close_reasoning_if_active(reasoning_active)
 
         # Log final usage information
         if hasattr(final_completion, "usage") and final_completion.usage:
@@ -485,133 +561,45 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 delta = choice.delta
 
                 reasoning_text = self._extract_reasoning_text(
-                    getattr(delta, "reasoning_content", None)
+                    reasoning=getattr(delta, "reasoning", None),
+                    reasoning_content=getattr(delta, "reasoning_content", None),
                 )
-                if reasoning_text and reasoning_mode == "tags":
-                    if not reasoning_active:
-                        self._notify_stream_listeners("<think>")
-                        reasoning_active = True
-                    self._notify_stream_listeners(reasoning_text)
-                    reasoning_segments.append(reasoning_text)
+                reasoning_active = self._handle_reasoning_delta(
+                    reasoning_mode=reasoning_mode,
+                    reasoning_text=reasoning_text,
+                    reasoning_active=reasoning_active,
+                    reasoning_segments=reasoning_segments,
+                )
 
                 # Handle tool call streaming
                 if delta.tool_calls:
-                    for tool_call in delta.tool_calls:
-                        if tool_call.index is not None:
-                            index = tool_call.index
-
-                            existing_info = tool_call_started.get(index)
-                            tool_use_id = tool_call.id or (
-                                existing_info.get("tool_use_id") if existing_info else None
-                            )
-                            function_name = (
-                                tool_call.function.name
-                                if tool_call.function and tool_call.function.name
-                                else (existing_info.get("tool_name") if existing_info else None)
-                            )
-
-                            # Fire "start" event on first chunk for this tool call
-                            if index not in tool_call_started and tool_use_id and function_name:
-                                tool_call_started[index] = {
-                                    "tool_name": function_name,
-                                    "tool_use_id": tool_use_id,
-                                    "streams_arguments": streams_arguments,
-                                }
-                                self._notify_tool_stream_listeners(
-                                    "start",
-                                    {
-                                        "tool_name": function_name,
-                                        "tool_use_id": tool_use_id,
-                                        "index": index,
-                                        "streams_arguments": streams_arguments,
-                                    },
-                                )
-                                self.logger.info(
-                                    "Model started streaming tool call",
-                                    data={
-                                        "progress_action": ProgressAction.CALLING_TOOL,
-                                        "agent_name": self.name,
-                                        "model": model,
-                                        "tool_name": function_name,
-                                        "tool_use_id": tool_use_id,
-                                        "tool_event": "start",
-                                        "streams_arguments": streams_arguments,
-                                    },
-                                )
-                                notified_tool_indices.add(index)
-                            elif existing_info:
-                                if tool_use_id:
-                                    existing_info["tool_use_id"] = tool_use_id
-                                if function_name:
-                                    existing_info["tool_name"] = function_name
-
-                            # Fire "delta" event for argument chunks
-                            if tool_call.function and tool_call.function.arguments:
-                                info = tool_call_started.setdefault(
-                                    index,
-                                    {
-                                        "tool_name": function_name,
-                                        "tool_use_id": tool_use_id,
-                                        "streams_arguments": streams_arguments,
-                                    },
-                                )
-                                self._notify_tool_stream_listeners(
-                                    "delta",
-                                    {
-                                        "tool_name": info.get("tool_name"),
-                                        "tool_use_id": info.get("tool_use_id"),
-                                        "index": index,
-                                        "chunk": tool_call.function.arguments,
-                                        "streams_arguments": info.get("streams_arguments", False),
-                                    },
-                                )
+                    self._handle_tool_delta(
+                        delta_tool_calls=delta.tool_calls,
+                        tool_call_started=tool_call_started,
+                        streams_arguments=streams_arguments,
+                        model=model,
+                        notified_tool_indices=notified_tool_indices,
+                    )
 
                 # Handle text content streaming
                 if delta.content:
-                    if reasoning_active:
-                        self._notify_stream_listeners("</think>")
-                        reasoning_active = False
-
-                    content = delta.content
-                    accumulated_content += content
-                    # Use base class method for token estimation and progress emission
-                    estimated_tokens = self._update_streaming_progress(
-                        content, model, estimated_tokens
+                    estimated_tokens, reasoning_active = self._emit_text_delta(
+                        content=delta.content,
+                        model=model,
+                        estimated_tokens=estimated_tokens,
+                        streams_arguments=streams_arguments,
+                        reasoning_active=reasoning_active,
                     )
-                    self._notify_tool_stream_listeners(
-                        "text",
-                        {
-                            "chunk": content,
-                            "streams_arguments": streams_arguments,
-                        },
-                    )
+                    accumulated_content += delta.content
 
                 # Fire "stop" event when tool calls complete
                 if choice.finish_reason == "tool_calls":
-                    for index, info in list(tool_call_started.items()):
-                        self._notify_tool_stream_listeners(
-                            "stop",
-                            {
-                                "tool_name": info.get("tool_name"),
-                                "tool_use_id": info.get("tool_use_id"),
-                                "index": index,
-                                "streams_arguments": info.get("streams_arguments", False),
-                            },
-                        )
-                        self.logger.info(
-                            "Model finished streaming tool call",
-                            data={
-                                "progress_action": ProgressAction.CALLING_TOOL,
-                                "agent_name": self.name,
-                                "model": model,
-                                "tool_name": info.get("tool_name"),
-                                "tool_use_id": info.get("tool_use_id"),
-                                "tool_event": "stop",
-                                "streams_arguments": info.get("streams_arguments", False),
-                            },
-                        )
-                        notified_tool_indices.add(index)
-                    tool_call_started.clear()
+                    self._finalize_tool_calls_on_stop(
+                        tool_call_started=tool_call_started,
+                        streams_arguments=streams_arguments,
+                        model=model,
+                        notified_tool_indices=notified_tool_indices,
+                    )
 
             # Extract other fields from the chunk
             if chunk.choices:
@@ -687,9 +675,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             audio=None,
         )
 
-        if reasoning_active:
-            self._notify_stream_listeners("</think>")
-            reasoning_active = False
+        reasoning_active = False
 
         from types import SimpleNamespace
 
@@ -1011,50 +997,47 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         return arguments
 
     @staticmethod
-    def _extract_reasoning_text(reasoning_content: Any) -> str:
-        """Extract text from provider-specific reasoning content payloads, with debug tracing."""
-        if not reasoning_content:
-            return ""
+    def _extract_reasoning_text(reasoning: Any = None, reasoning_content: Any | None = None) -> str:
+        """Extract text from provider-specific reasoning payloads.
 
-        parts: list[str] = []
-        summary: list[dict[str, Any]] = []
-        for item in reasoning_content:
-            text = None
+        Priority: explicit `reasoning` field (string/object/list) > `reasoning_content` list.
+        """
+
+        def _coerce_text(value: Any) -> str:
+            if value is None:
+                return ""
+            if isinstance(value, str):
+                return value
+            if isinstance(value, dict):
+                return str(value.get("text") or value)
+            text_attr = None
             try:
-                text = getattr(item, "text", None)
+                text_attr = getattr(value, "text", None)
             except Exception:
-                text = None
+                text_attr = None
+            if text_attr:
+                return str(text_attr)
+            return str(value)
 
-            keys: list[str] = []
-            if hasattr(item, "model_dump"):
-                try:
-                    keys = list(item.model_dump(exclude_none=True).keys())  # type: ignore[arg-type]
-                except Exception:
-                    keys = []
-            elif isinstance(item, dict):
-                keys = list(item.keys())
+        if reasoning is not None:
+            if isinstance(reasoning, (list, tuple)):
+                combined = "".join(_coerce_text(item) for item in reasoning)
+            else:
+                combined = _coerce_text(reasoning)
+            if combined.strip():
+                return combined
 
-            if text is None and isinstance(item, dict):
-                text = item.get("text")
+        if reasoning_content:
+            parts: list[str] = []
+            for item in reasoning_content:
+                text = _coerce_text(item)
+                if text:
+                    parts.append(text)
+            combined = "".join(parts)
+            if combined.strip():
+                return combined
 
-            if text is None and item is not None:
-                text = str(item)
-
-            summary.append(
-                {
-                    "type": type(item).__name__,
-                    "len": len(text) if text else 0,
-                    "keys": keys[:5],
-                }
-            )
-
-            if text:
-                parts.append(text)
-
-        extracted = "".join(parts)
-        if extracted.strip() == "":
-            return ""
-        return extracted
+        return ""
 
     def _convert_extended_messages_to_provider(
         self, messages: list[PromptMessageExtended]
@@ -1070,10 +1053,23 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             List of OpenAI ChatCompletionMessageParam objects
         """
         converted: list[ChatCompletionMessageParam] = []
+        reasoning_mode = ModelDatabase.get_reasoning(self.default_request_params.model)
 
         for msg in messages:
             # convert_to_openai returns a list of messages
-            converted.extend(OpenAIConverter.convert_to_openai(msg))
+            openai_msgs = OpenAIConverter.convert_to_openai(msg)
+
+            if reasoning_mode == "reasoning_content" and msg.channels:
+                reasoning_blocks = msg.channels.get(REASONING) if msg.channels else None
+                if reasoning_blocks:
+                    reasoning_texts = [get_text(block) for block in reasoning_blocks]
+                    reasoning_texts = [txt for txt in reasoning_texts if txt]
+                    if reasoning_texts:
+                        reasoning_content = "\n\n".join(reasoning_texts)
+                        for oai_msg in openai_msgs:
+                            oai_msg["reasoning_content"] = reasoning_content
+
+            converted.extend(openai_msgs)
 
         return converted
 
