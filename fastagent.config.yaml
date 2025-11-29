@@ -16,7 +16,7 @@ default_model: gpt-5-mini.low
 # mcp_ui_mode: enabled
 
 # otel:
-#    enabled: true
+#   enabled: true
 
 # Logging and Console Configuration:
 logger:
