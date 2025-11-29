@@ -15,8 +15,8 @@ default_model: gpt-5-mini.low
 # mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
 # mcp_ui_mode: enabled
 
-otel:
-   enabled: true
+# otel:
+#    enabled: true
 
 # Logging and Console Configuration:
 logger:
@@ -51,4 +51,3 @@ mcp:
       url: "http://localhost:3001/mcp"
       elicitation:
         mode: "auto-cancel"
-
