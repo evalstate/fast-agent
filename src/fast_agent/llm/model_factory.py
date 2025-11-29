@@ -140,7 +140,7 @@ class ModelFactory:
         "glm": "hf.zai-org/GLM-4.6",
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
-        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
+        "kimithink": "hf.moonshotai/Kimi-K2-Thinking:nebius",
     }
 
     @staticmethod

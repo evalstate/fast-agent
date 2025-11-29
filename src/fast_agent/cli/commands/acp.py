@@ -90,6 +90,11 @@ def run_acp(
         "--instance-scope",
         help="Control how ACP clients receive isolated agent instances (shared, connection, request)",
     ),
+    no_permissions: bool = typer.Option(
+        False,
+        "--no-permissions",
+        help="Disable tool permission requests (allow all tool executions without asking)",
+    ),
 ) -> None:
     """
     Run FastAgent with ACP transport defaults.
@@ -122,6 +127,7 @@ def run_acp(
         port=port,
         tool_description=description,
         instance_scope=instance_scope.value,
+        permissions_enabled=not no_permissions,
     )
 
 
@@ -138,4 +144,16 @@ def main() -> None:
 
         root_cli_main()
         return
-    app()
+    try:
+        # Run the Typer app without triggering automatic sys.exit so we can
+        # guarantee error output goes to stderr with a non-zero exit code.
+        app(standalone_mode=False)
+    except click.ClickException as exc:
+        # Preserve Typer's rich formatting when available, otherwise fall back to plain text.
+        try:
+            import typer.rich_utils as rich_utils
+
+            rich_utils.rich_format_error(exc)
+        except Exception:
+            exc.show(file=sys.stderr)
+        sys.exit(getattr(exc, "exit_code", 1))

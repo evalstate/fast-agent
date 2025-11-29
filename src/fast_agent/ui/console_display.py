@@ -644,7 +644,12 @@ class ConsoleDisplay:
         if not joined.strip():
             return None
 
-        return Text(joined, style="dim default")
+        # Render reasoning in dim italic and leave a blank line before main content
+        text = joined
+        if not text.endswith("\n"):
+            text += "\n"
+        text += "\n"
+        return Text(text, style="dim italic")
 
     async def show_assistant_message(
         self,
