@@ -85,4 +85,4 @@ def test_reasoning_content_injected_for_reasoning_content_models():
 
     assert converted, "Converted messages should not be empty"
     assert "reasoning_content" in converted[0], "reasoning_content should be injected"
-    assert converted[0]["reasoning_content"] == [{"type": "text", "text": reasoning_text}]
+    assert converted[0]["reasoning_content"] == reasoning_text

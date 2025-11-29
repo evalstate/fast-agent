@@ -1065,7 +1065,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     reasoning_texts = [get_text(block) for block in reasoning_blocks]
                     reasoning_texts = [txt for txt in reasoning_texts if txt]
                     if reasoning_texts:
-                        reasoning_content = [{"type": "text", "text": txt} for txt in reasoning_texts]
+                        reasoning_content = "\n\n".join(reasoning_texts)
                         for oai_msg in openai_msgs:
                             oai_msg["reasoning_content"] = reasoning_content
 
