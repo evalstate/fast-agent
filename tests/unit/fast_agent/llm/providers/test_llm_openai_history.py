@@ -1,8 +1,8 @@
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
-from fast_agent.context import Context
 from fast_agent.constants import REASONING
+from fast_agent.context import Context
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.request_params import RequestParams
@@ -82,6 +82,30 @@ def test_reasoning_content_injected_for_reasoning_content_models():
     )
 
     converted = llm._convert_extended_messages_to_provider([msg])
+
+    assert converted, "Converted messages should not be empty"
+    assert "reasoning_content" in converted[0], "reasoning_content should be injected"
+    assert converted[0]["reasoning_content"] == reasoning_text
+
+
+def test_reasoning_content_preserved_with_tool_calls():
+    """Reasoning content should ride along even when assistant is calling tools."""
+    context = Context()
+    llm = OpenAILLM(context=context, model="moonshotai/kimi-k2-thinking")
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo_tool", arguments={"arg": "value"}),
+    )
+    reasoning_text = "need to call demo_tool"
+
+    assistant_tool_call = Prompt.assistant(
+        "calling tool",
+        tool_calls={"call_1": tool_call},
+        channels={REASONING: [TextContent(type="text", text=reasoning_text)]},
+    )
+
+    converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
 
     assert converted, "Converted messages should not be empty"
     assert "reasoning_content" in converted[0], "reasoning_content should be injected"

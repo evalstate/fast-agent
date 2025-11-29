@@ -327,7 +327,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Normalize all input types to a list of PromptMessageExtended
         multipart_messages = normalize_to_extended_list(messages)
         final_request_params = (
-            self.llm.get_request_params(request_params) if self._llm else request_params
+            self.llm.get_request_params(request_params) if self.llm else request_params
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
@@ -457,7 +457,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Normalize all input types to a list of PromptMessageExtended
         multipart_messages = normalize_to_extended_list(messages)
         final_request_params = (
-            self.llm.get_request_params(request_params) if self._llm else request_params
+            self.llm.get_request_params(request_params) if self.llm else request_params
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
@@ -679,7 +679,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if category == "text":
             return True
 
-        model_name = self._llm.model_name if self._llm else None
+        model_name = self.llm.model_name if self.llm else None
         if not model_name:
             return False
 
@@ -731,7 +731,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def _build_error_channel_entries(self, removed: list[_RemovedBlock]) -> list[ContentBlock]:
         """Create informative entries for the error channel."""
         entries: list[ContentBlock] = []
-        model_name = self._llm.model_name if self._llm else None
+        model_name = self.llm.model_name if self.llm else None
         model_display = model_name or "current model"
 
         for item in removed:
@@ -791,7 +791,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             if flag is not None
         )
 
-        model_name = self._llm.model_name if self._llm else None
+        model_name = self.llm.model_name if self.llm else None
         model_display = model_name or "current model"
 
         category_order = ["vision", "document", "other", "text"]
@@ -900,8 +900,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
-        if self._llm:
-            return self._llm.pop_last_message()
+        if self.llm:
+            return self.llm.pop_last_message()
         return None
 
     @property
@@ -912,13 +912,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             UsageAccumulator object if LLM is attached, None otherwise
         """
-        if self._llm:
-            return self._llm.usage_accumulator
+        if self.llm:
+            return self.llm.usage_accumulator
         return None
 
     @property
-    def llm(self) -> FastAgentLLMProtocol:
-        assert self._llm, "LLM is not attached"
+    def llm(self) -> FastAgentLLMProtocol | None:
         return self._llm
 
     # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---

@@ -198,7 +198,7 @@ class LlmAgent(LlmDecorator):
 
         # Use provided name/model or fall back to defaults
         display_name = name if name is not None else self.name
-        display_model = model if model is not None else (self.llm.model_name if self._llm else None)
+        display_model = model if model is not None else (self.llm.model_name if self.llm else None)
 
         # Convert highlight_items to highlight_index
         highlight_index = None
@@ -226,8 +226,8 @@ class LlmAgent(LlmDecorator):
 
     def show_user_message(self, message: PromptMessageExtended) -> None:
         """Display a user message in a formatted panel."""
-        model = self.llm.model_name
-        chat_turn = self._llm.chat_turn()
+        model = self.llm.model_name if self.llm else None
+        chat_turn = self.llm.chat_turn() if self.llm else 0
         self.display.show_user_message(message.last_text() or "", model, chat_turn, name=self.name)
 
     def _should_stream(self) -> bool:
@@ -255,7 +255,7 @@ class LlmAgent(LlmDecorator):
 
         if self._should_stream():
             display_name = self.name
-            display_model = self.llm.model_name if self._llm else None
+            display_model = self.llm.model_name if self.llm else None
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None

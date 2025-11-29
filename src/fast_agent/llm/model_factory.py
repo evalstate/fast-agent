@@ -177,6 +177,11 @@ class ModelFactory:
                 model_string = base
 
         model_string = cls.MODEL_ALIASES.get(model_string, model_string)
+
+        # If user provided a suffix (e.g., kimi:groq), strip any existing suffix
+        # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
+        if suffix and ":" in model_string:
+            model_string = model_string.rsplit(":", 1)[0]
         parts = model_string.split(".")
 
         model_name_str = model_string  # Default full string as model name initially

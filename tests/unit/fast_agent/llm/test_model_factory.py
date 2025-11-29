@@ -10,6 +10,7 @@ from fast_agent.llm.model_factory import (
 )
 from fast_agent.llm.provider.anthropic.llm_anthropic import AnthropicLLM
 from fast_agent.llm.provider.openai.llm_generic import GenericLLM
+from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
 
@@ -86,3 +87,85 @@ def test_allows_generic_model():
     instance = factory(LlmAgent(AgentConfig(name="test")))
     assert isinstance(instance, GenericLLM)
     assert instance._base_url() == "http://localhost:11434/v1"
+
+
+def test_huggingface_alias_without_provider():
+    """Test HuggingFace alias without explicit provider"""
+    config = ModelFactory.parse_model_string("kimi")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905"
+
+
+def test_huggingface_alias_with_default_provider():
+    """Test HuggingFace alias that includes a default provider in the alias"""
+    # glm alias has :cerebras as default provider
+    config = ModelFactory.parse_model_string("glm")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "zai-org/GLM-4.6:cerebras"
+
+
+def test_huggingface_alias_provider_override():
+    """Test that user-specified provider overrides the alias default"""
+    # glm alias is "hf.zai-org/GLM-4.6:cerebras" - user specifies :groq
+    config = ModelFactory.parse_model_string("glm:groq")
+    assert config.provider == Provider.HUGGINGFACE
+    # User's :groq should replace the alias's :cerebras
+    assert config.model_name == "zai-org/GLM-4.6:groq"
+
+
+def test_huggingface_alias_without_default_provider_gets_user_provider():
+    """Test that an alias without a default provider can receive a user provider"""
+    # kimi alias is "hf.moonshotai/Kimi-K2-Instruct-0905" (no default provider)
+    config = ModelFactory.parse_model_string("kimi:groq")
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905:groq"
+
+
+def test_huggingface_alias_provider_override_together():
+    """Test provider override with together"""
+    # qwen3 alias is "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together"
+    config = ModelFactory.parse_model_string("qwen3:nebius")
+    assert config.provider == Provider.HUGGINGFACE
+    # User's :nebius should replace the alias's :together
+    assert config.model_name == "Qwen/Qwen3-Next-80B-A3B-Instruct:nebius"
+
+
+def test_huggingface_display_info_with_provider():
+    """Test HuggingFaceLLM displays correct model and provider info"""
+    # Create HuggingFace LLM with explicit provider
+    factory = ModelFactory.create_factory("glm")  # glm has :cerebras default
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    assert hasattr(llm, "get_hf_display_info")
+
+    info = llm.get_hf_display_info()
+    assert info["model"] == "zai-org/GLM-4.6"
+    assert info["provider"] == "cerebras"
+
+
+def test_huggingface_display_info_auto_routing():
+    """Test HuggingFaceLLM displays auto-routing when no provider specified"""
+    # Create HuggingFace LLM without provider suffix
+    factory = ModelFactory.create_factory("kimi")  # kimi has no default provider
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    info = llm.get_hf_display_info()
+    assert info["model"] == "moonshotai/Kimi-K2-Instruct-0905"
+    assert info["provider"] == "auto-routing"
+
+
+def test_huggingface_display_info_user_override():
+    """Test HuggingFaceLLM displays user-specified provider correctly"""
+    # User overrides glm's :cerebras with :groq
+    factory = ModelFactory.create_factory("glm:groq")
+    agent = LlmAgent(AgentConfig(name="test"))
+    llm = factory(agent)
+
+    assert isinstance(llm, HuggingFaceLLM)
+    info = llm.get_hf_display_info()
+    assert info["model"] == "zai-org/GLM-4.6"
+    assert info["provider"] == "groq"
