@@ -148,13 +148,13 @@ def test_huggingface_display_info_with_provider():
 def test_huggingface_display_info_auto_routing():
     """Test HuggingFaceLLM displays auto-routing when no provider specified"""
     # Create HuggingFace LLM without provider suffix
-    factory = ModelFactory.create_factory("kimi")  # kimi has no default provider
+    factory = ModelFactory.create_factory("minimax")  # minimax has no default provider
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
 
     assert isinstance(llm, HuggingFaceLLM)
     info = llm.get_hf_display_info()
-    assert info["model"] == "moonshotai/Kimi-K2-Instruct-0905"
+    assert info["model"] == "MiniMaxAI/MiniMax-M2"
     assert info["provider"] == "auto-routing"
 
 
