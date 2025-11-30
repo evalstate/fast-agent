@@ -270,7 +270,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             reasoning_segments.append(reasoning_text)
             return reasoning_active
 
-        if reasoning_mode in {"stream", "reasoning_content"}:
+        if reasoning_mode in {"stream", "reasoning_content", "gpt_oss"}:
             # Emit reasoning as-is
             self._notify_stream_listeners(StreamChunk(text=reasoning_text, is_reasoning=True))
             reasoning_segments.append(reasoning_text)
@@ -1136,6 +1136,20 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         reasoning_content = "\n\n".join(reasoning_texts)
                         for oai_msg in openai_msgs:
                             oai_msg["reasoning_content"] = reasoning_content
+
+            # gpt-oss: per docs, reasoning should be dropped on subsequent sampling
+            # UNLESS tool calling is involved. For tool calls, prefix the assistant
+            # message content with the reasoning text.
+            if reasoning_mode == "gpt_oss" and msg.channels and msg.tool_calls:
+                reasoning_blocks = msg.channels.get(REASONING) if msg.channels else None
+                if reasoning_blocks:
+                    reasoning_texts = [get_text(block) for block in reasoning_blocks]
+                    reasoning_texts = [txt for txt in reasoning_texts if txt]
+                    if reasoning_texts:
+                        reasoning_text = "\n\n".join(reasoning_texts)
+                        for oai_msg in openai_msgs:
+                            existing_content = oai_msg.get("content", "") or ""
+                            oai_msg["content"] = reasoning_text + existing_content
 
             converted.extend(openai_msgs)
 

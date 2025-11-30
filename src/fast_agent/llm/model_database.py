@@ -140,7 +140,7 @@ class ModelDatabase:
         max_output_tokens=32766,
         tokenizes=TEXT_ONLY,
         json_mode="object",
-        reasoning="reasoning_content",
+        reasoning="gpt_oss",
     )
     OPENAI_GPT_5 = ModelParameters(
         context_window=400000,
@@ -315,8 +315,8 @@ class ModelDatabase:
         "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
-        "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
-        "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
+        "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
+        "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
         "minimaxai/minimax-m2": GLM_46,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
