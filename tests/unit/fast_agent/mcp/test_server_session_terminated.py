@@ -32,8 +32,9 @@ class TestServerSessionTerminatedError:
 
     def test_error_code_constant(self):
         """Test that the SESSION_TERMINATED_CODE constant is defined correctly."""
-        # The MCP SDK uses -32600 for session terminated errors
-        assert ServerSessionTerminatedError.SESSION_TERMINATED_CODE == -32600
+        # The MCP SDK uses positive 32600 for session terminated errors
+        # (not the standard JSON-RPC -32600)
+        assert ServerSessionTerminatedError.SESSION_TERMINATED_CODE == 32600
 
     def test_error_inherits_from_fast_agent_error(self):
         """Test that the exception inherits from FastAgentError."""
@@ -108,15 +109,15 @@ class TestMCPServerSettingsReconnect:
 class TestSessionTerminationDetection:
     """Tests for detecting session terminated errors."""
 
-    def test_detection_with_mcp_error_code_negative_32600(self):
-        """Test that errors with code -32600 are detected as session terminated."""
+    def test_detection_with_mcp_error_code_32600(self):
+        """Test that errors with code 32600 are detected as session terminated."""
         from mcp.shared.exceptions import McpError
         from mcp.types import ErrorData
 
         from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
-        # Create an actual McpError with code -32600
-        error_data = ErrorData(code=-32600, message="Session terminated")
+        # Create an actual McpError with code 32600 (as used by MCP SDK)
+        error_data = ErrorData(code=32600, message="Session terminated")
         mcp_error = McpError(error_data)
 
         # Create a minimal session instance to test the method

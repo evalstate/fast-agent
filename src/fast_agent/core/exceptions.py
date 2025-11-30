@@ -79,8 +79,10 @@ class ServerSessionTerminatedError(FastAgentError):
     error triggers automatic reconnection.
     """
 
-    # JSONRPC error code for session terminated (from MCP SDK)
-    SESSION_TERMINATED_CODE = -32600
+    # Error code for session terminated from MCP SDK streamable_http.py
+    # Note: The SDK uses positive 32600 (not the standard JSON-RPC -32600)
+    # See: https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/client/streamable_http.py
+    SESSION_TERMINATED_CODE = 32600
 
     def __init__(self, server_name: str, details: str = "") -> None:
         self.server_name = server_name
