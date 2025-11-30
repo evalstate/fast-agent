@@ -245,39 +245,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             raise
 
     def _is_session_terminated_error(self, exc: Exception) -> bool:
-        """Check if the exception indicates a session terminated error (404).
+        """Check if exception is a session terminated error (code 32600 from 404)."""
+        from mcp.shared.exceptions import McpError
 
-        The MCP SDK sends a JSONRPC error with code -32600 when a 404 is received,
-        indicating the session has been terminated (e.g., server restart).
-
-        This method also checks for "session terminated" in the error message
-        as a fallback for edge cases.
-        """
         from fast_agent.core.exceptions import ServerSessionTerminatedError
 
-        # First, check the string representation of the exception
-        # This is the most reliable fallback for any exception type
-        exc_str = str(exc).lower()
-        if "session terminated" in exc_str:
-            logger.debug(f"Session terminated detected via string match: {exc}")
-            return True
-
-        # Try to check McpError specifically for the error code
-        try:
-            from mcp.shared.exceptions import McpError
-
-            if isinstance(exc, McpError):
-                error_data = getattr(exc, "error", None)
-                if error_data is not None:
-                    error_code = getattr(error_data, "code", None)
-
-                    # Check for the session terminated error code
-                    if error_code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
-                        logger.debug(f"Session terminated detected via error code: {error_code}")
-                        return True
-        except ImportError:
-            pass
-
+        if isinstance(exc, McpError):
+            error_data = getattr(exc, "error", None)
+            if error_data and getattr(error_data, "code", None) == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
+                return True
         return False
 
     def _attach_transport_channel(self, request_id, result) -> None:
