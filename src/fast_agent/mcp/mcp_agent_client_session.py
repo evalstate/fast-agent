@@ -218,12 +218,22 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             self._attach_transport_channel(request_id, result)
             return result
         except Exception as e:
-            # Handle connection errors cleanly
-            # Looking at the MCP SDK, this should probably handle MCPError
             from anyio import ClosedResourceError
 
+            from fast_agent.core.exceptions import ServerSessionTerminatedError
+
+            # Check for session terminated error (404 from server)
+            if self._is_session_terminated_error(e):
+                logger.warning(
+                    f"MCP server {self.session_server_name} session terminated (404)"
+                )
+                raise ServerSessionTerminatedError(
+                    server_name=self.session_server_name or "unknown",
+                    details="Server returned 404 - session may have expired due to server restart",
+                ) from e
+
+            # Handle connection errors cleanly (transport closed)
             if isinstance(e, ClosedResourceError):
-                # Show clean offline message and convert to ConnectionError
                 from fast_agent.ui import console
 
                 console.console.print(
@@ -233,6 +243,25 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             else:
                 logger.error(f"send_request failed: {str(e)}")
                 raise
+
+    def _is_session_terminated_error(self, exc: Exception) -> bool:
+        """Check if the exception indicates a session terminated error (404).
+
+        The MCP SDK sends a JSONRPC error with code -32600 when a 404 is received,
+        indicating the session has been terminated (e.g., server restart).
+        """
+        try:
+            from mcp.shared.exceptions import McpError
+
+            if isinstance(exc, McpError):
+                error_data = getattr(exc, "error", None)
+                if error_data is not None:
+                    error_code = getattr(error_data, "code", None)
+                    # -32600 is the session terminated error code from MCP SDK
+                    return error_code == -32600
+        except ImportError:
+            pass
+        return False
 
     def _attach_transport_channel(self, request_id, result) -> None:
         if self._transport_metrics is None or request_id is None or result is None:

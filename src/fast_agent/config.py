@@ -208,6 +208,14 @@ class MCPServerSettings(BaseModel):
     include_instructions: bool = True
     """Whether to include this server's instructions in the system prompt (default: True)."""
 
+    reconnect_on_disconnect: bool = False
+    """Whether to automatically reconnect when the server session is terminated (e.g., 404).
+
+    When enabled, if a remote StreamableHTTP server returns a 404 indicating the session
+    has been terminated (e.g., due to server restart), the client will automatically
+    attempt to re-initialize the connection and retry the operation.
+    """
+
     implementation: Implementation | None = None
 
     @model_validator(mode="before")
