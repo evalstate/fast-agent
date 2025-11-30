@@ -222,8 +222,19 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
             from fast_agent.core.exceptions import ServerSessionTerminatedError
 
+            # Debug: print to stderr to bypass logging
+            import sys
+            print(f"DEBUG send_request caught exception: {type(e).__name__}: {e}", file=sys.stderr)
+
             # Check for session terminated error (404 from server)
-            if self._is_session_terminated_error(e):
+            try:
+                is_terminated = self._is_session_terminated_error(e)
+                print(f"DEBUG _is_session_terminated_error returned: {is_terminated}", file=sys.stderr)
+            except Exception as check_exc:
+                print(f"DEBUG _is_session_terminated_error RAISED: {check_exc}", file=sys.stderr)
+                is_terminated = False
+
+            if is_terminated:
                 logger.warning(
                     f"MCP server {self.session_server_name} session terminated (404)"
                 )
