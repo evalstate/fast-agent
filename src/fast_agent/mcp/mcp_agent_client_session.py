@@ -252,8 +252,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         if isinstance(exc, McpError):
             error_data = getattr(exc, "error", None)
-            if error_data and getattr(error_data, "code", None) == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
-                return True
+            if error_data:
+                code = getattr(error_data, "code", None)
+                if code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
+                    return True
         return False
 
     def _attach_transport_channel(self, request_id, result) -> None:
@@ -316,10 +318,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     async def call_tool(
         self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
     ) -> CallToolResult:
-        """Call a tool with optional metadata support."""
-        if _meta:
-            from mcp.types import RequestParams
+        """Call a tool with optional metadata support.
 
+        Always uses our overridden send_request to ensure session terminated errors
+        are properly detected and converted to ServerSessionTerminatedError.
+        """
+        from mcp.types import RequestParams
+
+        # Always create request ourselves to ensure we go through our send_request override
+        # This is critical for session terminated detection to work
+        params = CallToolRequestParams(name=name, arguments=arguments)
+
+        if _meta:
             # Safe merge - preserve existing meta fields like progressToken
             existing_meta = kwargs.get("meta")
             if existing_meta:
@@ -331,27 +341,27 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             else:
                 meta_obj = RequestParams.Meta(**_meta)
 
-            # Create CallToolRequestParams without meta, then add _meta via model_dump
-            params = CallToolRequestParams(name=name, arguments=arguments)
             params_dict = params.model_dump(by_alias=True)
             params_dict["_meta"] = meta_obj.model_dump()
+            params = CallToolRequestParams.model_validate(params_dict)
 
-            # Create request with proper types
-            request = CallToolRequest(
-                method="tools/call", params=CallToolRequestParams.model_validate(params_dict)
-            )
-
-            return await self.send_request(request, CallToolResult)
-        else:
-            return await super().call_tool(name, arguments, **kwargs)
+        request = CallToolRequest(method="tools/call", params=params)
+        return await self.send_request(request, CallToolResult)
 
     async def read_resource(
         self, uri: str, _meta: dict | None = None, **kwargs
     ) -> ReadResourceResult:
-        """Read a resource with optional metadata support."""
-        if _meta:
-            from mcp.types import RequestParams
+        """Read a resource with optional metadata support.
 
+        Always uses our overridden send_request to ensure session terminated errors
+        are properly detected and converted to ServerSessionTerminatedError.
+        """
+        from mcp.types import RequestParams
+
+        # Always create request ourselves to ensure we go through our send_request override
+        params = ReadResourceRequestParams(uri=uri)
+
+        if _meta:
             # Safe merge - preserve existing meta fields like progressToken
             existing_meta = kwargs.get("meta")
             if existing_meta:
@@ -362,21 +372,25 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
                 meta_obj = RequestParams.Meta(**_meta)
+            params = ReadResourceRequestParams(uri=uri, meta=meta_obj)
 
-            request = ReadResourceRequest(
-                method="resources/read", params=ReadResourceRequestParams(uri=uri, meta=meta_obj)
-            )
-            return await self.send_request(request, ReadResourceResult)
-        else:
-            return await super().read_resource(uri, **kwargs)
+        request = ReadResourceRequest(method="resources/read", params=params)
+        return await self.send_request(request, ReadResourceResult)
 
     async def get_prompt(
         self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
     ) -> GetPromptResult:
-        """Get a prompt with optional metadata support."""
-        if _meta:
-            from mcp.types import RequestParams
+        """Get a prompt with optional metadata support.
 
+        Always uses our overridden send_request to ensure session terminated errors
+        are properly detected and converted to ServerSessionTerminatedError.
+        """
+        from mcp.types import RequestParams
+
+        # Always create request ourselves to ensure we go through our send_request override
+        params = GetPromptRequestParams(name=name, arguments=arguments)
+
+        if _meta:
             # Safe merge - preserve existing meta fields like progressToken
             existing_meta = kwargs.get("meta")
             if existing_meta:
@@ -387,11 +401,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
                 meta_obj = RequestParams.Meta(**_meta)
+            params = GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj)
 
-            request = GetPromptRequest(
-                method="prompts/get",
-                params=GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj),
-            )
-            return await self.send_request(request, GetPromptResult)
-        else:
-            return await super().get_prompt(name, arguments, **kwargs)
+        request = GetPromptRequest(method="prompts/get", params=params)
+        return await self.send_request(request, GetPromptResult)
