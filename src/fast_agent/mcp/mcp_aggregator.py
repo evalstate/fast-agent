@@ -1182,10 +1182,25 @@ class MCPAggregator(ContextDependent):
             console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
             return result, True
 
-        except Exception:
+        except ServerSessionTerminatedError:
+            # After reconnecting for connection error, we got session terminated
+            # Don't loop - just report the error
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated after reconnect[/dim red]"
+            )
+            error_msg = (
+                f"MCP server {server_name} reconnected but session was immediately terminated. "
+                "Please check server status."
+            )
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+        except Exception as e:
             # Reconnection failed
             console.console.print(
-                f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
+                f"[dim red]MCP server {server_name} offline - failed to reconnect: {e}[/dim red]"
             )
             error_msg = f"MCP server {server_name} offline - failed to reconnect"
             if error_factory:
@@ -1249,12 +1264,28 @@ class MCPAggregator(ContextDependent):
             )
             return result, True
 
-        except Exception:
-            # Reconnection failed
+        except ServerSessionTerminatedError:
+            # Retry after reconnection ALSO failed with session terminated
+            # Do NOT attempt another reconnection - this would cause an infinite loop
             console.console.print(
-                f"[dim red]MCP server {server_name} failed to reconnect[/dim red]"
+                f"[dim red]MCP server {server_name} session terminated again after reconnect[/dim red]"
             )
-            error_msg = f"MCP server {server_name} session terminated - failed to reconnect"
+            error_msg = (
+                f"MCP server {server_name} session terminated even after reconnection. "
+                "The server may be persistently rejecting this session. "
+                "Please check server status or try again later."
+            )
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+        except Exception as e:
+            # Other reconnection failure
+            console.console.print(
+                f"[dim red]MCP server {server_name} failed to reconnect: {e}[/dim red]"
+            )
+            error_msg = f"MCP server {server_name} failed to reconnect: {e}"
             if error_factory:
                 return error_factory(error_msg), False
             else:
