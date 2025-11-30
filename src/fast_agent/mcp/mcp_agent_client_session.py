@@ -250,12 +250,23 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         from fast_agent.core.exceptions import ServerSessionTerminatedError
 
+        # Log full exception details to diagnose detection issues
+        logger.warning(
+            f"Checking exception: type={type(exc).__name__}, "
+            f"module={type(exc).__module__}, str={exc}"
+        )
+
         if isinstance(exc, McpError):
             error_data = getattr(exc, "error", None)
+            logger.warning(f"McpError detected, error_data={error_data}, type={type(error_data)}")
             if error_data:
                 code = getattr(error_data, "code", None)
+                logger.warning(f"Error code={code}, expected={ServerSessionTerminatedError.SESSION_TERMINATED_CODE}")
                 if code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
                     return True
+        else:
+            logger.warning(f"Not an McpError. MRO: {[c.__name__ for c in type(exc).__mro__]}")
+
         return False
 
     def _attach_transport_channel(self, request_id, result) -> None:
