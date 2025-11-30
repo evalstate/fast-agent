@@ -136,7 +136,11 @@ class ModelDatabase:
         reasoning="openai",
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
-        context_window=131072, max_output_tokens=32766, tokenizes=TEXT_ONLY, json_mode="object"
+        context_window=131072,
+        max_output_tokens=32766,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
     )
     OPENAI_GPT_5 = ModelParameters(
         context_window=400000,

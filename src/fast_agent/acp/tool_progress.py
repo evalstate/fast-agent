@@ -428,8 +428,8 @@ class ACPToolProgressManager:
                 # Get final chunk count before clearing
                 final_chunk_count = self._stream_chunk_counts.get(tool_use_id, 0)
 
-                # Update title with streamed count if we had streaming
-                if final_chunk_count > 0:
+                # Update title with streamed count only if we showed streaming progress
+                if final_chunk_count >= 25:
                     title = f"{title} (streamed {final_chunk_count} chunks)"
 
                 # Update the existing stream notification with full details
@@ -444,10 +444,15 @@ class ACPToolProgressManager:
                 )
                 tool_call_id = tool_call_update.toolCallId
 
+                # Ensure mapping exists - progress() may return different ID than start()
+                # or the stream notification task may not have stored it yet
+                self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
+
                 # Clean up streaming state since we're now in execution
                 if tool_use_id:
                     self._stream_chunk_counts.pop(tool_use_id, None)
                     self._stream_base_titles.pop(tool_use_id, None)
+                    self._stream_tool_use_ids.pop(tool_use_id, None)
 
                 logger.debug(
                     f"Updated stream tool call with execution details: {tool_call_id}",

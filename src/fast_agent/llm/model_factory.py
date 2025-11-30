@@ -168,15 +168,25 @@ class ModelFactory:
     }
 
     @classmethod
-    def parse_model_string(cls, model_string: str) -> ModelConfig:
-        """Parse a model string into a ModelConfig object"""
+    def parse_model_string(
+        cls, model_string: str, aliases: dict[str, str] | None = None
+    ) -> ModelConfig:
+        """Parse a model string into a ModelConfig object
+
+        Args:
+            model_string: The model specification string (e.g. "gpt-4.1", "kimi:groq")
+            aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
+        """
+        if aliases is None:
+            aliases = cls.MODEL_ALIASES
+
         suffix: str | None = None
         if ":" in model_string:
             base, suffix = model_string.rsplit(":", 1)
             if base:
                 model_string = base
 
-        model_string = cls.MODEL_ALIASES.get(model_string, model_string)
+        model_string = aliases.get(model_string, model_string)
 
         # If user provided a suffix (e.g., kimi:groq), strip any existing suffix
         # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
@@ -246,17 +256,20 @@ class ModelFactory:
         )
 
     @classmethod
-    def create_factory(cls, model_string: str) -> LLMFactoryProtocol:
+    def create_factory(
+        cls, model_string: str, aliases: dict[str, str] | None = None
+    ) -> LLMFactoryProtocol:
         """
         Creates a factory function that follows the attach_llm protocol.
 
         Args:
             model_string: The model specification string (e.g. "gpt-4.1")
+            aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
 
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
         """
-        config = cls.parse_model_string(model_string)
+        config = cls.parse_model_string(model_string, aliases=aliases)
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
         # Lazily ensure provider class map is populated and supports this provider

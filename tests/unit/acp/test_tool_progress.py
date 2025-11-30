@@ -66,7 +66,7 @@ class TestACPToolProgressManager:
 
     @pytest.mark.asyncio
     async def test_delta_events_only_notify_after_threshold(self) -> None:
-        """Delta notifications are only sent after 20 chunks to reduce UI noise."""
+        """Delta notifications are only sent after 25 chunks to reduce UI noise."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
@@ -76,8 +76,8 @@ class TestACPToolProgressManager:
             "tool_use_id": "use-123",
         })
 
-        # Send 19 deltas - should NOT trigger notifications
-        for i in range(19):
+        # Send 24 deltas - should NOT trigger notifications
+        for i in range(24):
             manager.handle_tool_stream_event("delta", {
                 "tool_use_id": "use-123",
                 "chunk": f"chunk{i}",
@@ -88,10 +88,10 @@ class TestACPToolProgressManager:
         # Should only have start notification (no delta notifications yet)
         assert len(connection.notifications) == 1
 
-        # Send 20th chunk - should trigger notification
+        # Send 25th chunk - should trigger notification
         manager.handle_tool_stream_event("delta", {
             "tool_use_id": "use-123",
-            "chunk": "chunk19",
+            "chunk": "chunk24",
         })
 
         await asyncio.sleep(0.1)
@@ -101,7 +101,7 @@ class TestACPToolProgressManager:
 
         delta_notification = connection.notifications[1]
         assert delta_notification.update.sessionUpdate == "tool_call_update"
-        assert "(streaming: 20 chunks)" in delta_notification.update.title
+        assert "(streaming: 25 chunks)" in delta_notification.update.title
 
         # rawInput should NOT be set during streaming
         assert delta_notification.update.rawInput is None
@@ -112,14 +112,14 @@ class TestACPToolProgressManager:
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
-        # Send start then multiple deltas (need 20+ to trigger notifications)
+        # Send start then multiple deltas (need 25+ to trigger notifications)
         manager.handle_tool_stream_event("start", {
             "tool_name": "server__read_file",
             "tool_use_id": "use-123",
         })
 
-        # Send 20 chunks to reach notification threshold
-        for i in range(20):
+        # Send 25 chunks to reach notification threshold
+        for i in range(25):
             manager.handle_tool_stream_event("delta", {
                 "tool_use_id": "use-123",
                 "chunk": f"chunk{i}_",
@@ -128,16 +128,16 @@ class TestACPToolProgressManager:
         # Wait for async tasks to complete
         await asyncio.sleep(0.1)
 
-        # Should have start + 1 delta notification (at chunk 20)
+        # Should have start + 1 delta notification (at chunk 25)
         assert len(connection.notifications) == 2
 
         # Delta notification should have accumulated content from all chunks
         delta_notification = connection.notifications[1]
-        expected_content = "".join(f"chunk{i}_" for i in range(20))
+        expected_content = "".join(f"chunk{i}_" for i in range(25))
         assert delta_notification.update.content[0].content.text == expected_content
 
-        # Title should show 20 chunks
-        assert "(streaming: 20 chunks)" in delta_notification.update.title
+        # Title should show 25 chunks
+        assert "(streaming: 25 chunks)" in delta_notification.update.title
 
     @pytest.mark.asyncio
     async def test_delta_before_start_is_dropped(self) -> None:
@@ -231,3 +231,80 @@ class TestACPToolProgressManager:
         # Verify chunks are tracked independently
         assert manager._stream_chunk_counts.get("use-a") == 1
         assert manager._stream_chunk_counts.get("use-b") == 1
+
+    @pytest.mark.asyncio
+    async def test_parallel_tools_full_lifecycle(self) -> None:
+        """
+        Full lifecycle test for parallel tool calls:
+        stream start → on_tool_start → on_tool_complete
+
+        This verifies that BOTH tools receive completion notifications,
+        not just one (the bug that was fixed).
+        """
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        # 1. Stream start for both tools (simulating parallel tool calls from LLM)
+        manager.handle_tool_stream_event("start", {
+            "tool_name": "server__tool_a",
+            "tool_use_id": "use-a",
+        })
+        manager.handle_tool_stream_event("start", {
+            "tool_name": "server__tool_b",
+            "tool_use_id": "use-b",
+        })
+
+        # Wait for stream start notifications
+        await asyncio.sleep(0.1)
+
+        # Should have 2 start notifications
+        assert len(connection.notifications) == 2
+
+        # 2. on_tool_start for both tools (when execution begins)
+        tool_call_id_a = await manager.on_tool_start(
+            tool_name="tool_a",
+            server_name="server",
+            arguments={"path": "/file_a.txt"},
+            tool_use_id="use-a",
+        )
+        tool_call_id_b = await manager.on_tool_start(
+            tool_name="tool_b",
+            server_name="server",
+            arguments={"path": "/file_b.txt"},
+            tool_use_id="use-b",
+        )
+
+        # Both should have different tool_call_ids
+        assert tool_call_id_a != tool_call_id_b
+
+        # Should have 2 more notifications (in_progress updates)
+        assert len(connection.notifications) == 4
+
+        # 3. on_tool_complete for both tools
+        await manager.on_tool_complete(
+            tool_call_id=tool_call_id_a,
+            success=True,
+            content=None,
+        )
+        await manager.on_tool_complete(
+            tool_call_id=tool_call_id_b,
+            success=True,
+            content=None,
+        )
+
+        # Should have 2 more notifications (completed updates)
+        # Total: 2 starts + 2 in_progress + 2 completed = 6
+        assert len(connection.notifications) == 6
+
+        # Verify both completion notifications were sent
+        completion_notifications = [
+            n for n in connection.notifications
+            if hasattr(n.update, 'status') and n.update.status == "completed"
+        ]
+        assert len(completion_notifications) == 2
+
+        # Verify cleanup - streaming state should be cleared
+        assert "use-a" not in manager._stream_tool_use_ids
+        assert "use-b" not in manager._stream_tool_use_ids
+        assert "use-a" not in manager._stream_chunk_counts
+        assert "use-b" not in manager._stream_chunk_counts
