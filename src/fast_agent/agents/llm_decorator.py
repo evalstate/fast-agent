@@ -56,6 +56,7 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list, text_content
 from fast_agent.mcp.mime_utils import is_text_mime_type
@@ -77,7 +78,7 @@ logger = get_logger(__name__)
 class StreamingAgentMixin(StreamingAgentProtocol):
     """Mixin that forwards streaming listener registration to the attached LLM."""
 
-    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]:
+    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]:
         llm = getattr(self, "_llm", None)
         if not llm:
             logger.debug(
@@ -90,6 +91,22 @@ class StreamingAgentMixin(StreamingAgentProtocol):
 
             return remove_listener
         return llm.add_stream_listener(listener)
+
+    def add_structured_stream_listener(
+        self, listener: Callable[[str, bool], None]
+    ) -> Callable[[], None]:
+        llm = getattr(self, "_llm", None)
+        if not llm:
+            logger.debug(
+                "Skipping structured stream listener registration because no LLM is attached",
+                name=getattr(self, "_name", "unknown"),
+            )
+
+            def remove_listener() -> None:
+                return None
+
+            return remove_listener
+        return llm.add_structured_stream_listener(listener)
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
@@ -378,7 +395,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Normalize all input types to a list of PromptMessageExtended
         multipart_messages = normalize_to_extended_list(messages)
         final_request_params = (
-            self.llm.get_request_params(request_params) if self._llm else request_params
+            self.llm.get_request_params(request_params) if self.llm else request_params
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' generate"):
@@ -508,7 +525,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         # Normalize all input types to a list of PromptMessageExtended
         multipart_messages = normalize_to_extended_list(messages)
         final_request_params = (
-            self.llm.get_request_params(request_params) if self._llm else request_params
+            self.llm.get_request_params(request_params) if self.llm else request_params
         )
 
         with self._tracer.start_as_current_span(f"Agent: '{self._name}' structured"):
@@ -730,7 +747,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         if category == "text":
             return True
 
-        model_name = self._llm.model_name if self._llm else None
+        model_name = self.llm.model_name if self.llm else None
         if not model_name:
             return False
 
@@ -782,7 +799,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def _build_error_channel_entries(self, removed: list[_RemovedBlock]) -> list[ContentBlock]:
         """Create informative entries for the error channel."""
         entries: list[ContentBlock] = []
-        model_name = self._llm.model_name if self._llm else None
+        model_name = self.llm.model_name if self.llm else None
         model_display = model_name or "current model"
 
         for item in removed:
@@ -842,7 +859,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             if flag is not None
         )
 
-        model_name = self._llm.model_name if self._llm else None
+        model_name = self.llm.model_name if self.llm else None
         model_display = model_name or "current model"
 
         category_order = ["vision", "document", "other", "text"]
@@ -951,8 +968,8 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
-        if self._llm:
-            return self._llm.pop_last_message()
+        if self.llm:
+            return self.llm.pop_last_message()
         return None
 
     @property
@@ -963,13 +980,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         Returns:
             UsageAccumulator object if LLM is attached, None otherwise
         """
-        if self._llm:
-            return self._llm.usage_accumulator
+        if self.llm:
+            return self.llm.usage_accumulator
         return None
 
     @property
-    def llm(self) -> FastAgentLLMProtocol:
-        assert self._llm, "LLM is not attached"
+    def llm(self) -> FastAgentLLMProtocol | None:
         return self._llm
 
     # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---

@@ -199,8 +199,8 @@ class SlashCommandHandler:
         context_window = "unknown"
         capabilities_line = "Capabilities: unknown"
 
-        if agent and not is_parallel_agent and hasattr(agent, "_llm") and agent._llm:
-            model_info = ModelInfo.from_llm(agent._llm)
+        if agent and not is_parallel_agent and agent.llm:
+            model_info = ModelInfo.from_llm(agent.llm)
             if model_info:
                 model_name = model_info.name
                 model_provider = str(model_info.provider.value)
@@ -285,8 +285,8 @@ class SlashCommandHandler:
                     status_lines.append(f"**{idx}. {agent_name}**")
 
                     # Get model info for this fan-out agent
-                    if hasattr(fan_out_agent, "_llm") and fan_out_agent._llm:
-                        model_info = ModelInfo.from_llm(fan_out_agent._llm)
+                    if fan_out_agent.llm:
+                        model_info = ModelInfo.from_llm(fan_out_agent.llm)
                         if model_info:
                             provider_display = getattr(
                                 model_info.provider, "display_name", str(model_info.provider.value)
@@ -312,8 +312,8 @@ class SlashCommandHandler:
                 status_lines.append(f"### Fan-In Agent: {fan_in_name}")
 
                 # Get model info for fan-in agent
-                if hasattr(fan_in_agent, "_llm") and fan_in_agent._llm:
-                    model_info = ModelInfo.from_llm(fan_in_agent._llm)
+                if fan_in_agent.llm:
+                    model_info = ModelInfo.from_llm(fan_in_agent.llm)
                     if model_info:
                         provider_display = getattr(
                             model_info.provider, "display_name", str(model_info.provider.value)
@@ -337,6 +337,14 @@ class SlashCommandHandler:
             provider_line = f"{model_provider}"
             if model_provider_display != "unknown":
                 provider_line = f"{model_provider_display} ({model_provider})"
+
+            # For HuggingFace, add the routing provider info
+            if agent and agent.llm:
+                get_hf_info = getattr(agent.llm, "get_hf_display_info", None)
+                if callable(get_hf_info):
+                    hf_info = get_hf_info()
+                    hf_provider = hf_info.get("provider", "auto-routing")
+                    provider_line = f"{model_provider_display} ({model_provider}) / {hf_provider}"
 
             status_lines.extend(
                 [
@@ -832,10 +840,10 @@ class SlashCommandHandler:
         This is a rough estimate based on message count.
         A more accurate calculation would require actual token counting.
         """
-        if not hasattr(agent, "_llm") or not agent._llm:
+        if not agent.llm:
             return 0.0
 
-        model_info = ModelInfo.from_llm(agent._llm)
+        model_info = ModelInfo.from_llm(agent.llm)
         if not model_info or not model_info.context_window:
             return 0.0
 
