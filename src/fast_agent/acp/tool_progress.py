@@ -37,7 +37,6 @@ from mcp.types import (
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
-from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -78,13 +77,7 @@ class ACPToolProgressManager:
         self._stream_chunk_counts: dict[str, int] = {}  # tool_use_id → chunk count
         # Track base titles for streaming tools (before chunk count suffix)
         self._stream_base_titles: dict[str, str] = {}  # tool_use_id → base title
-        # Optional permission handler for early permission checks
-        self._permission_handler: ToolPermissionHandler | None = None
         self._lock = asyncio.Lock()
-
-    def set_permission_handler(self, handler: ToolPermissionHandler) -> None:
-        """Set the permission handler for early permission checks during streaming."""
-        self._permission_handler = handler
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -178,27 +171,6 @@ class ACPToolProgressManager:
                 server_name=server_name,
                 tool_use_id=tool_use_id,
             )
-
-            # Pre-check permission if handler is available (result will be cached)
-            if self._permission_handler and server_name:
-                try:
-                    await self._permission_handler.check_permission(
-                        tool_name=base_tool_name,
-                        server_name=server_name,
-                        arguments=None,  # Don't have args yet
-                        tool_use_id=tool_use_id,
-                    )
-                    logger.debug(
-                        f"Pre-checked permission for {server_name}/{base_tool_name}",
-                        name="acp_tool_permission_precheck",
-                        tool_use_id=tool_use_id,
-                    )
-                except Exception as perm_error:
-                    logger.debug(
-                        f"Permission pre-check failed (will retry at execution): {perm_error}",
-                        name="acp_tool_permission_precheck_failed",
-                        tool_use_id=tool_use_id,
-                    )
         except Exception as e:
             logger.error(
                 f"Error sending stream tool_call notification: {e}",

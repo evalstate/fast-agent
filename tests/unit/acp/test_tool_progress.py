@@ -4,8 +4,6 @@ Unit tests for ACPToolProgressManager chunking behavior.
 Tests for:
 - Basic stream event handling (start/delta)
 - Chunk streaming without race conditions
-- Permission pre-check integration
-- Chunks sent while permission pending
 """
 
 import asyncio
@@ -14,7 +12,6 @@ from typing import Any
 import pytest
 
 from fast_agent.acp.tool_progress import ACPToolProgressManager
-from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler, ToolPermissionResult
 
 # =============================================================================
 # Test Doubles
@@ -34,41 +31,6 @@ class FakeAgentSideConnection:
     async def sessionUpdate(self, notification: Any) -> None:
         """Capture notifications for assertions."""
         self.notifications.append(notification)
-
-
-class FakePermissionHandler(ToolPermissionHandler):
-    """
-    Test double for ToolPermissionHandler.
-
-    Allows configuring response, delay, and tracking calls.
-    """
-
-    def __init__(
-        self,
-        result: ToolPermissionResult | None = None,
-        delay: float = 0,
-    ):
-        self._result = result or ToolPermissionResult(allowed=True)
-        self._delay = delay
-        self.calls: list[dict[str, Any]] = []
-
-    async def check_permission(
-        self,
-        tool_name: str,
-        server_name: str,
-        arguments: dict[str, Any] | None = None,
-        tool_use_id: str | None = None,
-    ) -> ToolPermissionResult:
-        """Record the call and return configured result after optional delay."""
-        self.calls.append({
-            "tool_name": tool_name,
-            "server_name": server_name,
-            "arguments": arguments,
-            "tool_use_id": tool_use_id,
-        })
-        if self._delay > 0:
-            await asyncio.sleep(self._delay)
-        return self._result
 
 
 # =============================================================================
@@ -224,66 +186,6 @@ class TestACPToolProgressManager:
 
         # Should have 3 notifications: start + 2 deltas
         assert len(connection.notifications) == 3
-
-    @pytest.mark.asyncio
-    async def test_permission_precheck_called_on_start(self) -> None:
-        """When permission handler is set, check_permission should be called on start."""
-        connection = FakeAgentSideConnection()
-        manager = ACPToolProgressManager(connection, "test-session")
-
-        permission_handler = FakePermissionHandler()
-        manager.set_permission_handler(permission_handler)
-
-        # Send start event with namespaced tool name
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "myserver__read_file",
-            "tool_use_id": "use-123",
-        })
-
-        # Wait for async task
-        await asyncio.sleep(0.1)
-
-        # Permission should have been checked
-        assert len(permission_handler.calls) == 1
-        assert permission_handler.calls[0]["tool_name"] == "read_file"
-        assert permission_handler.calls[0]["server_name"] == "myserver"
-        assert permission_handler.calls[0]["arguments"] is None
-
-    @pytest.mark.asyncio
-    async def test_chunks_sent_while_permission_pending(self) -> None:
-        """
-        Chunks should be sent even while permission check is still pending.
-        Permission check is non-blocking.
-        """
-        connection = FakeAgentSideConnection()
-        manager = ACPToolProgressManager(connection, "test-session")
-
-        # Permission handler with delay to simulate slow response
-        permission_handler = FakePermissionHandler(delay=0.5)
-        manager.set_permission_handler(permission_handler)
-
-        # Send start
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "myserver__write_file",
-            "tool_use_id": "use-456",
-        })
-
-        # Immediately send deltas (permission still pending)
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-456",
-            "chunk": '{"content":',
-        })
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-456",
-            "chunk": ' "hello"}',
-        })
-
-        # Wait just enough for notifications (but not for full permission delay)
-        await asyncio.sleep(0.15)
-
-        # Should have received notifications for start + 2 deltas
-        # even though permission check is still pending
-        assert len(connection.notifications) >= 3
 
     @pytest.mark.asyncio
     async def test_multiple_tools_tracked_independently(self) -> None:

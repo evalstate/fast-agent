@@ -44,7 +44,8 @@ DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "low"
 
 # Stream capture mode - when enabled, saves all streaming chunks to files for debugging
-STREAM_CAPTURE_ENABLED = True
+# Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
+STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
 STREAM_CAPTURE_DIR = Path("stream-debug")
 
 

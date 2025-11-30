@@ -586,10 +586,6 @@ class AgentACPServer(ACPAgent):
                                 agent_name=agent_name,
                             )
 
-                    # Set permission handler on tool progress manager for early permission checks
-                    if tool_handler:
-                        tool_handler.set_permission_handler(permission_handler)
-
                     logger.info(
                         "ACP tool permissions enabled for session",
                         name="acp_permissions_init",
