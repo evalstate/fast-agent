@@ -69,3 +69,16 @@ class PromptExitError(FastAgentError):
     # TODO an exception for flow control :(
     def __init__(self, message: str, details: str = "") -> None:
         super().__init__(message, details)
+
+
+class SessionDisconnectError(FastAgentError):
+    """Raised when a server session is terminated (e.g., HTTP 404 or JSON-RPC error 32600).
+
+    This typically indicates the remote StreamableHTTP server has restarted and the
+    session is no longer valid. If reconnect_on_disconnect is enabled, the client
+    will attempt to re-initialize the connection.
+    """
+
+    def __init__(self, server_name: str, details: str = "") -> None:
+        message = f"MCP server '{server_name}' session disconnected"
+        super().__init__(message, details)

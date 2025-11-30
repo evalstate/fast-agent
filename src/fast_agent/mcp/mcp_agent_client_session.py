@@ -218,21 +218,53 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             self._attach_transport_channel(request_id, result)
             return result
         except Exception as e:
-            # Handle connection errors cleanly
-            # Looking at the MCP SDK, this should probably handle MCPError
             from anyio import ClosedResourceError
 
-            if isinstance(e, ClosedResourceError):
-                # Show clean offline message and convert to ConnectionError
-                from fast_agent.ui import console
+            from fast_agent.core.exceptions import SessionDisconnectError
+            from fast_agent.ui import console
 
+            # Check for session termination error (HTTP 404 -> JSON-RPC error 32600)
+            # This occurs when a remote StreamableHTTP server restarts and the session is lost
+            if self._is_session_disconnect_error(e):
+                console.console.print(
+                    f"[dim red]MCP server {self.session_server_name} session disconnected[/dim red]"
+                )
+                raise SessionDisconnectError(
+                    self.session_server_name or "unknown",
+                    details="Server returned session terminated (HTTP 404)",
+                ) from e
+
+            # Handle connection closure errors
+            if isinstance(e, ClosedResourceError):
                 console.console.print(
                     f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
                 )
                 raise ConnectionError(f"MCP server {self.session_server_name} offline") from e
-            else:
-                logger.error(f"send_request failed: {str(e)}")
-                raise
+
+            logger.error(f"send_request failed: {str(e)}")
+            raise
+
+    def _is_session_disconnect_error(self, error: Exception) -> bool:
+        """Check if the error indicates a session termination (HTTP 404).
+
+        The MCP SDK converts HTTP 404 responses to JSONRPCError with code 32600
+        and message 'Session terminated', which becomes an McpError.
+        """
+        try:
+            from mcp.shared.exceptions import McpError
+
+            if isinstance(error, McpError):
+                # Check for JSON-RPC error code 32600 (INVALID_REQUEST) with session terminated message
+                error_data = getattr(error, "error", None)
+                if error_data:
+                    code = getattr(error_data, "code", None)
+                    message = getattr(error_data, "message", "").lower()
+                    # Code 32600 is INVALID_REQUEST, used for session termination
+                    if code == 32600 or "session terminated" in message:
+                        return True
+        except ImportError:
+            pass
+        return False
 
     def _attach_transport_channel(self, request_id, result) -> None:
         if self._transport_metrics is None or request_id is None or result is None:
