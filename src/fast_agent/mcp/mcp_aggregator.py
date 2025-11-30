@@ -1127,49 +1127,74 @@ class MCPAggregator(ContextDependent):
                         },
                     )
                     success_flag = True
-        except ConnectionError:
-            # Server offline - attempt reconnection
+        except ConnectionError as conn_err:
+            # Server offline or session terminated - check if reconnection is enabled
             from fast_agent.ui import console
 
-            console.console.print(
-                f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
-            )
+            # Check if reconnection is configured for this server
+            reconnect_enabled = False
+            if self.context and getattr(self.context, "server_registry", None):
+                try:
+                    server_cfg = self.context.server_registry.get_server_config(server_name)
+                    if server_cfg:
+                        reconnect_enabled = getattr(
+                            server_cfg, "reconnect_on_session_terminated", False
+                        )
+                except Exception:
+                    pass
 
-            try:
-                if self.connection_persistence:
-                    # Force disconnect and create fresh connection
-                    await self._persistent_connection_manager.disconnect_server(server_name)
-                    import asyncio
-
-                    await asyncio.sleep(0.1)
-
-                    server_connection = await self._persistent_connection_manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    result = await try_execute(server_connection.session)
-                else:
-                    # For non-persistent connections, just try again
-                    async with gen_client(
-                        server_name, server_registry=self.context.server_registry
-                    ) as client:
-                        result = await try_execute(client)
-
-                # Success!
-                console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
-                success_flag = True
-
-            except Exception:
-                # Reconnection failed
-                console.console.print(
-                    f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
-                )
-                error_msg = f"MCP server {server_name} offline - failed to reconnect"
+            if not reconnect_enabled:
+                # Reconnection not enabled - propagate the error
                 success_flag = False
+                error_msg = str(conn_err)
                 if error_factory:
                     result = error_factory(error_msg)
                 else:
-                    raise Exception(error_msg)
+                    raise
+
+            else:
+                # Attempt reconnection
+                console.console.print(
+                    f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
+                )
+
+                try:
+                    if self.connection_persistence:
+                        # Force disconnect and create fresh connection
+                        await self._persistent_connection_manager.disconnect_server(server_name)
+                        import asyncio
+
+                        await asyncio.sleep(0.1)
+
+                        server_connection = await self._persistent_connection_manager.get_server(
+                            server_name,
+                            client_session_factory=self._create_session_factory(server_name),
+                        )
+                        result = await try_execute(server_connection.session)
+                    else:
+                        # For non-persistent connections, just try again
+                        async with gen_client(
+                            server_name, server_registry=self.context.server_registry
+                        ) as client:
+                            result = await try_execute(client)
+
+                    # Success!
+                    console.console.print(
+                        f"[dim green]MCP server {server_name} online[/dim green]"
+                    )
+                    success_flag = True
+
+                except Exception:
+                    # Reconnection failed
+                    console.console.print(
+                        f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
+                    )
+                    error_msg = f"MCP server {server_name} offline - failed to reconnect"
+                    success_flag = False
+                    if error_factory:
+                        result = error_factory(error_msg)
+                    else:
+                        raise Exception(error_msg)
         except Exception:
             success_flag = False
             raise

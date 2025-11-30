@@ -219,8 +219,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             return result
         except Exception as e:
             # Handle connection errors cleanly
-            # Looking at the MCP SDK, this should probably handle MCPError
             from anyio import ClosedResourceError
+            from mcp.shared.exceptions import McpError
 
             if isinstance(e, ClosedResourceError):
                 # Show clean offline message and convert to ConnectionError
@@ -230,6 +230,17 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                     f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
                 )
                 raise ConnectionError(f"MCP server {self.session_server_name} offline") from e
+            elif isinstance(e, McpError) and e.error.code == 32600:
+                # Session terminated (404 from remote server) - convert to ConnectionError
+                # This allows reconnection logic in mcp_aggregator to handle it
+                from fast_agent.ui import console
+
+                console.console.print(
+                    f"[dim red]MCP server {self.session_server_name} session terminated[/dim red]"
+                )
+                raise ConnectionError(
+                    f"MCP server {self.session_server_name} session terminated"
+                ) from e
             else:
                 logger.error(f"send_request failed: {str(e)}")
                 raise

@@ -208,6 +208,9 @@ class MCPServerSettings(BaseModel):
     include_instructions: bool = True
     """Whether to include this server's instructions in the system prompt (default: True)."""
 
+    reconnect_on_session_terminated: bool = False
+    """Auto-reconnect when remote HTTP server session is terminated (404)."""
+
     implementation: Implementation | None = None
 
     @model_validator(mode="before")
