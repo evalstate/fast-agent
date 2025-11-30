@@ -1,6 +1,7 @@
 import pytest
 from mcp.types import CallToolRequest, CallToolRequestParams, CallToolResult, TextContent
 
+from fast_agent.constants import REASONING
 from fast_agent.context import Context
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
@@ -66,3 +67,96 @@ async def test_apply_prompt_converts_last_message_when_history_disabled():
 
     assert isinstance(llm.captured, list)
     assert llm.captured  # should send something to completion when history is off
+
+
+def test_reasoning_content_injected_for_reasoning_content_models():
+    """Ensure reasoning_content channel is forwarded for models that support it."""
+    context = Context()
+    llm = OpenAILLM(context=context, model="moonshotai/kimi-k2-thinking")
+
+    reasoning_text = "deliberate steps"
+    msg = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="answer")],
+        channels={REASONING: [TextContent(type="text", text=reasoning_text)]},
+    )
+
+    converted = llm._convert_extended_messages_to_provider([msg])
+
+    assert converted, "Converted messages should not be empty"
+    assert "reasoning_content" in converted[0], "reasoning_content should be injected"
+    assert converted[0]["reasoning_content"] == reasoning_text
+
+
+def test_reasoning_content_preserved_with_tool_calls():
+    """Reasoning content should ride along even when assistant is calling tools."""
+    context = Context()
+    llm = OpenAILLM(context=context, model="moonshotai/kimi-k2-thinking")
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo_tool", arguments={"arg": "value"}),
+    )
+    reasoning_text = "need to call demo_tool"
+
+    assistant_tool_call = Prompt.assistant(
+        "calling tool",
+        tool_calls={"call_1": tool_call},
+    )
+    assistant_tool_call.channels = {REASONING: [TextContent(type="text", text=reasoning_text)]}
+
+    converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
+
+    assert converted, "Converted messages should not be empty"
+    assert "reasoning_content" in converted[0], "reasoning_content should be injected"
+    assert converted[0]["reasoning_content"] == reasoning_text
+
+
+def test_gpt_oss_reasoning_dropped_without_tool_calls():
+    """gpt-oss: reasoning should be dropped when message has no tool_calls."""
+    context = Context()
+    llm = OpenAILLM(context=context, model="openai/gpt-oss-120b")
+
+    reasoning_text = "thinking about the answer"
+    msg = PromptMessageExtended(
+        role="assistant",
+        content=[TextContent(type="text", text="the answer")],
+        channels={REASONING: [TextContent(type="text", text=reasoning_text)]},
+    )
+
+    converted = llm._convert_extended_messages_to_provider([msg])
+
+    assert converted, "Converted messages should not be empty"
+    # No reasoning field should be present
+    assert "reasoning" not in converted[0], "reasoning should not be injected without tool_calls"
+    assert "reasoning_content" not in converted[0], "reasoning_content should not be injected"
+    # Content should not be prefixed with reasoning
+    assert converted[0]["content"] == "the answer", "content should not include reasoning"
+
+
+def test_gpt_oss_reasoning_prefixed_with_tool_calls():
+    """gpt-oss: reasoning should be prefixed to content when message has tool_calls."""
+    context = Context()
+    llm = OpenAILLM(context=context, model="openai/gpt-oss-120b")
+
+    tool_call = CallToolRequest(
+        method="tools/call",
+        params=CallToolRequestParams(name="demo_tool", arguments={"arg": "value"}),
+    )
+    reasoning_text = "need to call demo_tool"
+
+    assistant_tool_call = Prompt.assistant(
+        "calling tool",
+        tool_calls={"call_1": tool_call},
+    )
+    assistant_tool_call.channels = {REASONING: [TextContent(type="text", text=reasoning_text)]}
+
+    converted = llm._convert_extended_messages_to_provider([assistant_tool_call])
+
+    assert converted, "Converted messages should not be empty"
+    # No separate reasoning field
+    assert "reasoning" not in converted[0], "reasoning should not be a separate field"
+    assert "reasoning_content" not in converted[0], "reasoning_content should not be used"
+    # Content should be prefixed with reasoning
+    content = converted[0].get("content", "")
+    assert content.startswith(reasoning_text), "content should be prefixed with reasoning"

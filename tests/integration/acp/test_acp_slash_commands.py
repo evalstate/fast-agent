@@ -33,7 +33,7 @@ END_TURN: StopReason = "end_turn"
 @dataclass
 class StubAgent:
     message_history: list[Any] = field(default_factory=list)
-    _llm: Any = None
+    llm: Any = None
     cleared: bool = False
     popped: bool = False
 
@@ -132,7 +132,7 @@ async def test_slash_command_unknown_command() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_status() -> None:
     """Test the /status command execution."""
-    stub_agent = StubAgent(message_history=[], _llm=None)
+    stub_agent = StubAgent(message_history=[], llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
@@ -159,7 +159,7 @@ async def test_slash_command_status_reports_error_channel_entries() -> None:
         channels={FAST_AGENT_ERROR_CHANNEL: [TextContent(type="text", text=error_text)]},
     )
 
-    stub_agent = StubAgent(message_history=[mock_message], _llm=None)
+    stub_agent = StubAgent(message_history=[mock_message], llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
@@ -180,7 +180,7 @@ async def test_slash_command_status_system() -> None:
         name: str = "test-agent"
         instruction: str = "You are a helpful assistant that provides excellent support."
 
-    stub_agent = AgentWithInstruction(message_history=[], _llm=None)
+    stub_agent = AgentWithInstruction(message_history=[], llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
@@ -200,7 +200,7 @@ async def test_slash_command_status_system() -> None:
 @pytest.mark.asyncio
 async def test_slash_command_status_system_without_instruction() -> None:
     """Test /status system when agent has no instruction attribute."""
-    stub_agent = StubAgent(message_history=[], _llm=None)
+    stub_agent = StubAgent(message_history=[], llm=None)
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
