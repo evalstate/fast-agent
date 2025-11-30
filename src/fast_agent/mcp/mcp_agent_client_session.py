@@ -253,26 +253,31 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         This method also checks for "session terminated" in the error message
         as a fallback for edge cases.
         """
+        from fast_agent.core.exceptions import ServerSessionTerminatedError
+
+        # First, check the string representation of the exception
+        # This is the most reliable fallback for any exception type
+        exc_str = str(exc).lower()
+        if "session terminated" in exc_str:
+            logger.debug(f"Session terminated detected via string match: {exc}")
+            return True
+
+        # Try to check McpError specifically for the error code
         try:
             from mcp.shared.exceptions import McpError
-
-            from fast_agent.core.exceptions import ServerSessionTerminatedError
 
             if isinstance(exc, McpError):
                 error_data = getattr(exc, "error", None)
                 if error_data is not None:
                     error_code = getattr(error_data, "code", None)
-                    error_message = getattr(error_data, "message", "") or ""
 
                     # Check for the session terminated error code
                     if error_code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
-                        return True
-
-                    # Fallback: check for "session terminated" in message
-                    if "session terminated" in error_message.lower():
+                        logger.debug(f"Session terminated detected via error code: {error_code}")
                         return True
         except ImportError:
             pass
+
         return False
 
     def _attach_transport_channel(self, request_id, result) -> None:

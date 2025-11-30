@@ -202,6 +202,24 @@ class TestSessionTerminationDetection:
 
         assert session._is_session_terminated_error(mcp_error) is True
 
+    def test_detection_via_string_representation(self):
+        """Test detection via exception string representation (fallback)."""
+        from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
+
+        session = object.__new__(MCPAgentClientSession)
+        session.session_server_name = "test"
+
+        # Any exception with "session terminated" in its string representation
+        # should be detected, even if not an McpError
+        class CustomError(Exception):
+            def __str__(self):
+                return "Session terminated by server"
+
+        assert session._is_session_terminated_error(CustomError()) is True
+
+        # Regular exception without the message should not be detected
+        assert session._is_session_terminated_error(ValueError("other error")) is False
+
 
 class TestConfigParsing:
     """Tests for parsing reconnect config from YAML-like dicts."""
