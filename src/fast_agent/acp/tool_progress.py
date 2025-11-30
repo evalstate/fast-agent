@@ -214,8 +214,8 @@ class ACPToolProgressManager:
                     title=title_with_count,
                 )
 
-            # Only send notifications after 20 chunks to avoid UI noise for small calls
-            if chunk_count < 20:
+            # Only send notifications after 25 chunks to avoid UI noise for small calls
+            if chunk_count < 25:
                 return
 
             # Send notification outside the lock
@@ -425,11 +425,18 @@ class ACPToolProgressManager:
         # Use SDK tracker to create or update the tool call notification
         async with self._lock:
             if existing_external_id:
+                # Get final chunk count before clearing
+                final_chunk_count = self._stream_chunk_counts.get(tool_use_id, 0)
+
+                # Update title with streamed count if we had streaming
+                if final_chunk_count > 0:
+                    title = f"{title} (streamed {final_chunk_count} chunks)"
+
                 # Update the existing stream notification with full details
                 # Clear streaming content by setting content=[] since we now have full rawInput
                 tool_call_update = self._tracker.progress(
                     external_id=existing_external_id,
-                    title=title,  # Update with server_name and args (removes chunk count)
+                    title=title,  # Update with server_name and args
                     kind=kind,  # Re-infer with arguments
                     status="in_progress",  # Move from pending to in_progress
                     raw_input=arguments,  # Add complete arguments
