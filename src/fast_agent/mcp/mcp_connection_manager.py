@@ -634,6 +634,57 @@ class MCPConnectionManager(ContextDependent):
         else:
             logger.info(f"{server_name}: No persistent connection found. Skipping server shutdown")
 
+    async def reconnect_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable,
+    ) -> "ServerConnection":
+        """
+        Force reconnection to a server by disconnecting and re-establishing the connection.
+
+        This is used when a session has been terminated (e.g., 404 from server restart)
+        and we need to create a fresh connection with a new session.
+
+        Args:
+            server_name: Name of the server to reconnect
+            client_session_factory: Factory function to create client sessions
+
+        Returns:
+            The new ServerConnection instance
+        """
+        logger.info(f"{server_name}: Initiating reconnection...")
+
+        # First, disconnect the existing connection
+        await self.disconnect_server(server_name)
+
+        # Brief pause to allow cleanup
+        await asyncio.sleep(0.1)
+
+        # Launch a fresh connection
+        server_conn = await self.launch_server(
+            server_name=server_name,
+            client_session_factory=client_session_factory,
+        )
+
+        # Wait for initialization
+        await server_conn.wait_for_initialized()
+
+        # Check if the reconnection was successful
+        if not server_conn.is_healthy():
+            error_msg = server_conn._error_message or "Unknown error during reconnection"
+            if isinstance(error_msg, list):
+                formatted_error = "\n".join(error_msg)
+            else:
+                formatted_error = str(error_msg)
+
+            raise ServerInitializationError(
+                f"MCP Server: '{server_name}': Failed to reconnect - see details.",
+                formatted_error,
+            )
+
+        logger.info(f"{server_name}: Reconnection successful")
+        return server_conn
+
     async def disconnect_all(self) -> None:
         """Disconnect all servers that are running under this connection manager."""
         # Get a copy of servers to shutdown
