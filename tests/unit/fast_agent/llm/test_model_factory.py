@@ -13,7 +13,6 @@ from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
-
 # Test aliases - decoupled from production MODEL_ALIASES
 # These provide stable test data that won't break when production aliases change
 TEST_ALIASES = {
