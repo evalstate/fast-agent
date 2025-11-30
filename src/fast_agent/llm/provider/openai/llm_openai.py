@@ -1,4 +1,8 @@
 import asyncio
+import json
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from mcp import Tool
@@ -38,6 +42,48 @@ _logger = get_logger(__name__)
 
 DEFAULT_OPENAI_MODEL = "gpt-5-mini"
 DEFAULT_REASONING_EFFORT = "low"
+
+# Stream capture mode - when enabled, saves all streaming chunks to files for debugging
+STREAM_CAPTURE_ENABLED = True
+STREAM_CAPTURE_DIR = Path("stream-debug")
+
+
+def _stream_capture_filename(turn: int) -> Path | None:
+    """Generate filename for stream capture. Returns None if capture is disabled."""
+    if not STREAM_CAPTURE_ENABLED:
+        return None
+    STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return STREAM_CAPTURE_DIR / f"{timestamp}_turn{turn}"
+
+
+def _save_stream_request(filename_base: Path | None, arguments: dict[str, Any]) -> None:
+    """Save the request arguments to a _request.json file."""
+    if not filename_base:
+        return
+    try:
+        request_file = filename_base.with_name(f"{filename_base.name}_request.json")
+        with open(request_file, "w") as f:
+            json.dump(arguments, f, indent=2, default=str)
+    except Exception as e:
+        _logger.debug(f"Failed to save stream request: {e}")
+
+
+def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
+    """Save a streaming chunk to file when capture mode is enabled."""
+    if not filename_base:
+        return
+    try:
+        chunk_file = filename_base.with_name(f"{filename_base.name}.jsonl")
+        try:
+            payload: Any = chunk.model_dump()
+        except Exception:
+            payload = str(chunk)
+
+        with open(chunk_file, "a") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception as e:
+        _logger.debug(f"Failed to save stream chunk: {e}")
 
 
 class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
@@ -123,7 +169,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         once, so we should treat them as non-streaming to restore the legacy \"Calling Tool\"
         display experience.
         """
-        if self.provider == Provider.AZURE:
+        if self.provider in (Provider.AZURE, Provider.HUGGINGFACE):
             return True
 
         if self.provider == Provider.OPENAI:
@@ -247,7 +293,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 continue
 
             existing_info = tool_call_started.get(index)
-            tool_use_id = tool_call.id or (existing_info.get("tool_use_id") if existing_info else None)
+            tool_use_id = tool_call.id or (
+                existing_info.get("tool_use_id") if existing_info else None
+            )
             function_name = (
                 tool_call.function.name
                 if tool_call.function and tool_call.function.name
@@ -375,6 +423,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self,
         stream,
         model: str,
+        capture_filename: Path | None = None,
     ) -> tuple[Any, list[str]]:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
@@ -391,7 +440,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             Provider.GOOGLE_OAI,
         ]
         if stream_mode == "manual" or provider_requires_manual:
-            return await self._process_stream_manual(stream, model)
+            return await self._process_stream_manual(stream, model, capture_filename)
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
         state = ChatCompletionStreamState()
@@ -404,6 +453,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Process the stream chunks
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
+            # Save chunk if stream capture is enabled
+            _save_stream_chunk(capture_filename, chunk)
             # Handle chunk accumulation
             state.handle_chunk(chunk)
             # Process streaming events for tool calls
@@ -528,6 +579,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self,
         stream,
         model: str,
+        capture_filename: Path | None = None,
     ) -> tuple[Any, list[str]]:
         """Manual stream processing for providers like Ollama that may not work with ChatCompletionStreamState."""
 
@@ -555,6 +607,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Process the stream chunks manually
         # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
         async for chunk in stream:
+            # Save chunk if stream capture is enabled
+            _save_stream_chunk(capture_filename, chunk)
             # Process streaming events for tool calls
             if chunk.choices:
                 choice = chunk.choices[0]
@@ -770,12 +824,18 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self._log_chat_progress(self.chat_turn(), model=self.default_request_params.model)
         model_name = self.default_request_params.model or DEFAULT_OPENAI_MODEL
 
+        # Generate stream capture filename once (before streaming starts)
+        capture_filename = _stream_capture_filename(self.chat_turn())
+        _save_stream_request(capture_filename, arguments)
+
         # Use basic streaming API with context manager to properly close aiohttp session
         try:
             async with self._openai_client() as client:
                 stream = await client.chat.completions.create(**arguments)
                 # Process the stream
-                response, streamed_reasoning = await self._process_stream(stream, model_name)
+                response, streamed_reasoning = await self._process_stream(
+                    stream, model_name, capture_filename
+                )
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             self.logger.info(f"OpenAI completion cancelled: {reason}")

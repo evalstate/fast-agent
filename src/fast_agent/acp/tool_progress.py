@@ -37,6 +37,7 @@ from mcp.types import (
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.common import get_resource_name, get_server_name, is_namespaced_name
+from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
@@ -73,7 +74,13 @@ class ACPToolProgressManager:
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
         self._stream_tasks: dict[str, asyncio.Task] = {}  # tool_use_id → task
+        # Optional permission handler for early permission checks
+        self._permission_handler: ToolPermissionHandler | None = None
         self._lock = asyncio.Lock()
+
+    def set_permission_handler(self, handler: ToolPermissionHandler) -> None:
+        """Set the permission handler for early permission checks during streaming."""
+        self._permission_handler = handler
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -91,23 +98,37 @@ class ACPToolProgressManager:
             tool_use_id = info.get("tool_use_id")
 
             if tool_name and tool_use_id:
+                # Generate external_id SYNCHRONOUSLY to avoid race with delta events
+                external_id = str(uuid.uuid4())
+                self._stream_tool_use_ids[tool_use_id] = external_id
+
                 # Schedule async notification sending and store the task
-                task = asyncio.create_task(self._send_stream_start_notification(tool_name, tool_use_id))
+                task = asyncio.create_task(
+                    self._send_stream_start_notification(tool_name, tool_use_id, external_id)
+                )
                 # Store task reference so we can await it in on_tool_start if needed
                 self._stream_tasks[tool_use_id] = task
 
-    async def _send_stream_start_notification(self, tool_name: str, tool_use_id: str) -> None:
+        elif event_type == "delta" and info:
+            tool_use_id = info.get("tool_use_id")
+            chunk = info.get("chunk")
+
+            if tool_use_id and chunk:
+                # Schedule async notification with accumulated arguments
+                asyncio.create_task(self._send_stream_delta_notification(tool_use_id, chunk))
+
+    async def _send_stream_start_notification(
+        self, tool_name: str, tool_use_id: str, external_id: str
+    ) -> None:
         """
         Send early ACP notification when tool stream starts.
 
         Args:
             tool_name: Name of the tool being called (may be namespaced like "server__tool")
             tool_use_id: LLM's tool use ID
+            external_id: Pre-generated external ID for SDK tracker
         """
         try:
-            # Generate external ID for SDK tracker
-            external_id = str(uuid.uuid4())
-
             # Parse the tool name if it's namespaced (e.g., "acp_filesystem__write_text_file")
             if is_namespaced_name(tool_name):
                 server_name = get_server_name(tool_name)
@@ -127,9 +148,6 @@ class ACPToolProgressManager:
 
             # Use SDK tracker to create the tool call start notification
             async with self._lock:
-                # Track that we sent a stream notification for this tool_use_id
-                self._stream_tool_use_ids[tool_use_id] = external_id
-
                 tool_call_start = self._tracker.start(
                     external_id=external_id,
                     title=title,
@@ -153,6 +171,27 @@ class ACPToolProgressManager:
                 server_name=server_name,
                 tool_use_id=tool_use_id,
             )
+
+            # Pre-check permission if handler is available (result will be cached)
+            if self._permission_handler and server_name:
+                try:
+                    await self._permission_handler.check_permission(
+                        tool_name=base_tool_name,
+                        server_name=server_name,
+                        arguments=None,  # Don't have args yet
+                        tool_use_id=tool_use_id,
+                    )
+                    logger.debug(
+                        f"Pre-checked permission for {server_name}/{base_tool_name}",
+                        name="acp_tool_permission_precheck",
+                        tool_use_id=tool_use_id,
+                    )
+                except Exception as perm_error:
+                    logger.debug(
+                        f"Permission pre-check failed (will retry at execution): {perm_error}",
+                        name="acp_tool_permission_precheck_failed",
+                        tool_use_id=tool_use_id,
+                    )
         except Exception as e:
             logger.error(
                 f"Error sending stream tool_call notification: {e}",
@@ -163,6 +202,38 @@ class ACPToolProgressManager:
             # Clean up task reference
             if tool_use_id in self._stream_tasks:
                 del self._stream_tasks[tool_use_id]
+
+    async def _send_stream_delta_notification(self, tool_use_id: str, chunk: str) -> None:
+        """
+        Send ACP notification with tool argument chunk as it streams.
+
+        Args:
+            tool_use_id: LLM's tool use ID
+            chunk: JSON fragment chunk
+        """
+        try:
+            async with self._lock:
+                external_id = self._stream_tool_use_ids.get(tool_use_id)
+                if not external_id:
+                    # No start notification sent yet, skip this chunk
+                    return
+
+                # Send update with just this chunk
+                update = self._tracker.progress(
+                    external_id=external_id,
+                    raw_input=chunk,
+                )
+
+            # Send notification outside the lock
+            notification = session_notification(self._session_id, update)
+            await self._connection.sessionUpdate(notification)
+
+        except Exception as e:
+            logger.debug(
+                f"Error sending stream delta notification: {e}",
+                name="acp_tool_stream_delta_error",
+                tool_use_id=tool_use_id,
+            )
 
     def _infer_tool_kind(self, tool_name: str, arguments: dict[str, Any] | None) -> ToolKind:
         """
