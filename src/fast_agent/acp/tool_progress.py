@@ -74,6 +74,10 @@ class ACPToolProgressManager:
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
         self._stream_tasks: dict[str, asyncio.Task] = {}  # tool_use_id → task
+        # Track stream chunk counts for title updates
+        self._stream_chunk_counts: dict[str, int] = {}  # tool_use_id → chunk count
+        # Track base titles for streaming tools (before chunk count suffix)
+        self._stream_base_titles: dict[str, str] = {}  # tool_use_id → base title
         # Optional permission handler for early permission checks
         self._permission_handler: ToolPermissionHandler | None = None
         self._lock = asyncio.Lock()
@@ -157,6 +161,9 @@ class ACPToolProgressManager:
                 )
                 # Store mapping from ACP tool_call_id to external_id
                 self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+                # Initialize streaming state for this tool
+                self._stream_base_titles[tool_use_id] = title
+                self._stream_chunk_counts[tool_use_id] = 0
 
             # Send initial notification
             notification = session_notification(self._session_id, tool_call_start)
@@ -207,6 +214,8 @@ class ACPToolProgressManager:
         """
         Send ACP notification with tool argument chunk as it streams.
 
+        Accumulates chunks into content and updates title with chunk count.
+
         Args:
             tool_use_id: LLM's tool use ID
             chunk: JSON fragment chunk
@@ -218,10 +227,19 @@ class ACPToolProgressManager:
                     # No start notification sent yet, skip this chunk
                     return
 
-                # Send update with just this chunk
-                update = self._tracker.progress(
+                # Increment chunk count and build title with count
+                self._stream_chunk_counts[tool_use_id] = (
+                    self._stream_chunk_counts.get(tool_use_id, 0) + 1
+                )
+                chunk_count = self._stream_chunk_counts[tool_use_id]
+                base_title = self._stream_base_titles.get(tool_use_id, "Tool")
+                title_with_count = f"{base_title} (streaming: {chunk_count} chunks)"
+
+                # Use SDK's append_stream_text to accumulate chunks into content
+                update = self._tracker.append_stream_text(
                     external_id=external_id,
-                    raw_input=chunk,
+                    text=chunk,
+                    title=title_with_count,
                 )
 
             # Send notification outside the lock
@@ -432,14 +450,21 @@ class ACPToolProgressManager:
         async with self._lock:
             if existing_external_id:
                 # Update the existing stream notification with full details
+                # Clear streaming content by setting content=[] since we now have full rawInput
                 tool_call_update = self._tracker.progress(
                     external_id=existing_external_id,
-                    title=title,  # Update with server_name and args
+                    title=title,  # Update with server_name and args (removes chunk count)
                     kind=kind,  # Re-infer with arguments
                     status="in_progress",  # Move from pending to in_progress
-                    raw_input=arguments,  # Add arguments
+                    raw_input=arguments,  # Add complete arguments
+                    content=[],  # Clear streaming content
                 )
                 tool_call_id = tool_call_update.toolCallId
+
+                # Clean up streaming state since we're now in execution
+                if tool_use_id:
+                    self._stream_chunk_counts.pop(tool_use_id, None)
+                    self._stream_base_titles.pop(tool_use_id, None)
 
                 logger.debug(
                     f"Updated stream tool call with execution details: {tool_call_id}",
@@ -553,6 +578,8 @@ class ACPToolProgressManager:
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._stream_tool_use_ids.pop(tool_use_id, None)
+                self._stream_chunk_counts.pop(tool_use_id, None)
+                self._stream_base_titles.pop(tool_use_id, None)
 
     async def on_tool_progress(
         self,
@@ -723,6 +750,9 @@ class ACPToolProgressManager:
             for external_id in list(self._tracker._tool_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
+            self._stream_tool_use_ids.clear()
+            self._stream_chunk_counts.clear()
+            self._stream_base_titles.clear()
 
         logger.debug(
             f"Cleaned up {count} tool trackers for session {session_id}",

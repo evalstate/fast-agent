@@ -103,8 +103,8 @@ class TestACPToolProgressManager:
         assert notification.update.status == "pending"
 
     @pytest.mark.asyncio
-    async def test_delta_event_sends_rawInput_chunk(self) -> None:
-        """Delta event after start should send rawInput update with chunk."""
+    async def test_delta_event_sends_content_with_accumulated_chunk(self) -> None:
+        """Delta event after start should accumulate chunk into content and update title."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
@@ -124,10 +124,54 @@ class TestACPToolProgressManager:
         # Should have two notifications: start + delta
         assert len(connection.notifications) == 2
 
-        # Second notification should be an update with rawInput
+        # Second notification should be an update with content (not rawInput)
         delta_notification = connection.notifications[1]
         assert delta_notification.update.sessionUpdate == "tool_call_update"
-        assert delta_notification.update.rawInput == '{"path": "/tmp'
+
+        # Content should contain accumulated text
+        assert delta_notification.update.content is not None
+        assert len(delta_notification.update.content) == 1
+        assert delta_notification.update.content[0].type == "content"
+        assert delta_notification.update.content[0].content.text == '{"path": "/tmp'
+
+        # Title should include chunk count
+        assert "(streaming: 1 chunks)" in delta_notification.update.title
+
+        # rawInput should NOT be set during streaming
+        assert delta_notification.update.rawInput is None
+
+    @pytest.mark.asyncio
+    async def test_delta_chunks_accumulate_correctly(self) -> None:
+        """Multiple delta events should accumulate into a single content block."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        # Send start then multiple deltas
+        manager.handle_tool_stream_event("start", {
+            "tool_name": "server__read_file",
+            "tool_use_id": "use-123",
+        })
+        manager.handle_tool_stream_event("delta", {
+            "tool_use_id": "use-123",
+            "chunk": '{"path":',
+        })
+        manager.handle_tool_stream_event("delta", {
+            "tool_use_id": "use-123",
+            "chunk": ' "/tmp/file.txt"}',
+        })
+
+        # Wait for async tasks to complete
+        await asyncio.sleep(0.1)
+
+        # Should have three notifications: start + 2 deltas
+        assert len(connection.notifications) == 3
+
+        # Third notification should have accumulated content from both chunks
+        final_notification = connection.notifications[2]
+        assert final_notification.update.content[0].content.text == '{"path": "/tmp/file.txt"}'
+
+        # Title should show 2 chunks
+        assert "(streaming: 2 chunks)" in final_notification.update.title
 
     @pytest.mark.asyncio
     async def test_delta_before_start_is_dropped(self) -> None:
