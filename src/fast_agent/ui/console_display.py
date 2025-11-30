@@ -962,12 +962,8 @@ class ConsoleDisplay:
 
             # Get model name
             model = "unknown"
-            if (
-                hasattr(agent, "_llm")
-                and agent._llm
-                and hasattr(agent._llm, "default_request_params")
-            ):
-                model = getattr(agent._llm.default_request_params, "model", "unknown")
+            if agent.llm:
+                model = agent.llm.model_name or "unknown"
 
             # Get usage information
             tokens = 0
