@@ -1084,6 +1084,9 @@ class MCPAggregator(ContextDependent):
             except ConnectionError:
                 # Let ConnectionError pass through for reconnection logic
                 raise
+            except ServerSessionTerminatedError:
+                # Let ServerSessionTerminatedError pass through for reconnection logic
+                raise
             except Exception as e:
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
