@@ -65,39 +65,43 @@ class TestACPToolProgressManager:
         assert notification.update.status == "pending"
 
     @pytest.mark.asyncio
-    async def test_delta_event_sends_content_with_accumulated_chunk(self) -> None:
-        """Delta event after start should accumulate chunk into content and update title."""
+    async def test_delta_events_only_notify_after_threshold(self) -> None:
+        """Delta notifications are only sent after 20 chunks to reduce UI noise."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
-        # Send start then delta
+        # Send start
         manager.handle_tool_stream_event("start", {
             "tool_name": "server__read_file",
             "tool_use_id": "use-123",
         })
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": '{"path": "/tmp',
-        })
 
-        # Wait for async tasks to complete
+        # Send 19 deltas - should NOT trigger notifications
+        for i in range(19):
+            manager.handle_tool_stream_event("delta", {
+                "tool_use_id": "use-123",
+                "chunk": f"chunk{i}",
+            })
+
         await asyncio.sleep(0.1)
 
-        # Should have two notifications: start + delta
+        # Should only have start notification (no delta notifications yet)
+        assert len(connection.notifications) == 1
+
+        # Send 20th chunk - should trigger notification
+        manager.handle_tool_stream_event("delta", {
+            "tool_use_id": "use-123",
+            "chunk": "chunk19",
+        })
+
+        await asyncio.sleep(0.1)
+
+        # Now should have start + 1 delta notification
         assert len(connection.notifications) == 2
 
-        # Second notification should be an update with content (not rawInput)
         delta_notification = connection.notifications[1]
         assert delta_notification.update.sessionUpdate == "tool_call_update"
-
-        # Content should contain accumulated text
-        assert delta_notification.update.content is not None
-        assert len(delta_notification.update.content) == 1
-        assert delta_notification.update.content[0].type == "content"
-        assert delta_notification.update.content[0].content.text == '{"path": "/tmp'
-
-        # Title should include chunk count
-        assert "(streaming: 1 chunks)" in delta_notification.update.title
+        assert "(streaming: 20 chunks)" in delta_notification.update.title
 
         # rawInput should NOT be set during streaming
         assert delta_notification.update.rawInput is None
@@ -108,32 +112,32 @@ class TestACPToolProgressManager:
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
-        # Send start then multiple deltas
+        # Send start then multiple deltas (need 20+ to trigger notifications)
         manager.handle_tool_stream_event("start", {
             "tool_name": "server__read_file",
             "tool_use_id": "use-123",
         })
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": '{"path":',
-        })
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": ' "/tmp/file.txt"}',
-        })
+
+        # Send 20 chunks to reach notification threshold
+        for i in range(20):
+            manager.handle_tool_stream_event("delta", {
+                "tool_use_id": "use-123",
+                "chunk": f"chunk{i}_",
+            })
 
         # Wait for async tasks to complete
         await asyncio.sleep(0.1)
 
-        # Should have three notifications: start + 2 deltas
-        assert len(connection.notifications) == 3
+        # Should have start + 1 delta notification (at chunk 20)
+        assert len(connection.notifications) == 2
 
-        # Third notification should have accumulated content from both chunks
-        final_notification = connection.notifications[2]
-        assert final_notification.update.content[0].content.text == '{"path": "/tmp/file.txt"}'
+        # Delta notification should have accumulated content from all chunks
+        delta_notification = connection.notifications[1]
+        expected_content = "".join(f"chunk{i}_" for i in range(20))
+        assert delta_notification.update.content[0].content.text == expected_content
 
-        # Title should show 2 chunks
-        assert "(streaming: 2 chunks)" in final_notification.update.title
+        # Title should show 20 chunks
+        assert "(streaming: 20 chunks)" in delta_notification.update.title
 
     @pytest.mark.asyncio
     async def test_delta_before_start_is_dropped(self) -> None:
@@ -171,21 +175,21 @@ class TestACPToolProgressManager:
         # external_id should be set IMMEDIATELY (synchronously)
         assert "use-123" in manager._stream_tool_use_ids
 
-        # Send delta immediately (no await between)
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": '{"path":',
-        })
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": ' "/tmp"}',
-        })
+        # Send deltas immediately (no await between) - chunks are tracked even if not notified
+        for i in range(5):
+            manager.handle_tool_stream_event("delta", {
+                "tool_use_id": "use-123",
+                "chunk": f"chunk{i}",
+            })
 
         # Wait for all async tasks
         await asyncio.sleep(0.1)
 
-        # Should have 3 notifications: start + 2 deltas
-        assert len(connection.notifications) == 3
+        # Should have 1 notification (start only, deltas below threshold)
+        assert len(connection.notifications) == 1
+
+        # But chunks should still be tracked internally
+        assert manager._stream_chunk_counts.get("use-123") == 5
 
     @pytest.mark.asyncio
     async def test_multiple_tools_tracked_independently(self) -> None:
@@ -203,7 +207,7 @@ class TestACPToolProgressManager:
             "tool_use_id": "use-b",
         })
 
-        # Send deltas to both
+        # Send deltas to both (below threshold, so no notifications)
         manager.handle_tool_stream_event("delta", {
             "tool_use_id": "use-a",
             "chunk": "chunk-a",
@@ -216,10 +220,14 @@ class TestACPToolProgressManager:
         # Wait for async tasks
         await asyncio.sleep(0.1)
 
-        # Should have 4 notifications: 2 starts + 2 deltas
-        assert len(connection.notifications) == 4
+        # Should have 2 notifications: 2 starts only (deltas below threshold)
+        assert len(connection.notifications) == 2
 
         # Verify both tools have their own external_id
         assert "use-a" in manager._stream_tool_use_ids
         assert "use-b" in manager._stream_tool_use_ids
         assert manager._stream_tool_use_ids["use-a"] != manager._stream_tool_use_ids["use-b"]
+
+        # Verify chunks are tracked independently
+        assert manager._stream_chunk_counts.get("use-a") == 1
+        assert manager._stream_chunk_counts.get("use-b") == 1

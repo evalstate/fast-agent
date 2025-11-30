@@ -214,6 +214,10 @@ class ACPToolProgressManager:
                     title=title_with_count,
                 )
 
+            # Only send notifications after 20 chunks to avoid UI noise for small calls
+            if chunk_count < 20:
+                return
+
             # Send notification outside the lock
             notification = session_notification(self._session_id, update)
             await self._connection.sessionUpdate(notification)
