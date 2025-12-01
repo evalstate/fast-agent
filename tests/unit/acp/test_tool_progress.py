@@ -336,7 +336,8 @@ class TestACPToolProgressManager:
         progress_notification = connection.notifications[1]
         assert "[50%]" in progress_notification.update.title
         assert "Downloading..." in progress_notification.update.title
-        assert "server/download_file" in progress_notification.update.title
+        # Progress updates use simple title (no args) for cleaner display
+        assert progress_notification.update.title == "server/download_file [50%] - Downloading..."
 
     @pytest.mark.asyncio
     async def test_progress_updates_title_with_message_only(self) -> None:
@@ -363,13 +364,12 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 2
 
         progress_notification = connection.notifications[1]
-        # Should have message but no percentage
-        assert "Processing rows..." in progress_notification.update.title
-        assert "[" not in progress_notification.update.title  # No percentage brackets
+        # Should have message but no percentage, using simple title (no args)
+        assert progress_notification.update.title == "server/process_data - Processing rows..."
 
     @pytest.mark.asyncio
-    async def test_progress_title_preserves_base_title_with_args(self) -> None:
-        """Progress updates should preserve the base title including arguments."""
+    async def test_progress_title_uses_simple_format(self) -> None:
+        """Progress updates should use simple title (no args) for cleaner display."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
@@ -379,6 +379,10 @@ class TestACPToolProgressManager:
             server_name="filesystem",
             arguments={"path": "/tmp/large_file.txt"},
         )
+
+        # Verify start notification has full title with args
+        start_notification = connection.notifications[0]
+        assert "path=" in start_notification.update.title
 
         # Send multiple progress updates
         await manager.on_tool_progress(
@@ -394,11 +398,7 @@ class TestACPToolProgressManager:
             message="Almost done...",
         )
 
-        # Check the last progress notification
+        # Check the last progress notification - should use simple title (no args)
         last_progress = connection.notifications[-1]
-        # Base title with args should be preserved
-        assert "filesystem/read_file" in last_progress.update.title
-        assert "path=" in last_progress.update.title
-        # Progress should be updated
-        assert "[75%]" in last_progress.update.title
-        assert "Almost done..." in last_progress.update.title
+        # Simple title without args for cleaner progress display
+        assert last_progress.update.title == "filesystem/read_file [75%] - Almost done..."

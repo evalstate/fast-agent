@@ -658,6 +658,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         tool_id: str | None = None,
     ) -> list[ContentBlock]:
         kept: list[ContentBlock] = []
+        model_name = self.llm.model_name if self.llm else None
+        model_display = model_name or "current model"
+
         for block in blocks or []:
             mime_type, category = self._extract_block_metadata(block)
             if self._block_supported(mime_type, category):
@@ -672,6 +675,14 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                         block=block,
                     )
                 )
+                # Add placeholder text so content isn't empty
+                category_label = self._category_label(category)
+                mime_display = mime_type or "unknown"
+                placeholder = text_content(
+                    f"[{category_label} content ({mime_display}) was removed - "
+                    f"{model_display} does not support this content type]"
+                )
+                kept.append(placeholder)
         return kept
 
     def _block_supported(self, mime_type: str | None, category: str) -> bool:

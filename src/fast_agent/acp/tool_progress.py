@@ -69,8 +69,8 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
-        # Map tool_call_id → base title for progress updates
-        self._base_titles: dict[str, str] = {}
+        # Map tool_call_id → simple title (server/tool) for progress updates
+        self._simple_titles: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
@@ -449,14 +449,8 @@ class ACPToolProgressManager:
                 # Ensure mapping exists - progress() may return different ID than start()
                 # or the stream notification task may not have stored it yet
                 self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
-                # Store base title for progress updates (without streaming suffix)
-                base_title = f"{server_name}/{tool_name}"
-                if arguments:
-                    arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
-                    if len(arg_str) > 50:
-                        arg_str = arg_str[:47] + "..."
-                    base_title = f"{base_title}({arg_str})"
-                self._base_titles[tool_call_id] = base_title
+                # Store simple title (server/tool) for progress updates - no args
+                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
 
                 # Clean up streaming state since we're now in execution
                 if tool_use_id:
@@ -487,8 +481,8 @@ class ACPToolProgressManager:
                 self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
                 tool_call_id = tool_call_start.toolCallId
                 tool_call_update = tool_call_start
-                # Store base title for progress updates
-                self._base_titles[tool_call_id] = title
+                # Store simple title (server/tool) for progress updates - no args
+                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
 
                 logger.debug(
                     f"Started tool call tracking: {tool_call_id}",
@@ -610,9 +604,9 @@ class ACPToolProgressManager:
                 )
                 return
 
-            # Build updated title with progress info
-            base_title = self._base_titles.get(tool_call_id, "Tool")
-            title_parts = [base_title]
+            # Build updated title with progress info (using simple title without args)
+            simple_title = self._simple_titles.get(tool_call_id, "Tool")
+            title_parts = [simple_title]
 
             # Add percentage if we have total
             if total is not None and total > 0:
@@ -752,7 +746,7 @@ class ACPToolProgressManager:
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
-                self._base_titles.pop(tool_call_id, None)
+                self._simple_titles.pop(tool_call_id, None)
 
     async def cleanup_session_tools(self, session_id: str) -> None:
         """
@@ -769,7 +763,7 @@ class ACPToolProgressManager:
             for external_id in list(self._tracker._tool_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
-            self._base_titles.clear()
+            self._simple_titles.clear()
             self._stream_tool_use_ids.clear()
             self._stream_chunk_counts.clear()
             self._stream_base_titles.clear()
