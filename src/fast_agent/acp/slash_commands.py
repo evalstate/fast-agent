@@ -884,7 +884,7 @@ class SlashCommandHandler:
         """Summarize error channel availability and recent entries."""
         channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
         if not agent or not hasattr(agent, "message_history"):
-            return [channel_label, "Recent Entries: unavailable (no agent history)"]
+            return ["_No errors recorded_"]
 
         recent_entries: list[str] = []
         history = getattr(agent, "message_history", []) or []
@@ -913,7 +913,7 @@ class SlashCommandHandler:
             lines.extend(f"- {entry}" for entry in recent_entries)
             return lines
 
-        return [channel_label, "Recent Entries: none recorded"]
+        return ["_No errors recorded_"]
 
     def _estimate_context_usage(self, summary: ConversationSummary, agent) -> float:
         """
