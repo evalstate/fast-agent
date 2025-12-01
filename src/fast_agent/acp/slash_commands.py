@@ -418,6 +418,7 @@ class SlashCommandHandler:
         """Handle the /status auth command to show permissions from auths.md."""
         heading = "# permissions"
         auths_path = Path("./fast-agent/auths.md")
+        resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
             return "\n".join(
@@ -425,6 +426,8 @@ class SlashCommandHandler:
                     heading,
                     "",
                     "No permissions set",
+                    "",
+                    f"Path: `{resolved_path}`",
                 ]
             )
 
@@ -435,6 +438,8 @@ class SlashCommandHandler:
                     heading,
                     "",
                     content.strip() if content.strip() else "No permissions set",
+                    "",
+                    f"Path: `{resolved_path}`",
                 ]
             )
         except Exception as exc:
@@ -443,6 +448,8 @@ class SlashCommandHandler:
                     heading,
                     "",
                     f"Failed to read permissions file: {exc}",
+                    "",
+                    f"Path: `{resolved_path}`",
                 ]
             )
 
@@ -450,6 +457,7 @@ class SlashCommandHandler:
         """Handle the /status authreset command to remove the auths.md file."""
         heading = "# reset permissions"
         auths_path = Path("./fast-agent/auths.md")
+        resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
             return "\n".join(
@@ -457,6 +465,8 @@ class SlashCommandHandler:
                     heading,
                     "",
                     "No permissions file exists.",
+                    "",
+                    f"Path: `{resolved_path}`",
                 ]
             )
 
@@ -467,6 +477,8 @@ class SlashCommandHandler:
                     heading,
                     "",
                     "Permissions file removed successfully.",
+                    "",
+                    f"Path: `{resolved_path}`",
                 ]
             )
         except Exception as exc:
@@ -475,6 +487,8 @@ class SlashCommandHandler:
                     heading,
                     "",
                     f"Failed to remove permissions file: {exc}",
+                    "",
+                    f"Path: `{resolved_path}`",
                 ]
             )
 
