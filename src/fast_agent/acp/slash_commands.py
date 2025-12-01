@@ -417,7 +417,7 @@ class SlashCommandHandler:
     def _handle_status_auth(self) -> str:
         """Handle the /status auth command to show permissions from auths.md."""
         heading = "# permissions"
-        auths_path = Path("./fast-agent/auths.md")
+        auths_path = Path("./.fast-agent/auths.md")
         resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
@@ -456,7 +456,7 @@ class SlashCommandHandler:
     def _handle_status_authreset(self) -> str:
         """Handle the /status authreset command to remove the auths.md file."""
         heading = "# reset permissions"
-        auths_path = Path("./fast-agent/auths.md")
+        auths_path = Path("./.fast-agent/auths.md")
         resolved_path = auths_path.resolve()
 
         if not auths_path.exists():
