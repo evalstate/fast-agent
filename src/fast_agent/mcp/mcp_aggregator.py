@@ -70,6 +70,7 @@ class ServerStats:
     call_counts: Counter = field(default_factory=Counter)
     last_call_at: datetime | None = None
     last_error_at: datetime | None = None
+    reconnect_count: int = 0
 
     def record(self, operation_type: str, success: bool) -> None:
         self.call_counts[operation_type] += 1
@@ -77,6 +78,10 @@ class ServerStats:
         self.last_call_at = now
         if not success:
             self.last_error_at = now
+
+    def record_reconnect(self) -> None:
+        """Record a successful reconnection."""
+        self.reconnect_count += 1
 
 
 class ServerStatus(BaseModel):
@@ -105,6 +110,7 @@ class ServerStatus(BaseModel):
     session_id: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
+    reconnect_count: int = 0
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -783,6 +789,12 @@ class MCPAggregator(ContextDependent):
             # For stdio servers, also emit synthetic transport events to create activity timeline
             await self._notify_stdio_transport_activity(server_name, operation_type, success)
 
+    async def _record_reconnect(self, server_name: str) -> None:
+        """Record a successful server reconnection."""
+        async with self._stats_lock:
+            stats = self._server_stats.setdefault(server_name, ServerStats())
+            stats.record_reconnect()
+
     async def _notify_stdio_transport_activity(
         self, server_name: str, operation_type: str, success: bool
     ) -> None:
@@ -864,6 +876,7 @@ class MCPAggregator(ContextDependent):
             last_error = stats.last_error_at if stats else None
             staleness = (now - last_call).total_seconds() if last_call else None
             call_counts = dict(stats.call_counts) if stats else {}
+            reconnect_count = stats.reconnect_count if stats else 0
 
             implementation_name = None
             implementation_version = None
@@ -1017,6 +1030,7 @@ class MCPAggregator(ContextDependent):
                 session_id=session_id,
                 transport_channels=transport_snapshot,
                 skybridge=self._skybridge_configs.get(server_name),
+                reconnect_count=reconnect_count,
             )
 
         return status_map
@@ -1258,7 +1272,8 @@ class MCPAggregator(ContextDependent):
                 ) as client:
                     result = await try_execute(client)
 
-            # Success!
+            # Success! Record the reconnection
+            await self._record_reconnect(server_name)
             console.console.print(
                 f"[dim green]MCP server {server_name} reconnected successfully[/dim green]"
             )

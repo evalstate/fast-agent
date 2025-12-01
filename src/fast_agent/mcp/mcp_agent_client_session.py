@@ -221,23 +221,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             from anyio import ClosedResourceError
 
             from fast_agent.core.exceptions import ServerSessionTerminatedError
-            from fast_agent.ui import console
-
-            # Debug: print to console to trace exception handling
-            console.console.print(f"[yellow]DEBUG send_request caught: {type(e).__name__}: {e}[/yellow]")
 
             # Check for session terminated error (404 from server)
-            try:
-                is_terminated = self._is_session_terminated_error(e)
-                console.console.print(f"[yellow]DEBUG _is_session_terminated_error returned: {is_terminated}[/yellow]")
-            except Exception as check_exc:
-                console.console.print(f"[red]DEBUG _is_session_terminated_error RAISED: {check_exc}[/red]")
-                is_terminated = False
-
-            if is_terminated:
-                logger.warning(
-                    f"MCP server {self.session_server_name} session terminated (404)"
-                )
+            if self._is_session_terminated_error(e):
                 raise ServerSessionTerminatedError(
                     server_name=self.session_server_name or "unknown",
                     details="Server returned 404 - session may have expired due to server restart",
@@ -245,6 +231,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
             # Handle connection closure errors (transport closed)
             if isinstance(e, ClosedResourceError):
+                from fast_agent.ui import console
+
                 console.console.print(
                     f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
                 )
@@ -259,23 +247,12 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         from fast_agent.core.exceptions import ServerSessionTerminatedError
 
-        # Log full exception details to diagnose detection issues
-        logger.warning(
-            f"Checking exception: type={type(exc).__name__}, "
-            f"module={type(exc).__module__}, str={exc}"
-        )
-
         if isinstance(exc, McpError):
             error_data = getattr(exc, "error", None)
-            logger.warning(f"McpError detected, error_data={error_data}, type={type(error_data)}")
             if error_data:
                 code = getattr(error_data, "code", None)
-                logger.warning(f"Error code={code}, expected={ServerSessionTerminatedError.SESSION_TERMINATED_CODE}")
                 if code == ServerSessionTerminatedError.SESSION_TERMINATED_CODE:
                     return True
-        else:
-            logger.warning(f"Not an McpError. MRO: {[c.__name__ for c in type(exc).__mro__]}")
-
         return False
 
     def _attach_transport_channel(self, request_id, result) -> None:
