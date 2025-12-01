@@ -221,17 +221,17 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             from anyio import ClosedResourceError
 
             from fast_agent.core.exceptions import ServerSessionTerminatedError
+            from fast_agent.ui import console
 
-            # Debug: print to stderr to bypass logging
-            import sys
-            print(f"DEBUG send_request caught exception: {type(e).__name__}: {e}", file=sys.stderr)
+            # Debug: print to console to trace exception handling
+            console.console.print(f"[yellow]DEBUG send_request caught: {type(e).__name__}: {e}[/yellow]")
 
             # Check for session terminated error (404 from server)
             try:
                 is_terminated = self._is_session_terminated_error(e)
-                print(f"DEBUG _is_session_terminated_error returned: {is_terminated}", file=sys.stderr)
+                console.console.print(f"[yellow]DEBUG _is_session_terminated_error returned: {is_terminated}[/yellow]")
             except Exception as check_exc:
-                print(f"DEBUG _is_session_terminated_error RAISED: {check_exc}", file=sys.stderr)
+                console.console.print(f"[red]DEBUG _is_session_terminated_error RAISED: {check_exc}[/red]")
                 is_terminated = False
 
             if is_terminated:
@@ -245,8 +245,6 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
             # Handle connection closure errors (transport closed)
             if isinstance(e, ClosedResourceError):
-                from fast_agent.ui import console
-
                 console.console.print(
                     f"[dim red]MCP server {self.session_server_name} offline[/dim red]"
                 )
