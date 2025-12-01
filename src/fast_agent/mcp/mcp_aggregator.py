@@ -27,6 +27,7 @@ from opentelemetry import trace
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
 from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
@@ -69,6 +70,7 @@ class ServerStats:
     call_counts: Counter = field(default_factory=Counter)
     last_call_at: datetime | None = None
     last_error_at: datetime | None = None
+    reconnect_count: int = 0
 
     def record(self, operation_type: str, success: bool) -> None:
         self.call_counts[operation_type] += 1
@@ -76,6 +78,10 @@ class ServerStats:
         self.last_call_at = now
         if not success:
             self.last_error_at = now
+
+    def record_reconnect(self) -> None:
+        """Record a successful reconnection."""
+        self.reconnect_count += 1
 
 
 class ServerStatus(BaseModel):
@@ -104,6 +110,7 @@ class ServerStatus(BaseModel):
     session_id: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
+    reconnect_count: int = 0
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -782,6 +789,12 @@ class MCPAggregator(ContextDependent):
             # For stdio servers, also emit synthetic transport events to create activity timeline
             await self._notify_stdio_transport_activity(server_name, operation_type, success)
 
+    async def _record_reconnect(self, server_name: str) -> None:
+        """Record a successful server reconnection."""
+        async with self._stats_lock:
+            stats = self._server_stats.setdefault(server_name, ServerStats())
+            stats.record_reconnect()
+
     async def _notify_stdio_transport_activity(
         self, server_name: str, operation_type: str, success: bool
     ) -> None:
@@ -863,6 +876,7 @@ class MCPAggregator(ContextDependent):
             last_error = stats.last_error_at if stats else None
             staleness = (now - last_call).total_seconds() if last_call else None
             call_counts = dict(stats.call_counts) if stats else {}
+            reconnect_count = stats.reconnect_count if stats else 0
 
             implementation_name = None
             implementation_version = None
@@ -1016,6 +1030,7 @@ class MCPAggregator(ContextDependent):
                 session_id=session_id,
                 transport_channels=transport_snapshot,
                 skybridge=self._skybridge_configs.get(server_name),
+                reconnect_count=reconnect_count,
             )
 
         return status_map
@@ -1083,6 +1098,9 @@ class MCPAggregator(ContextDependent):
             except ConnectionError:
                 # Let ConnectionError pass through for reconnection logic
                 raise
+            except ServerSessionTerminatedError:
+                # Let ServerSessionTerminatedError pass through for reconnection logic
+                raise
             except Exception as e:
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
@@ -1129,47 +1147,14 @@ class MCPAggregator(ContextDependent):
                     success_flag = True
         except ConnectionError:
             # Server offline - attempt reconnection
-            from fast_agent.ui import console
-
-            console.console.print(
-                f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
+            result, success_flag = await self._handle_connection_error(
+                server_name, try_execute, error_factory
             )
-
-            try:
-                if self.connection_persistence:
-                    # Force disconnect and create fresh connection
-                    await self._persistent_connection_manager.disconnect_server(server_name)
-                    import asyncio
-
-                    await asyncio.sleep(0.1)
-
-                    server_connection = await self._persistent_connection_manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    result = await try_execute(server_connection.session)
-                else:
-                    # For non-persistent connections, just try again
-                    async with gen_client(
-                        server_name, server_registry=self.context.server_registry
-                    ) as client:
-                        result = await try_execute(client)
-
-                # Success!
-                console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
-                success_flag = True
-
-            except Exception:
-                # Reconnection failed
-                console.console.print(
-                    f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
-                )
-                error_msg = f"MCP server {server_name} offline - failed to reconnect"
-                success_flag = False
-                if error_factory:
-                    result = error_factory(error_msg)
-                else:
-                    raise Exception(error_msg)
+        except ServerSessionTerminatedError as exc:
+            # Session terminated (e.g., 404 from restarted server)
+            result, success_flag = await self._handle_session_terminated(
+                server_name, try_execute, error_factory, exc
+            )
         except Exception:
             success_flag = False
             raise
@@ -1178,6 +1163,148 @@ class MCPAggregator(ContextDependent):
                 await self._record_server_call(server_name, operation_type, success_flag)
 
         return result
+
+    async def _handle_connection_error(
+        self,
+        server_name: str,
+        try_execute: Callable,
+        error_factory: Callable[[str], R] | None,
+    ) -> tuple[R | None, bool]:
+        """Handle ConnectionError by attempting to reconnect to the server."""
+        from fast_agent.ui import console
+
+        console.console.print(
+            f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
+        )
+
+        try:
+            if self.connection_persistence:
+                # Force disconnect and create fresh connection
+                server_connection = await self._persistent_connection_manager.reconnect_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                )
+                result = await try_execute(server_connection.session)
+            else:
+                # For non-persistent connections, just try again
+                async with gen_client(
+                    server_name, server_registry=self.context.server_registry
+                ) as client:
+                    result = await try_execute(client)
+
+            # Success!
+            console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
+            return result, True
+
+        except ServerSessionTerminatedError:
+            # After reconnecting for connection error, we got session terminated
+            # Don't loop - just report the error
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated after reconnect[/dim red]"
+            )
+            error_msg = (
+                f"MCP server {server_name} reconnected but session was immediately terminated. "
+                "Please check server status."
+            )
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+        except Exception as e:
+            # Reconnection failed
+            console.console.print(
+                f"[dim red]MCP server {server_name} offline - failed to reconnect: {e}[/dim red]"
+            )
+            error_msg = f"MCP server {server_name} offline - failed to reconnect"
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+    async def _handle_session_terminated(
+        self,
+        server_name: str,
+        try_execute: Callable,
+        error_factory: Callable[[str], R] | None,
+        exc: ServerSessionTerminatedError,
+    ) -> tuple[R | None, bool]:
+        """Handle ServerSessionTerminatedError by attempting to reconnect if configured."""
+        from fast_agent.ui import console
+
+        # Check if reconnect_on_disconnect is enabled for this server
+        server_config = None
+        if self.context and getattr(self.context, "server_registry", None):
+            server_config = self.context.server_registry.get_server_config(server_name)
+
+        reconnect_enabled = server_config and server_config.reconnect_on_disconnect
+
+        if not reconnect_enabled:
+            # Reconnection not enabled - inform user and fail
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated (404)[/dim red]"
+            )
+            console.console.print(
+                "[dim]Tip: Enable 'reconnect_on_disconnect: true' in config to auto-reconnect[/dim]"
+            )
+            error_msg = f"MCP server {server_name} session terminated - reconnection not enabled"
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise exc
+
+        # Attempt reconnection
+        console.console.print(
+            f"[dim yellow]MCP server {server_name} session terminated - reconnecting...[/dim yellow]"
+        )
+
+        try:
+            if self.connection_persistence:
+                server_connection = await self._persistent_connection_manager.reconnect_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                )
+                result = await try_execute(server_connection.session)
+            else:
+                # For non-persistent connections, just try again
+                async with gen_client(
+                    server_name, server_registry=self.context.server_registry
+                ) as client:
+                    result = await try_execute(client)
+
+            # Success! Record the reconnection
+            await self._record_reconnect(server_name)
+            console.console.print(
+                f"[dim green]MCP server {server_name} reconnected successfully[/dim green]"
+            )
+            return result, True
+
+        except ServerSessionTerminatedError:
+            # Retry after reconnection ALSO failed with session terminated
+            # Do NOT attempt another reconnection - this would cause an infinite loop
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated again after reconnect[/dim red]"
+            )
+            error_msg = (
+                f"MCP server {server_name} session terminated even after reconnection. "
+                "The server may be persistently rejecting this session. "
+                "Please check server status or try again later."
+            )
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+        except Exception as e:
+            # Other reconnection failure
+            console.console.print(
+                f"[dim red]MCP server {server_name} failed to reconnect: {e}[/dim red]"
+            )
+            error_msg = f"MCP server {server_name} failed to reconnect: {e}"
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
         """

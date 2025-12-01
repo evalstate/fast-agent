@@ -69,3 +69,22 @@ class PromptExitError(FastAgentError):
     # TODO an exception for flow control :(
     def __init__(self, message: str, details: str = "") -> None:
         super().__init__(message, details)
+
+
+class ServerSessionTerminatedError(FastAgentError):
+    """Raised when a server session has been terminated (e.g., 404 from server).
+
+    This typically occurs when a remote StreamableHTTP server restarts and the
+    session is no longer valid. When reconnect_on_disconnect is enabled, this
+    error triggers automatic reconnection.
+    """
+
+    # Error code for session terminated from MCP SDK streamable_http.py
+    # Note: The SDK uses positive 32600 (not the standard JSON-RPC -32600)
+    # See: https://github.com/modelcontextprotocol/python-sdk/blob/main/src/mcp/client/streamable_http.py
+    SESSION_TERMINATED_CODE = 32600
+
+    def __init__(self, server_name: str, details: str = "") -> None:
+        self.server_name = server_name
+        message = f"MCP server '{server_name}' session terminated"
+        super().__init__(message, details)
