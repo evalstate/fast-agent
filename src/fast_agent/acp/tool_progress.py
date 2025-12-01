@@ -69,6 +69,8 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
+        # Map tool_call_id → base title for progress updates
+        self._base_titles: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
@@ -447,6 +449,14 @@ class ACPToolProgressManager:
                 # Ensure mapping exists - progress() may return different ID than start()
                 # or the stream notification task may not have stored it yet
                 self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
+                # Store base title for progress updates (without streaming suffix)
+                base_title = f"{server_name}/{tool_name}"
+                if arguments:
+                    arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
+                    if len(arg_str) > 50:
+                        arg_str = arg_str[:47] + "..."
+                    base_title = f"{base_title}({arg_str})"
+                self._base_titles[tool_call_id] = base_title
 
                 # Clean up streaming state since we're now in execution
                 if tool_use_id:
@@ -477,6 +487,8 @@ class ACPToolProgressManager:
                 self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
                 tool_call_id = tool_call_start.toolCallId
                 tool_call_update = tool_call_start
+                # Store base title for progress updates
+                self._base_titles[tool_call_id] = title
 
                 logger.debug(
                     f"Started tool call tracking: {tool_call_id}",
@@ -580,6 +592,7 @@ class ACPToolProgressManager:
         Called when tool execution reports progress.
 
         Implements ToolExecutionHandler.on_tool_progress protocol method.
+        Updates the title with progress percentage and/or message.
 
         Args:
             tool_call_id: The tool call ID
@@ -597,16 +610,32 @@ class ACPToolProgressManager:
                 )
                 return
 
+            # Build updated title with progress info
+            base_title = self._base_titles.get(tool_call_id, "Tool")
+            title_parts = [base_title]
+
+            # Add percentage if we have total
+            if total is not None and total > 0:
+                percentage = int((progress / total) * 100)
+                title_parts.append(f"[{percentage}%]")
+
+            # Add message if present
+            if message:
+                title_parts.append(f"- {message}")
+
+            updated_title = " ".join(title_parts)
+
             # Build content for progress update using SDK helpers
             content = None
             if message:
                 content = [tool_content(text_block(message))]
 
-            # Use SDK tracker to create progress update
+            # Use SDK tracker to create progress update with updated title
             try:
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status="in_progress",
+                    title=updated_title,
                     content=content,
                 )
             except Exception as e:
@@ -628,6 +657,7 @@ class ACPToolProgressManager:
                 progress=progress,
                 total=total,
                 message=message,
+                title=updated_title,
             )
         except Exception as e:
             logger.error(
@@ -722,6 +752,7 @@ class ACPToolProgressManager:
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
+                self._base_titles.pop(tool_call_id, None)
 
     async def cleanup_session_tools(self, session_id: str) -> None:
         """
@@ -738,6 +769,7 @@ class ACPToolProgressManager:
             for external_id in list(self._tracker._tool_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
+            self._base_titles.clear()
             self._stream_tool_use_ids.clear()
             self._stream_chunk_counts.clear()
             self._stream_base_titles.clear()

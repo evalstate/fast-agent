@@ -308,3 +308,97 @@ class TestACPToolProgressManager:
         assert "use-b" not in manager._stream_tool_use_ids
         assert "use-a" not in manager._stream_chunk_counts
         assert "use-b" not in manager._stream_chunk_counts
+
+    @pytest.mark.asyncio
+    async def test_progress_updates_title_with_percentage(self) -> None:
+        """Progress updates should include percentage in title when total is provided."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        # Start a tool without streaming
+        tool_call_id = await manager.on_tool_start(
+            tool_name="download_file",
+            server_name="server",
+            arguments={"url": "http://example.com/file.zip"},
+        )
+
+        # Send progress update with percentage
+        await manager.on_tool_progress(
+            tool_call_id=tool_call_id,
+            progress=50,
+            total=100,
+            message="Downloading...",
+        )
+
+        # Should have 2 notifications: start + progress
+        assert len(connection.notifications) == 2
+
+        progress_notification = connection.notifications[1]
+        assert "[50%]" in progress_notification.update.title
+        assert "Downloading..." in progress_notification.update.title
+        assert "server/download_file" in progress_notification.update.title
+
+    @pytest.mark.asyncio
+    async def test_progress_updates_title_with_message_only(self) -> None:
+        """Progress updates should include message in title when no total is provided."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        # Start a tool
+        tool_call_id = await manager.on_tool_start(
+            tool_name="process_data",
+            server_name="server",
+            arguments={"input": "data.csv"},
+        )
+
+        # Send progress update with message but no total
+        await manager.on_tool_progress(
+            tool_call_id=tool_call_id,
+            progress=10,
+            total=None,
+            message="Processing rows...",
+        )
+
+        # Should have 2 notifications
+        assert len(connection.notifications) == 2
+
+        progress_notification = connection.notifications[1]
+        # Should have message but no percentage
+        assert "Processing rows..." in progress_notification.update.title
+        assert "[" not in progress_notification.update.title  # No percentage brackets
+
+    @pytest.mark.asyncio
+    async def test_progress_title_preserves_base_title_with_args(self) -> None:
+        """Progress updates should preserve the base title including arguments."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        # Start a tool with arguments
+        tool_call_id = await manager.on_tool_start(
+            tool_name="read_file",
+            server_name="filesystem",
+            arguments={"path": "/tmp/large_file.txt"},
+        )
+
+        # Send multiple progress updates
+        await manager.on_tool_progress(
+            tool_call_id=tool_call_id,
+            progress=25,
+            total=100,
+            message="Reading...",
+        )
+        await manager.on_tool_progress(
+            tool_call_id=tool_call_id,
+            progress=75,
+            total=100,
+            message="Almost done...",
+        )
+
+        # Check the last progress notification
+        last_progress = connection.notifications[-1]
+        # Base title with args should be preserved
+        assert "filesystem/read_file" in last_progress.update.title
+        assert "path=" in last_progress.update.title
+        # Progress should be updated
+        assert "[75%]" in last_progress.update.title
+        assert "Almost done..." in last_progress.update.title
