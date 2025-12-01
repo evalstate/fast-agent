@@ -813,7 +813,18 @@ async def render_mcp_status(agent, indent: str = "") -> None:
             calls_line = Text(indent + "  ")
             calls_line.append("mcp calls: ", style=Colours.TEXT_DIM)
             calls_line.append(calls, style=Colours.TEXT_DEFAULT)
+            # Show reconnect count inline if > 0
+            if status.reconnect_count > 0:
+                calls_line.append("  |  ", style="dim")
+                calls_line.append("reconnects: ", style=Colours.TEXT_DIM)
+                calls_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
             console.console.print(calls_line)
+        elif status.reconnect_count > 0:
+            # Show reconnect count on its own line if no calls
+            reconnect_line = Text(indent + "  ")
+            reconnect_line.append("reconnects: ", style=Colours.TEXT_DIM)
+            reconnect_line.append(str(status.reconnect_count), style=Colours.TEXT_WARNING)
+            console.console.print(reconnect_line)
         _render_channel_summary(status, indent, total_width)
 
         combined_tokens = primary_caps + secondary_caps
