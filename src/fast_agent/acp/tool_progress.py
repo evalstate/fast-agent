@@ -81,6 +81,27 @@ class ACPToolProgressManager:
         self._stream_base_titles: dict[str, str] = {}  # tool_use_id → base title
         self._lock = asyncio.Lock()
 
+    def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """
+        Get the ACP toolCallId for a given LLM tool_use_id.
+
+        This is used by the permission handler to ensure the permission request
+        references the same toolCallId as any existing streaming notification.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+
+        Returns:
+            The ACP toolCallId if a streaming notification was already sent, None otherwise
+        """
+        external_id = self._stream_tool_use_ids.get(tool_use_id)
+        if external_id:
+            # Look up the toolCallId from the tracker
+            tool_call = self._tracker._tool_calls.get(external_id)
+            if tool_call:
+                return tool_call.toolCallId
+        return None
+
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
         Handle tool stream events from the LLM during streaming.

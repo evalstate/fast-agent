@@ -16,6 +16,8 @@ from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler, ToolPe
 if TYPE_CHECKING:
     from acp import AgentSideConnection
 
+    from fast_agent.acp.tool_progress import ACPToolProgressManager
+
 
 class ACPToolPermissionAdapter(ToolPermissionHandler):
     """
@@ -31,6 +33,7 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         session_id: str,
         store: PermissionStore | None = None,
         cwd: str | Path | None = None,
+        tool_handler: "ACPToolProgressManager | None" = None,
     ) -> None:
         """
         Initialize the adapter.
@@ -40,7 +43,9 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
             session_id: The ACP session ID
             store: Optional PermissionStore for persistence
             cwd: Working directory for the store (only used if store not provided)
+            tool_handler: Optional tool progress manager for toolCallId lookup
         """
+        self._tool_handler = tool_handler
         self._manager = ACPToolPermissionManager(
             connection=connection,
             session_id=session_id,
@@ -75,11 +80,19 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         Returns:
             ToolPermissionResult indicating whether execution is allowed
         """
+        # Look up the ACP toolCallId if a streaming notification was already sent
+        # This ensures the permission request references the same tool call
+        tool_call_id = tool_use_id
+        if tool_use_id and self._tool_handler:
+            acp_tool_call_id = self._tool_handler.get_tool_call_id_for_tool_use(tool_use_id)
+            if acp_tool_call_id:
+                tool_call_id = acp_tool_call_id
+
         result = await self._manager.check_permission(
             tool_name=tool_name,
             server_name=server_name,
             arguments=arguments,
-            tool_call_id=tool_use_id,
+            tool_call_id=tool_call_id,
         )
 
         namespaced_tool_name = create_namespaced_name(server_name, tool_name)
