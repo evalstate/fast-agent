@@ -313,9 +313,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     # TODO -- decide whether to make this override type safe or not (modify SDK)
     async def call_tool(
-        self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
+        self,
+        name: str,
+        arguments: dict | None = None,
+        _meta: dict | None = None,
+        progress_callback: ProgressFnT | None = None,
+        **kwargs,
     ) -> CallToolResult:
-        """Call a tool with optional metadata support.
+        """Call a tool with optional metadata and progress callback support.
 
         Always uses our overridden send_request to ensure session terminated errors
         are properly detected and converted to ServerSessionTerminatedError.
@@ -343,7 +348,9 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             params = CallToolRequestParams.model_validate(params_dict)
 
         request = CallToolRequest(method="tools/call", params=params)
-        return await self.send_request(request, CallToolResult)
+        return await self.send_request(
+            request, CallToolResult, progress_callback=progress_callback
+        )
 
     async def read_resource(
         self, uri: str, _meta: dict | None = None, **kwargs
