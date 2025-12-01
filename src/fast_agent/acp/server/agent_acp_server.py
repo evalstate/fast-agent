@@ -564,12 +564,13 @@ class AgentACPServer(ACPAgent):
                     cwd = params.cwd or "."
                     permission_store = PermissionStore(cwd=cwd)
 
-                    # Create permission adapter
+                    # Create permission adapter with tool_handler for toolCallId lookup
                     permission_handler = ACPToolPermissionAdapter(
                         connection=self._connection,
                         session_id=session_id,
                         store=permission_store,
                         cwd=cwd,
+                        tool_handler=tool_handler,
                     )
                     self._session_permission_handlers[session_id] = permission_handler
 

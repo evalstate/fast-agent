@@ -69,6 +69,10 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
+        # Map tool_call_id → simple title (server/tool) for progress updates
+        self._simple_titles: dict[str, str] = {}
+        # Map tool_call_id → full title (with args) for completion
+        self._full_titles: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
@@ -78,6 +82,44 @@ class ACPToolProgressManager:
         # Track base titles for streaming tools (before chunk count suffix)
         self._stream_base_titles: dict[str, str] = {}  # tool_use_id → base title
         self._lock = asyncio.Lock()
+
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """
+        Get the ACP toolCallId for a given LLM tool_use_id.
+
+        This is used by the permission handler to ensure the permission request
+        references the same toolCallId as any existing streaming notification.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+
+        Returns:
+            The ACP toolCallId if a streaming notification was already sent, None otherwise
+        """
+        # Check if there's a pending stream notification task for this tool_use_id
+        # If so, wait for it to complete so the toolCallId is available
+        task = self._stream_tasks.get(tool_use_id)
+        if task and not task.done():
+            try:
+                await task
+            except Exception:
+                pass  # Ignore errors, just ensure task completed
+
+        # Now look up the toolCallId
+        external_id = self._stream_tool_use_ids.get(tool_use_id)
+        if external_id:
+            # Look up the toolCallId from the tracker
+            async with self._lock:
+                # The tracker stores tool calls by external_id
+                if hasattr(self._tracker, '_tool_calls'):
+                    tool_call = self._tracker._tool_calls.get(external_id)
+                    if tool_call:
+                        return tool_call.toolCallId
+                # Fallback: check our own mapping
+                for tool_call_id, ext_id in self._tool_call_id_to_external_id.items():
+                    if ext_id == external_id:
+                        return tool_call_id
+        return None
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -447,6 +489,10 @@ class ACPToolProgressManager:
                 # Ensure mapping exists - progress() may return different ID than start()
                 # or the stream notification task may not have stored it yet
                 self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
+                # Store simple title (server/tool) for progress updates - no args
+                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store full title (with args) for completion
+                self._full_titles[tool_call_id] = title
 
                 # Clean up streaming state since we're now in execution
                 if tool_use_id:
@@ -477,6 +523,10 @@ class ACPToolProgressManager:
                 self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
                 tool_call_id = tool_call_start.toolCallId
                 tool_call_update = tool_call_start
+                # Store simple title (server/tool) for progress updates - no args
+                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store full title (with args) for completion
+                self._full_titles[tool_call_id] = title
 
                 logger.debug(
                     f"Started tool call tracking: {tool_call_id}",
@@ -580,6 +630,7 @@ class ACPToolProgressManager:
         Called when tool execution reports progress.
 
         Implements ToolExecutionHandler.on_tool_progress protocol method.
+        Updates the title with progress percentage and/or message.
 
         Args:
             tool_call_id: The tool call ID
@@ -597,17 +648,31 @@ class ACPToolProgressManager:
                 )
                 return
 
-            # Build content for progress update using SDK helpers
-            content = None
-            if message:
-                content = [tool_content(text_block(message))]
+            # Build updated title with progress info (using simple title without args)
+            simple_title = self._simple_titles.get(tool_call_id, "Tool")
+            title_parts = [simple_title]
 
-            # Use SDK tracker to create progress update
+            # Add progress indicator
+            if total is not None and total > 0:
+                # Show progress/total format (e.g., [50/100])
+                title_parts.append(f"[{progress:.0f}/{total:.0f}]")
+            else:
+                # Show just progress value (e.g., [50])
+                title_parts.append(f"[{progress:.0f}]")
+
+            # Add message if present
+            if message:
+                title_parts.append(f"- {message}")
+
+            updated_title = " ".join(title_parts)
+
+            # Use SDK tracker to create progress update with updated title
+            # Note: We don't include content since the title now shows the progress message
             try:
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status="in_progress",
-                    content=content,
+                    title=updated_title,
                 )
             except Exception as e:
                 logger.error(
@@ -627,7 +692,8 @@ class ACPToolProgressManager:
                 name="acp_tool_progress_update",
                 progress=progress,
                 total=total,
-                message=message,
+                progress_message=message,
+                title=updated_title,
             )
         except Exception as e:
             logger.error(
@@ -665,6 +731,15 @@ class ACPToolProgressManager:
                 return
 
         # Build content blocks
+        logger.debug(
+            f"on_tool_complete called: {tool_call_id}",
+            name="acp_tool_complete_entry",
+            success=success,
+            has_content=content is not None,
+            content_types=[type(c).__name__ for c in (content or [])],
+            has_error=error is not None,
+        )
+
         if error:
             # Error case: convert error string to text content using SDK helper
             content_blocks = [tool_content(text_block(error))]
@@ -686,9 +761,12 @@ class ACPToolProgressManager:
         # Use SDK tracker to create completion update
         try:
             async with self._lock:
+                # Restore full title with parameters for completion
+                full_title = self._full_titles.get(tool_call_id)
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status=status,
+                    title=full_title,  # Restore original title with args
                     content=content_blocks,
                     raw_output=raw_output,
                 )
@@ -722,6 +800,8 @@ class ACPToolProgressManager:
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
+                self._simple_titles.pop(tool_call_id, None)
+                self._full_titles.pop(tool_call_id, None)
 
     async def cleanup_session_tools(self, session_id: str) -> None:
         """
@@ -738,6 +818,8 @@ class ACPToolProgressManager:
             for external_id in list(self._tracker._tool_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
+            self._simple_titles.clear()
+            self._full_titles.clear()
             self._stream_tool_use_ids.clear()
             self._stream_chunk_counts.clear()
             self._stream_base_titles.clear()

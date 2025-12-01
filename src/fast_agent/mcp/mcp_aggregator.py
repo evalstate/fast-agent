@@ -1473,6 +1473,15 @@ class MCPAggregator(ContextDependent):
                     # Pass the full content blocks to the handler
                     content = result.content if result.content else None
 
+                    logger.debug(
+                        f"Tool execution completed, notifying handler: {tool_call_id}",
+                        name="mcp_tool_complete_notify",
+                        tool_call_id=tool_call_id,
+                        has_content=content is not None,
+                        content_count=len(content) if content else 0,
+                        is_error=result.isError,
+                    )
+
                     # If there's an error, extract error text
                     error_text = None
                     if result.isError and content:
@@ -1483,6 +1492,11 @@ class MCPAggregator(ContextDependent):
 
                     await self._tool_handler.on_tool_complete(
                         tool_call_id, not result.isError, content, error_text
+                    )
+
+                    logger.debug(
+                        f"Tool handler notified successfully: {tool_call_id}",
+                        name="mcp_tool_complete_done",
                     )
                 except Exception as e:
                     logger.error(f"Error in tool complete handler: {e}", exc_info=True)
