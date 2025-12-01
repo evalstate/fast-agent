@@ -726,20 +726,37 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         tool_id: str | None = None,
     ) -> list[ContentBlock]:
         kept: list[ContentBlock] = []
+        removed_in_this_call: list[_RemovedBlock] = []
+        model_name = self.llm.model_name if self.llm else None
+        model_display = model_name or "current model"
+
         for block in blocks or []:
             mime_type, category = self._extract_block_metadata(block)
             if self._block_supported(mime_type, category):
                 kept.append(block)
             else:
-                removed.append(
-                    _RemovedBlock(
-                        category=category,
-                        mime_type=mime_type,
-                        source=source,
-                        tool_id=tool_id,
-                        block=block,
-                    )
+                removed_block = _RemovedBlock(
+                    category=category,
+                    mime_type=mime_type,
+                    source=source,
+                    tool_id=tool_id,
+                    block=block,
                 )
+                removed.append(removed_block)
+                removed_in_this_call.append(removed_block)
+
+        # Only add placeholder if ALL content was removed (kept is empty)
+        # This prevents ACP client hangs when content would be empty
+        if not kept and removed_in_this_call:
+            # Summarize what was removed
+            categories = set(r.category for r in removed_in_this_call)
+            category_label = ", ".join(self._category_label(c) for c in sorted(categories))
+            placeholder = text_content(
+                f"[{category_label} content was removed - "
+                f"{model_display} does not support this content type]"
+            )
+            kept.append(placeholder)
+
         return kept
 
     def _block_supported(self, mime_type: str | None, category: str) -> bool:
