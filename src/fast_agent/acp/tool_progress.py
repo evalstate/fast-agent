@@ -71,6 +71,8 @@ class ACPToolProgressManager:
         self._tool_call_id_to_external_id: dict[str, str] = {}
         # Map tool_call_id → simple title (server/tool) for progress updates
         self._simple_titles: dict[str, str] = {}
+        # Map tool_call_id → full title (with args) for completion
+        self._full_titles: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
@@ -489,6 +491,8 @@ class ACPToolProgressManager:
                 self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
                 # Store simple title (server/tool) for progress updates - no args
                 self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store full title (with args) for completion
+                self._full_titles[tool_call_id] = title
 
                 # Clean up streaming state since we're now in execution
                 if tool_use_id:
@@ -521,6 +525,8 @@ class ACPToolProgressManager:
                 tool_call_update = tool_call_start
                 # Store simple title (server/tool) for progress updates - no args
                 self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store full title (with args) for completion
+                self._full_titles[tool_call_id] = title
 
                 logger.debug(
                     f"Started tool call tracking: {tool_call_id}",
@@ -755,9 +761,12 @@ class ACPToolProgressManager:
         # Use SDK tracker to create completion update
         try:
             async with self._lock:
+                # Restore full title with parameters for completion
+                full_title = self._full_titles.get(tool_call_id)
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status=status,
+                    title=full_title,  # Restore original title with args
                     content=content_blocks,
                     raw_output=raw_output,
                 )
@@ -792,6 +801,7 @@ class ACPToolProgressManager:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
                 self._simple_titles.pop(tool_call_id, None)
+                self._full_titles.pop(tool_call_id, None)
 
     async def cleanup_session_tools(self, session_id: str) -> None:
         """
@@ -809,6 +819,7 @@ class ACPToolProgressManager:
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
             self._simple_titles.clear()
+            self._full_titles.clear()
             self._stream_tool_use_ids.clear()
             self._stream_chunk_counts.clear()
             self._stream_base_titles.clear()
