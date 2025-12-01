@@ -75,7 +75,7 @@ class SlashCommandHandler:
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input=AvailableCommandInput(root=CommandInputHint(hint="[system]")),
+                input=AvailableCommandInput(root=CommandInputHint(hint="[system|auth|authreset]")),
             ),
             "tools": AvailableCommand(
                 name="tools",
@@ -173,10 +173,14 @@ class SlashCommandHandler:
 
     async def _handle_status(self, arguments: str | None = None) -> str:
         """Handle the /status command."""
-        # Check if the user wants to see the system prompt
+        # Check for subcommands
         normalized = (arguments or "").strip().lower()
         if normalized == "system":
             return self._handle_status_system()
+        if normalized == "auth":
+            return self._handle_status_auth()
+        if normalized == "authreset":
+            return self._handle_status_authreset()
 
         # Get fast-agent version
         try:
@@ -409,6 +413,70 @@ class SlashCommandHandler:
         ]
 
         return "\n".join(lines)
+
+    def _handle_status_auth(self) -> str:
+        """Handle the /status auth command to show permissions from auths.md."""
+        heading = "# permissions"
+        auths_path = Path("./fast-agent/auths.md")
+
+        if not auths_path.exists():
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No permissions set",
+                ]
+            )
+
+        try:
+            content = auths_path.read_text(encoding="utf-8")
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    content.strip() if content.strip() else "No permissions set",
+                ]
+            )
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Failed to read permissions file: {exc}",
+                ]
+            )
+
+    def _handle_status_authreset(self) -> str:
+        """Handle the /status authreset command to remove the auths.md file."""
+        heading = "# reset permissions"
+        auths_path = Path("./fast-agent/auths.md")
+
+        if not auths_path.exists():
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No permissions file exists.",
+                ]
+            )
+
+        try:
+            auths_path.unlink()
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Permissions file removed successfully.",
+                ]
+            )
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Failed to remove permissions file: {exc}",
+                ]
+            )
 
     async def _handle_tools(self) -> str:
         """List available MCP tools for the current agent."""
