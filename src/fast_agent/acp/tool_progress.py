@@ -684,6 +684,15 @@ class ACPToolProgressManager:
                 return
 
         # Build content blocks
+        logger.debug(
+            f"on_tool_complete called: {tool_call_id}",
+            name="acp_tool_complete_entry",
+            success=success,
+            has_content=content is not None,
+            content_types=[type(c).__name__ for c in (content or [])],
+            has_error=error is not None,
+        )
+
         if error:
             # Error case: convert error string to text content using SDK helper
             content_blocks = [tool_content(text_block(error))]
