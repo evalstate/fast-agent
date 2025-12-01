@@ -85,7 +85,12 @@ class FakeAgentSideConnection:
         # Extract tool info from request to determine response
         tool_call = request.toolCall
         if tool_call:
-            key = tool_call.title  # "server/tool" format
+            # Title may include args like "server/tool(arg=val)", extract base "server/tool"
+            title = tool_call.title
+            if "(" in title:
+                key = title.split("(")[0]
+            else:
+                key = title
         else:
             key = "unknown"
 
@@ -578,6 +583,13 @@ class TestACPToolPermissionManager:
         assert result.allowed is True
         assert result.remember is False
         assert len(connection.permission_requests) == 1
+
+        # Verify toolCall contains rawInput per ACP spec
+        request = connection.permission_requests[0]
+        assert request.toolCall is not None
+        assert request.toolCall.rawInput == {"arg": "value"}
+        # Title should include argument summary
+        assert "server1/tool1" in request.toolCall.title
 
     @pytest.mark.asyncio
     async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:

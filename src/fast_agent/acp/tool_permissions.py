@@ -244,25 +244,23 @@ class ACPToolPermissionManager:
         Returns:
             PermissionResult from the client
         """
-        # Build prompt message
-        prompt_parts = [f"Allow execution of tool: {server_name}/{tool_name}"]
+        # Create descriptive title with argument summary
+        title = f"{server_name}/{tool_name}"
         if arguments:
-            # Show key arguments (limit to avoid overwhelming the user)
-            arg_items = list(arguments.items())[:3]
-            arg_str = ", ".join(f"{k}={v}" for k, v in arg_items)
-            if len(arguments) > 3:
-                arg_str += ", ..."
-            prompt_parts.append(f"Arguments: {arg_str}")
+            # Include key argument info in title for user context
+            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
+            if len(arg_str) > 50:
+                arg_str = arg_str[:47] + "..."
+            title = f"{title}({arg_str})"
 
-        prompt = "\n".join(prompt_parts)
-
-        # Create ToolCall object per ACP spec
+        # Create ToolCall object per ACP spec with rawInput for full argument visibility
         tool_kind = _infer_tool_kind(tool_name, arguments)
         tool_call = ToolCall(
             toolCallId=tool_call_id or "pending",
-            title=f"{server_name}/{tool_name}",
+            title=title,
             kind=tool_kind,
             status="pending",
+            rawInput=arguments,  # Include full arguments so client can display them
         )
 
         # Create permission request with options
@@ -291,7 +289,6 @@ class ACPToolPermissionManager:
 
         request = RequestPermissionRequest(
             sessionId=self._session_id,
-            prompt=prompt,
             options=options,
             toolCall=tool_call,
         )
