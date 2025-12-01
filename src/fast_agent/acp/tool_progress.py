@@ -81,7 +81,7 @@ class ACPToolProgressManager:
         self._stream_base_titles: dict[str, str] = {}  # tool_use_id → base title
         self._lock = asyncio.Lock()
 
-    def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
         """
         Get the ACP toolCallId for a given LLM tool_use_id.
 
@@ -94,12 +94,29 @@ class ACPToolProgressManager:
         Returns:
             The ACP toolCallId if a streaming notification was already sent, None otherwise
         """
+        # Check if there's a pending stream notification task for this tool_use_id
+        # If so, wait for it to complete so the toolCallId is available
+        task = self._stream_tasks.get(tool_use_id)
+        if task and not task.done():
+            try:
+                await task
+            except Exception:
+                pass  # Ignore errors, just ensure task completed
+
+        # Now look up the toolCallId
         external_id = self._stream_tool_use_ids.get(tool_use_id)
         if external_id:
             # Look up the toolCallId from the tracker
-            tool_call = self._tracker._tool_calls.get(external_id)
-            if tool_call:
-                return tool_call.toolCallId
+            async with self._lock:
+                # The tracker stores tool calls by external_id
+                if hasattr(self._tracker, '_tool_calls'):
+                    tool_call = self._tracker._tool_calls.get(external_id)
+                    if tool_call:
+                        return tool_call.toolCallId
+                # Fallback: check our own mapping
+                for tool_call_id, ext_id in self._tool_call_id_to_external_id.items():
+                    if ext_id == external_id:
+                        return tool_call_id
         return None
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:

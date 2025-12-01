@@ -84,7 +84,7 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         # This ensures the permission request references the same tool call
         tool_call_id = tool_use_id
         if tool_use_id and self._tool_handler:
-            acp_tool_call_id = self._tool_handler.get_tool_call_id_for_tool_use(tool_use_id)
+            acp_tool_call_id = await self._tool_handler.get_tool_call_id_for_tool_use(tool_use_id)
             if acp_tool_call_id:
                 tool_call_id = acp_tool_call_id
 
