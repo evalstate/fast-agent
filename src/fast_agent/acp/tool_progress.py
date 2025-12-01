@@ -646,10 +646,13 @@ class ACPToolProgressManager:
             simple_title = self._simple_titles.get(tool_call_id, "Tool")
             title_parts = [simple_title]
 
-            # Add percentage if we have total
+            # Add progress indicator
             if total is not None and total > 0:
-                percentage = int((progress / total) * 100)
-                title_parts.append(f"[{percentage}%]")
+                # Show progress/total format (e.g., [50/100])
+                title_parts.append(f"[{progress:.0f}/{total:.0f}]")
+            else:
+                # Show just progress value (e.g., [50])
+                title_parts.append(f"[{progress:.0f}]")
 
             # Add message if present
             if message:

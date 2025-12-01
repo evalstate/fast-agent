@@ -310,8 +310,8 @@ class TestACPToolProgressManager:
         assert "use-b" not in manager._stream_chunk_counts
 
     @pytest.mark.asyncio
-    async def test_progress_updates_title_with_percentage(self) -> None:
-        """Progress updates should include percentage in title when total is provided."""
+    async def test_progress_updates_title_with_progress_and_total(self) -> None:
+        """Progress updates should include progress/total in title when total is provided."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
@@ -322,7 +322,7 @@ class TestACPToolProgressManager:
             arguments={"url": "http://example.com/file.zip"},
         )
 
-        # Send progress update with percentage
+        # Send progress update with progress and total
         await manager.on_tool_progress(
             tool_call_id=tool_call_id,
             progress=50,
@@ -334,14 +334,14 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 2
 
         progress_notification = connection.notifications[1]
-        assert "[50%]" in progress_notification.update.title
+        assert "[50/100]" in progress_notification.update.title
         assert "Downloading..." in progress_notification.update.title
         # Progress updates use simple title (no args) for cleaner display
-        assert progress_notification.update.title == "server/download_file [50%] - Downloading..."
+        assert progress_notification.update.title == "server/download_file [50/100] - Downloading..."
 
     @pytest.mark.asyncio
-    async def test_progress_updates_title_with_message_only(self) -> None:
-        """Progress updates should include message in title when no total is provided."""
+    async def test_progress_updates_title_with_progress_only(self) -> None:
+        """Progress updates should show progress value when no total is provided."""
         connection = FakeAgentSideConnection()
         manager = ACPToolProgressManager(connection, "test-session")
 
@@ -364,8 +364,8 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 2
 
         progress_notification = connection.notifications[1]
-        # Should have message but no percentage, using simple title (no args)
-        assert progress_notification.update.title == "server/process_data - Processing rows..."
+        # Should have progress value and message, using simple title (no args)
+        assert progress_notification.update.title == "server/process_data [10] - Processing rows..."
 
     @pytest.mark.asyncio
     async def test_progress_title_uses_simple_format(self) -> None:
@@ -401,4 +401,4 @@ class TestACPToolProgressManager:
         # Check the last progress notification - should use simple title (no args)
         last_progress = connection.notifications[-1]
         # Simple title without args for cleaner progress display
-        assert last_progress.update.title == "filesystem/read_file [75%] - Almost done..."
+        assert last_progress.update.title == "filesystem/read_file [75/100] - Almost done..."
