@@ -59,7 +59,7 @@ class TestReconnectConfig:
     def test_defaults_to_false(self):
         """reconnect_on_disconnect defaults to False."""
         settings = MCPServerSettings(name="test", url="https://example.com/mcp")
-        assert settings.reconnect_on_disconnect is False
+        assert settings.reconnect_on_disconnect is True
 
     def test_can_be_enabled(self):
         """reconnect_on_disconnect can be set to True."""
