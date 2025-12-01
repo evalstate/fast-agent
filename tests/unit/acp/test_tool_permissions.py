@@ -738,3 +738,67 @@ class TestACPToolPermissionManager:
         store = PermissionStore(cwd=temp_dir)
         stored = await store.get("server1", "tool1")
         assert stored is None
+
+    @pytest.mark.asyncio
+    async def test_permission_request_includes_raw_input(self, temp_dir: Path) -> None:
+        """Permission request should include tool arguments in rawInput field."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        # Call with arguments
+        test_args = {"file_path": "/tmp/test.txt", "content": "hello world", "mode": "overwrite"}
+        await manager.check_permission("tool1", "server1", arguments=test_args)
+
+        # Verify request was made with rawInput
+        assert len(connection.permission_requests) == 1
+        request = connection.permission_requests[0]
+        assert request.toolCall is not None
+        assert request.toolCall.rawInput == test_args
+
+    @pytest.mark.asyncio
+    async def test_permission_request_handles_none_arguments(self, temp_dir: Path) -> None:
+        """Permission request should handle None arguments gracefully."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        # Call without arguments
+        await manager.check_permission("tool1", "server1", arguments=None)
+
+        # Verify request was made with rawInput as None
+        assert len(connection.permission_requests) == 1
+        request = connection.permission_requests[0]
+        assert request.toolCall is not None
+        assert request.toolCall.rawInput is None
+
+    @pytest.mark.asyncio
+    async def test_permission_request_handles_empty_arguments(self, temp_dir: Path) -> None:
+        """Permission request should handle empty dict arguments."""
+        connection = FakeAgentSideConnection(
+            permission_responses={"server1/tool1": "allow_once"}
+        )
+        manager = ACPToolPermissionManager(
+            connection=connection,
+            session_id="test-session",
+            cwd=temp_dir,
+        )
+
+        # Call with empty arguments
+        await manager.check_permission("tool1", "server1", arguments={})
+
+        # Verify request was made with rawInput as empty dict
+        assert len(connection.permission_requests) == 1
+        request = connection.permission_requests[0]
+        assert request.toolCall is not None
+        assert request.toolCall.rawInput == {}

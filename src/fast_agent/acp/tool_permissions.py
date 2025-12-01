@@ -263,6 +263,7 @@ class ACPToolPermissionManager:
             title=f"{server_name}/{tool_name}",
             kind=tool_kind,
             status="pending",
+            rawInput=arguments,  # Include full arguments for client display
         )
 
         # Create permission request with options
