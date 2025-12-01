@@ -902,7 +902,12 @@ class SlashCommandHandler:
                     if cleaned:
                         recent_entries.append(cleaned)
                 else:
-                    recent_entries.append(str(block))
+                    # Truncate long content (e.g., base64 image data)
+                    block_str = str(block)
+                    if len(block_str) > 60:
+                        recent_entries.append(f"{block_str[:60]}... ({len(block_str)} characters)")
+                    else:
+                        recent_entries.append(block_str)
                 if len(recent_entries) >= max_entries:
                     break
             if len(recent_entries) >= max_entries:
