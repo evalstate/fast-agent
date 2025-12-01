@@ -619,18 +619,13 @@ class ACPToolProgressManager:
 
             updated_title = " ".join(title_parts)
 
-            # Build content for progress update using SDK helpers
-            content = None
-            if message:
-                content = [tool_content(text_block(message))]
-
             # Use SDK tracker to create progress update with updated title
+            # Note: We don't include content since the title now shows the progress message
             try:
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status="in_progress",
                     title=updated_title,
-                    content=content,
                 )
             except Exception as e:
                 logger.error(
