@@ -16,6 +16,17 @@ from fast_agent.mcp.elicitation_handlers import (
 logger = get_logger(__name__)
 
 
+def _get_acp_elicitation_handler() -> ElicitationFnT:
+    """
+    Lazily import and return the ACP elicitation handler.
+
+    This avoids circular imports since the ACP module imports from MCP modules.
+    """
+    from fast_agent.acp.acp_elicitation import acp_elicitation_handler
+
+    return acp_elicitation_handler
+
+
 def resolve_elicitation_handler(
     agent_config: AgentConfig, app_config: Any, server_config: Any = None
 ) -> ElicitationFnT | None:
@@ -58,6 +69,11 @@ def resolve_elicitation_handler(
                     f"Using auto-cancel elicitation handler (server config) for agent {agent_config.name}"
                 )
                 return auto_cancel_elicitation_handler
+            elif mode == "acp":
+                logger.debug(
+                    f"Using ACP elicitation handler (server config) for agent {agent_config.name}"
+                )
+                return _get_acp_elicitation_handler()
             else:  # "forms" or other
                 logger.debug(
                     f"Using forms elicitation handler (server config) for agent {agent_config.name}"
@@ -79,6 +95,11 @@ def resolve_elicitation_handler(
             f"Using auto-cancel elicitation handler (global config) for agent {agent_config.name}"
         )
         return auto_cancel_elicitation_handler
+    elif mode == "acp":
+        logger.debug(
+            f"Using ACP elicitation handler (global config) for agent {agent_config.name}"
+        )
+        return _get_acp_elicitation_handler()
     else:  # "forms" or default
         logger.debug(f"Using default forms elicitation handler for agent {agent_config.name}")
         return forms_elicitation_handler

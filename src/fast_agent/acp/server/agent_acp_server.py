@@ -38,6 +38,8 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.acp_elicitation import parse_elicitation_response
+from fast_agent.acp.acp_elicitation_state import get_acp_elicitation_state
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
@@ -689,6 +691,34 @@ class AgentACPServer(ACPAgent):
         )
         self._session_slash_handlers[session_id] = slash_handler
 
+        # Register connection with elicitation state for ACP-based elicitation
+        if self._connection:
+            elicitation_state = get_acp_elicitation_state()
+            await elicitation_state.register_connection(session_id, self._connection)
+
+            # Set ACP session ID on all MCP client sessions for elicitation routing
+            for agent_name, agent in instance.agents.items():
+                if hasattr(agent, "_aggregator"):
+                    aggregator = agent._aggregator
+                    # Set ACP session ID on each server's client session
+                    if hasattr(aggregator, "_server_sessions"):
+                        for server_name, client_session in aggregator._server_sessions.items():
+                            if hasattr(client_session, "set_acp_session_id"):
+                                client_session.set_acp_session_id(session_id)
+                                logger.debug(
+                                    "Set ACP session ID on MCP client session",
+                                    name="acp_elicitation_session_set",
+                                    session_id=session_id,
+                                    agent_name=agent_name,
+                                    server_name=server_name,
+                                )
+
+            logger.info(
+                "Registered ACP connection for elicitation",
+                name="acp_elicitation_registered",
+                session_id=session_id,
+            )
+
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
@@ -818,6 +848,12 @@ class AgentACPServer(ACPAgent):
             name="acp_prompt",
             session_id=session_id,
         )
+
+        # Check if this is an elicitation response (before checking for overlapping prompts)
+        # Elicitation responses bypass the normal prompt flow
+        elicitation_state = get_acp_elicitation_state()
+        if await elicitation_state.has_pending_elicitation(session_id):
+            return await self._handle_elicitation_response(session_id, params)
 
         # Check for overlapping prompt requests (per ACP protocol requirement)
         async with self._session_lock:
@@ -1113,6 +1149,145 @@ class AgentACPServer(ACPAgent):
                 session_id=session_id,
             )
 
+    async def _handle_elicitation_response(
+        self, session_id: str, params: PromptRequest
+    ) -> PromptResponse:
+        """
+        Handle a prompt that is a response to a pending elicitation.
+
+        This method is called when there's a pending elicitation for the session,
+        indicating the user's prompt is an answer to the elicitation questions.
+
+        Args:
+            session_id: The ACP session ID
+            params: The prompt request containing the user's response
+
+        Returns:
+            PromptResponse after processing the elicitation response
+        """
+        logger.info(
+            "Handling elicitation response",
+            name="acp_elicitation_response_handling",
+            session_id=session_id,
+        )
+
+        elicitation_state = get_acp_elicitation_state()
+        pending = await elicitation_state.get_pending_elicitation(session_id)
+
+        if not pending:
+            # No pending elicitation (race condition), treat as normal prompt
+            logger.warning(
+                "No pending elicitation found during response handling",
+                name="acp_elicitation_no_pending",
+                session_id=session_id,
+            )
+            # Return and let the prompt be handled normally
+            # This shouldn't happen but let's be safe
+            return PromptResponse(stopReason=REFUSAL)
+
+        # Extract text from the prompt
+        mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(params.prompt)
+        prompt_message = PromptMessageExtended(
+            role="user",
+            content=mcp_content_blocks,
+        )
+        response_text = prompt_message.all_text() or ""
+
+        # Check for cancellation commands
+        if response_text.strip().lower() in ("/cancel", "cancel", "/decline", "decline"):
+            await elicitation_state.resolve_elicitation(
+                session_id, {"__action__": "cancel"}
+            )
+
+            # Send confirmation message
+            if self._connection:
+                try:
+                    message_chunk = update_agent_message_text(
+                        "_Elicitation cancelled._"
+                    )
+                    notification = session_notification(session_id, message_chunk)
+                    await self._connection.sessionUpdate(notification)
+                except Exception as e:
+                    logger.error(
+                        f"Error sending elicitation cancel confirmation: {e}",
+                        name="acp_elicitation_cancel_error",
+                    )
+
+            logger.info(
+                "Elicitation cancelled by user",
+                name="acp_elicitation_user_cancel",
+                session_id=session_id,
+            )
+
+            return PromptResponse(stopReason=END_TURN)
+
+        # Parse the response
+        parsed = parse_elicitation_response(
+            response_text,
+            pending.field_names,
+            pending.params.requestedSchema,
+        )
+
+        if parsed is None:
+            # Parsing failed, ask user to try again
+            if self._connection:
+                try:
+                    error_msg = (
+                        "_Could not parse your response. Please try again using the format:_\n\n"
+                    )
+                    if len(pending.field_names) > 1:
+                        error_msg += "```\n"
+                        for fn in pending.field_names:
+                            error_msg += f"{fn}: <your answer>\n"
+                        error_msg += "```\n"
+                    else:
+                        error_msg += "_Simply type your answer._\n"
+                    error_msg += "\n_Or type `/cancel` to cancel._"
+
+                    message_chunk = update_agent_message_text(error_msg)
+                    notification = session_notification(session_id, message_chunk)
+                    await self._connection.sessionUpdate(notification)
+                except Exception as e:
+                    logger.error(
+                        f"Error sending elicitation retry prompt: {e}",
+                        name="acp_elicitation_retry_error",
+                    )
+
+            logger.warning(
+                "Failed to parse elicitation response",
+                name="acp_elicitation_parse_failed",
+                session_id=session_id,
+                response_text=response_text[:100],
+            )
+
+            # Don't resolve yet - wait for another attempt
+            return PromptResponse(stopReason=END_TURN)
+
+        # Successfully parsed - resolve the elicitation
+        await elicitation_state.resolve_elicitation(session_id, parsed)
+
+        # Send confirmation message
+        if self._connection:
+            try:
+                message_chunk = update_agent_message_text(
+                    "_Response received. Processing..._"
+                )
+                notification = session_notification(session_id, message_chunk)
+                await self._connection.sessionUpdate(notification)
+            except Exception as e:
+                logger.error(
+                    f"Error sending elicitation confirmation: {e}",
+                    name="acp_elicitation_confirm_error",
+                )
+
+        logger.info(
+            "Elicitation response parsed successfully",
+            name="acp_elicitation_parsed",
+            session_id=session_id,
+        )
+
+        return PromptResponse(stopReason=END_TURN)
+
     async def cancel(self, params: CancelNotification) -> None:
         """
         Handle session/cancel notification from the client.
@@ -1277,6 +1452,18 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_permission_handlers.clear()
+
+            # Clean up elicitation state for all sessions
+            elicitation_state = get_acp_elicitation_state()
+            for session_id in list(self.sessions.keys()):
+                try:
+                    await elicitation_state.unregister_connection(session_id)
+                    logger.debug(f"Elicitation state for session {session_id} cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error cleaning up elicitation state for session {session_id}: {e}",
+                        name="acp_elicitation_cleanup_error",
+                    )
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()

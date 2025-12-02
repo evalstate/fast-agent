@@ -95,6 +95,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self._transport_metrics: TransportChannelMetrics | None = kwargs.pop(
             "transport_metrics", None
         )
+        # ACP session ID for elicitation coordination (set by AgentACPServer)
+        self._acp_session_id: str | None = None
 
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
@@ -409,3 +411,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         request = GetPromptRequest(method="prompts/get", params=params)
         return await self.send_request(request, GetPromptResult)
+
+    def set_acp_session_id(self, session_id: str) -> None:
+        """
+        Set the ACP session ID for elicitation coordination.
+
+        This is called by AgentACPServer when a session is created to enable
+        the elicitation handler to route responses through ACP.
+
+        Args:
+            session_id: The ACP session ID
+        """
+        self._acp_session_id = session_id
