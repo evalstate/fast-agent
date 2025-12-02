@@ -160,6 +160,40 @@ class GoogleConverter:
                                 data=pdf_bytes,
                             )
                         )
+                    elif part_content.resource.mimeType and part_content.resource.mimeType.startswith(
+                        "video/"
+                    ):
+                        # Handle video content
+                        if isinstance(part_content.resource, BlobResourceContents):
+                            video_bytes = base64.b64decode(part_content.resource.blob)
+                            parts.append(
+                                types.Part.from_bytes(
+                                    mime_type=part_content.resource.mimeType,
+                                    data=video_bytes,
+                                )
+                            )
+                        else:
+                            # Handle non-blob video resources (YouTube URLs, File API URIs, etc.)
+                            # Google supports YouTube URLs and File API URIs directly via file_data
+                            uri_str = getattr(part_content.resource, "uri", None)
+                            mime_str = getattr(part_content.resource, "mimeType", "video/mp4")
+                            
+                            if uri_str:
+                                # Use file_data for YouTube URLs and File API URIs
+                                # Google accepts: YouTube URLs, gs:// URIs, and uploaded file URIs
+                                parts.append(
+                                    types.Part.from_uri(
+                                        file_uri=str(uri_str),
+                                        mime_type=mime_str
+                                    )
+                                )
+                            else:
+                                # Fallback if no URI is available
+                                parts.append(
+                                    types.Part.from_text(
+                                        text=f"[Video Resource: No URI provided, MIME: {mime_str}]"
+                                    )
+                                )
                     else:
                         # Check if the resource itself has text content
                         # Use get_text helper to extract text from various content types
