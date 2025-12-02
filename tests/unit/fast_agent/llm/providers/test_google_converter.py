@@ -1,6 +1,13 @@
 import base64
+
 from google.genai import types
-from mcp.types import CallToolResult, TextContent, EmbeddedResource, BlobResourceContents, TextResourceContents
+from mcp.types import (
+    BlobResourceContents,
+    CallToolResult,
+    EmbeddedResource,
+    TextContent,
+    TextResourceContents,
+)
 
 from fast_agent.llm.provider.google.google_converter import GoogleConverter
 from fast_agent.types import PromptMessageExtended
@@ -138,7 +145,6 @@ def test_convert_youtube_url_video():
     converter = GoogleConverter()
     
     # Create a YouTube URL video resource (TextResourceContents, not BlobResourceContents)
-    from mcp.types import TextResourceContents
     from pydantic import AnyUrl
     
     youtube_resource = EmbeddedResource(
