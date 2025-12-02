@@ -8,9 +8,16 @@ from mcp.types import (
     TextContent,
     TextResourceContents,
 )
+from pydantic import AnyUrl
 
 from fast_agent.llm.provider.google.google_converter import GoogleConverter
-from fast_agent.types import PromptMessageExtended
+from fast_agent.types import (
+    PromptMessageExtended,
+    audio_link,
+    image_link,
+    resource_link,
+    video_link,
+)
 
 
 def test_convert_function_results_to_google_text_only():
@@ -143,10 +150,8 @@ def test_convert_mixed_content_video_text():
 
 def test_convert_youtube_url_video():
     converter = GoogleConverter()
-    
+
     # Create a YouTube URL video resource (TextResourceContents, not BlobResourceContents)
-    from pydantic import AnyUrl
-    
     youtube_resource = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
@@ -174,3 +179,143 @@ def test_convert_youtube_url_video():
     assert part.file_data is not None
     assert part.file_data.file_uri == "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     assert part.file_data.mime_type == "video/mp4"
+
+
+def test_convert_resource_link_video():
+    """Test that video ResourceLink uses Part.from_uri()"""
+    converter = GoogleConverter()
+
+    link = video_link("https://example.com/video.mp4", name="video_resource")
+
+    message = PromptMessageExtended(role="user", content=[link])
+
+    contents = converter.convert_to_google_content([message])
+
+    assert len(contents) == 1
+    content = contents[0]
+    assert len(content.parts) == 1
+    part = content.parts[0]
+
+    # Should use file_data for video ResourceLink
+    assert part.file_data is not None
+    assert part.file_data.file_uri == "https://example.com/video.mp4"
+    assert part.file_data.mime_type == "video/mp4"
+
+
+def test_convert_resource_link_image():
+    """Test that image ResourceLink uses Part.from_uri()"""
+    converter = GoogleConverter()
+
+    link = image_link("https://example.com/photo.png", name="image_resource")
+
+    message = PromptMessageExtended(role="user", content=[link])
+
+    contents = converter.convert_to_google_content([message])
+
+    assert len(contents) == 1
+    content = contents[0]
+    assert len(content.parts) == 1
+    part = content.parts[0]
+
+    # Should use file_data for image ResourceLink
+    assert part.file_data is not None
+    assert part.file_data.file_uri == "https://example.com/photo.png"
+    assert part.file_data.mime_type == "image/png"
+
+
+def test_convert_resource_link_audio():
+    """Test that audio ResourceLink uses Part.from_uri()"""
+    converter = GoogleConverter()
+
+    link = audio_link("https://example.com/audio.mp3", name="audio_resource")
+
+    message = PromptMessageExtended(role="user", content=[link])
+
+    contents = converter.convert_to_google_content([message])
+
+    assert len(contents) == 1
+    content = contents[0]
+    assert len(content.parts) == 1
+    part = content.parts[0]
+
+    # Should use file_data for audio ResourceLink
+    assert part.file_data is not None
+    assert part.file_data.file_uri == "https://example.com/audio.mp3"
+    assert part.file_data.mime_type == "audio/mpeg"
+
+
+def test_convert_resource_link_text_fallback():
+    """Test that non-media ResourceLink falls back to text representation"""
+    converter = GoogleConverter()
+
+    link = resource_link(
+        "https://example.com/document.json",
+        name="document_resource",
+        description="A JSON config file",
+    )
+
+    message = PromptMessageExtended(role="user", content=[link])
+
+    contents = converter.convert_to_google_content([message])
+
+    assert len(contents) == 1
+    content = contents[0]
+    assert len(content.parts) == 1
+    part = content.parts[0]
+
+    # Should use text for non-media ResourceLink
+    assert part.text is not None
+    assert "document_resource" in part.text
+    assert "https://example.com/document.json" in part.text
+    assert "application/json" in part.text
+
+
+def test_convert_resource_link_in_tool_result():
+    """Test ResourceLink in tool results"""
+    converter = GoogleConverter()
+
+    # Create a tool result with a video ResourceLink
+    link = video_link("https://storage.example.com/output.mp4", name="generated_video")
+
+    result = CallToolResult(content=[link], isError=False)
+
+    contents = converter.convert_function_results_to_google([("video_generator", result)])
+
+    assert len(contents) == 1
+    content = contents[0]
+    assert content.role == "tool"
+
+    # Should have function response part and media part
+    assert len(content.parts) >= 1
+
+    # Check for the media part (video)
+    media_parts = [p for p in content.parts if p.file_data is not None]
+    assert len(media_parts) == 1
+    assert media_parts[0].file_data.file_uri == "https://storage.example.com/output.mp4"
+    assert media_parts[0].file_data.mime_type == "video/mp4"
+
+
+def test_convert_resource_link_text_in_tool_result():
+    """Test non-media ResourceLink in tool results falls back to text"""
+    converter = GoogleConverter()
+
+    # Create a tool result with a text ResourceLink (YAML is not a media type)
+    link = resource_link(
+        "https://example.com/config.yaml",
+        name="config_file",
+        mime_type="application/yaml",
+    )
+
+    result = CallToolResult(content=[link], isError=False)
+
+    contents = converter.convert_function_results_to_google([("config_reader", result)])
+
+    assert len(contents) == 1
+    content = contents[0]
+    assert content.role == "tool"
+
+    # Should have function response part with text content
+    fn_resp = content.parts[0].function_response
+    assert fn_resp is not None
+    assert "text_content" in fn_resp.response
+    assert "config_file" in fn_resp.response["text_content"]

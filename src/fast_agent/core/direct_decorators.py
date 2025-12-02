@@ -24,6 +24,7 @@ from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_P
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.types import RequestParams
 
@@ -259,7 +260,7 @@ def agent(
     name: str = "default",
     instruction_or_kwarg: str | Path | AnyUrl | None = None,
     *,
-    instruction: str | Path | AnyUrl = "You are a helpful agent.",
+    instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
     servers: list[str] = [],
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
