@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Type, Union
+from typing import Any, Type, Union
 
 from pydantic import BaseModel
 
@@ -375,3 +375,101 @@ class ModelFactory:
                 f"Provider '{provider.value}' is unavailable or missing dependencies: {e}"
             )
         raise ModelConfigError(f"Unsupported provider: {provider}")
+
+    @classmethod
+    def get_aliases_by_provider(cls) -> dict[Provider, list[tuple[str, str]]]:
+        """
+        Get model aliases grouped by their resolved provider.
+
+        Returns:
+            Dictionary mapping Provider to list of (alias, resolved_model) tuples
+        """
+        aliases_by_provider: dict[Provider, list[tuple[str, str]]] = {}
+
+        for alias, resolved in cls.MODEL_ALIASES.items():
+            try:
+                config = cls.parse_model_string(resolved)
+                provider = config.provider
+                if provider not in aliases_by_provider:
+                    aliases_by_provider[provider] = []
+                aliases_by_provider[provider].append((alias, resolved))
+            except Exception:
+                # Skip aliases that can't be resolved
+                pass
+
+        return aliases_by_provider
+
+    @classmethod
+    def get_alias_display_info(cls, config: "Any | None" = None) -> list[dict]:
+        """
+        Get formatted alias information for display, optionally with provider availability.
+
+        Args:
+            config: Optional application config for checking API key availability
+
+        Returns:
+            List of dicts with provider info, aliases, and availability status
+        """
+        from fast_agent.llm.provider_key_manager import ProviderKeyManager
+
+        aliases_by_provider = cls.get_aliases_by_provider()
+
+        # Define display order for providers (most common first)
+        provider_order = [
+            Provider.ANTHROPIC,
+            Provider.OPENAI,
+            Provider.GOOGLE,
+            Provider.DEEPSEEK,
+            Provider.XAI,
+            Provider.HUGGINGFACE,
+            Provider.GROQ,
+            Provider.OPENROUTER,
+            Provider.AZURE,
+            Provider.BEDROCK,
+            Provider.ALIYUN,
+            Provider.GENERIC,
+        ]
+
+        result = []
+        seen_providers = set()
+
+        # Add providers in preferred order
+        for provider in provider_order:
+            if provider in aliases_by_provider:
+                seen_providers.add(provider)
+                aliases = aliases_by_provider[provider]
+                alias_names = [a[0] for a in aliases]
+
+                # Check availability if config provided
+                available = None
+                if config is not None:
+                    available = ProviderKeyManager.check_provider_availability(
+                        provider.value, config
+                    )
+
+                result.append({
+                    "provider": provider,
+                    "display_name": provider.display_name,
+                    "aliases": alias_names,
+                    "available": available,
+                })
+
+        # Add any remaining providers
+        for provider, aliases in aliases_by_provider.items():
+            if provider not in seen_providers:
+                alias_names = [a[0] for a in aliases]
+
+                available = None
+                if config is not None:
+                    available = ProviderKeyManager.check_provider_availability(
+                        provider.value, config
+                    )
+
+                result.append({
+                    "provider": provider,
+                    "display_name": provider.display_name,
+                    "aliases": alias_names,
+                    "available": available,
+                })
+
+        return result

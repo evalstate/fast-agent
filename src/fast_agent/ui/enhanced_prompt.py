@@ -24,6 +24,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FAST_AGENT_REMOVED_METADATA_CHANNEL
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.mcp_display import render_mcp_status
@@ -675,6 +676,44 @@ def create_keybindings(
     return kb
 
 
+def _display_model_aliases(config: Any | None = None) -> None:
+    """Display available model aliases grouped by provider with availability status."""
+    alias_info = ModelFactory.get_alias_display_info(config)
+
+    if not alias_info:
+        return
+
+    lines = []
+    for info in alias_info:
+        display_name = info["display_name"]
+        aliases = info["aliases"]
+        available = info["available"]
+
+        # Limit displayed aliases to keep it readable
+        if len(aliases) > 5:
+            alias_str = ", ".join(aliases[:5]) + f" (+{len(aliases) - 5} more)"
+        else:
+            alias_str = ", ".join(aliases)
+
+        # Format with availability indicator
+        if available is True:
+            # Green checkmark for available providers
+            line = f"  [green]✓[/green] {display_name}: [cyan]{alias_str}[/cyan]"
+        elif available is False:
+            # Dim for unavailable providers
+            line = f"  [dim]✗ {display_name}: {alias_str}[/dim]"
+        else:
+            # No indicator if availability unknown
+            line = f"    {display_name}: [cyan]{alias_str}[/cyan]"
+
+        lines.append(line)
+
+    if lines:
+        rich_print("[dim]Model Aliases (use with --model or default_model):[/dim]")
+        for line in lines:
+            rich_print(line)
+
+
 async def get_enhanced_input(
     agent_name: str,
     default: str = "",
@@ -1043,6 +1082,12 @@ async def get_enhanced_input(
                                     rich_print(
                                         f"[dim]HuggingFace: {model} via {provider}[/dim]"
                                     )
+                        except Exception:
+                            pass
+
+                        # Show available model aliases with provider availability
+                        try:
+                            _display_model_aliases(agent_context.config)
                         except Exception:
                             pass
 
