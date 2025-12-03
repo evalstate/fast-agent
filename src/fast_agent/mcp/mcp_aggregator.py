@@ -340,6 +340,7 @@ class MCPAggregator(ContextDependent):
                 api_key=api_key,
                 elicitation_handler=elicitation_handler,
                 tool_list_changed_callback=self._handle_tool_list_changed,
+                aggregator_ref=self,  # Pass aggregator reference for ACP elicitation support
                 **kwargs,  # Pass through any additional kwargs like server_config
             )
 

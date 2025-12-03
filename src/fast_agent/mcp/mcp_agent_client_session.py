@@ -95,6 +95,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         self._transport_metrics: TransportChannelMetrics | None = kwargs.pop(
             "transport_metrics", None
         )
+        # Extract aggregator reference for ACP elicitation support
+        self._aggregator_ref = kwargs.pop("aggregator_ref", None)
 
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"

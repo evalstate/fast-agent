@@ -38,6 +38,11 @@ from acp.schema import (
 )
 from acp.stdio import stdio_streams
 
+from fast_agent.acp.acp_elicitation_handler import (
+    get_active_elicitation,
+    has_active_elicitation,
+    set_active_elicitation,
+)
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
@@ -265,6 +270,61 @@ class AgentACPServer(ACPAgent):
         estimated_tokens = max(int(max_tokens * TERMINAL_OUTPUT_TOKEN_RATIO), 1)
         estimated_bytes = int(estimated_tokens * TERMINAL_AVG_BYTES_PER_TOKEN)
         return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, estimated_bytes)
+
+    async def _setup_acp_elicitation_handler(
+        self, session_id: str, instance: AgentInstance
+    ) -> None:
+        """
+        Set up ACP-based elicitation handler for a session.
+
+        This configures agents to use interactive Q&A over ACP for elicitations
+        instead of terminal-based forms.
+
+        Args:
+            session_id: The ACP session ID
+            instance: The agent instance for this session
+        """
+        if not self._connection:
+            return
+
+        from fast_agent.acp.acp_elicitation_handler import create_acp_elicitation_handler
+
+        # Create a message sender callback for this session
+        connection = self._connection
+
+        async def send_message(text: str) -> None:
+            """Send a message to the ACP client via sessionUpdate."""
+            try:
+                message_chunk = update_agent_message_text(text)
+                notification = session_notification(session_id, message_chunk)
+                await connection.sessionUpdate(notification)
+            except Exception as e:
+                logger.error(
+                    f"Error sending elicitation message: {e}",
+                    name="acp_elicitation_send_error",
+                    session_id=session_id,
+                    exc_info=True,
+                )
+
+        # Create the ACP elicitation handler for this session
+        acp_elicitation_handler = await create_acp_elicitation_handler(
+            session_id=session_id,
+            send_message=send_message,
+        )
+
+        # Register the handler with each agent's aggregator
+        for agent_name, agent in instance.agents.items():
+            if hasattr(agent, "_aggregator"):
+                aggregator = agent._aggregator
+                # Store the handler so it can be used when MCP servers request elicitation
+                aggregator._acp_elicitation_handler = acp_elicitation_handler
+
+                logger.info(
+                    "ACP elicitation handler registered",
+                    name="acp_elicitation_handler_registered",
+                    session_id=session_id,
+                    agent_name=agent_name,
+                )
 
     async def initialize(self, params: InitializeRequest) -> InitializeResponse:
         """
@@ -656,6 +716,11 @@ class AgentACPServer(ACPAgent):
                                 write_enabled=self._client_supports_fs_write,
                             )
 
+                # Set up ACP elicitation handler for this session
+                # This allows MCP servers to request elicitations that are handled
+                # via interactive Q&A over ACP instead of terminal forms
+                await self._setup_acp_elicitation_handler(session_id, instance)
+
         # Track per-session template variables (used for late instruction binding)
         session_context: dict[str, str] = {}
         enrich_with_environment_context(
@@ -914,6 +979,24 @@ class AgentACPServer(ACPAgent):
 
                 # Return success
                 return PromptResponse(stopReason=END_TURN)
+
+            # Check if there's an active elicitation session for this session
+            # If so, route the response to the elicitation handler instead of the agent
+            if has_active_elicitation(session_id) and is_single_text_block:
+                orchestrator = get_active_elicitation(session_id)
+                if orchestrator:
+                    logger.info(
+                        "Routing prompt to active elicitation",
+                        name="acp_elicitation_response",
+                        session_id=session_id,
+                    )
+
+                    # Submit the response to the elicitation context
+                    orchestrator.context.submit_response(prompt_text)
+
+                    # The elicitation handler will send messages via sessionUpdate
+                    # We just need to return success here
+                    return PromptResponse(stopReason=END_TURN)
 
             logger.info(
                 "Sending prompt to fast-agent",
@@ -1280,6 +1363,12 @@ class AgentACPServer(ACPAgent):
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up any active elicitations
+            for session_id in list(self.sessions.keys()):
+                if has_active_elicitation(session_id):
+                    set_active_elicitation(session_id, None)
+                    logger.debug(f"Active elicitation for session {session_id} cleaned up")
 
             # Clean up session current agent mapping
             self._session_current_agent.clear()
