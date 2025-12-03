@@ -12,6 +12,7 @@ from mcp.types import (
     ContentBlock,
     EmbeddedResource,
     ImageContent,
+    ResourceLink,
     TextContent,
     TextResourceContents,
 )
@@ -22,6 +23,7 @@ from fast_agent.mcp.helpers.content_helpers import (
     get_text,
     is_image_content,
     is_resource_content,
+    is_resource_link,
     is_text_content,
 )
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -160,6 +162,40 @@ class GoogleConverter:
                                 data=pdf_bytes,
                             )
                         )
+                    elif part_content.resource.mimeType and part_content.resource.mimeType.startswith(
+                        "video/"
+                    ):
+                        # Handle video content
+                        if isinstance(part_content.resource, BlobResourceContents):
+                            video_bytes = base64.b64decode(part_content.resource.blob)
+                            parts.append(
+                                types.Part.from_bytes(
+                                    mime_type=part_content.resource.mimeType,
+                                    data=video_bytes,
+                                )
+                            )
+                        else:
+                            # Handle non-blob video resources (YouTube URLs, File API URIs, etc.)
+                            # Google supports YouTube URLs and File API URIs directly via file_data
+                            uri_str = getattr(part_content.resource, "uri", None)
+                            mime_str = getattr(part_content.resource, "mimeType", "video/mp4")
+                            
+                            if uri_str:
+                                # Use file_data for YouTube URLs and File API URIs
+                                # Google accepts: YouTube URLs, gs:// URIs, and uploaded file URIs
+                                parts.append(
+                                    types.Part.from_uri(
+                                        file_uri=str(uri_str),
+                                        mime_type=mime_str
+                                    )
+                                )
+                            else:
+                                # Fallback if no URI is available
+                                parts.append(
+                                    types.Part.from_text(
+                                        text=f"[Video Resource: No URI provided, MIME: {mime_str}]"
+                                    )
+                                )
                     else:
                         # Check if the resource itself has text content
                         # Use get_text helper to extract text from various content types
@@ -176,6 +212,24 @@ class GoogleConverter:
                                     text=f"[Resource: {uri_str}, MIME: {mime_str}]"
                                 )
                             )
+                elif is_resource_link(part_content):
+                    # Handle ResourceLink - metadata reference to a resource
+                    assert isinstance(part_content, ResourceLink)
+                    mime = part_content.mimeType
+                    uri_str = str(part_content.uri) if part_content.uri else None
+
+                    # For media types (video/audio/image), use Part.from_uri() to let Google fetch
+                    if uri_str and mime and (
+                        mime.startswith("video/")
+                        or mime.startswith("audio/")
+                        or mime.startswith("image/")
+                    ):
+                        parts.append(types.Part.from_uri(file_uri=uri_str, mime_type=mime))
+                    else:
+                        # Fallback to text representation for non-media types
+                        text = get_text(part_content)
+                        if text:
+                            parts.append(types.Part.from_text(text=text))
 
             if parts:
                 google_role = (
@@ -294,6 +348,24 @@ class GoogleConverter:
                             textual_outputs.append(
                                 f"[Unhandled Resource in Tool: {uri_str}, MIME: {mime_str}]"
                             )
+                elif is_resource_link(item):
+                    # Handle ResourceLink in tool results
+                    assert isinstance(item, ResourceLink)
+                    mime = item.mimeType
+                    uri_str = str(item.uri) if item.uri else None
+
+                    # For media types, use Part.from_uri() to let Google fetch
+                    if uri_str and mime and (
+                        mime.startswith("video/")
+                        or mime.startswith("audio/")
+                        or mime.startswith("image/")
+                    ):
+                        media_parts.append(types.Part.from_uri(file_uri=uri_str, mime_type=mime))
+                    else:
+                        # Fallback to text representation for non-media types
+                        text = get_text(item)
+                        if text:
+                            textual_outputs.append(text)
                 # Add handling for other content types if needed, for now they are skipped or become unhandled resource text
 
             function_response_payload: dict[str, Any] = {"tool_name": tool_name}

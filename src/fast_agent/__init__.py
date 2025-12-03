@@ -38,10 +38,16 @@ from fast_agent.types import (
     LlmStopReason,
     PromptMessageExtended,
     RequestParams,
+    ResourceLink,
+    audio_link,
     extract_first,
     extract_last,
     find_matches,
+    image_link,
+    resource_link,
     search_messages,
+    text_content,
+    video_link,
 )
 
 
@@ -146,7 +152,14 @@ __all__ = [
     "LlmStopReason",
     "RequestParams",
     "PromptMessageExtended",
+    "ResourceLink",
     "ConversationSummary",
+    # Content helpers (eagerly loaded)
+    "text_content",
+    "resource_link",
+    "image_link",
+    "video_link",
+    "audio_link",
     # Search utilities (eagerly loaded)
     "search_messages",
     "find_matches",

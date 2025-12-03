@@ -476,6 +476,8 @@ LLM APIs have restrictions on the content types that can be returned as Tool Cal
 
 - OpenAI supports Text
 - Anthropic supports Text and Image
+- Google supports Text, Image, PDF, and Video (e.g., `video/mp4`).
+  > **Note**: Inline video data is limited to 20MB. For larger files, use the File API. YouTube URLs are supported directly.
 
 For MCP Tool Results, `ImageResources` and `EmbeddedResources` are converted to User Messages and added to the conversation.
 

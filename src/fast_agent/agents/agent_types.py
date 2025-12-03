@@ -8,6 +8,7 @@ from pathlib import Path
 
 from mcp.client.session import ElicitationFnT
 
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.skills import SkillManifest, SkillRegistry
 
 # Forward imports to avoid circular dependencies
@@ -33,7 +34,7 @@ class AgentConfig:
     """Configuration for an Agent instance"""
 
     name: str
-    instruction: str = "You are a helpful agent."
+    instruction: str = DEFAULT_AGENT_INSTRUCTION
     servers: list[str] = field(default_factory=list)
     tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
     resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
