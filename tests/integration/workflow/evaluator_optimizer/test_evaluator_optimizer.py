@@ -108,7 +108,6 @@ async def test_max_refinements_limit(fast_agent):
             # Initial generation
             initial_response = f"{FIXED_RESPONSE_INDICATOR} Initial draft."
             await agent.generator_max._llm.generate([Prompt.user(initial_response)])
-            print("Testing....")
             # First evaluation - needs improvement
             first_eval = {
                 "rating": "POOR",
