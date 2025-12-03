@@ -463,6 +463,7 @@ class FastAgent:
             instruction: str | Path | AnyUrl | None = None,
             min_rating: str = "GOOD",
             max_refinements: int = 3,
+			refinement_instruction: str | None = None,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 

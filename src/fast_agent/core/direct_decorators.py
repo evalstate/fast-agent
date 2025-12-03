@@ -649,6 +649,7 @@ def evaluator_optimizer(
     instruction: str | Path | AnyUrl | None = None,
     min_rating: str = "GOOD",
     max_refinements: int = 3,
+    refinement_instruction: str | None = None,
     default: bool = False,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -683,5 +684,6 @@ def evaluator_optimizer(
         evaluator=evaluator,
         min_rating=min_rating,
         max_refinements=max_refinements,
+        refinement_instruction=refinement_instruction,
         default=default,
     )
