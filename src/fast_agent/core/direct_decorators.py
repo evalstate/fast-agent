@@ -24,6 +24,7 @@ from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_P
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
+from fast_agent.llm.compaction.types import ContextCompactionMode
 from fast_agent.skills import SkillManifest, SkillRegistry
 from fast_agent.types import RequestParams
 
@@ -223,6 +224,8 @@ def _decorator_impl(
             default=default,
             elicitation_handler=extra_kwargs.get("elicitation_handler"),
             api_key=extra_kwargs.get("api_key"),
+            context_compaction_mode=extra_kwargs.get("context_compaction_mode"),
+            context_compaction_limit=extra_kwargs.get("context_compaction_limit"),
         )
 
         # Update request params if provided
@@ -272,6 +275,8 @@ def agent(
     default: bool = False,
     elicitation_handler: ElicitationFnT | None = None,
     api_key: str | None = None,
+    context_compaction_mode: ContextCompactionMode | None = None,
+    context_compaction_limit: int | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -291,6 +296,8 @@ def agent(
         default: Whether to mark this as the default agent
         elicitation_handler: Custom elicitation handler function (ElicitationFnT)
         api_key: Optional API key for the LLM provider
+        context_compaction_mode: Strategy for compacting history (truncate/summarize)
+        context_compaction_limit: Token limit at which to trigger compaction
 
     Returns:
         A decorator that registers the agent with proper type annotations
@@ -317,6 +324,8 @@ def agent(
         prompts=prompts,
         skills=skills,
         api_key=api_key,
+        context_compaction_mode=context_compaction_mode,
+        context_compaction_limit=context_compaction_limit,
     )
 
 

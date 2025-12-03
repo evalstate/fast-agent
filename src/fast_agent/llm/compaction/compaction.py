@@ -204,7 +204,7 @@ Provide a clear, structured summary that preserves the essential context:"""
         - Messages marked as templates (is_template=True)
         - The most recent messages that fit within the limit
         """
-        from fast_agent.types import PromptMessageExtended
+        from fast_agent.types import PromptMessageExtended  # noqa: I001, TC001
 
         # Separate template messages from conversation messages
         template_messages: list[PromptMessageExtended] = []

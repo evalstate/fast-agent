@@ -336,6 +336,7 @@ class FastAgent:
         from collections.abc import Coroutine
         from pathlib import Path
 
+        from fast_agent.llm.compaction.types import ContextCompactionMode
         from fast_agent.skills import SkillManifest, SkillRegistry
         from fast_agent.types import RequestParams
 
@@ -360,6 +361,8 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
+            context_compaction_mode: ContextCompactionMode | None = None,
+            context_compaction_limit: int | None = None,
         ) -> Callable[
             [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
         ]: ...
