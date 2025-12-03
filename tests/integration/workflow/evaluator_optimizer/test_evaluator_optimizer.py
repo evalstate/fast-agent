@@ -37,7 +37,7 @@ async def test_single_refinement_cycle(fast_agent):
     @fast.agent(name="generator", model="passthrough")
     @fast.agent(name="evaluator", model="passthrough")
     @fast.evaluator_optimizer(
-        name="optimizer", generator="generator", evaluator="evaluator", max_refinements=1, refinement_instruction="CACAC CA CACACA"
+        name="optimizer", generator="generator", evaluator="evaluator", max_refinements=1
     )
     async def agent_function():
         async with fast.run() as agent:
