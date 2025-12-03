@@ -427,6 +427,7 @@ async def create_agents_by_type(
                     evaluator_agent=evaluator_agent,
                     min_rating=min_rating,
                     max_refinements=max_refinements,
+                    refinement_instruction=agent_data.get("refinement_instruction"),
                 )
 
                 # Initialize the agent
