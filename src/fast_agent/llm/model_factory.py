@@ -97,6 +97,7 @@ class ModelFactory:
         "gemini-2.5-flash-preview-09-2025": Provider.GOOGLE,
         "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
         "gemini-2.5-pro": Provider.GOOGLE,
+        "gemini-3-pro-preview": Provider.GOOGLE,
         "grok-4": Provider.XAI,
         "grok-4-0709": Provider.XAI,
         "grok-3": Provider.XAI,
@@ -130,6 +131,7 @@ class ModelFactory:
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-09-2025",
         "gemini25pro": "gemini-2.5-pro",
+        "gemini3": "gemini-3-pro-preview",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
         "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
@@ -141,6 +143,7 @@ class ModelFactory:
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
+        "deepseek32": "deepseek-ai/DeepSeek-V3.2-Exp:novita",
     }
 
     @staticmethod

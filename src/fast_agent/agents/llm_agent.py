@@ -18,7 +18,12 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import (
+    get_text,
+    is_image_content,
+    is_resource_content,
+    is_resource_link,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -228,7 +233,34 @@ class LlmAgent(LlmDecorator):
         """Display a user message in a formatted panel."""
         model = self.llm.model_name if self.llm else None
         chat_turn = self.llm.chat_turn() if self.llm else 0
-        self.display.show_user_message(message.last_text() or "", model, chat_turn, name=self.name)
+
+        # Extract attachment descriptions from non-text content
+        attachments: list[str] = []
+        for content in message.content:
+            if is_resource_link(content):
+                # ResourceLink: show name or mime type
+                from mcp.types import ResourceLink
+
+                assert isinstance(content, ResourceLink)
+                label = content.name or content.mimeType or "resource"
+                attachments.append(label)
+            elif is_image_content(content):
+                attachments.append("image")
+            elif is_resource_content(content):
+                # EmbeddedResource: show name or uri
+                from mcp.types import EmbeddedResource
+
+                assert isinstance(content, EmbeddedResource)
+                label = getattr(content.resource, "name", None) or str(content.resource.uri)
+                attachments.append(label)
+
+        self.display.show_user_message(
+            message.last_text() or "",
+            model,
+            chat_turn,
+            name=self.name,
+            attachments=attachments if attachments else None,
+        )
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""

@@ -37,13 +37,16 @@ def get_text(content: ContentBlock) -> str | None:
         name = content.name or "unknown"
         uri_str = str(content.uri)
         mime_type = content.mimeType or "unknown"
-        description = content.description or "No description"
+        description = content.description or ""
 
-        return (
-            f"Linked Resource ${name} MIME type {mime_type}>\n"
-            f"Resource Link: {uri_str}\n"
-            f"${description}\n"
-        )
+        lines = [
+            f"[ResourceLink: {name} ({mime_type})]",
+            f"URI: {uri_str}",
+        ]
+        if description:
+            lines.append(description)
+
+        return "\n".join(lines)
 
     return None
 
@@ -124,6 +127,165 @@ def split_thinking_content(message: str) -> tuple[str | None, str]:
 def text_content(text: str) -> TextContent:
     """Convenience to create a TextContent block from a string."""
     return TextContent(type="text", text=text)
+
+
+def _infer_mime_type(url: str, default: str = "application/octet-stream") -> str:
+    """Infer MIME type from URL using the mimetypes database."""
+    from urllib.parse import urlparse
+
+    from fast_agent.mcp.mime_utils import guess_mime_type
+
+    # Special case: YouTube URLs (Google has native support)
+    parsed = urlparse(url.lower())
+    youtube_hosts = ("youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com")
+    if parsed.netloc in youtube_hosts:
+        return "video/mp4"
+
+    mime = guess_mime_type(url)
+    # guess_mime_type returns "application/octet-stream" for unknown types
+    if mime == "application/octet-stream":
+        return default
+    return mime
+
+
+def _extract_name_from_url(url: str) -> str:
+    """Extract a reasonable name from a URL."""
+    from urllib.parse import unquote, urlparse
+
+    path = urlparse(url).path
+    if path:
+        # Get the last path segment
+        name = unquote(path.rstrip("/").split("/")[-1])
+        if name:
+            return name
+    # Fallback to domain
+    return urlparse(url).netloc or "resource"
+
+
+def resource_link(
+    url: str,
+    *,
+    name: str | None = None,
+    mime_type: str | None = None,
+    description: str | None = None,
+) -> ResourceLink:
+    """
+    Create a ResourceLink from a URL with automatic MIME type inference.
+
+    Args:
+        url: The URL to the resource
+        name: Optional name (defaults to filename from URL)
+        mime_type: Optional MIME type (inferred from extension if not provided)
+        description: Optional description
+
+    Returns:
+        A ResourceLink object
+    """
+    from pydantic import AnyUrl
+
+    return ResourceLink(
+        type="resource_link",
+        uri=AnyUrl(url),
+        name=name or _extract_name_from_url(url),
+        mimeType=mime_type or _infer_mime_type(url),
+        description=description,
+    )
+
+
+def image_link(
+    url: str,
+    *,
+    name: str | None = None,
+    mime_type: str | None = None,
+    description: str | None = None,
+) -> ResourceLink:
+    """
+    Create a ResourceLink for an image URL.
+
+    Args:
+        url: The URL to the image
+        name: Optional name (defaults to filename from URL)
+        mime_type: Optional MIME type (inferred from extension, defaults to image/jpeg)
+        description: Optional description
+
+    Returns:
+        A ResourceLink object with image MIME type
+    """
+    inferred = _infer_mime_type(url, default="image/jpeg")
+    # Ensure it's an image type
+    if not inferred.startswith("image/"):
+        inferred = "image/jpeg"
+
+    return resource_link(
+        url,
+        name=name,
+        mime_type=mime_type or inferred,
+        description=description,
+    )
+
+
+def video_link(
+    url: str,
+    *,
+    name: str | None = None,
+    mime_type: str | None = None,
+    description: str | None = None,
+) -> ResourceLink:
+    """
+    Create a ResourceLink for a video URL.
+
+    Args:
+        url: The URL to the video
+        name: Optional name (defaults to filename from URL)
+        mime_type: Optional MIME type (inferred from extension, defaults to video/mp4)
+        description: Optional description
+
+    Returns:
+        A ResourceLink object with video MIME type
+    """
+    inferred = _infer_mime_type(url, default="video/mp4")
+    # Ensure it's a video type
+    if not inferred.startswith("video/"):
+        inferred = "video/mp4"
+
+    return resource_link(
+        url,
+        name=name,
+        mime_type=mime_type or inferred,
+        description=description,
+    )
+
+
+def audio_link(
+    url: str,
+    *,
+    name: str | None = None,
+    mime_type: str | None = None,
+    description: str | None = None,
+) -> ResourceLink:
+    """
+    Create a ResourceLink for an audio URL.
+
+    Args:
+        url: The URL to the audio file
+        name: Optional name (defaults to filename from URL)
+        mime_type: Optional MIME type (inferred from extension, defaults to audio/mpeg)
+        description: Optional description
+
+    Returns:
+        A ResourceLink object with audio MIME type
+    """
+    inferred = _infer_mime_type(url, default="audio/mpeg")
+    # Ensure it's an audio type
+    if not inferred.startswith("audio/"):
+        inferred = "audio/mpeg"
+
+    return resource_link(
+        url,
+        name=name,
+        mime_type=mime_type or inferred,
+        description=description,
+    )
 
 
 def ensure_multipart_messages(

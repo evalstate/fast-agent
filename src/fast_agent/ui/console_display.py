@@ -818,6 +818,7 @@ class ConsoleDisplay:
         model: str | None = None,
         chat_turn: int = 0,
         name: str | None = None,
+        attachments: list[str] | None = None,
     ) -> None:
         """Display a user message in the new visual style."""
         if self.config and not self.config.logger.show_chat:
@@ -832,12 +833,20 @@ class ConsoleDisplay:
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
+        # Build attachment indicator as pre_content
+        pre_content: Text | None = None
+        if attachments:
+            pre_content = Text()
+            pre_content.append("🔗 ", style="dim")
+            pre_content.append(", ".join(attachments), style="dim blue")
+
         self.display_message(
             content=message,
             message_type=MessageType.USER,
             name=name,
             right_info=right_info,
             truncate_content=False,  # User messages typically shouldn't be truncated
+            pre_content=pre_content,
         )
 
     def show_system_message(

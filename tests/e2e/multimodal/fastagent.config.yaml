@@ -37,3 +37,6 @@ mcp:
     mixed_content_server:
       command: "uv"
       args: ["run", "mixed_content_server.py"]
+    video_server:
+      command: "uv"
+      args: ["run", "video_server.py"]
