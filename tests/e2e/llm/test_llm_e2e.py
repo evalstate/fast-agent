@@ -54,6 +54,7 @@ def get_test_models():
             "gpt-oss",
             "minimax",
             "kimigroq",
+            "kimithink",
             "kimi",
             "glm",
             "qwen3:together",

@@ -75,7 +75,7 @@ class SlashCommandHandler:
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input=AvailableCommandInput(root=CommandInputHint(hint="[system]")),
+                input=AvailableCommandInput(root=CommandInputHint(hint="[system|auth|authreset]")),
             ),
             "tools": AvailableCommand(
                 name="tools",
@@ -173,10 +173,14 @@ class SlashCommandHandler:
 
     async def _handle_status(self, arguments: str | None = None) -> str:
         """Handle the /status command."""
-        # Check if the user wants to see the system prompt
+        # Check for subcommands
         normalized = (arguments or "").strip().lower()
         if normalized == "system":
             return self._handle_status_system()
+        if normalized == "auth":
+            return self._handle_status_auth()
+        if normalized == "authreset":
+            return self._handle_status_authreset()
 
         # Get fast-agent version
         try:
@@ -199,8 +203,8 @@ class SlashCommandHandler:
         context_window = "unknown"
         capabilities_line = "Capabilities: unknown"
 
-        if agent and not is_parallel_agent and hasattr(agent, "_llm") and agent._llm:
-            model_info = ModelInfo.from_llm(agent._llm)
+        if agent and not is_parallel_agent and agent.llm:
+            model_info = ModelInfo.from_llm(agent.llm)
             if model_info:
                 model_name = model_info.name
                 model_provider = str(model_info.provider.value)
@@ -285,8 +289,8 @@ class SlashCommandHandler:
                     status_lines.append(f"**{idx}. {agent_name}**")
 
                     # Get model info for this fan-out agent
-                    if hasattr(fan_out_agent, "_llm") and fan_out_agent._llm:
-                        model_info = ModelInfo.from_llm(fan_out_agent._llm)
+                    if fan_out_agent.llm:
+                        model_info = ModelInfo.from_llm(fan_out_agent.llm)
                         if model_info:
                             provider_display = getattr(
                                 model_info.provider, "display_name", str(model_info.provider.value)
@@ -312,8 +316,8 @@ class SlashCommandHandler:
                 status_lines.append(f"### Fan-In Agent: {fan_in_name}")
 
                 # Get model info for fan-in agent
-                if hasattr(fan_in_agent, "_llm") and fan_in_agent._llm:
-                    model_info = ModelInfo.from_llm(fan_in_agent._llm)
+                if fan_in_agent.llm:
+                    model_info = ModelInfo.from_llm(fan_in_agent.llm)
                     if model_info:
                         provider_display = getattr(
                             model_info.provider, "display_name", str(model_info.provider.value)
@@ -337,6 +341,14 @@ class SlashCommandHandler:
             provider_line = f"{model_provider}"
             if model_provider_display != "unknown":
                 provider_line = f"{model_provider_display} ({model_provider})"
+
+            # For HuggingFace, add the routing provider info
+            if agent and agent.llm:
+                get_hf_info = getattr(agent.llm, "get_hf_display_info", None)
+                if callable(get_hf_info):
+                    hf_info = get_hf_info()
+                    hf_provider = hf_info.get("provider", "auto-routing")
+                    provider_line = f"{model_provider_display} ({model_provider}) / {hf_provider}"
 
             status_lines.extend(
                 [
@@ -401,6 +413,84 @@ class SlashCommandHandler:
         ]
 
         return "\n".join(lines)
+
+    def _handle_status_auth(self) -> str:
+        """Handle the /status auth command to show permissions from auths.md."""
+        heading = "# permissions"
+        auths_path = Path("./.fast-agent/auths.md")
+        resolved_path = auths_path.resolve()
+
+        if not auths_path.exists():
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No permissions set",
+                    "",
+                    f"Path: `{resolved_path}`",
+                ]
+            )
+
+        try:
+            content = auths_path.read_text(encoding="utf-8")
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    content.strip() if content.strip() else "No permissions set",
+                    "",
+                    f"Path: `{resolved_path}`",
+                ]
+            )
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Failed to read permissions file: {exc}",
+                    "",
+                    f"Path: `{resolved_path}`",
+                ]
+            )
+
+    def _handle_status_authreset(self) -> str:
+        """Handle the /status authreset command to remove the auths.md file."""
+        heading = "# reset permissions"
+        auths_path = Path("./.fast-agent/auths.md")
+        resolved_path = auths_path.resolve()
+
+        if not auths_path.exists():
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No permissions file exists.",
+                    "",
+                    f"Path: `{resolved_path}`",
+                ]
+            )
+
+        try:
+            auths_path.unlink()
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Permissions file removed successfully.",
+                    "",
+                    f"Path: `{resolved_path}`",
+                ]
+            )
+        except Exception as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Failed to remove permissions file: {exc}",
+                    "",
+                    f"Path: `{resolved_path}`",
+                ]
+            )
 
     async def _handle_tools(self) -> str:
         """List available MCP tools for the current agent."""
@@ -794,7 +884,7 @@ class SlashCommandHandler:
         """Summarize error channel availability and recent entries."""
         channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
         if not agent or not hasattr(agent, "message_history"):
-            return [channel_label, "Recent Entries: unavailable (no agent history)"]
+            return ["_No errors recorded_"]
 
         recent_entries: list[str] = []
         history = getattr(agent, "message_history", []) or []
@@ -812,7 +902,12 @@ class SlashCommandHandler:
                     if cleaned:
                         recent_entries.append(cleaned)
                 else:
-                    recent_entries.append(str(block))
+                    # Truncate long content (e.g., base64 image data)
+                    block_str = str(block)
+                    if len(block_str) > 60:
+                        recent_entries.append(f"{block_str[:60]}... ({len(block_str)} characters)")
+                    else:
+                        recent_entries.append(block_str)
                 if len(recent_entries) >= max_entries:
                     break
             if len(recent_entries) >= max_entries:
@@ -823,7 +918,7 @@ class SlashCommandHandler:
             lines.extend(f"- {entry}" for entry in recent_entries)
             return lines
 
-        return [channel_label, "Recent Entries: none recorded"]
+        return ["_No errors recorded_"]
 
     def _estimate_context_usage(self, summary: ConversationSummary, agent) -> float:
         """
@@ -832,10 +927,10 @@ class SlashCommandHandler:
         This is a rough estimate based on message count.
         A more accurate calculation would require actual token counting.
         """
-        if not hasattr(agent, "_llm") or not agent._llm:
+        if not agent.llm:
             return 0.0
 
-        model_info = ModelInfo.from_llm(agent._llm)
+        model_info = ModelInfo.from_llm(agent.llm)
         if not model_info or not model_info.context_window:
             return 0.0
 

@@ -36,6 +36,8 @@ def get_fast_agent_cmd() -> tuple:
         "passthrough",  # Use passthrough model for deterministic testing
         "--name",
         "fast-agent-acp-filesystem-toolcall-test",
+        # Disable permission checks - these tests focus on filesystem functionality
+        "--no-permissions",
     ]
     return tuple(cmd)
 

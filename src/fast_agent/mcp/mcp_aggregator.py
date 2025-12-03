@@ -27,6 +27,7 @@ from opentelemetry import trace
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
 from fast_agent.context_dependent import ContextDependent
+from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
@@ -40,6 +41,7 @@ from fast_agent.mcp.skybridge import (
     SkybridgeToolConfig,
 )
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
+from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler, ToolPermissionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
@@ -68,6 +70,7 @@ class ServerStats:
     call_counts: Counter = field(default_factory=Counter)
     last_call_at: datetime | None = None
     last_error_at: datetime | None = None
+    reconnect_count: int = 0
 
     def record(self, operation_type: str, success: bool) -> None:
         self.call_counts[operation_type] += 1
@@ -75,6 +78,10 @@ class ServerStats:
         self.last_call_at = now
         if not success:
             self.last_error_at = now
+
+    def record_reconnect(self) -> None:
+        """Record a successful reconnection."""
+        self.reconnect_count += 1
 
 
 class ServerStatus(BaseModel):
@@ -103,6 +110,7 @@ class ServerStatus(BaseModel):
     session_id: str | None = None
     transport_channels: TransportSnapshot | None = None
     skybridge: SkybridgeServerConfig | None = None
+    reconnect_count: int = 0
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
@@ -164,6 +172,7 @@ class MCPAggregator(ContextDependent):
         name: str | None = None,
         config: Any | None = None,  # Accept the agent config for elicitation_handler access
         tool_handler: ToolExecutionHandler | None = None,
+        permission_handler: ToolPermissionHandler | None = None,
         **kwargs,
     ) -> None:
         """
@@ -171,6 +180,7 @@ class MCPAggregator(ContextDependent):
         :param connection_persistence: Whether to maintain persistent connections to servers (default: True).
         :param config: Optional agent config containing elicitation_handler and other settings.
         :param tool_handler: Optional handler for tool execution lifecycle events (e.g., for ACP notifications).
+        :param permission_handler: Optional handler for tool permission checks (e.g., for ACP permissions).
         Note: The server names must be resolvable by the gen_client function, and specified in the server registry.
         """
         super().__init__(
@@ -186,6 +196,10 @@ class MCPAggregator(ContextDependent):
         # Store tool execution handler for integration with ACP or other protocols
         # Default to NoOpToolExecutionHandler if none provided
         self._tool_handler = tool_handler or NoOpToolExecutionHandler()
+
+        # Store tool permission handler for ACP or other permission systems
+        # Default to NoOpToolPermissionHandler if none provided (allows all)
+        self._permission_handler = permission_handler or NoOpToolPermissionHandler()
 
         # Set up logger with agent name in namespace if available
         global logger
@@ -597,9 +611,7 @@ class MCPAggregator(ContextDependent):
 
             if not sky_resource.is_skybridge:
                 observed_type = sky_resource.mime_type or "unknown MIME type"
-                warning = (
-                    f"served as '{observed_type}' instead of '{SKYBRIDGE_MIME_TYPE}'"
-                )
+                warning = f"served as '{observed_type}' instead of '{SKYBRIDGE_MIME_TYPE}'"
                 sky_resource.warning = warning
                 config.warnings.append(f"{uri_str}: {warning}")
 
@@ -777,6 +789,12 @@ class MCPAggregator(ContextDependent):
             # For stdio servers, also emit synthetic transport events to create activity timeline
             await self._notify_stdio_transport_activity(server_name, operation_type, success)
 
+    async def _record_reconnect(self, server_name: str) -> None:
+        """Record a successful server reconnection."""
+        async with self._stats_lock:
+            stats = self._server_stats.setdefault(server_name, ServerStats())
+            stats.record_reconnect()
+
     async def _notify_stdio_transport_activity(
         self, server_name: str, operation_type: str, success: bool
     ) -> None:
@@ -858,6 +876,7 @@ class MCPAggregator(ContextDependent):
             last_error = stats.last_error_at if stats else None
             staleness = (now - last_call).total_seconds() if last_call else None
             call_counts = dict(stats.call_counts) if stats else {}
+            reconnect_count = stats.reconnect_count if stats else 0
 
             implementation_name = None
             implementation_version = None
@@ -1011,6 +1030,7 @@ class MCPAggregator(ContextDependent):
                 session_id=session_id,
                 transport_channels=transport_snapshot,
                 skybridge=self._skybridge_configs.get(server_name),
+                reconnect_count=reconnect_count,
             )
 
         return status_map
@@ -1078,6 +1098,9 @@ class MCPAggregator(ContextDependent):
             except ConnectionError:
                 # Let ConnectionError pass through for reconnection logic
                 raise
+            except ServerSessionTerminatedError:
+                # Let ServerSessionTerminatedError pass through for reconnection logic
+                raise
             except Exception as e:
                 error_msg = (
                     f"Failed to {method_name} '{operation_name}' on server '{server_name}': {e}"
@@ -1124,47 +1147,14 @@ class MCPAggregator(ContextDependent):
                     success_flag = True
         except ConnectionError:
             # Server offline - attempt reconnection
-            from fast_agent.ui import console
-
-            console.console.print(
-                f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
+            result, success_flag = await self._handle_connection_error(
+                server_name, try_execute, error_factory
             )
-
-            try:
-                if self.connection_persistence:
-                    # Force disconnect and create fresh connection
-                    await self._persistent_connection_manager.disconnect_server(server_name)
-                    import asyncio
-
-                    await asyncio.sleep(0.1)
-
-                    server_connection = await self._persistent_connection_manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    result = await try_execute(server_connection.session)
-                else:
-                    # For non-persistent connections, just try again
-                    async with gen_client(
-                        server_name, server_registry=self.context.server_registry
-                    ) as client:
-                        result = await try_execute(client)
-
-                # Success!
-                console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
-                success_flag = True
-
-            except Exception:
-                # Reconnection failed
-                console.console.print(
-                    f"[dim red]MCP server {server_name} offline - failed to reconnect[/dim red]"
-                )
-                error_msg = f"MCP server {server_name} offline - failed to reconnect"
-                success_flag = False
-                if error_factory:
-                    result = error_factory(error_msg)
-                else:
-                    raise Exception(error_msg)
+        except ServerSessionTerminatedError as exc:
+            # Session terminated (e.g., 404 from restarted server)
+            result, success_flag = await self._handle_session_terminated(
+                server_name, try_execute, error_factory, exc
+            )
         except Exception:
             success_flag = False
             raise
@@ -1173,6 +1163,148 @@ class MCPAggregator(ContextDependent):
                 await self._record_server_call(server_name, operation_type, success_flag)
 
         return result
+
+    async def _handle_connection_error(
+        self,
+        server_name: str,
+        try_execute: Callable,
+        error_factory: Callable[[str], R] | None,
+    ) -> tuple[R | None, bool]:
+        """Handle ConnectionError by attempting to reconnect to the server."""
+        from fast_agent.ui import console
+
+        console.console.print(
+            f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
+        )
+
+        try:
+            if self.connection_persistence:
+                # Force disconnect and create fresh connection
+                server_connection = await self._persistent_connection_manager.reconnect_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                )
+                result = await try_execute(server_connection.session)
+            else:
+                # For non-persistent connections, just try again
+                async with gen_client(
+                    server_name, server_registry=self.context.server_registry
+                ) as client:
+                    result = await try_execute(client)
+
+            # Success!
+            console.console.print(f"[dim green]MCP server {server_name} online[/dim green]")
+            return result, True
+
+        except ServerSessionTerminatedError:
+            # After reconnecting for connection error, we got session terminated
+            # Don't loop - just report the error
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated after reconnect[/dim red]"
+            )
+            error_msg = (
+                f"MCP server {server_name} reconnected but session was immediately terminated. "
+                "Please check server status."
+            )
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+        except Exception as e:
+            # Reconnection failed
+            console.console.print(
+                f"[dim red]MCP server {server_name} offline - failed to reconnect: {e}[/dim red]"
+            )
+            error_msg = f"MCP server {server_name} offline - failed to reconnect"
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+    async def _handle_session_terminated(
+        self,
+        server_name: str,
+        try_execute: Callable,
+        error_factory: Callable[[str], R] | None,
+        exc: ServerSessionTerminatedError,
+    ) -> tuple[R | None, bool]:
+        """Handle ServerSessionTerminatedError by attempting to reconnect if configured."""
+        from fast_agent.ui import console
+
+        # Check if reconnect_on_disconnect is enabled for this server
+        server_config = None
+        if self.context and getattr(self.context, "server_registry", None):
+            server_config = self.context.server_registry.get_server_config(server_name)
+
+        reconnect_enabled = server_config and server_config.reconnect_on_disconnect
+
+        if not reconnect_enabled:
+            # Reconnection not enabled - inform user and fail
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated (404)[/dim red]"
+            )
+            console.console.print(
+                "[dim]Tip: Enable 'reconnect_on_disconnect: true' in config to auto-reconnect[/dim]"
+            )
+            error_msg = f"MCP server {server_name} session terminated - reconnection not enabled"
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise exc
+
+        # Attempt reconnection
+        console.console.print(
+            f"[dim yellow]MCP server {server_name} session terminated - reconnecting...[/dim yellow]"
+        )
+
+        try:
+            if self.connection_persistence:
+                server_connection = await self._persistent_connection_manager.reconnect_server(
+                    server_name,
+                    client_session_factory=self._create_session_factory(server_name),
+                )
+                result = await try_execute(server_connection.session)
+            else:
+                # For non-persistent connections, just try again
+                async with gen_client(
+                    server_name, server_registry=self.context.server_registry
+                ) as client:
+                    result = await try_execute(client)
+
+            # Success! Record the reconnection
+            await self._record_reconnect(server_name)
+            console.console.print(
+                f"[dim green]MCP server {server_name} reconnected successfully[/dim green]"
+            )
+            return result, True
+
+        except ServerSessionTerminatedError:
+            # Retry after reconnection ALSO failed with session terminated
+            # Do NOT attempt another reconnection - this would cause an infinite loop
+            console.console.print(
+                f"[dim red]MCP server {server_name} session terminated again after reconnect[/dim red]"
+            )
+            error_msg = (
+                f"MCP server {server_name} session terminated even after reconnection. "
+                "The server may be persistently rejecting this session. "
+                "Please check server status or try again later."
+            )
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
+
+        except Exception as e:
+            # Other reconnection failure
+            console.console.print(
+                f"[dim red]MCP server {server_name} failed to reconnect: {e}[/dim red]"
+            )
+            error_msg = f"MCP server {server_name} failed to reconnect: {e}"
+            if error_factory:
+                return error_factory(error_msg), False
+            else:
+                raise Exception(error_msg)
 
     async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
         """
@@ -1236,6 +1368,57 @@ class MCPAggregator(ContextDependent):
                 content=[TextContent(type="text", text=f"Tool '{name}' not found")],
             )
 
+        namespaced_tool_name = create_namespaced_name(server_name, local_tool_name)
+
+        # Check tool permission before execution
+        try:
+            permission_result = await self._permission_handler.check_permission(
+                tool_name=local_tool_name,
+                server_name=server_name,
+                arguments=arguments,
+                tool_use_id=tool_use_id,
+            )
+            if not permission_result.allowed:
+                error_msg = permission_result.error_message
+                if error_msg is None:
+                    if permission_result.remember:
+                        error_msg = (
+                            f"The user has permanently declined permission to use this tool: "
+                            f"{namespaced_tool_name}"
+                        )
+                    else:
+                        error_msg = (
+                            f"The user has declined permission to use this tool: {namespaced_tool_name}"
+                        )
+
+                # Notify tool handler so ACP clients can reflect the cancellation/denial
+                if hasattr(self._tool_handler, "on_tool_permission_denied"):
+                    try:
+                        await self._tool_handler.on_tool_permission_denied(
+                            local_tool_name, server_name, tool_use_id, error_msg
+                        )
+                    except Exception as e:
+                        logger.error(f"Error notifying permission denial: {e}", exc_info=True)
+                logger.info(
+                    "Tool execution denied by permission handler",
+                    data={
+                        "tool_name": local_tool_name,
+                        "server_name": server_name,
+                        "cancelled": permission_result.is_cancelled,
+                    },
+                )
+                return CallToolResult(
+                    isError=True,
+                    content=[TextContent(type="text", text=error_msg)],
+                )
+        except Exception as e:
+            logger.error(f"Error checking tool permission: {e}", exc_info=True)
+            # Fail-safe: deny on permission check error
+            return CallToolResult(
+                isError=True,
+                content=[TextContent(type="text", text=f"Permission check failed: {e}")],
+            )
+
         logger.info(
             "Requesting tool call",
             data={
@@ -1255,12 +1438,14 @@ class MCPAggregator(ContextDependent):
             logger.error(f"Error in tool start handler: {e}", exc_info=True)
             # Generate fallback ID if handler fails
             import uuid
+
             tool_call_id = str(uuid.uuid4())
 
         tracer = trace.get_tracer(__name__)
-        with tracer.start_as_current_span(f"MCP Tool: {server_name}/{local_tool_name}"):
+        with tracer.start_as_current_span(f"MCP Tool: {namespaced_tool_name}"):
             trace.get_current_span().set_attribute("tool_name", local_tool_name)
             trace.get_current_span().set_attribute("server_name", server_name)
+            trace.get_current_span().set_attribute("namespaced_tool_name", namespaced_tool_name)
 
             # Create progress callback for this tool execution
             progress_callback = self._create_progress_callback(
@@ -1288,6 +1473,15 @@ class MCPAggregator(ContextDependent):
                     # Pass the full content blocks to the handler
                     content = result.content if result.content else None
 
+                    logger.debug(
+                        f"Tool execution completed, notifying handler: {tool_call_id}",
+                        name="mcp_tool_complete_notify",
+                        tool_call_id=tool_call_id,
+                        has_content=content is not None,
+                        content_count=len(content) if content else 0,
+                        is_error=result.isError,
+                    )
+
                     # If there's an error, extract error text
                     error_text = None
                     if result.isError and content:
@@ -1298,6 +1492,11 @@ class MCPAggregator(ContextDependent):
 
                     await self._tool_handler.on_tool_complete(
                         tool_call_id, not result.isError, content, error_text
+                    )
+
+                    logger.debug(
+                        f"Tool handler notified successfully: {tool_call_id}",
+                        name="mcp_tool_complete_done",
                     )
                 except Exception as e:
                     logger.error(f"Error in tool complete handler: {e}", exc_info=True)

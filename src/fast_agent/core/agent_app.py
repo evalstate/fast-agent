@@ -9,6 +9,7 @@ from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
@@ -273,7 +274,6 @@ class AgentApp:
         Returns:
             The result of the interactive session
         """
-
         # Get the default agent name if none specified
         if agent_name:
             # Validate that this agent exists
@@ -299,26 +299,34 @@ class AgentApp:
 
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
+        
+        # Helper for pretty formatting the FINAL error    
+        def _format_final_error(error: Exception) -> str:
+            detail = getattr(error, "message", None) or str(error)
+            detail = detail.strip() if isinstance(detail, str) else ""
+            clean_detail = detail.replace("\n", " ")
+            if len(clean_detail) > 300:
+                clean_detail = clean_detail[:297] + "..."
+            
+            return (
+                f"⚠️ **System Error:** The agent failed after repeated attempts.\n"
+                f"Error details: {clean_detail}\n"
+                f"\n*Your context is preserved. You can try sending the message again.*"
+            )
 
-        # Define the wrapper for send function
         async def send_wrapper(message, agent_name):
-            result = await self.send(message, agent_name, request_params)
+            try:
+                # The LLM layer will handle the 10s/20s/30s retries internally.
+                return await self.send(message, agent_name, request_params)
+            
+            except Exception as e:
+                # If we catch an exception here, it means all retries FAILED.
+                if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
+                    raise e
+                
+                # Return pretty text for API failures (keeps session alive)
+                return _format_final_error(e)
 
-            # Show parallel results if enabled and this is a parallel agent
-            if pretty_print_parallel:
-                agent = self._agents.get(agent_name)
-                if agent and agent.agent_type == AgentType.PARALLEL:
-                    from fast_agent.ui.console_display import ConsoleDisplay
-
-                    display = ConsoleDisplay(config=None)
-                    display.show_parallel_results(agent)
-
-            # Show usage info after each turn if progress display is enabled
-            self._show_turn_usage(agent_name)
-
-            return result
-
-        # Start the prompt loop with the agent name (not the agent object)
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object

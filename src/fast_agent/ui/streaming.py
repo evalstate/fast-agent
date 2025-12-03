@@ -11,10 +11,12 @@ from rich.markdown import Markdown
 from rich.text import Text
 
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.plain_text_truncator import PlainTextTruncator
+from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -35,6 +37,9 @@ class NullStreamingHandle:
     """No-op streaming handle used when streaming is disabled."""
 
     def update(self, _chunk: str) -> None:
+        return
+
+    def update_chunk(self, _chunk: StreamChunk) -> None:
         return
 
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
@@ -112,6 +117,9 @@ class StreamingMessageHandle:
             else None
         )
         self._max_render_height = 0
+        self._reasoning_parser = ReasoningStreamParser()
+        self._styled_buffer: list[tuple[str, bool]] = []
+        self._has_reasoning = False
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
@@ -125,6 +133,18 @@ class StreamingMessageHandle:
             return
 
         if self._handle_chunk(chunk):
+            self._render_current_buffer()
+
+    def update_chunk(self, chunk: StreamChunk) -> None:
+        """Structured streaming update with an explicit reasoning flag."""
+        if not self._active or not chunk or not chunk.text:
+            return
+
+        if self._async_mode and self._queue is not None:
+            self._enqueue_chunk(chunk)
+            return
+
+        if self._handle_stream_chunk(chunk):
             self._render_current_buffer()
 
     def _build_header(self) -> Text:
@@ -211,19 +231,24 @@ class StreamingMessageHandle:
             prefer_recent=True,
         )
 
-    def _switch_to_plain_text(self) -> None:
+    def _switch_to_plain_text(self, style: str | None = "dim") -> None:
         if not self._use_plain_text:
             self._use_plain_text = True
         if not self._plain_truncator:
             self._plain_truncator = PlainTextTruncator(
                 target_height_ratio=PLAIN_STREAM_TARGET_RATIO
             )
-        self._plain_text_style = "dim"
+        self._plain_text_style = style
         self._convert_literal_newlines = True
 
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
+
+        # Flush any buffered reasoning content before closing the live view
+        self._process_reasoning_chunk("")
+        if self._buffer:
+            self._render_current_buffer()
 
         self._finalized = True
         self.close()
@@ -376,7 +401,7 @@ class StreamingMessageHandle:
             total += max(1, math.ceil(expanded_len / width)) if expanded_len else 1
         return total
 
-    def _enqueue_chunk(self, chunk: str) -> None:
+    def _enqueue_chunk(self, chunk: object) -> None:
         if not self._queue or not self._loop:
             return
 
@@ -396,18 +421,82 @@ class StreamingMessageHandle:
             except RuntimeError as exc:
                 logger.debug(
                     "RuntimeError while enqueuing chunk (expected during shutdown)",
-                    data={"error": str(exc), "chunk_length": len(chunk)},
+                    data={"error": str(exc), "chunk_repr": repr(chunk)},
                 )
             except Exception as exc:
                 logger.warning(
                     "Unexpected error while enqueuing chunk",
                     exc_info=True,
-                    data={"error": str(exc), "chunk_length": len(chunk)},
+                    data={"error": str(exc), "chunk_repr": repr(chunk)},
                 )
+
+    def _process_reasoning_chunk(self, chunk: str) -> bool:
+        """
+        Detect and style reasoning-tagged content (<think>...</think>) when present.
+
+        Returns True if the chunk was handled by reasoning-aware processing.
+        """
+        should_process = (
+            self._reasoning_parser.in_think or "<think>" in chunk or "</think>" in chunk
+        )
+        if not should_process and not self._has_reasoning:
+            return False
+
+        self._switch_to_plain_text(style=None)
+        segments: list[ReasoningSegment] = []
+        if chunk:
+            segments = self._reasoning_parser.feed(chunk)
+        elif self._reasoning_parser.in_think:
+            segments = self._reasoning_parser.flush()
+
+        if not segments:
+            return False
+
+        self._has_reasoning = True
+
+        for segment in segments:
+            processed = segment.text
+            if self._convert_literal_newlines:
+                processed = self._decode_literal_newlines(processed)
+                if not processed:
+                    continue
+            processed = self._wrap_plain_chunk(processed)
+            if self._pending_table_row:
+                self._buffer.append(self._pending_table_row)
+                self._pending_table_row = ""
+            self._buffer.append(processed)
+            self._styled_buffer.append((processed, segment.is_thinking))
+
+        return True
+
+    def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
+        """Process a typed stream chunk with explicit reasoning flag."""
+        if not chunk.text:
+            return False
+
+        self._switch_to_plain_text(style=None)
+
+        processed = chunk.text
+        if self._convert_literal_newlines:
+            processed = self._decode_literal_newlines(processed)
+            if not processed:
+                return False
+        processed = self._wrap_plain_chunk(processed)
+        if self._pending_table_row:
+            self._buffer.append(self._pending_table_row)
+            self._pending_table_row = ""
+        self._buffer.append(processed)
+        self._styled_buffer.append((processed, chunk.is_reasoning))
+        if chunk.is_reasoning:
+            self._has_reasoning = True
+        return True
 
     def _handle_chunk(self, chunk: str) -> bool:
         if not chunk:
             return False
+
+        if self._process_reasoning_chunk(chunk):
+            return True
 
         if self._use_plain_text:
             if self._convert_literal_newlines:
@@ -438,6 +527,41 @@ class StreamingMessageHandle:
         self._buffer.append(chunk)
         return True
 
+    def _slice_styled_segments(self, target_text: str) -> list[tuple[str, bool]]:
+        """Trim styled buffer to the tail matching the provided text length."""
+        if not self._styled_buffer:
+            return []
+
+        remaining = len(target_text)
+        selected: list[tuple[str, bool]] = []
+
+        for text, is_thinking in reversed(self._styled_buffer):
+            if remaining <= 0:
+                break
+            if len(text) <= remaining:
+                selected.append((text, is_thinking))
+                remaining -= len(text)
+            else:
+                selected.append((text[-remaining:], is_thinking))
+                remaining = 0
+
+        selected.reverse()
+        return selected
+
+    def _build_styled_text(self, text: str) -> Text:
+        """Build a Rich Text object with dim/italic styling for reasoning segments."""
+        if not self._has_reasoning or not self._styled_buffer:
+            return Text(text, style=self._plain_text_style) if self._plain_text_style else Text(text)
+
+        segments = self._slice_styled_segments(text)
+        self._styled_buffer = segments
+
+        styled_text = Text()
+        for segment_text, is_thinking in segments:
+            style = "dim italic" if is_thinking else self._plain_text_style
+            styled_text.append(segment_text, style=style)
+        return styled_text
+
     def _render_current_buffer(self) -> None:
         if not self._buffer:
             return
@@ -456,6 +580,8 @@ class StreamingMessageHandle:
             # This keeps buffer size manageable for continuous scrolling
             if len(trimmed) < len(text):
                 self._buffer = [trimmed]
+                if self._has_reasoning:
+                    self._styled_buffer = self._slice_styled_segments(trimmed)
             else:
                 self._buffer = [text]
 
@@ -475,6 +601,8 @@ class StreamingMessageHandle:
                 if len(trimmed) < len(text):
                     text = trimmed
                     self._buffer = [trimmed]
+                    if self._has_reasoning:
+                        self._styled_buffer = self._slice_styled_segments(trimmed)
 
         header = self._build_header()
         max_allowed_height = max(1, console.console.size.height - 2)
@@ -488,12 +616,9 @@ class StreamingMessageHandle:
                 self._max_render_height = budget_height
 
             padding_lines = max(0, self._max_render_height - content_height)
-            display_text = text + ("\n" * padding_lines if padding_lines else "")
-            content = (
-                Text(display_text, style=self._plain_text_style)
-                if self._plain_text_style
-                else Text(display_text)
-            )
+            content = self._build_styled_text(text)
+            if padding_lines:
+                content.append("\n" * padding_lines)
         else:
             prepared = prepare_markdown_content(text, self._display._escape_xml)
             prepared_for_display = self._close_incomplete_code_blocks(prepared)
@@ -552,7 +677,9 @@ class StreamingMessageHandle:
 
                 should_render = False
                 for chunk in chunks:
-                    if isinstance(chunk, str):
+                    if isinstance(chunk, StreamChunk):
+                        should_render = self._handle_stream_chunk(chunk) or should_render
+                    elif isinstance(chunk, str):
                         should_render = self._handle_chunk(chunk) or should_render
 
                 if should_render:
@@ -638,6 +765,7 @@ __all__ = [
 
 class StreamingHandle(Protocol):
     def update(self, chunk: str) -> None: ...
+    def update_chunk(self, chunk: StreamChunk) -> None: ...
 
     def finalize(self, message: "PromptMessageExtended | str") -> None: ...
 

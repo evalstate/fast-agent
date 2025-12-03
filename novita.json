@@ -1,0 +1,1395 @@
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "The"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417427885104
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " user"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417427947760
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " is"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417427985962
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " asking"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428077954
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " \""
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428198757
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "Who"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428219022
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " are"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428240232
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " you"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428258231
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "?\""
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428371503
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " and"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428388559
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " specifically"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428409218
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " says"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428434789
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " \""
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428545632
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "Call"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428571729
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " a"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428597112
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " tool"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428613012
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " if"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428714690
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " needed"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428733612
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": ".\""
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428754364
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " I"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428772199
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " have"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428891140
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " a"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428913236
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " tool"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428933593
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " called"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417428958813
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " `"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429064088
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "who"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429085698
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "ami"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429104780
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "`"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429124373
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " that"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429246417
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " returns"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429249110
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " who"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429269961
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " I"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429288754
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " am"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429481673
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "."
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429499053
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " I"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429518317
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " should"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429537127
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " call"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429651052
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " this"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429684303
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " tool"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429702812
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " to"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429723420
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " answer"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429817737
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " the"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429842844
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": " question"
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429867900
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null,
+        "reasoning_content": "."
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417429886458
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": "functions.whoami:0",
+            "function": {
+              "arguments": null,
+              "name": "whoami"
+            },
+            "type": "function"
+          }
+        ]
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417430331918
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": null,
+            "function": {
+              "arguments": "{}",
+              "name": null
+            },
+            "type": "function"
+          }
+        ]
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417430355273
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "index": 0,
+            "id": null,
+            "function": {
+              "arguments": null,
+              "name": null
+            },
+            "type": "function"
+          }
+        ]
+      },
+      "finish_reason": null,
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417430420047
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [
+    {
+      "delta": {
+        "content": null,
+        "function_call": null,
+        "refusal": null,
+        "role": "assistant",
+        "tool_calls": null
+      },
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null
+    }
+  ],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": null,
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417430420072
+  }
+}
+{
+  "id": "285e7ed5a1c49fa3f1760c71f61c1c0f",
+  "choices": [],
+  "created": 1764417428,
+  "model": "moonshotai/kimi-k2-thinking",
+  "object": "chat.completion.chunk",
+  "service_tier": null,
+  "system_fingerprint": "",
+  "usage": {
+    "completion_tokens": 58,
+    "prompt_tokens": 54,
+    "total_tokens": 112,
+    "completion_tokens_details": {
+      "accepted_prediction_tokens": 0,
+      "audio_tokens": 0,
+      "reasoning_tokens": 44,
+      "rejected_prediction_tokens": 0
+    },
+    "prompt_tokens_details": null
+  },
+  "sla_metrics": {
+    "ttft_ms": 524,
+    "ts_us": 1764417430421151
+  }
+}

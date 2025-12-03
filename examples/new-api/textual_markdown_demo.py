@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from mcp.types import CallToolResult
 
     from fast_agent.interfaces import AgentProtocol
+    from fast_agent.llm.stream_types import StreamChunk
 
 DEFAULT_PROMPT = (
     "Provide a short markdown summary with a heading and bullet list describing how "
@@ -518,11 +519,11 @@ class MarkdownLLMApp(App[None]):
                 self._set_status("Error")
                 return
 
-            queue: asyncio.Queue[str] = asyncio.Queue()
+            queue: asyncio.Queue[StreamChunk] = asyncio.Queue()
             response_text: str | None = None
             received_stream_chunks = False
 
-            def on_chunk(chunk: str) -> None:
+            def on_chunk(chunk: StreamChunk) -> None:
                 queue.put_nowait(chunk)
 
             def remove_listener():
@@ -542,10 +543,10 @@ class MarkdownLLMApp(App[None]):
                         chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
                     except asyncio.TimeoutError:
                         continue
-                    if not chunk:
+                    if not chunk or not chunk.text:
                         continue
                     message = self._ensure_assistant_message()
-                    message.content += chunk
+                    message.content += chunk.text
                     self._refresh_chat()
                     received_stream_chunks = True
 
@@ -729,7 +730,9 @@ class MarkdownLLMApp(App[None]):
 
         self._active_assistant_message = None
 
-        right_info = "shell command" if metadata.get("variant") == "shell" else f"tool request - {tool_name}"
+        right_info = (
+            "shell command" if metadata.get("variant") == "shell" else f"tool request - {tool_name}"
+        )
 
         message = ChatMessage(
             role="tool_call",

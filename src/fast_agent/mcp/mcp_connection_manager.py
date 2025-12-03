@@ -249,36 +249,54 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     """
     Manage the lifecycle of a single server connection.
     Runs inside the MCPConnectionManager's shared TaskGroup.
+
+    IMPORTANT: This function must NEVER raise an exception, as it runs in a shared
+    task group. Any exceptions must be caught and handled gracefully, with errors
+    recorded in server_conn._error_occurred and _error_message.
     """
     server_name = server_conn.server_name
     try:
         transport_context = server_conn._transport_context_factory()
 
-        async with transport_context as (read_stream, write_stream, get_session_id_cb):
-            server_conn._get_session_id_cb = get_session_id_cb
-
-            if get_session_id_cb is not None:
-                try:
-                    server_conn.session_id = get_session_id_cb()
-                except Exception:
-                    logger.debug(f"{server_name}: Unable to retrieve session id from transport")
-            elif server_conn.server_config.transport == "stdio":
-                server_conn.session_id = "local"
-
-            server_conn.create_session(read_stream, write_stream)
-
-            async with server_conn.session:
-                await server_conn.initialize_session()
+        try:
+            async with transport_context as (read_stream, write_stream, get_session_id_cb):
+                server_conn._get_session_id_cb = get_session_id_cb
 
                 if get_session_id_cb is not None:
                     try:
-                        server_conn.session_id = get_session_id_cb() or server_conn.session_id
+                        server_conn.session_id = get_session_id_cb()
                     except Exception:
-                        logger.debug(f"{server_name}: Unable to refresh session id after init")
+                        logger.debug(f"{server_name}: Unable to retrieve session id from transport")
                 elif server_conn.server_config.transport == "stdio":
                     server_conn.session_id = "local"
 
-                await server_conn.wait_for_shutdown_request()
+                server_conn.create_session(read_stream, write_stream)
+
+                try:
+                    async with server_conn.session:
+                        await server_conn.initialize_session()
+
+                        if get_session_id_cb is not None:
+                            try:
+                                server_conn.session_id = get_session_id_cb() or server_conn.session_id
+                            except Exception:
+                                logger.debug(f"{server_name}: Unable to refresh session id after init")
+                        elif server_conn.server_config.transport == "stdio":
+                            server_conn.session_id = "local"
+
+                        await server_conn.wait_for_shutdown_request()
+                except Exception as session_exit_exc:
+                    # Catch exceptions during session cleanup (e.g., when session was terminated)
+                    # This prevents cleanup errors from propagating to the task group
+                    logger.debug(
+                        f"{server_name}: Exception during session cleanup (expected during reconnect): {session_exit_exc}"
+                    )
+        except Exception as transport_exit_exc:
+            # Catch exceptions during transport cleanup
+            # This can happen when disconnecting a session that was already terminated
+            logger.debug(
+                f"{server_name}: Exception during transport cleanup (expected during reconnect): {transport_exit_exc}"
+            )
 
     except HTTPStatusError as http_exc:
         logger.error(
@@ -633,6 +651,57 @@ class MCPConnectionManager(ContextDependent):
             logger.info(f"{server_name}: Shutdown signal sent (lifecycle task will exit).")
         else:
             logger.info(f"{server_name}: No persistent connection found. Skipping server shutdown")
+
+    async def reconnect_server(
+        self,
+        server_name: str,
+        client_session_factory: Callable,
+    ) -> "ServerConnection":
+        """
+        Force reconnection to a server by disconnecting and re-establishing the connection.
+
+        This is used when a session has been terminated (e.g., 404 from server restart)
+        and we need to create a fresh connection with a new session.
+
+        Args:
+            server_name: Name of the server to reconnect
+            client_session_factory: Factory function to create client sessions
+
+        Returns:
+            The new ServerConnection instance
+        """
+        logger.info(f"{server_name}: Initiating reconnection...")
+
+        # First, disconnect the existing connection
+        await self.disconnect_server(server_name)
+
+        # Brief pause to allow cleanup
+        await asyncio.sleep(0.1)
+
+        # Launch a fresh connection
+        server_conn = await self.launch_server(
+            server_name=server_name,
+            client_session_factory=client_session_factory,
+        )
+
+        # Wait for initialization
+        await server_conn.wait_for_initialized()
+
+        # Check if the reconnection was successful
+        if not server_conn.is_healthy():
+            error_msg = server_conn._error_message or "Unknown error during reconnection"
+            if isinstance(error_msg, list):
+                formatted_error = "\n".join(error_msg)
+            else:
+                formatted_error = str(error_msg)
+
+            raise ServerInitializationError(
+                f"MCP Server: '{server_name}': Failed to reconnect - see details.",
+                formatted_error,
+            )
+
+        logger.info(f"{server_name}: Reconnection successful")
+        return server_conn
 
     async def disconnect_all(self) -> None:
         """Disconnect all servers that are running under this connection manager."""

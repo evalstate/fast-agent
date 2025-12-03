@@ -58,6 +58,7 @@ from fast_agent.core.direct_decorators import (
 )
 from fast_agent.core.direct_factory import (
     create_agents_in_dependency_order,
+    get_default_model_source,
     get_model_factory,
 )
 from fast_agent.core.error_handling import handle_error
@@ -510,6 +511,15 @@ class FastAgent:
         ):
             quiet_mode = True
         cli_model_override = getattr(self.args, "model", None)
+
+        # Store the model source for UI display
+        model_source = get_default_model_source(
+            config_default_model=self.context.config.default_model,
+            cli_model=cli_model_override,
+        )
+        if self.context.config:
+            self.context.config.model_source = model_source  # type: ignore[attr-defined]
+
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
             try:
@@ -664,6 +674,7 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
+                                permissions_enabled = getattr(self.args, "permissions_enabled", True)
 
                                 # Pass skills directory override if configured
                                 skills_override = (
@@ -679,6 +690,7 @@ class FastAgent:
                                     instance_scope=instance_scope,
                                     server_name=server_name or f"{self.name}",
                                     skills_directory_override=skills_override,
+                                    permissions_enabled=permissions_enabled,
                                 )
 
                                 # Run the ACP server (this is a blocking call)
@@ -865,6 +877,15 @@ class FastAgent:
             if request_params is not None:
                 request_params.systemPrompt = resolved
 
+            # TODO -- find a cleaner way of doing this
+            # Keep any attached LLM in sync so the provider sees the resolved prompt
+            llm = getattr(agent, "_llm", None)
+            if llm is not None:
+                if getattr(llm, "default_request_params", None) is not None:
+                    llm.default_request_params.systemPrompt = resolved
+                if hasattr(llm, "instruction"):
+                    llm.instruction = resolved
+
     def _apply_skills_to_agent_configs(self, default_skills: list[SkillManifest]) -> None:
         self._default_skill_manifests = list(default_skills)
 
@@ -908,10 +929,11 @@ class FastAgent:
                     data={"registry": type(entry).__name__},
                 )
                 return []
-        if isinstance(entry, Path):
-            return SkillRegistry.load_directory(entry.expanduser().resolve())
-        if isinstance(entry, str):
-            return SkillRegistry.load_directory(Path(entry).expanduser().resolve())
+        if isinstance(entry, (Path, str)):
+            # Use instance method to preserve original path for relative path computation
+            path = Path(entry) if isinstance(entry, str) else entry
+            registry = SkillRegistry(base_dir=Path.cwd(), override_directory=path)
+            return registry.load_manifests()
 
         logger.debug(
             "Unsupported skill entry type",
@@ -999,6 +1021,7 @@ class FastAgent:
         server_description: str | None = None,
         tool_description: str | None = None,
         instance_scope: str = "shared",
+        permissions_enabled: bool = True,
     ) -> None:
         """
         Start the application as an MCP server.
@@ -1013,6 +1036,7 @@ class FastAgent:
             server_description: Optional description/instructions for the MCP server
             tool_description: Optional description template for the exposed send tool.
                               Use {agent} to reference the agent name.
+            permissions_enabled: Whether to request tool permissions from ACP clients (default: True)
         """
         # This method simply updates the command line arguments and uses run()
         # to ensure we follow the same initialization path for all operations
@@ -1034,6 +1058,7 @@ class FastAgent:
         self.args.server_description = server_description
         self.args.server_name = server_name
         self.args.instance_scope = instance_scope
+        self.args.permissions_enabled = permissions_enabled
         # Force quiet mode for stdio/acp transports to avoid polluting the protocol stream
         self.args.quiet = (
             original_args.quiet if original_args and hasattr(original_args, "quiet") else False

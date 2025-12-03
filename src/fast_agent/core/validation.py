@@ -10,6 +10,7 @@ from fast_agent.core.exceptions import (
     CircularDependencyError,
     ServerConfigError,
 )
+from fast_agent.interfaces import LlmAgentProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 
 
@@ -98,11 +99,11 @@ def validate_workflow_references(agents: dict[str, dict[str, Any]]) -> None:
                 if not (
                     isinstance(func, FastAgentLLM)
                     or child_data["type"] in workflow_types
-                    or (hasattr(func, "_llm") and func._llm is not None)
+                    or (isinstance(func, LlmAgentProtocol) and func.llm is not None)
                 ):
                     raise AgentConfigError(
                         f"Agent '{agent_name}' used by orchestrator '{name}' lacks LLM capability",
-                        "All agents used by orchestrators must be LLM-capable (either an AugmentedLLM or have an _llm property)",
+                        "All agents used by orchestrators must be LLM-capable (either an AugmentedLLM or implement LlmAgentProtocol)",
                     )
 
         elif agent_type == AgentType.ROUTER.value:

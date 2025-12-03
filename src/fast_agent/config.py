@@ -208,6 +208,14 @@ class MCPServerSettings(BaseModel):
     include_instructions: bool = True
     """Whether to include this server's instructions in the system prompt (default: True)."""
 
+    reconnect_on_disconnect: bool = True
+    """Whether to automatically reconnect when the server session is terminated (e.g., 404).
+
+    When enabled, if a remote StreamableHTTP server returns a 404 indicating the session
+    has been terminated (e.g., due to server restart), the client will automatically
+    attempt to re-initialize the connection and retry the operation.
+    """
+
     implementation: Implementation | None = None
 
     @model_validator(mode="before")
@@ -548,10 +556,11 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
-    default_model: str | None = "gpt-5-mini.low"
+    default_model: str | None = None
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
+    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """
 
     auto_sampling: bool = True
@@ -622,6 +631,12 @@ class Settings(BaseSettings):
 
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
+
+    llm_retries: int = 0
+    """
+    Number of times to retry transient LLM API errors.
+    Defaults to 0; can be overridden via config or FAST_AGENT_RETRIES env.
+    """
 
     @classmethod
     def find_config(cls) -> Path | None:

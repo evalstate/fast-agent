@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.4.1"
+version = "0.4.3"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -27,9 +27,9 @@ dependencies = [
     "openai[aiohttp]>=2.8.1",
     "prompt-toolkit>=3.0.52",
     "aiohttp>=3.13.2",
-    "opentelemetry-instrumentation-openai>=0.49; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-anthropic>=0.49; python_version >= '3.10' and python_version < '4.0'",
-    "opentelemetry-instrumentation-mcp>=0.49; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-openai>=0.49.5; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-anthropic>=0.49.5; python_version >= '3.10' and python_version < '4.0'",
+    "opentelemetry-instrumentation-mcp>=0.49.5; python_version >= '3.10' and python_version < '4.0'",
     "google-genai>=1.52.0",
     "opentelemetry-instrumentation-google-genai>=0.4b0",
     "deprecated>=1.2.18",
