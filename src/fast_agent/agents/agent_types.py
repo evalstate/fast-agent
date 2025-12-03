@@ -8,6 +8,7 @@ from pathlib import Path
 
 from mcp.client.session import ElicitationFnT
 
+from fast_agent.llm.compaction.types import ContextCompactionMode
 from fast_agent.skills import SkillManifest, SkillRegistry
 
 # Forward imports to avoid circular dependencies
@@ -48,6 +49,12 @@ class AgentConfig:
     default: bool = False
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
+
+    # Context compaction settings
+    context_compaction_mode: ContextCompactionMode | None = None
+    """Strategy for managing context when it exceeds limits (truncate, summarize, or none)"""
+    context_compaction_limit: int | None = None
+    """Token limit at which to trigger compaction. If None, uses model's context window."""
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

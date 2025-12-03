@@ -367,6 +367,7 @@ class AgentCompleter(Completer):
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
+            "compact": "Compact history to reduce tokens (/compact [truncate|summarize])",
             "agents": "List available agents",
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
@@ -1152,6 +1153,12 @@ async def get_enhanced_input(
                 return {"list_tools": True}
             elif cmd == "skills":
                 return {"list_skills": True}
+            elif cmd == "compact":
+                # Handle /compact with optional mode argument (truncate or summarize)
+                mode = None
+                if len(cmd_parts) > 1:
+                    mode = cmd_parts[1].strip().lower()
+                return {"compact_history": True, "mode": mode}
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":
@@ -1319,6 +1326,7 @@ async def handle_special_commands(
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
         rich_print("  /clear last [agent_name] - Remove the most recent message from history")
+        rich_print("  /compact [mode]       - Compact history to reduce tokens (truncate/summarize)")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
         rich_print("  /save_history [filename] - Save current chat history to a file")

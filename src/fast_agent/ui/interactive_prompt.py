@@ -312,6 +312,10 @@ class InteractivePrompt:
                         except Exception as e:
                             rich_print(f"[red]Error loading history: {e}[/red]")
                         continue
+                    elif "compact_history" in command_dict:
+                        # Compact history for the current agent
+                        await self._compact_history(prompt_provider, agent, command_dict)
+                        continue
 
                 # Skip further processing if:
                 # 1. The command was handled (command_result is truthy)
@@ -1197,3 +1201,81 @@ class InteractivePrompt:
 
         except Exception as e:
             rich_print(f"[red]Error showing markdown: {e}[/red]")
+
+    async def _compact_history(
+        self, prompt_provider: "AgentApp", agent_name: str, command_dict: dict
+    ) -> None:
+        """
+        Compact the conversation history using truncation or summarization.
+
+        Args:
+            prompt_provider: Provider that has access to agents
+            agent_name: Name of the current agent
+            command_dict: Command dictionary with optional 'mode' key
+        """
+        try:
+            from fast_agent.llm.compaction import ContextCompactionMode
+
+            # Get agent to compact
+            assert hasattr(prompt_provider, "_agent"), (
+                "Interactive prompt expects an AgentApp with _agent()"
+            )
+            agent = prompt_provider._agent(agent_name)
+
+            # Check if agent supports compaction
+            if not hasattr(agent, "compact_history"):
+                rich_print("[yellow]This agent does not support history compaction[/yellow]")
+                return
+
+            # Get the mode from command dict (if provided)
+            mode_str = command_dict.get("mode")
+            mode = None
+            if mode_str:
+                mode_str = mode_str.lower()
+                if mode_str in ("truncate", "trunc", "t"):
+                    mode = ContextCompactionMode.TRUNCATE
+                elif mode_str in ("summarize", "summary", "sum", "s"):
+                    mode = ContextCompactionMode.SUMMARIZE
+                else:
+                    rich_print(f"[yellow]Unknown mode '{mode_str}'. Using default.[/yellow]")
+                    rich_print("[dim]Valid modes: truncate, summarize[/dim]")
+
+            # Show current state before compaction
+            history = getattr(agent, "message_history", [])
+            usage = getattr(agent, "usage_accumulator", None)
+            current_tokens = usage.current_context_tokens if usage else 0
+            msg_count = len(history)
+
+            if msg_count < 2:
+                rich_print("[yellow]Not enough messages to compact[/yellow]")
+                return
+
+            rich_print(
+                f"\n[bold]Compacting history for [cyan]{agent_name}[/cyan]...[/bold]"
+            )
+            rich_print(f"[dim]Current: {msg_count} messages, ~{current_tokens:,} tokens[/dim]")
+
+            # Perform compaction
+            was_compacted = await agent.compact_history(mode=mode)
+
+            if was_compacted:
+                # Show new state
+                new_history = getattr(agent, "message_history", [])
+                new_usage = getattr(agent, "usage_accumulator", None)
+                new_tokens = new_usage.current_context_tokens if new_usage else 0
+                new_msg_count = len(new_history)
+
+                rich_print(
+                    f"[green]Compacted: {new_msg_count} messages, ~{new_tokens:,} tokens[/green]"
+                )
+                rich_print(
+                    f"[dim]Reduced by {msg_count - new_msg_count} messages[/dim]"
+                )
+            else:
+                rich_print("[yellow]No compaction needed (within limits)[/yellow]")
+
+        except Exception as e:
+            import traceback
+
+            rich_print(f"[red]Error compacting history: {e}[/red]")
+            rich_print(f"[dim]{traceback.format_exc()}[/dim]")

@@ -51,6 +51,7 @@ from fast_agent.interfaces import (
     LLMFactoryProtocol,
     StreamingAgentProtocol,
 )
+from fast_agent.llm.compaction import ContextCompaction, ContextCompactionMode
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
@@ -936,6 +937,65 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     @property
     def llm(self) -> FastAgentLLMProtocol | None:
         return self._llm
+
+    # --- Context compaction methods ---
+
+    async def compact_history(
+        self,
+        mode: ContextCompactionMode | None = None,
+        limit: int | None = None,
+    ) -> bool:
+        """
+        Compact conversation history to reduce token usage.
+
+        This method applies compaction to the agent's message history using
+        either truncation (removing older messages) or summarization (condensing
+        history into a summary).
+
+        Args:
+            mode: Compaction strategy. If None, uses config.context_compaction_mode.
+                  Options: TRUNCATE, SUMMARIZE, or NONE.
+            limit: Token limit threshold. If None, uses config.context_compaction_limit
+                   or falls back to 80% of the model's context window.
+
+        Returns:
+            True if compaction was performed, False otherwise.
+        """
+        # Resolve mode and limit from config if not provided
+        effective_mode = mode or self.config.context_compaction_mode
+        effective_limit = limit or self.config.context_compaction_limit
+
+        # If no limit specified, use 80% of context window as default
+        if effective_limit is None and self._llm:
+            model = self._llm.model_name
+            if model:
+                context_window = ModelDatabase.get_context_window(model)
+                if context_window:
+                    effective_limit = int(context_window * 0.8)
+
+        # Get system prompt for token estimation
+        system_prompt = self.instruction
+
+        # Perform compaction
+        compacted_history, was_compacted = await ContextCompaction.compact_if_needed(
+            messages=self._message_history,
+            mode=effective_mode,
+            limit=effective_limit,
+            llm=self._llm,
+            system_prompt=system_prompt,
+        )
+
+        if was_compacted:
+            self._message_history = compacted_history
+            logger.info(
+                "History compacted",
+                agent=self._name,
+                mode=str(effective_mode),
+                original_count=len(self._message_history),
+                new_count=len(compacted_history),
+            )
+
+        return was_compacted
 
     # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---
 
