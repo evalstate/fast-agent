@@ -8,7 +8,8 @@ import sys
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ResourceLink, TextContent
-from pydantic import AnyUrl
+
+from fast_agent.mcp.helpers.content_helpers import text_content, video_link
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 app = FastMCP(name="VideoLinkServer", debug=True)
 
 # Global variable to store the video URL
-video_url = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"  # Big Buck Bunny
+video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"  # Mystery Video
 
 
 @app.tool(
@@ -29,14 +30,8 @@ video_url = "https://www.youtube.com/watch?v=aqz-KE-bpKQ"  # Big Buck Bunny
 async def get_video_link() -> list[TextContent | ResourceLink]:
     """Return a ResourceLink to a video."""
     return [
-        TextContent(type="text", text="Here's a video link for analysis:"),
-        ResourceLink(
-            type="resource_link",
-            name="sample_video",
-            uri=AnyUrl(video_url),
-            mimeType="video/mp4",
-            description="Sample video for testing",
-        ),
+        text_content(type="text", text="Here's a video link for analysis:"),
+        video_link(video_url, name="Mystery Video"),
     ]
 
 

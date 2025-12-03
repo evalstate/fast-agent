@@ -225,6 +225,13 @@ class ModelDatabase:
         context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
 
+    HF_PROVIDER_DEEPSEEK32 = ModelParameters(
+        context_window=163_800,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        reasoning="gpt_oss",
+    )
+
     HF_PROVIDER_QWEN3_NEXT = ModelParameters(
         context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
@@ -332,6 +339,7 @@ class ModelDatabase:
         "minimaxai/minimax-m2": GLM_46,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
+        "deepseek-ai/DeepSeek-V3.2-Exp": HF_PROVIDER_DEEPSEEK32,
     }
 
     @classmethod
