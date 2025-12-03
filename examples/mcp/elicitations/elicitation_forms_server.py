@@ -72,6 +72,18 @@ async def event_registration() -> ReadResourceResult:
         company_website: str | None = Field(
             None, description="Your company website (optional)", json_schema_extra={"format": "uri"}
         )
+        workshops: list[str] = Field(
+            description="Select the workshops you want to attend",
+            min_length=1,
+            max_length=3,
+            json_schema_extra={
+                "items": {
+                    "enum": list(workshop_names.keys()),
+                    "enumNames": list(workshop_names.values()),
+                },
+                "uniqueItems": True,
+            },
+        )
         event_date: str = Field(
             description="Which event date works for you?", json_schema_extra={"format": "date"}
         )
