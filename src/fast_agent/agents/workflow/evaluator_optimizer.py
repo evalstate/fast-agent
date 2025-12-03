@@ -349,7 +349,9 @@ Evaluate the response for iteration {iteration + 1} and provide feedback on its 
             focus_areas = "None specified"
 
         return f"""
-You are tasked with improving your previous response based on expert feedback. This is iteration {iteration + 1} of the refinement process.
+You are tasked with improving your previous response.
+{self.refinement_instruction or 'You are an expert evaluator for content quality.'}
+This is iteration {iteration + 1} of the refinement process.
 
 Your goal is to address all feedback points while maintaining accuracy and relevance to the original request.
 
