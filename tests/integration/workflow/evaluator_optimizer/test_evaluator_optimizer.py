@@ -37,7 +37,7 @@ async def test_single_refinement_cycle(fast_agent):
     @fast.agent(name="generator", model="passthrough")
     @fast.agent(name="evaluator", model="passthrough")
     @fast.evaluator_optimizer(
-        name="optimizer", generator="generator", evaluator="evaluator", max_refinements=1
+        name="optimizer", generator="generator", evaluator="evaluator", max_refinements=1, refinement_instruction="CACAC CA CACACA"
     )
     async def agent_function():
         async with fast.run() as agent:
@@ -108,7 +108,7 @@ async def test_max_refinements_limit(fast_agent):
             # Initial generation
             initial_response = f"{FIXED_RESPONSE_INDICATOR} Initial draft."
             await agent.generator_max._llm.generate([Prompt.user(initial_response)])
-
+            print("Testing....")
             # First evaluation - needs improvement
             first_eval = {
                 "rating": "POOR",

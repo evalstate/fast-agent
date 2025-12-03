@@ -75,6 +75,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
         evaluator_agent: AgentProtocol,
         min_rating: QualityRating = QualityRating.GOOD,
         max_refinements: int = 3,
+		refinement_instruction: str | None = None,
         context: Optional[Any] = None,
         **kwargs,
     ) -> None:
@@ -103,6 +104,7 @@ class EvaluatorOptimizerAgent(LlmAgent):
         self.min_rating = min_rating
         self.max_refinements = max_refinements
         self.refinement_history = []
+        self.refinement_instruction = refinement_instruction
 
     async def generate_impl(
         self,
@@ -303,8 +305,8 @@ class EvaluatorOptimizerAgent(LlmAgent):
             Formatted evaluation prompt
         """
         return f"""
-You are an expert evaluator for content quality. Your task is to evaluate a response against the user's original request.
-
+{self.refinement_instruction or 'You are an expert evaluator for content quality.'}
+Your task is to evaluate a response against the user's original request.
 Evaluate the response for iteration {iteration + 1} and provide feedback on its quality and areas for improvement.
 
 ```
