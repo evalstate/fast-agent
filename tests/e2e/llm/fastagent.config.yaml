@@ -12,8 +12,8 @@
 
 default_model: passthrough
 
-otel:
-  enabled: true # Enable or disable OpenTelemetry
+#otel:
+#  enabled: true # Enable or disable OpenTelemetry
 
 # Logging and Console Configuration:
 logger:
