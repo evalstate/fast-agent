@@ -852,6 +852,22 @@ class SlashCommandHandler:
                 context_usage_line,
             ]
 
+            # Add context management stats if available
+            usage = getattr(agent, "usage_accumulator", None)
+            if usage and usage.has_context_editing_activity:
+                cleared_tokens = usage.cumulative_cleared_tokens
+                cleared_tools = usage.cumulative_cleared_tool_uses
+                cleared_thinking = usage.cumulative_cleared_thinking_turns
+                ctx_mgmt_parts = []
+                if cleared_tools > 0:
+                    ctx_mgmt_parts.append(f"{cleared_tools} tool uses")
+                if cleared_thinking > 0:
+                    ctx_mgmt_parts.append(f"{cleared_thinking} thinking turns")
+                if cleared_tokens > 0:
+                    ctx_mgmt_parts.append(f"~{cleared_tokens:,} tokens")
+                if ctx_mgmt_parts:
+                    stats.append(f"- Context Editing: cleared {', '.join(ctx_mgmt_parts)}")
+
             # Add timing information if available
             if summary.total_elapsed_time_ms > 0:
                 stats.append(

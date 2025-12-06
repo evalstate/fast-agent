@@ -72,6 +72,35 @@ class CacheUsage(BaseModel):
         return self.total_cache_tokens > 0
 
 
+class ContextManagementUsage(BaseModel):
+    """Usage metrics for server-side context management (Anthropic feature)"""
+
+    cleared_tool_uses: int = Field(
+        default=0, description="Number of tool uses cleared from context"
+    )
+    cleared_tool_tokens: int = Field(
+        default=0, description="Tokens cleared via tool use clearing"
+    )
+    cleared_thinking_turns: int = Field(
+        default=0, description="Number of thinking turns cleared"
+    )
+    cleared_thinking_tokens: int = Field(
+        default=0, description="Tokens cleared via thinking clearing"
+    )
+
+    @computed_field
+    @property
+    def total_cleared_tokens(self) -> int:
+        """Total tokens cleared from context"""
+        return self.cleared_tool_tokens + self.cleared_thinking_tokens
+
+    @computed_field
+    @property
+    def has_context_editing(self) -> bool:
+        """Whether any context editing was applied"""
+        return self.cleared_tool_uses > 0 or self.cleared_thinking_turns > 0
+
+
 class TurnUsage(BaseModel):
     """Usage data for a single turn/completion with cache support"""
 
@@ -84,6 +113,11 @@ class TurnUsage(BaseModel):
 
     # Cache-specific metrics
     cache_usage: CacheUsage = Field(default_factory=CacheUsage)
+
+    # Context management metrics (Anthropic server-side feature)
+    context_management_usage: ContextManagementUsage = Field(
+        default_factory=ContextManagementUsage
+    )
 
     # Provider-specific token types
     tool_use_tokens: int = Field(default=0, description="Tokens used for tool calling prompts")
@@ -139,7 +173,12 @@ class TurnUsage(BaseModel):
         object.__setattr__(self, "tool_calls", count)
 
     @classmethod
-    def from_anthropic(cls, usage: AnthropicUsage, model: str) -> "TurnUsage":
+    def from_anthropic(
+        cls,
+        usage: AnthropicUsage,
+        model: str,
+        context_management: dict | None = None,
+    ) -> "TurnUsage":
         # Extract cache tokens with proper null handling
         cache_creation_tokens = getattr(usage, "cache_creation_input_tokens", 0) or 0
         cache_read_tokens = getattr(usage, "cache_read_input_tokens", 0) or 0
@@ -149,6 +188,30 @@ class TurnUsage(BaseModel):
             cache_write_tokens=cache_creation_tokens,  # Tokens written to cache (25% surcharge)
         )
 
+        # Extract context management metrics if available
+        context_mgmt_usage = ContextManagementUsage()
+        if context_management and "applied_edits" in context_management:
+            for edit in context_management["applied_edits"]:
+                edit_type = edit.get("type", "")
+                if edit_type == "clear_tool_uses_20250919":
+                    context_mgmt_usage = ContextManagementUsage(
+                        cleared_tool_uses=context_mgmt_usage.cleared_tool_uses
+                        + edit.get("cleared_tool_uses", 0),
+                        cleared_tool_tokens=context_mgmt_usage.cleared_tool_tokens
+                        + edit.get("cleared_input_tokens", 0),
+                        cleared_thinking_turns=context_mgmt_usage.cleared_thinking_turns,
+                        cleared_thinking_tokens=context_mgmt_usage.cleared_thinking_tokens,
+                    )
+                elif edit_type == "clear_thinking_20251015":
+                    context_mgmt_usage = ContextManagementUsage(
+                        cleared_tool_uses=context_mgmt_usage.cleared_tool_uses,
+                        cleared_tool_tokens=context_mgmt_usage.cleared_tool_tokens,
+                        cleared_thinking_turns=context_mgmt_usage.cleared_thinking_turns
+                        + edit.get("cleared_thinking_turns", 0),
+                        cleared_thinking_tokens=context_mgmt_usage.cleared_thinking_tokens
+                        + edit.get("cleared_input_tokens", 0),
+                    )
+
         return cls(
             provider=Provider.ANTHROPIC,
             model=model,
@@ -156,6 +219,7 @@ class TurnUsage(BaseModel):
             output_tokens=usage.output_tokens,
             total_tokens=usage.input_tokens + usage.output_tokens,
             cache_usage=cache_usage,
+            context_management_usage=context_mgmt_usage,
             raw_usage=usage,  # Store the original Anthropic usage object
         )
 
@@ -315,6 +379,30 @@ class UsageAccumulator(BaseModel):
 
     @computed_field
     @property
+    def cumulative_cleared_tool_uses(self) -> int:
+        """Total tool uses cleared via context management across all turns"""
+        return sum(turn.context_management_usage.cleared_tool_uses for turn in self.turns)
+
+    @computed_field
+    @property
+    def cumulative_cleared_tokens(self) -> int:
+        """Total tokens cleared via context management across all turns"""
+        return sum(turn.context_management_usage.total_cleared_tokens for turn in self.turns)
+
+    @computed_field
+    @property
+    def cumulative_cleared_thinking_turns(self) -> int:
+        """Total thinking turns cleared via context management across all turns"""
+        return sum(turn.context_management_usage.cleared_thinking_turns for turn in self.turns)
+
+    @computed_field
+    @property
+    def has_context_editing_activity(self) -> bool:
+        """Whether any context editing was applied during this session"""
+        return any(turn.context_management_usage.has_context_editing for turn in self.turns)
+
+    @computed_field
+    @property
     def cache_hit_rate(self) -> float | None:
         """Percentage of total input context served from cache"""
         cache_tokens = self.cumulative_cache_read_tokens + self.cumulative_cache_hit_tokens
@@ -364,9 +452,19 @@ class UsageAccumulator(BaseModel):
             "cumulative_effective_input_tokens": self.cumulative_effective_input_tokens,
         }
 
-    def get_summary(self) -> dict[str, Union[int, float, str, None]]:
+    def get_context_management_summary(self) -> dict[str, Union[int, bool]]:
+        """Get context management-specific metrics summary"""
+        return {
+            "cumulative_cleared_tool_uses": self.cumulative_cleared_tool_uses,
+            "cumulative_cleared_tokens": self.cumulative_cleared_tokens,
+            "cumulative_cleared_thinking_turns": self.cumulative_cleared_thinking_turns,
+            "has_context_editing_activity": self.has_context_editing_activity,
+        }
+
+    def get_summary(self) -> dict[str, Union[int, float, str, bool, None]]:
         """Get comprehensive usage statistics"""
         cache_summary = self.get_cache_summary()
+        context_mgmt_summary = self.get_context_management_summary()
         return {
             "model": self.model,
             "turn_count": self.turn_count,
@@ -380,6 +478,7 @@ class UsageAccumulator(BaseModel):
             "context_window_size": self.context_window_size,
             "context_usage_percentage": self.context_usage_percentage,
             **cache_summary,
+            **context_mgmt_summary,
         }
 
 

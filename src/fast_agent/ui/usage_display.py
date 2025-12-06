@@ -37,6 +37,8 @@ def display_usage_report(
     total_output = 0
     total_tokens = 0
     total_tool_calls = 0
+    total_cleared_tokens = 0
+    any_context_editing = False
 
     for agent_name, agent in agents.items():
         if agent.usage_accumulator:
@@ -50,6 +52,12 @@ def display_usage_report(
 
                 # Get context percentage for this agent
                 context_percentage = agent.usage_accumulator.context_usage_percentage
+
+                # Get context management stats
+                cleared_tokens = summary.get("cumulative_cleared_tokens", 0)
+                has_ctx_editing = summary.get("has_context_editing_activity", False)
+                if has_ctx_editing:
+                    any_context_editing = True
 
                 # Get model name via typed property when available
                 model = "unknown"
@@ -70,6 +78,7 @@ def display_usage_report(
                         "turns": turns,
                         "tool_calls": tool_calls,
                         "context": context_percentage,
+                        "cleared_tokens": cleared_tokens,
                     }
                 )
 
@@ -77,6 +86,7 @@ def display_usage_report(
                 total_output += output_tokens
                 total_tokens += billing_tokens
                 total_tool_calls += tool_calls
+                total_cleared_tokens += cleared_tokens
 
     if not usage_data:
         return
@@ -97,10 +107,15 @@ def display_usage_report(
     console.print("[dim]▎[/dim] [bold dim]Usage Summary[/bold dim]")
     console.print()
 
-    # Table header with proper spacing
-    console.print(
-        f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Tools':>6} {'Context%':>9}  {'Model':<25}[/dim]"
-    )
+    # Table header with proper spacing - include Cleared column if any context editing occurred
+    if any_context_editing:
+        console.print(
+            f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Tools':>6} {'Context%':>9} {'Cleared':>9}  {'Model':<25}[/dim]"
+        )
+    else:
+        console.print(
+            f"[dim]{'Agent':<{agent_width}} {'Input':>9} {'Output':>9} {'Total':>9} {'Turns':>6} {'Tools':>6} {'Context%':>9}  {'Model':<25}[/dim]"
+        )
 
     # Print agent rows - use styling based on subdued_colors flag
     for data in usage_data:
@@ -110,6 +125,7 @@ def display_usage_report(
         turns_str = str(data["turns"])
         tools_str = str(data["tool_calls"])
         context_str = f"{data['context']:.1f}%" if data["context"] is not None else "-"
+        cleared_str = f"{data['cleared_tokens']:,}" if data.get("cleared_tokens", 0) > 0 else "-"
 
         # Truncate agent name if needed
         agent_name = data["name"]
@@ -118,28 +134,54 @@ def display_usage_report(
 
         if subdued_colors:
             # Original fastagent.py style with dim wrapper
-            console.print(
-                f"[dim]{agent_name:<{agent_width}} "
-                f"{input_str:>9} "
-                f"{output_str:>9} "
-                f"[bold]{total_str:>9}[/bold] "
-                f"{turns_str:>6} "
-                f"{tools_str:>6} "
-                f"{context_str:>9}  "
-                f"{data['model']:<25}[/dim]"
-            )
+            if any_context_editing:
+                console.print(
+                    f"[dim]{agent_name:<{agent_width}} "
+                    f"{input_str:>9} "
+                    f"{output_str:>9} "
+                    f"[bold]{total_str:>9}[/bold] "
+                    f"{turns_str:>6} "
+                    f"{tools_str:>6} "
+                    f"{context_str:>9} "
+                    f"{cleared_str:>9}  "
+                    f"{data['model']:<25}[/dim]"
+                )
+            else:
+                console.print(
+                    f"[dim]{agent_name:<{agent_width}} "
+                    f"{input_str:>9} "
+                    f"{output_str:>9} "
+                    f"[bold]{total_str:>9}[/bold] "
+                    f"{turns_str:>6} "
+                    f"{tools_str:>6} "
+                    f"{context_str:>9}  "
+                    f"{data['model']:<25}[/dim]"
+                )
         else:
             # Original interactive_prompt.py style
-            console.print(
-                f"{agent_name:<{agent_width}} "
-                f"{input_str:>9} "
-                f"{output_str:>9} "
-                f"[bold]{total_str:>9}[/bold] "
-                f"{turns_str:>6} "
-                f"{tools_str:>6} "
-                f"{context_str:>9}  "
-                f"[dim]{data['model']:<25}[/dim]"
-            )
+            if any_context_editing:
+                console.print(
+                    f"{agent_name:<{agent_width}} "
+                    f"{input_str:>9} "
+                    f"{output_str:>9} "
+                    f"[bold]{total_str:>9}[/bold] "
+                    f"{turns_str:>6} "
+                    f"{tools_str:>6} "
+                    f"{context_str:>9} "
+                    f"{cleared_str:>9}  "
+                    f"[dim]{data['model']:<25}[/dim]"
+                )
+            else:
+                console.print(
+                    f"{agent_name:<{agent_width}} "
+                    f"{input_str:>9} "
+                    f"{output_str:>9} "
+                    f"[bold]{total_str:>9}[/bold] "
+                    f"{turns_str:>6} "
+                    f"{tools_str:>6} "
+                    f"{context_str:>9}  "
+                    f"[dim]{data['model']:<25}[/dim]"
+                )
 
     # Add total row if multiple agents
     if len(usage_data) > 1:
@@ -148,31 +190,58 @@ def display_usage_report(
         total_output_str = f"{total_output:,}"
         total_tokens_str = f"{total_tokens:,}"
         total_tools_str = str(total_tool_calls)
+        total_cleared_str = f"{total_cleared_tokens:,}" if total_cleared_tokens > 0 else "-"
 
         if subdued_colors:
             # Original fastagent.py style with dim wrapper on bold
-            console.print(
-                f"[bold dim]{'TOTAL':<{agent_width}} "
-                f"{total_input_str:>9} "
-                f"{total_output_str:>9} "
-                f"[bold]{total_tokens_str:>9}[/bold] "
-                f"{'':<6} "
-                f"{total_tools_str:>6} "
-                f"{'':<9}  "
-                f"{'':<25}[/bold dim]"
-            )
+            if any_context_editing:
+                console.print(
+                    f"[bold dim]{'TOTAL':<{agent_width}} "
+                    f"{total_input_str:>9} "
+                    f"{total_output_str:>9} "
+                    f"[bold]{total_tokens_str:>9}[/bold] "
+                    f"{'':<6} "
+                    f"{total_tools_str:>6} "
+                    f"{'':<9} "
+                    f"{total_cleared_str:>9}  "
+                    f"{'':<25}[/bold dim]"
+                )
+            else:
+                console.print(
+                    f"[bold dim]{'TOTAL':<{agent_width}} "
+                    f"{total_input_str:>9} "
+                    f"{total_output_str:>9} "
+                    f"[bold]{total_tokens_str:>9}[/bold] "
+                    f"{'':<6} "
+                    f"{total_tools_str:>6} "
+                    f"{'':<9}  "
+                    f"{'':<25}[/bold dim]"
+                )
         else:
             # Original interactive_prompt.py style
-            console.print(
-                f"[bold]{'TOTAL':<{agent_width}}[/bold] "
-                f"[bold]{total_input_str:>9}[/bold] "
-                f"[bold]{total_output_str:>9}[/bold] "
-                f"[bold]{total_tokens_str:>9}[/bold] "
-                f"{'':<6} "
-                f"[bold]{total_tools_str:>6}[/bold] "
-                f"{'':<9}  "
-                f"{'':<25}"
-            )
+            if any_context_editing:
+                console.print(
+                    f"[bold]{'TOTAL':<{agent_width}}[/bold] "
+                    f"[bold]{total_input_str:>9}[/bold] "
+                    f"[bold]{total_output_str:>9}[/bold] "
+                    f"[bold]{total_tokens_str:>9}[/bold] "
+                    f"{'':<6} "
+                    f"[bold]{total_tools_str:>6}[/bold] "
+                    f"{'':<9} "
+                    f"[bold]{total_cleared_str:>9}[/bold]  "
+                    f"{'':<25}"
+                )
+            else:
+                console.print(
+                    f"[bold]{'TOTAL':<{agent_width}}[/bold] "
+                    f"[bold]{total_input_str:>9}[/bold] "
+                    f"[bold]{total_output_str:>9}[/bold] "
+                    f"[bold]{total_tokens_str:>9}[/bold] "
+                    f"{'':<6} "
+                    f"[bold]{total_tools_str:>6}[/bold] "
+                    f"{'':<9}  "
+                    f"{'':<25}"
+                )
 
     console.print()
 

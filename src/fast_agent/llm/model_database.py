@@ -31,6 +31,10 @@ class ModelParameters(BaseModel):
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
 
+    context_management: bool = True
+    """Whether the model supports server-side context management (tool/thinking clearing).
+    Defaults to True for new models; set to False for legacy models that don't support it."""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -74,11 +78,17 @@ class ModelDatabase:
 
     # Common parameter configurations
     OPENAI_STANDARD = ModelParameters(
-        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
+        context_window=128000,
+        max_output_tokens=16384,
+        tokenizes=OPENAI_MULTIMODAL,
+        context_management=False,  # Not an Anthropic model
     )
 
     OPENAI_4_1_STANDARD = ModelParameters(
-        context_window=1047576, max_output_tokens=32768, tokenizes=OPENAI_MULTIMODAL
+        context_window=1047576,
+        max_output_tokens=32768,
+        tokenizes=OPENAI_MULTIMODAL,
+        context_management=False,  # Not an Anthropic model
     )
 
     OPENAI_O_SERIES = ModelParameters(
@@ -86,19 +96,29 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_VISION,
         reasoning="openai",
+        context_management=False,  # Not an Anthropic model
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
-        context_window=200000, max_output_tokens=4096, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=4096,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        context_management=False,  # Pre-Claude 4 models don't support context editing
     )
 
     ANTHROPIC_35_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=8192,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        context_management=False,  # Pre-Claude 4 models don't support context editing
     )
 
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
     ANTHROPIC_37_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=16384, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=16384,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        context_management=False,  # Pre-Claude 4 models don't support context editing
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -106,6 +126,7 @@ class ModelDatabase:
         max_output_tokens=8192,
         tokenizes=QWEN_MULTIMODAL,
         json_mode="object",
+        context_management=False,  # Not an Anthropic model
     )
     QWEN3_REASONER = ModelParameters(
         context_window=131072,
@@ -113,18 +134,28 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="tags",
+        context_management=False,  # Not an Anthropic model
     )
 
     FAST_AGENT_STANDARD = ModelParameters(
-        context_window=1000000, max_output_tokens=100000, tokenizes=TEXT_ONLY
+        context_window=1000000,
+        max_output_tokens=100000,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
     )
 
     OPENAI_4_1_SERIES = ModelParameters(
-        context_window=1047576, max_output_tokens=32768, tokenizes=OPENAI_MULTIMODAL
+        context_window=1047576,
+        max_output_tokens=32768,
+        tokenizes=OPENAI_MULTIMODAL,
+        context_management=False,  # Not an Anthropic model
     )
 
     OPENAI_4O_SERIES = ModelParameters(
-        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_VISION
+        context_window=128000,
+        max_output_tokens=16384,
+        tokenizes=OPENAI_VISION,
+        context_management=False,  # Not an Anthropic model
     )
 
     OPENAI_O3_SERIES = ModelParameters(
@@ -132,6 +163,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        context_management=False,  # Not an Anthropic model
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
@@ -139,6 +171,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=TEXT_ONLY,
         reasoning="openai",
+        context_management=False,  # Not an Anthropic model
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072,
@@ -146,12 +179,14 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="gpt_oss",
+        context_management=False,  # Not an Anthropic model
     )
     OPENAI_GPT_5 = ModelParameters(
         context_window=400000,
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        context_management=False,  # Not an Anthropic model
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -162,11 +197,17 @@ class ModelDatabase:
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
-        context_window=65536, max_output_tokens=8192, tokenizes=TEXT_ONLY
+        context_window=65536,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
     )
 
     DEEPSEEK_REASONER = ModelParameters(
-        context_window=65536, max_output_tokens=32768, tokenizes=TEXT_ONLY
+        context_window=65536,
+        max_output_tokens=32768,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
     )
 
     DEEPSEEK_DISTILL = ModelParameters(
@@ -175,14 +216,21 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="tags",
+        context_management=False,  # Not an Anthropic model
     )
 
     GEMINI_STANDARD = ModelParameters(
-        context_window=1_048_576, max_output_tokens=65_536, tokenizes=GOOGLE_MULTIMODAL
+        context_window=1_048_576,
+        max_output_tokens=65_536,
+        tokenizes=GOOGLE_MULTIMODAL,
+        context_management=False,  # Not an Anthropic model
     )
 
     GEMINI_2_FLASH = ModelParameters(
-        context_window=1_048_576, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
+        context_window=1_048_576,
+        max_output_tokens=8192,
+        tokenizes=GOOGLE_MULTIMODAL,
+        context_management=False,  # Not an Anthropic model
     )
 
     # 31/08/25 switched to object mode (even though groq says schema supported and used to work..)
@@ -191,6 +239,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=TEXT_ONLY,
         json_mode="object",
+        context_management=False,  # Not an Anthropic model
     )
     KIMI_MOONSHOT_THINKING = ModelParameters(
         context_window=262144,
@@ -198,18 +247,32 @@ class ModelDatabase:
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="reasoning_content",
+        context_management=False,  # Not an Anthropic model
     )
 
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
-    GROK_4 = ModelParameters(context_window=256000, max_output_tokens=16385, tokenizes=TEXT_ONLY)
+    GROK_4 = ModelParameters(
+        context_window=256000,
+        max_output_tokens=16385,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
+    )
 
     GROK_4_VLM = ModelParameters(
-        context_window=2000000, max_output_tokens=16385, tokenizes=XAI_VISION
+        context_window=2000000,
+        max_output_tokens=16385,
+        tokenizes=XAI_VISION,
+        context_management=False,  # Not an Anthropic model
     )
 
     # Source for Grok 3 max output: https://www.reddit.com/r/grok/comments/1j7209p/exploring_grok_3_beta_output_capacity_a_simple/
     # xAI does not document Grok 3 max output tokens, using the above source as a reference.
-    GROK_3 = ModelParameters(context_window=131072, max_output_tokens=16385, tokenizes=TEXT_ONLY)
+    GROK_3 = ModelParameters(
+        context_window=131072,
+        max_output_tokens=16385,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
+    )
 
     # H U G G I N G F A C E - max output tokens are not documented, using 16k as a reasonable default
     GLM_46 = ModelParameters(
@@ -219,10 +282,14 @@ class ModelDatabase:
         json_mode="object",
         reasoning="reasoning_content",
         stream_mode="manual",
+        context_management=False,  # Not an Anthropic model
     )
 
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
-        context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
+        context_window=163_800,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
     )
 
     HF_PROVIDER_DEEPSEEK32 = ModelParameters(
@@ -230,10 +297,14 @@ class ModelDatabase:
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
         reasoning="gpt_oss",
+        context_management=False,  # Not an Anthropic model
     )
 
     HF_PROVIDER_QWEN3_NEXT = ModelParameters(
-        context_window=262_000, max_output_tokens=8192, tokenizes=TEXT_ONLY
+        context_window=262_000,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        context_management=False,  # Not an Anthropic model
     )
 
     # Model configuration database
@@ -433,3 +504,9 @@ class ModelDatabase:
     def list_models(cls) -> list[str]:
         """List all available model names"""
         return list(cls.MODELS.keys())
+
+    @classmethod
+    def supports_context_management(cls, model: str) -> bool:
+        """Check if a model supports server-side context management (Anthropic feature)"""
+        params = cls.get_model_params(model)
+        return params.context_management if params else False

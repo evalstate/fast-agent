@@ -262,6 +262,118 @@ class MCPSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class ContextEditingToolUsesTrigger(BaseModel):
+    """Trigger configuration for when to start clearing tool uses."""
+
+    type: Literal["input_tokens", "tool_uses"] = "input_tokens"
+    """Type of trigger: 'input_tokens' or 'tool_uses'"""
+
+    value: int = 100000
+    """Threshold value. For input_tokens, clearing starts when context exceeds this.
+    For tool_uses, clearing starts when tool use count exceeds this."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContextEditingToolUsesKeep(BaseModel):
+    """Configuration for how many tool uses to keep after clearing."""
+
+    type: Literal["tool_uses"] = "tool_uses"
+    """Keep type (always tool_uses for this strategy)"""
+
+    value: int = 3
+    """Number of recent tool use/result pairs to preserve."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContextEditingClearAtLeast(BaseModel):
+    """Minimum clearing configuration to make cache invalidation worthwhile."""
+
+    type: Literal["input_tokens"] = "input_tokens"
+    """Clear type (always input_tokens for this strategy)"""
+
+    value: int = 5000
+    """Minimum number of tokens to clear each time. If API can't clear at least this amount,
+    the strategy will not be applied."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContextEditingClearToolUses(BaseModel):
+    """Configuration for clearing tool uses/results from conversation context."""
+
+    type: Literal["clear_tool_uses_20250919"] = "clear_tool_uses_20250919"
+    """Strategy type identifier"""
+
+    trigger: ContextEditingToolUsesTrigger | None = None
+    """When to start clearing. Defaults to 100,000 input tokens."""
+
+    keep: ContextEditingToolUsesKeep | None = None
+    """How many recent tool uses to preserve. Defaults to 3."""
+
+    clear_at_least: ContextEditingClearAtLeast | None = None
+    """Minimum tokens to clear to make cache invalidation worthwhile."""
+
+    exclude_tools: list[str] | None = None
+    """List of tool names whose uses/results should never be cleared."""
+
+    clear_tool_inputs: bool = False
+    """If true, also clears tool call parameters along with results.
+    By default, only results are cleared while keeping Claude's original calls visible."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContextEditingThinkingKeep(BaseModel):
+    """Configuration for how many thinking turns to keep."""
+
+    type: Literal["thinking_turns"] = "thinking_turns"
+    """Keep type (thinking_turns)"""
+
+    value: int = 1
+    """Number of recent assistant turns with thinking blocks to preserve.
+    Must be > 0. Use 'all' via keep_all for preserving all thinking blocks."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContextEditingClearThinking(BaseModel):
+    """Configuration for clearing thinking blocks from conversation context."""
+
+    type: Literal["clear_thinking_20251015"] = "clear_thinking_20251015"
+    """Strategy type identifier"""
+
+    keep: ContextEditingThinkingKeep | Literal["all"] | None = None
+    """How many recent thinking turns to preserve.
+    Use 'all' to keep all thinking blocks (maximizes cache hits).
+    Defaults to keeping 1 turn."""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class ContextEditingSettings(BaseModel):
+    """
+    Server-side context editing configuration for Anthropic models.
+
+    Context editing automatically manages conversation context as it grows,
+    helping optimize costs and stay within context window limits.
+    """
+
+    enabled: bool = False
+    """Enable context editing. When enabled, the context-management beta header is sent."""
+
+    clear_tool_uses: ContextEditingClearToolUses | None = None
+    """Configuration for clearing old tool uses/results. If enabled but not configured,
+    uses Anthropic's defaults (trigger at 100k tokens, keep 3 tool uses)."""
+
+    clear_thinking: ContextEditingClearThinking | None = None
+    """Configuration for clearing old thinking blocks (requires extended thinking).
+    If not configured, Anthropic defaults to keeping only the last thinking turn."""
+
+    model_config = ConfigDict(extra="allow")
+
+
 class AnthropicSettings(BaseModel):
     """
     Settings for using Anthropic models in the fast-agent application.
@@ -278,6 +390,11 @@ class AnthropicSettings(BaseModel):
     - "prompt": Caches tools+system prompt (1 block) and template content. Useful for large, static prompts.
     - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
     """
+
+    context_editing: ContextEditingSettings | None = None
+    """Server-side context editing configuration for managing conversation context.
+    This is an Anthropic-specific feature that automatically clears old tool results
+    and thinking blocks when context grows too large."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 

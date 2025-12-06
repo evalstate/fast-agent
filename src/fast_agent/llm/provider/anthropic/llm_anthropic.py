@@ -23,6 +23,11 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.config import (
+    ContextEditingClearThinking,
+    ContextEditingClearToolUses,
+    ContextEditingSettings,
+)
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
@@ -33,6 +38,7 @@ from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
 )
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
@@ -45,6 +51,7 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
+CONTEXT_MANAGEMENT_BETA = "context-management-2025-06-27"
 
 # Type alias for system field - can be string or list of text blocks with cache control
 SystemParam = Union[str, list[TextBlockParam]]
@@ -95,6 +102,85 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if self.context.config and self.context.config.anthropic:
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
+
+    def _get_context_editing_config(self) -> ContextEditingSettings | None:
+        """Get the context editing configuration if available."""
+        if self.context.config and self.context.config.anthropic:
+            return self.context.config.anthropic.context_editing
+        return None
+
+    def _is_context_editing_enabled(self, model: str) -> bool:
+        """Check if context editing should be enabled for the current request."""
+        config = self._get_context_editing_config()
+        if not config or not config.enabled:
+            return False
+        # Check if model supports context management
+        return ModelDatabase.supports_context_management(model)
+
+    def _build_context_management_param(
+        self, config: ContextEditingSettings
+    ) -> dict[str, Any] | None:
+        """Build the context_management parameter for the API request."""
+        edits: list[dict[str, Any]] = []
+
+        # Build clear_thinking edit (must come first if present)
+        if config.clear_thinking:
+            thinking_edit = self._build_clear_thinking_edit(config.clear_thinking)
+            if thinking_edit:
+                edits.append(thinking_edit)
+
+        # Build clear_tool_uses edit
+        if config.clear_tool_uses:
+            tool_edit = self._build_clear_tool_uses_edit(config.clear_tool_uses)
+            if tool_edit:
+                edits.append(tool_edit)
+        elif config.enabled and not config.clear_thinking:
+            # If enabled but no specific config, use default tool clearing
+            edits.append({"type": "clear_tool_uses_20250919"})
+
+        if not edits:
+            return None
+
+        return {"edits": edits}
+
+    def _build_clear_thinking_edit(
+        self, config: ContextEditingClearThinking
+    ) -> dict[str, Any] | None:
+        """Build a clear_thinking edit entry."""
+        edit: dict[str, Any] = {"type": config.type}
+
+        if config.keep == "all":
+            edit["keep"] = "all"
+        elif config.keep:
+            edit["keep"] = {"type": config.keep.type, "value": config.keep.value}
+
+        return edit
+
+    def _build_clear_tool_uses_edit(
+        self, config: ContextEditingClearToolUses
+    ) -> dict[str, Any] | None:
+        """Build a clear_tool_uses edit entry."""
+        edit: dict[str, Any] = {"type": config.type}
+
+        if config.trigger:
+            edit["trigger"] = {"type": config.trigger.type, "value": config.trigger.value}
+
+        if config.keep:
+            edit["keep"] = {"type": config.keep.type, "value": config.keep.value}
+
+        if config.clear_at_least:
+            edit["clear_at_least"] = {
+                "type": config.clear_at_least.type,
+                "value": config.clear_at_least.value,
+            }
+
+        if config.exclude_tools:
+            edit["exclude_tools"] = config.exclude_tools
+
+        if config.clear_tool_inputs:
+            edit["clear_tool_inputs"] = True
+
+        return edit
 
     async def _prepare_tools(
         self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
@@ -519,11 +605,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         cache_mode = self._get_cache_mode()
         logger.debug(f"Anthropic cache_mode: {cache_mode}")
 
+        # Get context editing configuration
+        context_editing_config = self._get_context_editing_config()
+        model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
+        use_context_editing = (
+            context_editing_config
+            and context_editing_config.enabled
+            and self._is_context_editing_enabled(model)
+        )
+
         available_tools = await self._prepare_tools(structured_model, tools)
 
         response_content_blocks: list[ContentBlock] = []
         tool_calls: dict[str, CallToolRequest] | None = None
-        model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
         # Create base arguments dictionary
         base_args = {
@@ -571,11 +665,26 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 self._apply_cache_control_to_message(messages[idx])
 
         logger.debug(f"{arguments}")
-        # Use streaming API with helper
+
+        # Add context_management if enabled
+        if use_context_editing and context_editing_config:
+            context_mgmt = self._build_context_management_param(context_editing_config)
+            if context_mgmt:
+                arguments["context_management"] = context_mgmt
+                logger.debug(f"Context editing enabled: {context_mgmt}")
+
+        # Use streaming API with helper - use beta API if context editing is enabled
         try:
-            async with anthropic.messages.stream(**arguments) as stream:
-                # Process the stream
-                response = await self._process_stream(stream, model)
+            if use_context_editing:
+                # Use beta API for context management
+                async with anthropic.beta.messages.stream(
+                    **arguments, betas=[CONTEXT_MANAGEMENT_BETA]
+                ) as stream:
+                    response = await self._process_stream(stream, model)
+            else:
+                async with anthropic.messages.stream(**arguments) as stream:
+                    # Process the stream
+                    response = await self._process_stream(stream, model)
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             logger.info(f"Anthropic completion cancelled: {reason}")
@@ -595,8 +704,24 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             and not isinstance(response, BaseException)
         ):
             try:
+                # Extract context_management data from response if available
+                context_mgmt_data = None
+                if hasattr(response, "context_management"):
+                    context_mgmt_data = response.context_management
+                    if context_mgmt_data:
+                        # Convert to dict if it's an object
+                        if hasattr(context_mgmt_data, "model_dump"):
+                            context_mgmt_data = context_mgmt_data.model_dump()
+                        elif hasattr(context_mgmt_data, "dict"):
+                            context_mgmt_data = context_mgmt_data.dict()
+                        elif not isinstance(context_mgmt_data, dict):
+                            context_mgmt_data = dict(context_mgmt_data)
+                        logger.debug(f"Context management applied: {context_mgmt_data}")
+
                 turn_usage = TurnUsage.from_anthropic(
-                    response.usage, model or DEFAULT_ANTHROPIC_MODEL
+                    response.usage,
+                    model or DEFAULT_ANTHROPIC_MODEL,
+                    context_management=context_mgmt_data,
                 )
                 self._finalize_turn_usage(turn_usage)
             except Exception as e:
