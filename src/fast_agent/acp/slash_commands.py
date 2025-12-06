@@ -13,11 +13,16 @@ from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from acp.schema import AvailableCommand, AvailableCommandInput, CommandInputHint
+from acp.schema import (
+    AvailableCommand,
+    AvailableCommandInput,
+    UnstructuredCommandInput,
+)
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.history.history_exporter import HistoryExporter
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
@@ -42,7 +47,7 @@ class SlashCommandHandler:
         history_exporter: type[HistoryExporter] | HistoryExporter | None = None,
         client_info: dict | None = None,
         client_capabilities: dict | None = None,
-        protocol_version: str | None = None,
+        protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
     ):
         """
@@ -75,7 +80,9 @@ class SlashCommandHandler:
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
-                input=AvailableCommandInput(root=CommandInputHint(hint="[system|auth|authreset]")),
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[system|auth|authreset]")
+                ),
             ),
             "tools": AvailableCommand(
                 name="tools",
@@ -90,12 +97,12 @@ class SlashCommandHandler:
             "clear": AvailableCommand(
                 name="clear",
                 description="Clear history (`last` for prev. turn)",
-                input=AvailableCommandInput(root=CommandInputHint(hint="[last]")),
+                input=AvailableCommandInput(root=UnstructuredCommandInput(hint="[last]")),
             ),
             "load": AvailableCommand(
                 name="load",
                 description="Load conversation history from file",
-                input=AvailableCommandInput(root=CommandInputHint(hint="<filename>")),
+                input=AvailableCommandInput(root=UnstructuredCommandInput(hint="<filename>")),
             ),
         }
 
@@ -113,6 +120,31 @@ class SlashCommandHandler:
             agent_name: Name of the agent to use for slash commands
         """
         self.current_agent_name = agent_name
+
+    def _get_current_agent(self) -> AgentProtocol | None:
+        """Return the current agent or None if it does not exist."""
+        return self.instance.agents.get(self.current_agent_name)
+
+    def _get_current_agent_or_error(
+        self,
+        heading: str,
+        missing_template: str | None = None,
+    ) -> tuple[AgentProtocol | None, str | None]:
+        """
+        Return the current agent or an error response string if it is missing.
+
+        Args:
+            heading: Heading for the error message.
+            missing_template: Optional custom missing-agent message.
+        """
+        agent = self._get_current_agent()
+        if agent:
+            return agent, None
+
+        message = (
+            missing_template or f"Agent '{self.current_agent_name}' not found for this session."
+        )
+        return None, "\n".join([heading, "", message])
 
     def is_slash_command(self, prompt_text: str) -> bool:
         """Check if the prompt text is a slash command."""
@@ -189,7 +221,7 @@ class SlashCommandHandler:
             fa_version = "unknown"
 
         # Get model information from current agent (not primary)
-        agent = self.instance.agents.get(self.current_agent_name)
+        agent = self._get_current_agent()
 
         # Check if this is a PARALLEL agent
         is_parallel_agent = (
@@ -378,16 +410,9 @@ class SlashCommandHandler:
         """Handle the /status system command to show the system prompt."""
         heading = "# system prompt"
 
-        # Get the current agent
-        agent = self.instance.agents.get(self.current_agent_name)
-        if not agent:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Agent '{self.current_agent_name}' not found for this session.",
-                ]
-            )
+        agent, error = self._get_current_agent_or_error(heading)
+        if error:
+            return error
 
         # Get the system prompt from the agent's instruction attribute
         system_prompt = self._session_instructions.get(
@@ -496,28 +521,21 @@ class SlashCommandHandler:
         """List available MCP tools for the current agent."""
         heading = "# tools"
 
-        agent = self.instance.agents.get(self.current_agent_name)
-        if not agent:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Agent '{self.current_agent_name}' not found for this session.",
-                ]
-            )
+        agent, error = self._get_current_agent_or_error(heading)
+        if error:
+            return error
 
-        list_tools = getattr(agent, "list_tools", None)
-        if not callable(list_tools):
+        if not isinstance(agent, AgentProtocol):
             return "\n".join(
                 [
                     heading,
                     "",
-                    "This agent does not expose a list_tools() method.",
+                    "This agent does not support tool listing.",
                 ]
             )
 
         try:
-            tools_result: "ListToolsResult" = await list_tools()
+            tools_result: "ListToolsResult" = await agent.list_tools()
         except Exception as exc:
             return "\n".join(
                 [
@@ -608,15 +626,12 @@ class SlashCommandHandler:
         """Handle the /save command by persisting conversation history."""
         heading = "# save conversation"
 
-        agent = self.instance.agents.get(self.current_agent_name)
-        if not agent:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
-                ]
-            )
+        agent, error = self._get_current_agent_or_error(
+            heading,
+            missing_template=f"Unable to locate agent '{self.current_agent_name}' for this session.",
+        )
+        if error:
+            return error
 
         filename = arguments.strip() if arguments and arguments.strip() else None
 
@@ -645,15 +660,12 @@ class SlashCommandHandler:
         """Handle the /load command by loading conversation history from a file."""
         heading = "# load conversation"
 
-        agent = self.instance.agents.get(self.current_agent_name)
-        if not agent:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
-                ]
-            )
+        agent, error = self._get_current_agent_or_error(
+            heading,
+            missing_template=f"Unable to locate agent '{self.current_agent_name}' for this session.",
+        )
+        if error:
+            return error
 
         filename = arguments.strip() if arguments and arguments.strip() else None
 
@@ -711,15 +723,12 @@ class SlashCommandHandler:
     def _handle_clear_all(self) -> str:
         """Clear the entire conversation history."""
         heading = "# clear conversation"
-        agent = self.instance.agents.get(self.current_agent_name)
-        if not agent:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
-                ]
-            )
+        agent, error = self._get_current_agent_or_error(
+            heading,
+            missing_template=f"Unable to locate agent '{self.current_agent_name}' for this session.",
+        )
+        if error:
+            return error
 
         try:
             history = getattr(agent, "message_history", None)
@@ -770,15 +779,12 @@ class SlashCommandHandler:
     def _handle_clear_last(self) -> str:
         """Remove the most recent conversation message."""
         heading = "# clear last conversation turn"
-        agent = self.instance.agents.get(self.current_agent_name)
-        if not agent:
-            return "\n".join(
-                [
-                    heading,
-                    "",
-                    f"Unable to locate agent '{self.current_agent_name}' for this session.",
-                ]
-            )
+        agent, error = self._get_current_agent_or_error(
+            heading,
+            missing_template=f"Unable to locate agent '{self.current_agent_name}' for this session.",
+        )
+        if error:
+            return error
 
         try:
             removed = None
@@ -837,17 +843,13 @@ class SlashCommandHandler:
             tool_calls = summary.tool_calls
             tool_errors = summary.tool_errors
             tool_successes = summary.tool_successes
-
-            # Calculate context usage percentage (estimate)
-            # This is a rough estimate based on message count and typical token usage
-            # A more accurate calculation would require token counting
-            context_used_pct = self._estimate_context_usage(summary, agent)
+            context_usage_line = self._context_usage_line(summary, agent)
 
             stats = [
                 f"- Turns: {turns}",
                 f"- Messages: {summary.message_count} (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})",
                 f"- Tool Calls: {tool_calls} (successes: {tool_successes}, errors: {tool_errors})",
-                f"- Context Used: ~{context_used_pct:.1f}%",
+                context_usage_line,
             ]
 
             # Add timing information if available
@@ -920,26 +922,68 @@ class SlashCommandHandler:
 
         return ["_No errors recorded_"]
 
-    def _estimate_context_usage(self, summary: ConversationSummary, agent) -> float:
-        """
-        Estimate context usage as a percentage.
+    def _context_usage_line(self, summary: ConversationSummary, agent) -> str:
+        """Generate a context usage line with token estimation and fallbacks."""
+        # Prefer usage accumulator when available (matches enhanced/interactive prompt display)
+        usage = getattr(agent, "usage_accumulator", None)
+        if usage:
+            window = usage.context_window_size
+            tokens = usage.current_context_tokens
+            pct = usage.context_usage_percentage
+            if window and pct is not None:
+                return f"- Context Used: {min(pct, 100.0):.1f}% (~{tokens:,} tokens of {window:,})"
+            if tokens:
+                return f"- Context Used: ~{tokens:,} tokens (window unknown)"
 
-        This is a rough estimate based on message count.
-        A more accurate calculation would require actual token counting.
-        """
-        if not agent.llm:
-            return 0.0
+        # Fallback to tokenizing the actual conversation text
+        token_count, char_count = self._estimate_tokens(summary, agent)
 
-        model_info = ModelInfo.from_llm(agent.llm)
-        if not model_info or not model_info.context_window:
-            return 0.0
+        model_info = ModelInfo.from_llm(agent.llm) if getattr(agent, "llm", None) else None
+        if model_info and model_info.context_window:
+            percentage = (
+                (token_count / model_info.context_window) * 100
+                if model_info.context_window
+                else 0.0
+            )
+            percentage = min(percentage, 100.0)
+            return f"- Context Used: {percentage:.1f}% (~{token_count:,} tokens of {model_info.context_window:,})"
 
-        # Very rough estimate: assume average of 500 tokens per message
-        # This includes both user and assistant messages
-        estimated_tokens = summary.message_count * 500
+        token_text = f"~{token_count:,} tokens" if token_count else "~0 tokens"
+        return f"- Context Used: {char_count:,} chars ({token_text} est.)"
 
-        context_window = model_info.context_window
-        percentage = (estimated_tokens / context_window) * 100
+    def _estimate_tokens(self, summary: ConversationSummary, agent) -> tuple[int, int]:
+        """Estimate tokens and return (tokens, characters) for the conversation history."""
+        text_parts: list[str] = []
+        for message in summary.messages:
+            for content in getattr(message, "content", []) or []:
+                text = get_text(content)
+                if text:
+                    text_parts.append(text)
 
-        # Cap at 100%
-        return min(percentage, 100.0)
+        combined = "\n".join(text_parts)
+        char_count = len(combined)
+        if not combined:
+            return 0, 0
+
+        model_name = None
+        llm = getattr(agent, "llm", None)
+        if llm:
+            model_name = getattr(llm, "model_name", None)
+
+        token_count = self._count_tokens_with_tiktoken(combined, model_name)
+        return token_count, char_count
+
+    def _count_tokens_with_tiktoken(self, text: str, model_name: str | None) -> int:
+        """Try to count tokens with tiktoken; fall back to a rough chars/4 estimate."""
+        try:
+            import tiktoken
+
+            if model_name:
+                encoding = tiktoken.encoding_for_model(model_name)
+            else:
+                encoding = tiktoken.get_encoding("cl100k_base")
+
+            return len(encoding.encode(text))
+        except Exception:
+            # Rough heuristic: ~4 characters per token (matches default bytes/token constant)
+            return max(1, (len(text) + 3) // 4)

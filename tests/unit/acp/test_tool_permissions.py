@@ -69,21 +69,31 @@ class FakeAgentSideConnection:
         Args:
             permission_responses: Map of "server/tool" -> option_id response
                                   e.g., {"server1/tool1": "allow_always"}
-            should_raise: If set, requestPermission will raise this exception
+            should_raise: If set, request_permission will raise this exception
         """
         self._responses = permission_responses or {}
         self._should_raise = should_raise
         self.permission_requests: list[Any] = []
 
-    async def requestPermission(self, request: Any) -> FakePermissionResponse:
-        """Fake implementation that returns configured responses."""
-        self.permission_requests.append(request)
+    async def request_permission(
+        self,
+        options: Any = None,
+        session_id: str = "",
+        tool_call: Any = None,
+        **kwargs: Any,
+    ) -> FakePermissionResponse:
+        """Fake implementation that returns configured responses (new SDK kwargs style)."""
+        # Store the call for assertions
+        self.permission_requests.append({
+            "options": options,
+            "session_id": session_id,
+            "tool_call": tool_call,
+        })
 
         if self._should_raise:
             raise self._should_raise
 
-        # Extract tool info from request to determine response
-        tool_call = request.toolCall
+        # Extract tool info from tool_call to determine response
         if tool_call:
             # Title may include args like "server/tool(arg=val)", extract base "server/tool"
             title = tool_call.title
@@ -584,12 +594,12 @@ class TestACPToolPermissionManager:
         assert result.remember is False
         assert len(connection.permission_requests) == 1
 
-        # Verify toolCall contains rawInput per ACP spec
+        # Verify tool_call contains rawInput per ACP spec (now stored as dict)
         request = connection.permission_requests[0]
-        assert request.toolCall is not None
-        assert request.toolCall.rawInput == {"arg": "value"}
+        assert request["tool_call"] is not None
+        assert request["tool_call"].rawInput == {"arg": "value"}
         # Title should include argument summary
-        assert "server1/tool1" in request.toolCall.title
+        assert "server1/tool1" in request["tool_call"].title
 
     @pytest.mark.asyncio
     async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:

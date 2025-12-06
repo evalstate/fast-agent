@@ -193,7 +193,7 @@ class _ToolHandlerWorkflowStep(WorkflowTelemetry):
 
         final_content = content
         if final_content is None and text:
-            final_content = [TextContent(type="text", text=text)]
+            final_content: list[ContentBlock] = [TextContent(type="text", text=text)]
 
         await self.handler.on_tool_complete(
             self._tool_call_id,
@@ -243,9 +243,6 @@ class ACPPlanTelemetryProvider:
         if not self._connection:
             return
 
-        # Import here to avoid circular imports
-        from acp.helpers import session_notification
-
         # Convert PlanEntry to dict format expected by ACP
         plan_entries = [
             {
@@ -261,5 +258,4 @@ class ACPPlanTelemetryProvider:
             "entries": plan_entries,
         }
 
-        notification = session_notification(self._session_id, plan_update)
-        await self._connection.sessionUpdate(notification)
+        await self._connection.session_update(session_id=self._session_id, update=plan_update)

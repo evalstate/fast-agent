@@ -12,12 +12,12 @@ import sys
 from pathlib import Path
 
 import pytest
-from acp import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
 from acp.schema import (
     BlobResourceContents,
     ClientCapabilities,
     EmbeddedResourceContentBlock,
+    FileSystemCapability,
     ImageContentBlock,
     Implementation,
     StopReason,
@@ -57,31 +57,33 @@ async def test_acp_image_content_processing() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
 
         # Check that image is advertised as supported
-        assert init_response.agentCapabilities is not None
+        agent_caps = getattr(init_response, "agent_capabilities", None) or getattr(
+            init_response, "agentCapabilities", None
+        )
+        assert agent_caps is not None
         # Handle both "prompts" and "promptCapabilities" field names
         prompt_caps = getattr(
-            init_response.agentCapabilities, "prompts", None
-        ) or getattr(init_response.agentCapabilities, "promptCapabilities", None)
+            agent_caps, "prompts", None
+        ) or getattr(agent_caps, "promptCapabilities", None)
         assert prompt_caps is not None
         # Check if image capability is enabled
         assert getattr(prompt_caps, "image", False) is True
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = getattr(session_response, "session_id", None) or getattr(
+            session_response, "sessionId", None
         )
-        session_id = session_response.sessionId
         assert session_id
 
         # Create a fake image (base64 encoded)
@@ -97,12 +99,13 @@ async def test_acp_image_content_processing() -> None:
             ),
         ]
 
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=prompt_blocks)
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
         # Should complete successfully
-        assert prompt_response.stopReason == END_TURN
+        stop_reason = getattr(prompt_response, "stop_reason", None) or getattr(
+            prompt_response, "stopReason", None
+        )
+        assert stop_reason == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)
@@ -110,7 +113,7 @@ async def test_acp_image_content_processing() -> None:
         # Verify we got a response (passthrough model will echo something back)
         assert len(client.notifications) > 0
         last_update = client.notifications[-1]
-        assert last_update.sessionId == session_id
+        assert last_update["session_id"] == session_id
 
 
 @pytest.mark.integration
@@ -121,31 +124,33 @@ async def test_acp_embedded_text_resource_processing() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
 
         # Check that resource is advertised as supported
-        assert init_response.agentCapabilities is not None
+        agent_caps = getattr(init_response, "agent_capabilities", None) or getattr(
+            init_response, "agentCapabilities", None
+        )
+        assert agent_caps is not None
         # Handle both "prompts" and "promptCapabilities" field names
         prompt_caps = getattr(
-            init_response.agentCapabilities, "prompts", None
-        ) or getattr(init_response.agentCapabilities, "promptCapabilities", None)
+            agent_caps, "prompts", None
+        ) or getattr(agent_caps, "promptCapabilities", None)
         assert prompt_caps is not None
         # Check if embeddedContext capability is enabled
         assert getattr(prompt_caps, "embeddedContext", False) is True
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = getattr(session_response, "session_id", None) or getattr(
+            session_response, "sessionId", None
         )
-        session_id = session_response.sessionId
         assert session_id
 
         # Send prompt with text resource
@@ -162,11 +167,15 @@ async def test_acp_embedded_text_resource_processing() -> None:
         ]
 
         prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=prompt_blocks)
+            session_id=session_id,
+            prompt=prompt_blocks,
         )
 
         # Should complete successfully
-        assert prompt_response.stopReason == END_TURN
+        stop_reason = getattr(prompt_response, "stop_reason", None) or getattr(
+            prompt_response, "stopReason", None
+        )
+        assert stop_reason == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)
@@ -174,7 +183,7 @@ async def test_acp_embedded_text_resource_processing() -> None:
         # Verify we got a response
         assert len(client.notifications) > 0
         last_update = client.notifications[-1]
-        assert last_update.sessionId == session_id
+        assert last_update["session_id"] == session_id
 
 
 @pytest.mark.integration
@@ -185,20 +194,19 @@ async def test_acp_embedded_blob_resource_processing() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize and create session
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = getattr(session_response, "session_id", None) or getattr(
+            session_response, "sessionId", None
         )
-        session_id = session_response.sessionId
         assert session_id
 
         # Create fake binary data
@@ -217,12 +225,13 @@ async def test_acp_embedded_blob_resource_processing() -> None:
             ),
         ]
 
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=prompt_blocks)
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
         # Should complete successfully
-        assert prompt_response.stopReason == END_TURN
+        stop_reason = getattr(prompt_response, "stop_reason", None) or getattr(
+            prompt_response, "stopReason", None
+        )
+        assert stop_reason == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)
@@ -239,20 +248,19 @@ async def test_acp_mixed_content_blocks() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize and create session
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = getattr(session_response, "session_id", None) or getattr(
+            session_response, "sessionId", None
         )
-        session_id = session_response.sessionId
 
         # Create mixed content
         image_data = base64.b64encode(b"fake-screenshot").decode("utf-8")
@@ -276,12 +284,13 @@ async def test_acp_mixed_content_blocks() -> None:
             text_block("What's wrong?"),
         ]
 
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=prompt_blocks)
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
         # Should complete successfully
-        assert prompt_response.stopReason == END_TURN
+        stop_reason = getattr(prompt_response, "stop_reason", None) or getattr(
+            prompt_response, "stopReason", None
+        )
+        assert stop_reason == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)
@@ -289,7 +298,7 @@ async def test_acp_mixed_content_blocks() -> None:
         # Verify we got a response
         assert len(client.notifications) > 0
         last_update = client.notifications[-1]
-        assert last_update.sessionId == session_id
+        assert last_update["session_id"] == session_id
 
 
 @pytest.mark.integration
@@ -305,20 +314,19 @@ async def test_acp_resource_only_prompt_not_slash_command() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize and create session
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = getattr(session_response, "session_id", None) or getattr(
+            session_response, "sessionId", None
         )
-        session_id = session_response.sessionId
         assert session_id
 
         # Send a resource-only prompt with text starting with "/"
@@ -334,12 +342,13 @@ async def test_acp_resource_only_prompt_not_slash_command() -> None:
             ),
         ]
 
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=prompt_blocks)
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=prompt_blocks)
 
         # Should complete successfully with END_TURN, not be treated as an unknown slash command
-        assert prompt_response.stopReason == END_TURN
+        stop_reason = getattr(prompt_response, "stop_reason", None) or getattr(
+            prompt_response, "stopReason", None
+        )
+        assert stop_reason == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)
@@ -348,11 +357,11 @@ async def test_acp_resource_only_prompt_not_slash_command() -> None:
         # If it was incorrectly treated as a slash command, we'd get "Unknown command" response
         assert len(client.notifications) > 0
         last_update = client.notifications[-1]
-        assert last_update.sessionId == session_id
+        assert last_update["session_id"] == session_id
 
         # The response should contain the echoed resource text, not an error about unknown command
         # (passthrough model echoes the input)
-        response_text = str(last_update)
+        response_text = str(last_update["update"])
         assert "Unknown command" not in response_text
 
 

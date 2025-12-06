@@ -19,7 +19,6 @@ from acp.helpers import (
     embedded_text_resource,
     image_block,
     resource_link_block,
-    session_notification,
     text_block,
     tool_content,
 )
@@ -110,11 +109,13 @@ class ACPToolProgressManager:
         if external_id:
             # Look up the toolCallId from the tracker
             async with self._lock:
-                # The tracker stores tool calls by external_id
-                if hasattr(self._tracker, '_tool_calls'):
-                    tool_call = self._tracker._tool_calls.get(external_id)
-                    if tool_call:
-                        return tool_call.toolCallId
+                try:
+                    model = self._tracker.tool_call_model(external_id)
+                    if model and hasattr(model, "toolCallId"):
+                        return model.toolCallId
+                except Exception:
+                    # Swallow and fall back to local mapping
+                    pass
                 # Fallback: check our own mapping
                 for tool_call_id, ext_id in self._tool_call_id_to_external_id.items():
                     if ext_id == external_id:
@@ -201,8 +202,9 @@ class ACPToolProgressManager:
                 self._stream_chunk_counts[tool_use_id] = 0
 
             # Send initial notification
-            notification = session_notification(self._session_id, tool_call_start)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(
+                session_id=self._session_id, update=tool_call_start
+            )
 
             logger.debug(
                 f"Sent early stream tool call notification: {tool_call_start.toolCallId}",
@@ -261,8 +263,7 @@ class ACPToolProgressManager:
                 return
 
             # Send notification outside the lock
-            notification = session_notification(self._session_id, update)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(session_id=self._session_id, update=update)
 
         except Exception as e:
             logger.debug(
@@ -360,9 +361,7 @@ class ACPToolProgressManager:
                         )
                         acp_content.append(
                             tool_content(
-                                EmbeddedResourceContentBlock(
-                                    type="embedded_resource", resource=embedded_res
-                                )
+                                EmbeddedResourceContentBlock(type="resource", resource=embedded_res)
                             )
                         )
                     elif isinstance(resource, BlobResourceContents):
@@ -373,9 +372,7 @@ class ACPToolProgressManager:
                         )
                         acp_content.append(
                             tool_content(
-                                EmbeddedResourceContentBlock(
-                                    type="embedded_resource", resource=embedded_res
-                                )
+                                EmbeddedResourceContentBlock(type="resource", resource=embedded_res)
                             )
                         )
                 else:
@@ -468,7 +465,7 @@ class ACPToolProgressManager:
         async with self._lock:
             if existing_external_id:
                 # Get final chunk count before clearing
-                final_chunk_count = self._stream_chunk_counts.get(tool_use_id, 0)
+                final_chunk_count = self._stream_chunk_counts.get(tool_use_id or "", 0)
 
                 # Update title with streamed count only if we showed streaming progress
                 if final_chunk_count >= 25:
@@ -539,8 +536,9 @@ class ACPToolProgressManager:
 
         # Send notification (either new start or update)
         try:
-            notification = session_notification(self._session_id, tool_call_update)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(
+                session_id=self._session_id, update=tool_call_update
+            )
         except Exception as e:
             logger.error(
                 f"Error sending tool_call notification: {e}",
@@ -603,8 +601,7 @@ class ACPToolProgressManager:
 
         # Send the failure notification
         try:
-            notification = session_notification(self._session_id, update_data)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(session_id=self._session_id, update=update_data)
         except Exception as e:  # noqa: BLE001
             logger.error(
                 f"Error sending permission-denied notification: {e}",
@@ -684,8 +681,7 @@ class ACPToolProgressManager:
 
         # Send progress update
         try:
-            notification = session_notification(self._session_id, update_data)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.debug(
                 f"Updated tool call progress: {tool_call_id}",
@@ -780,8 +776,7 @@ class ACPToolProgressManager:
 
         # Send completion notification
         try:
-            notification = session_notification(self._session_id, update_data)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.info(
                 f"Completed tool call: {tool_call_id}",
@@ -815,7 +810,8 @@ class ACPToolProgressManager:
         async with self._lock:
             count = len(self._tool_call_id_to_external_id)
             # Forget all tracked tools
-            for external_id in list(self._tracker._tool_calls.keys()):
+            tracker_calls = getattr(self._tracker, "_calls", {})
+            for external_id in list(tracker_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
             self._simple_titles.clear()

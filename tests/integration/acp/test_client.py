@@ -6,13 +6,18 @@ from acp.exceptions import RequestError
 from acp.interfaces import Client
 from acp.schema import (
     AllowedOutcome,
+    CreateTerminalResponse,
     DeniedOutcome,
-    ReadTextFileRequest,
+    EnvVariable,
+    KillTerminalCommandResponse,
+    PermissionOption,
     ReadTextFileResponse,
-    RequestPermissionRequest,
+    ReleaseTerminalResponse,
     RequestPermissionResponse,
-    SessionNotification,
-    WriteTextFileRequest,
+    TerminalExitStatus,
+    TerminalOutputResponse,
+    ToolCallUpdate,
+    WaitForTerminalExitResponse,
     WriteTextFileResponse,
 )
 
@@ -24,6 +29,8 @@ class TestClient(Client):
     This mirrors the helper shipped in agent-client-protocol's own test suite
     and captures notifications, permission decisions, file operations, and
     custom extension calls so tests can assert on the agent's behaviour.
+
+    Uses the new SDK 0.7.0 snake_case method names with flattened parameters.
     """
 
     __test__ = False  # Prevent pytest from treating this as a test case
@@ -31,7 +38,7 @@ class TestClient(Client):
     def __init__(self) -> None:
         self.permission_outcomes: list[RequestPermissionResponse] = []
         self.files: dict[str, str] = {}
-        self.notifications: list[SessionNotification] = []
+        self.notifications: list[dict[str, Any]] = []  # Store as dicts for flexibility
         self.ext_calls: list[tuple[str, dict[str, Any]]] = []
         self.ext_notes: list[tuple[str, dict[str, Any]]] = []
         self.terminals: dict[str, dict[str, Any]] = {}
@@ -49,47 +56,73 @@ class TestClient(Client):
             )
         )
 
-    async def requestPermission(
-        self, params: RequestPermissionRequest
+    # New SDK 0.7.0 style: snake_case with flattened parameters
+    async def request_permission(
+        self,
+        options: list[PermissionOption],
+        session_id: str,
+        tool_call: ToolCallUpdate,
+        **kwargs: Any,
     ) -> RequestPermissionResponse:
         if self.permission_outcomes:
             return self.permission_outcomes.pop()
         return RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
 
-    async def writeTextFile(self, params: WriteTextFileRequest) -> WriteTextFileResponse:
-        self.files[str(params.path)] = params.content
+    async def write_text_file(
+        self,
+        content: str,
+        path: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> WriteTextFileResponse | None:
+        self.files[str(path)] = content
         return WriteTextFileResponse()
 
-    async def readTextFile(self, params: ReadTextFileRequest) -> ReadTextFileResponse:
-        content = self.files.get(str(params.path), "default content")
+    async def read_text_file(
+        self,
+        path: str,
+        session_id: str,
+        limit: int | None = None,
+        line: int | None = None,
+        **kwargs: Any,
+    ) -> ReadTextFileResponse:
+        content = self.files.get(str(path), "default content")
         return ReadTextFileResponse(content=content)
 
-    async def sessionUpdate(self, params: SessionNotification) -> None:
-        self.notifications.append(params)
+    async def session_update(
+        self,
+        session_id: str,
+        update: Any,
+        **kwargs: Any,
+    ) -> None:
+        """Capture session updates for assertions."""
+        self.notifications.append(
+            {
+                "session_id": session_id,
+                "update": update,
+            }
+        )
 
     # Terminal support - implement simple in-memory simulation
-    async def terminal_create(self, params: dict[str, Any]) -> dict[str, Any]:
+    async def create_terminal(
+        self,
+        command: str,
+        session_id: str,
+        args: list[str] | None = None,
+        cwd: str | None = None,
+        env: list[EnvVariable] | None = None,
+        output_byte_limit: int | None = None,
+        **kwargs: Any,
+    ) -> CreateTerminalResponse:
         """Simulate terminal creation and command execution.
 
         Per ACP spec: CLIENT creates the terminal ID, not the agent.
         This matches how real clients like Toad work (terminal-1, terminal-2, etc.).
-
-        Params per spec: sessionId (required), command (required), args, env, cwd, outputByteLimit (optional)
-        Note: sessionId is optional here to support unit tests that call this directly
         """
-        session_id = params.get("sessionId", "test-session")  # Required per ACP spec, optional for unit tests
-        command = params["command"]
-        args = params.get("args", [])
-        env = params.get("env", [])  # ACP spec expects array of {name, value} objects
-        cwd = params.get("cwd")
-
         # Validate env format per ACP spec
         if env:
             if not isinstance(env, list):
                 raise ValueError(f"env must be an array, got {type(env).__name__}")
-            for item in env:
-                if not isinstance(item, dict) or "name" not in item or "value" not in item:
-                    raise ValueError(f"env items must have 'name' and 'value' keys, got {item}")
 
         # Generate terminal ID like real clients do (terminal-1, terminal-2, etc.)
         self._terminal_count += 1
@@ -112,65 +145,77 @@ class TestClient(Client):
         }
 
         # Return the ID we created
-        return {"terminalId": terminal_id}
+        return CreateTerminalResponse(terminalId=terminal_id)
 
-    async def terminal_output(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Get terminal output.
-
-        Params per spec: sessionId (required), terminalId (required)
-        Note: sessionId is optional here to support unit tests that call this directly
-        """
-        terminal_id = params["terminalId"]
+    async def terminal_output(
+        self,
+        session_id: str,
+        terminal_id: str,
+        **kwargs: Any,
+    ) -> TerminalOutputResponse:
+        """Get terminal output."""
         terminal = self.terminals.get(terminal_id, {})
+        exit_code = terminal.get("exit_code")
+        if isinstance(exit_code, int) and exit_code >= 0:
+            exit_status = TerminalExitStatus(exitCode=exit_code)
+        elif isinstance(exit_code, int) and exit_code < 0:
+            exit_status = TerminalExitStatus(exitCode=None, signal="SIGKILL")
+        else:
+            exit_status = None
 
-        return {
-            "output": terminal.get("output", ""),
-            "truncated": False,
-            "exitCode": terminal.get("exit_code") if terminal.get("completed") else None,
-        }
+        return TerminalOutputResponse(
+            output=terminal.get("output", ""),
+            truncated=False,
+            exit_status=exit_status,
+        )
 
-    async def terminal_release(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Release terminal resources.
-
-        Params per spec: sessionId (required), terminalId (required)
-        Note: sessionId is optional here to support unit tests that call this directly
-        """
-        terminal_id = params["terminalId"]
+    async def release_terminal(
+        self,
+        session_id: str,
+        terminal_id: str,
+        **kwargs: Any,
+    ) -> ReleaseTerminalResponse | None:
+        """Release terminal resources."""
         if terminal_id in self.terminals:
             del self.terminals[terminal_id]
-        return {}
+        return ReleaseTerminalResponse()
 
-    async def terminal_wait_for_exit(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Wait for terminal to exit (immediate in simulation).
-
-        Params per spec: sessionId (required), terminalId (required)
-        Note: sessionId is optional here to support unit tests that call this directly
-        """
-        terminal_id = params["terminalId"]
+    async def wait_for_terminal_exit(
+        self,
+        session_id: str,
+        terminal_id: str,
+        **kwargs: Any,
+    ) -> WaitForTerminalExitResponse:
+        """Wait for terminal to exit (immediate in simulation)."""
         terminal = self.terminals.get(terminal_id, {})
+        exit_code = terminal.get("exit_code")
+        if isinstance(exit_code, int) and exit_code >= 0:
+            return WaitForTerminalExitResponse(exitCode=exit_code, signal=None)
 
-        return {
-            "exitCode": terminal.get("exit_code", -1),
-            "signal": None,
-        }
+        # Unknown or negative exit -> model as killed/terminated with no exit code
+        return WaitForTerminalExitResponse(exitCode=None, signal="SIGKILL" if exit_code else None)
 
-    async def terminal_kill(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Kill a running terminal.
-
-        Params per spec: sessionId (required), terminalId (required)
-        Note: sessionId is optional here to support unit tests that call this directly
-        """
-        terminal_id = params["terminalId"]
+    async def kill_terminal(
+        self,
+        session_id: str,
+        terminal_id: str,
+        **kwargs: Any,
+    ) -> KillTerminalCommandResponse | None:
+        """Kill a running terminal."""
         if terminal_id in self.terminals:
             self.terminals[terminal_id]["exit_code"] = -1
             self.terminals[terminal_id]["completed"] = True
-        return {}
+        return KillTerminalCommandResponse()
 
-    async def extMethod(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+    async def ext_method(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         self.ext_calls.append((method, params))
         if method == "example.com/ping":
             return {"response": "pong", "params": params}
         raise RequestError.method_not_found(method)
 
-    async def extNotification(self, method: str, params: dict[str, Any]) -> None:
+    async def ext_notification(self, method: str, params: dict[str, Any]) -> None:
         self.ext_notes.append((method, params))
+
+    def on_connect(self, conn: Any) -> None:
+        """Called when connected to agent. No-op for test client."""
+        pass

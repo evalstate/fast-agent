@@ -7,9 +7,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from acp import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, Implementation, StopReason
+from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -19,6 +18,14 @@ from test_client import TestClient  # noqa: E402
 
 CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
 END_TURN: StopReason = "end_turn"
+
+
+def _get_session_id(response: object) -> str:
+    return getattr(response, "session_id", None) or getattr(response, "sessionId")
+
+
+def _get_stop_reason(response: object) -> str | None:
+    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
 
 
 def get_fast_agent_cmd() -> tuple:
@@ -71,34 +78,35 @@ async def test_acp_filesystem_read_tool_call() -> None:
         _process,
     ):
         # Initialize with filesystem support enabled
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-filesystem-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
 
-        assert init_response.protocolVersion == 1
-        assert init_response.agentCapabilities is not None
+        assert getattr(init_response, "protocol_version", None) == 1 or getattr(
+            init_response, "protocolVersion", None
+        ) == 1
+        assert (
+            getattr(init_response, "agent_capabilities", None)
+            or getattr(init_response, "agentCapabilities", None)
+            is not None
+        )
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
         assert session_id
 
         # Use passthrough model's ***CALL_TOOL directive to invoke read_text_file
         prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
 
         # Should complete successfully
-        assert prompt_response.stopReason == END_TURN
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)
@@ -125,21 +133,18 @@ async def test_acp_filesystem_write_tool_call() -> None:
         _process,
     ):
         # Initialize with filesystem support enabled
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-filesystem-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-filesystem-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
         assert session_id
 
         # Use passthrough model's ***CALL_TOOL directive to invoke write_text_file
@@ -147,12 +152,10 @@ async def test_acp_filesystem_write_tool_call() -> None:
         test_content = "Test content from tool call"
         prompt_text = f'***CALL_TOOL write_text_file {{"path": "{test_path}", "content": "{test_content}"}}'
 
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
 
         # Should complete successfully
-        assert prompt_response.stopReason == END_TURN
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client)

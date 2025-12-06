@@ -8,7 +8,7 @@ security compared to direct file system access.
 
 from typing import TYPE_CHECKING, Any
 
-from acp.schema import ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest
+from acp.schema import ReadTextFileResponse
 from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
@@ -219,16 +219,13 @@ class ACPFilesystemRuntime:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
 
         try:
-            # Build request using proper ACP schema
-            request = ReadTextFileRequest(
-                sessionId=self.session_id,
+            # Send request using the proper ACP method with flattened parameters
+            response: ReadTextFileResponse = await self.connection.read_text_file(
                 path=path,
+                session_id=self.session_id,
                 line=arguments.get("line"),
                 limit=arguments.get("limit"),
             )
-
-            # Send request using the proper ACP method
-            response: ReadTextFileResponse = await self.connection.readTextFile(request)
             content = response.content
 
             self.logger.info(
@@ -366,15 +363,12 @@ class ACPFilesystemRuntime:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
 
         try:
-            # Build request using proper ACP schema
-            request = WriteTextFileRequest(
-                sessionId=self.session_id,
-                path=path,
+            # Send request using the proper ACP method with flattened parameters
+            await self.connection.write_text_file(
                 content=content,
+                path=path,
+                session_id=self.session_id,
             )
-
-            # Send request using the proper ACP method
-            await self.connection.writeTextFile(request)
 
             self.logger.info(
                 "File write completed",

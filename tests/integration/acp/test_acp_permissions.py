@@ -13,9 +13,8 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from acp import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, Implementation, StopReason
+from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
 from acp.stdio import spawn_agent_process
 
 from fast_agent.mcp.common import create_namespaced_name
@@ -28,6 +27,16 @@ from test_client import TestClient  # noqa: E402
 
 CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
 END_TURN: StopReason = "end_turn"
+
+
+def _get_session_id(response: object) -> str:
+    """Helper to support both camelCase and snake_case session id fields."""
+    return getattr(response, "session_id", None) or getattr(response, "sessionId")
+
+
+def _get_stop_reason(response: object) -> str | None:
+    """Helper to support both camelCase and snake_case stop reason fields."""
+    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
 
 
 def _get_fast_agent_cmd(cwd: str | None = None, no_permissions: bool = False) -> tuple:
@@ -69,8 +78,9 @@ def _tool_executed_successfully(client: TestClient) -> bool:
     Look for a tool_call_update notification with status 'completed'.
     """
     for n in client.notifications:
-        if hasattr(n.update, "sessionUpdate") and n.update.sessionUpdate == "tool_call_update":
-            if hasattr(n.update, "status") and n.update.status == "completed":
+        update = n["update"]
+        if hasattr(update, "sessionUpdate") and update.sessionUpdate == "tool_call_update":
+            if hasattr(update, "status") and update.status == "completed":
                 return True
     return False
 
@@ -81,8 +91,9 @@ def _tool_was_denied(client: TestClient) -> bool:
     Look for a tool_call_update notification with status 'failed'.
     """
     for n in client.notifications:
-        if hasattr(n.update, "sessionUpdate") and n.update.sessionUpdate == "tool_call_update":
-            if hasattr(n.update, "status") and n.update.status == "failed":
+        update = n["update"]
+        if hasattr(update, "sessionUpdate") and update.sessionUpdate == "tool_call_update":
+            if hasattr(update, "status") and update.status == "failed":
                 return True
     return False
 
@@ -97,31 +108,26 @@ async def test_permission_request_sent_when_tool_called() -> None:
 
     async with spawn_agent_process(lambda _: client, *_get_fast_agent_cmd()) as (connection, _process):
         # Initialize
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
 
         # Send a prompt that will trigger a tool call
         tool_name = create_namespaced_name("progress_test", "progress_task")
         prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
-        )
+        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
 
         # The tool should have been denied (permission cancelled)
-        assert prompt_response.stopReason == END_TURN
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications to be received
         await _wait_for_notifications(client, count=2, timeout=3.0)
@@ -141,31 +147,28 @@ async def test_allow_once_permits_execution_without_persistence() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         async with spawn_agent_process(lambda _: client, *_get_fast_agent_cmd()) as (connection, _process):
             # Initialize
-            init_request = InitializeRequest(
-                protocolVersion=1,
-                clientCapabilities=ClientCapabilities(
-                    fs={"readTextFile": True, "writeTextFile": True},
+            await connection.initialize(
+                protocol_version=1,
+                client_capabilities=ClientCapabilities(
+                    fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                     terminal=False,
                 ),
-                clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+                client_info=Implementation(name="pytest-client", version="0.0.1"),
             )
-            await connection.initialize(init_request)
 
             # Create session with temp dir as cwd
-            session_response = await connection.newSession(
-                NewSessionRequest(mcpServers=[], cwd=tmpdir)
-            )
-            session_id = session_response.sessionId
+            session_response = await connection.new_session(mcp_servers=[], cwd=tmpdir)
+            session_id = _get_session_id(session_response)
 
             # Send a prompt that will trigger a tool call
             tool_name = create_namespaced_name("progress_test", "progress_task")
             prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
             prompt_response = await connection.prompt(
-                PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
+                session_id=session_id, prompt=[text_block(prompt_text)]
             )
 
             # The tool should have executed successfully
-            assert prompt_response.stopReason == END_TURN
+            assert _get_stop_reason(prompt_response) == END_TURN
 
             # Wait for notifications
             await _wait_for_notifications(client, count=3, timeout=3.0)
@@ -189,31 +192,28 @@ async def test_allow_always_persists() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         async with spawn_agent_process(lambda _: client, *_get_fast_agent_cmd()) as (connection, _process):
             # Initialize
-            init_request = InitializeRequest(
-                protocolVersion=1,
-                clientCapabilities=ClientCapabilities(
-                    fs={"readTextFile": True, "writeTextFile": True},
+            await connection.initialize(
+                protocol_version=1,
+                client_capabilities=ClientCapabilities(
+                    fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                     terminal=False,
                 ),
-                clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+                client_info=Implementation(name="pytest-client", version="0.0.1"),
             )
-            await connection.initialize(init_request)
 
             # Create session with temp dir as cwd
-            session_response = await connection.newSession(
-                NewSessionRequest(mcpServers=[], cwd=tmpdir)
-            )
-            session_id = session_response.sessionId
+            session_response = await connection.new_session(mcp_servers=[], cwd=tmpdir)
+            session_id = _get_session_id(session_response)
 
             # Send a prompt that will trigger a tool call
             tool_name = create_namespaced_name("progress_test", "progress_task")
             prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
             prompt_response = await connection.prompt(
-                PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
+                session_id=session_id, prompt=[text_block(prompt_text)]
             )
 
             # The tool should have executed successfully
-            assert prompt_response.stopReason == END_TURN
+            assert _get_stop_reason(prompt_response) == END_TURN
 
             # Wait for notifications
             await _wait_for_notifications(client, count=3, timeout=3.0)
@@ -240,31 +240,28 @@ async def test_reject_once_blocks_without_persistence() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         async with spawn_agent_process(lambda _: client, *_get_fast_agent_cmd()) as (connection, _process):
             # Initialize
-            init_request = InitializeRequest(
-                protocolVersion=1,
-                clientCapabilities=ClientCapabilities(
-                    fs={"readTextFile": True, "writeTextFile": True},
+            await connection.initialize(
+                protocol_version=1,
+                client_capabilities=ClientCapabilities(
+                    fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                     terminal=False,
                 ),
-                clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+                client_info=Implementation(name="pytest-client", version="0.0.1"),
             )
-            await connection.initialize(init_request)
 
             # Create session with temp dir as cwd
-            session_response = await connection.newSession(
-                NewSessionRequest(mcpServers=[], cwd=tmpdir)
-            )
-            session_id = session_response.sessionId
+            session_response = await connection.new_session(mcp_servers=[], cwd=tmpdir)
+            session_id = _get_session_id(session_response)
 
             # Send a prompt that will trigger a tool call
             tool_name = create_namespaced_name("progress_test", "progress_task")
             prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
             prompt_response = await connection.prompt(
-                PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
+                session_id=session_id, prompt=[text_block(prompt_text)]
             )
 
             # The tool should have been rejected
-            assert prompt_response.stopReason == END_TURN
+            assert _get_stop_reason(prompt_response) == END_TURN
 
             # Wait for notifications
             await _wait_for_notifications(client, count=2, timeout=3.0)
@@ -288,31 +285,28 @@ async def test_reject_always_blocks_and_persists() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         async with spawn_agent_process(lambda _: client, *_get_fast_agent_cmd()) as (connection, _process):
             # Initialize
-            init_request = InitializeRequest(
-                protocolVersion=1,
-                clientCapabilities=ClientCapabilities(
-                    fs={"readTextFile": True, "writeTextFile": True},
+            await connection.initialize(
+                protocol_version=1,
+                client_capabilities=ClientCapabilities(
+                    fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                     terminal=False,
                 ),
-                clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+                client_info=Implementation(name="pytest-client", version="0.0.1"),
             )
-            await connection.initialize(init_request)
 
             # Create session with temp dir as cwd
-            session_response = await connection.newSession(
-                NewSessionRequest(mcpServers=[], cwd=tmpdir)
-            )
-            session_id = session_response.sessionId
+            session_response = await connection.new_session(mcp_servers=[], cwd=tmpdir)
+            session_id = _get_session_id(session_response)
 
             # Send a prompt that will trigger a tool call
             tool_name = create_namespaced_name("progress_test", "progress_task")
             prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
             prompt_response = await connection.prompt(
-                PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
+                session_id=session_id, prompt=[text_block(prompt_text)]
             )
 
             # The tool should have been rejected
-            assert prompt_response.stopReason == END_TURN
+            assert _get_stop_reason(prompt_response) == END_TURN
 
             # Wait for notifications
             await _wait_for_notifications(client, count=2, timeout=3.0)
@@ -337,31 +331,28 @@ async def test_no_permissions_flag_disables_checks() -> None:
 
     async with spawn_agent_process(lambda _: client, *_get_fast_agent_cmd(no_permissions=True)) as (connection, _process):
         # Initialize
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
 
         # Send a prompt that will trigger a tool call
         tool_name = create_namespaced_name("progress_test", "progress_task")
         prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
         prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
+            session_id=session_id, prompt=[text_block(prompt_text)]
         )
 
         # The tool should have executed without permission request
-        assert prompt_response.stopReason == END_TURN
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client, count=3, timeout=3.0)
