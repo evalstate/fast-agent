@@ -1,10 +1,11 @@
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, Union
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
-from mcp.types import CallToolResult, ListToolsResult, Tool
+from mcp.types import CallToolResult, ListToolsResult, PromptMessage, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_runner import ToolRunner, create_tool_runner
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_ERROR_CHANNEL,
@@ -246,6 +247,59 @@ class ToolAgent(LlmAgent):
     async def list_tools(self) -> ListToolsResult:
         """Return available tools for this agent. Overridable by subclasses."""
         return ListToolsResult(tools=list(self._tool_schemas))
+
+    def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
+    ) -> ToolRunner:
+        """
+        Create an iterable tool runner for fine-grained control over the tool loop.
+
+        The tool runner yields each message from Claude, including intermediate
+        messages that request tool use. This allows inspection and modification
+        of the conversation between tool calls.
+
+        Example:
+            ```python
+            runner = agent.tool_runner("What's the weather in Paris?")
+
+            async for message in runner:
+                print(f"Claude: {message.first_text()}")
+                if message.tool_calls:
+                    print(f"Calling tools: {list(message.tool_calls.keys())}")
+
+            # Or simply get the final result:
+            final = await agent.tool_runner("Calculate 15 + 27").until_done()
+            ```
+
+        Args:
+            messages: Input message(s) in any supported format
+            request_params: Optional request parameters
+            tools: Optional list of tools (defaults to agent's tools)
+
+        Returns:
+            A ToolRunner instance that can be async-iterated or awaited via until_done()
+        """
+        # Get effective request params
+        effective_params = self.llm.get_request_params(request_params) if self.llm else request_params
+        use_history = effective_params.use_history if effective_params else True
+
+        return create_tool_runner(
+            generate_fn=super().generate_impl,  # Parent's generate (no tool loop)
+            run_tools_fn=self.run_tools,
+            list_tools_fn=self.list_tools,
+            messages=messages,
+            request_params=effective_params,
+            tools=tools,
+            use_history=use_history,
+        )
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """Execute a tool by name using local FastMCP tools. Overridable by subclasses."""

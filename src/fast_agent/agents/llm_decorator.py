@@ -19,6 +19,8 @@ from typing import (
 if TYPE_CHECKING:
     from rich.text import Text
 
+    from fast_agent.agents.tool_runner import ToolRunner
+
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
 from mcp.types import (
@@ -1041,6 +1043,41 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         return request
+
+    def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> "ToolRunner":
+        """
+        Create an iterable tool runner.
+
+        For base LlmDecorator (no tool support), this creates a runner that
+        will yield a single message and complete (no tool loop).
+
+        Subclasses with tool support (ToolAgent, McpAgent) override this
+        to provide full tool-calling iteration.
+        """
+        from fast_agent.agents.tool_runner import create_tool_runner
+
+        effective_params = self.llm.get_request_params(request_params) if self.llm else request_params
+        use_history = effective_params.use_history if effective_params else True
+
+        return create_tool_runner(
+            generate_fn=self.generate_impl,
+            run_tools_fn=self.run_tools,
+            list_tools_fn=self.list_tools,
+            messages=messages,
+            request_params=effective_params,
+            tools=tools,
+            use_history=use_history,
+        )
 
     async def show_assistant_message(
         self,
