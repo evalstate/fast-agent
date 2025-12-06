@@ -33,3 +33,9 @@ class GenericLLM(OpenAILLM):
             base_url = self.context.config.generic.base_url
 
         return base_url
+
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom headers from generic provider configuration."""
+        if self.context.config and self.context.config.generic:
+            return self.context.config.generic.default_headers
+        return None

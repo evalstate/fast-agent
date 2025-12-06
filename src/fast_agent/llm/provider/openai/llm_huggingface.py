@@ -41,6 +41,12 @@ class HuggingFaceLLM(OpenAICompatibleLLM):
 
         return base_url if base_url else HUGGINGFACE_BASE_URL
 
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom headers from HuggingFace provider configuration."""
+        if self.context.config and self.context.config.hf:
+            return self.context.config.hf.default_headers
+        return None
+
     def _prepare_api_request(
         self, messages, tools: list | None, request_params: RequestParams
     ) -> dict[str, str]:

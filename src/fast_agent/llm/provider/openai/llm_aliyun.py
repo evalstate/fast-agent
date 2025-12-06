@@ -29,3 +29,9 @@ class AliyunLLM(GroqLLM):
             base_url = self.context.config.aliyun.base_url
 
         return base_url if base_url else ALIYUN_BASE_URL
+
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom headers from Aliyun provider configuration."""
+        if self.context.config and self.context.config.aliyun:
+            return self.context.config.aliyun.default_headers
+        return None

@@ -28,3 +28,9 @@ class GoogleOaiLLM(OpenAILLM):
             base_url = self.context.config.google.base_url
 
         return base_url if base_url else GOOGLE_BASE_URL
+
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom headers from Google provider configuration."""
+        if self.context.config and self.context.config.google:
+            return self.context.config.google.default_headers
+        return None

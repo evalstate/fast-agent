@@ -43,3 +43,9 @@ class OpenRouterLLM(OpenAILLM):
                 base_url = config_base_url
 
         return base_url
+
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom headers from OpenRouter provider configuration."""
+        if self.context.config and self.context.config.openrouter:
+            return self.context.config.openrouter.default_headers
+        return None

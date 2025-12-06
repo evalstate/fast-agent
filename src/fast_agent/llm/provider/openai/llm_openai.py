@@ -140,6 +140,15 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
 
+    def _default_headers(self) -> dict[str, str] | None:
+        """
+        Get custom headers from configuration.
+        Subclasses can override this to provide provider-specific headers.
+        """
+        if self.context.config and self.context.config.openai:
+            return self.context.config.openai.default_headers
+        return None
+
     def _openai_client(self) -> AsyncOpenAI:
         """
         Create an OpenAI client instance.
@@ -149,11 +158,18 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         to ensure proper cleanup of aiohttp sessions.
         """
         try:
-            return AsyncOpenAI(
-                api_key=self._api_key(),
-                base_url=self._base_url(),
-                http_client=DefaultAioHttpClient(),
-            )
+            kwargs: dict[str, Any] = {
+                "api_key": self._api_key(),
+                "base_url": self._base_url(),
+                "http_client": DefaultAioHttpClient(),
+            }
+
+            # Add custom headers if configured
+            default_headers = self._default_headers()
+            if default_headers:
+                kwargs["default_headers"] = default_headers
+
+            return AsyncOpenAI(**kwargs)
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",

@@ -33,6 +33,12 @@ class XAILLM(OpenAILLM):
 
         return base_url
 
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get custom headers from xAI provider configuration."""
+        if self.context.config and self.context.config.xai:
+            return self.context.config.xai.default_headers
+        return None
+
     async def _is_tool_stop_reason(self, finish_reason: str) -> bool:
         # grok uses Null as the finish reason for tool calls?
         return await super()._is_tool_stop_reason(finish_reason) or finish_reason is None

@@ -292,31 +292,40 @@ class OpenAISettings(BaseModel):
 
     base_url: str | None = None
 
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the OpenAI API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class DeepSeekSettings(BaseModel):
     """
-    Settings for using OpenAI models in the fast-agent application.
+    Settings for using DeepSeek models in the fast-agent application.
     """
 
     api_key: str | None = None
     # reasoning_effort: Literal["low", "medium", "high"] = "medium"
 
     base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the DeepSeek API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GoogleSettings(BaseModel):
     """
-    Settings for using OpenAI models in the fast-agent application.
+    Settings for using Google models (via OpenAI-compatible API) in the fast-agent application.
     """
 
     api_key: str | None = None
     # reasoning_effort: Literal["low", "medium", "high"] = "medium"
 
     base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Google API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -329,17 +338,23 @@ class XAISettings(BaseModel):
     api_key: str | None = None
     base_url: str | None = "https://api.x.ai/v1"
 
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the xAI API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GenericSettings(BaseModel):
     """
-    Settings for using OpenAI models in the fast-agent application.
+    Settings for using generic OpenAI-compatible models in the fast-agent application.
     """
 
     api_key: str | None = None
 
     base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -352,6 +367,9 @@ class OpenRouterSettings(BaseModel):
     api_key: str | None = None
 
     base_url: str | None = None  # Optional override, defaults handled in provider
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the OpenRouter API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -372,11 +390,14 @@ class AzureSettings(BaseModel):
 
 class GroqSettings(BaseModel):
     """
-    Settings for using xAI Grok models in the fast-agent application.
+    Settings for using Groq models in the fast-agent application.
     """
 
     api_key: str | None = None
     base_url: str | None = "https://api.groq.com/openai/v1"
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Groq API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -407,6 +428,10 @@ class TensorZeroSettings(BaseModel):
 
     base_url: str | None = None
     api_key: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the TensorZero API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -436,6 +461,10 @@ class HuggingFaceSettings(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     default_provider: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the HuggingFace API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
