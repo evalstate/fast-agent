@@ -37,12 +37,6 @@ class DeepSeekLLM(OpenAICompatibleLLM):
 
         return base_url if base_url else DEEPSEEK_BASE_URL
 
-    def _default_headers(self) -> dict[str, str] | None:
-        """Get custom headers from DeepSeek provider configuration."""
-        if self.context.config and self.context.config.deepseek:
-            return self.context.config.deepseek.default_headers
-        return None
-
     def _build_structured_prompt_instruction(self, model: Type[ModelT]) -> str | None:
         full_schema = model.model_json_schema()
         properties = full_schema.get("properties", {})

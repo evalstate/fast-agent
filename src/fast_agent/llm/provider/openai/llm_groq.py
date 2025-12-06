@@ -40,9 +40,3 @@ class GroqLLM(OpenAICompatibleLLM):
             base_url = self.context.config.groq.base_url
 
         return base_url if base_url else GROQ_BASE_URL
-
-    def _default_headers(self) -> dict[str, str] | None:
-        """Get custom headers from Groq provider configuration."""
-        if self.context.config and self.context.config.groq:
-            return self.context.config.groq.default_headers
-        return None

@@ -62,12 +62,6 @@ class TensorZeroOpenAILLM(OpenAILLM):
         self.logger.debug(f"Using default TensorZero base URL: {default_url}")
         return default_url
 
-    def _default_headers(self) -> dict[str, str] | None:
-        """Get custom headers from TensorZero provider configuration."""
-        if self.context.config and self.context.config.tensorzero:
-            return self.context.config.tensorzero.default_headers
-        return None
-
     def _prepare_api_request(
         self,
         messages: list[ChatCompletionMessageParam],

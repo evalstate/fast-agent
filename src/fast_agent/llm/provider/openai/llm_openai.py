@@ -88,6 +88,8 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
 
 
 class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
+    # Config section name override (falls back to provider value)
+    config_section: str | None = None
     # OpenAI-specific parameter exclusions
     OPENAI_EXCLUDE_FIELDS = {
         FastAgentLLM.PARAM_MESSAGES,
@@ -145,9 +147,18 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         Get custom headers from configuration.
         Subclasses can override this to provide provider-specific headers.
         """
-        if self.context.config and self.context.config.openai:
-            return self.context.config.openai.default_headers
-        return None
+        provider_config = self._get_provider_config()
+        return getattr(provider_config, "default_headers", None) if provider_config else None
+
+    def _get_provider_config(self):
+        """Return the config section for this provider, if available."""
+        context_config = getattr(self.context, "config", None)
+        if not context_config:
+            return None
+        section_name = self.config_section or getattr(self.provider, "value", None)
+        if not section_name:
+            return None
+        return getattr(context_config, section_name, None)
 
     def _openai_client(self) -> AsyncOpenAI:
         """
