@@ -31,6 +31,7 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentType
+    from fast_agent.agents.tool_runner import ToolRunner
     from fast_agent.llm.model_info import ModelInfo
 
 __all__ = [
@@ -229,6 +230,41 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     async def shutdown(self) -> None: ...
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended: ...
+
+    def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> "ToolRunner":
+        """
+        Create an iterable tool runner for fine-grained control over the tool loop.
+
+        The tool runner yields each message from Claude, including intermediate
+        messages that request tool use. This allows inspection and modification
+        of the conversation between tool calls.
+
+        Example:
+            runner = agent.tool_runner("What's the weather?")
+            async for message in runner:
+                print(message.first_text())
+            # Or simply:
+            final = await agent.tool_runner("Hello").until_done()
+
+        Args:
+            messages: Input message(s) in any supported format
+            request_params: Optional request parameters
+            tools: Optional list of tools (defaults to agent's tools)
+
+        Returns:
+            A ToolRunner instance that can be iterated over or awaited via until_done()
+        """
+        ...
 
     async def show_assistant_message(
         self,
