@@ -41,6 +41,7 @@ __all__ = [
     "LLMFactoryProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
+    "ToolRunnerProtocol",
 ]
 
 
@@ -252,6 +253,17 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
     @property
     def initialized(self) -> bool: ...
 
+    async def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+    ) -> "ToolRunnerProtocol": ...
+
 
 @runtime_checkable
 class StreamingAgentProtocol(AgentProtocol, Protocol):
@@ -262,3 +274,59 @@ class StreamingAgentProtocol(AgentProtocol, Protocol):
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]: ...
+
+
+@runtime_checkable
+class ToolRunnerProtocol(Protocol):
+    """
+    Protocol for iterable tool runners.
+
+    A tool runner allows fine-grained control over the tool call loop,
+    yielding each LLM response and allowing the caller to inspect,
+    modify, or break the loop.
+    """
+
+    def __aiter__(self) -> "ToolRunnerProtocol": ...
+
+    async def __anext__(self) -> PromptMessageExtended: ...
+
+    async def until_done(self) -> PromptMessageExtended:
+        """Run the loop to completion, returning the final message."""
+        ...
+
+    def generate_tool_call_response(self) -> PromptMessageExtended | None:
+        """Get the pending tool response that will be sent next iteration."""
+        ...
+
+    def set_request_params(self, params: RequestParams) -> None:
+        """Set request params for the next LLM call."""
+        ...
+
+    def append_messages(self, *messages: Union[str, PromptMessageExtended]) -> None:
+        """Add additional messages to the conversation."""
+        ...
+
+    @property
+    def messages(self) -> list[PromptMessageExtended]:
+        """Current message history."""
+        ...
+
+    @property
+    def iteration(self) -> int:
+        """Current iteration number."""
+        ...
+
+    @property
+    def is_done(self) -> bool:
+        """Whether the runner has completed."""
+        ...
+
+    @property
+    def last_message(self) -> PromptMessageExtended | None:
+        """The most recently yielded message."""
+        ...
+
+    @property
+    def has_pending_tool_response(self) -> bool:
+        """Check if there's a pending tool response."""
+        ...

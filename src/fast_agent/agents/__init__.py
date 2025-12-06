@@ -50,6 +50,14 @@ def __getattr__(name: str):
         from .workflow.router_agent import RouterAgent
 
         return RouterAgent
+    elif name == "ToolRunner":
+        from .tool_runner import ToolRunner
+
+        return ToolRunner
+    elif name == "create_tool_runner":
+        from .tool_runner import create_tool_runner
+
+        return create_tool_runner
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
@@ -59,6 +67,8 @@ if TYPE_CHECKING:  # pragma: no cover - type checking only
     from .llm_decorator import LlmDecorator as LlmDecorator  # noqa: F401
     from .mcp_agent import McpAgent as McpAgent  # noqa: F401
     from .tool_agent import ToolAgent as ToolAgent  # noqa: F401
+    from .tool_runner import ToolRunner as ToolRunner  # noqa: F401
+    from .tool_runner import create_tool_runner as create_tool_runner  # noqa: F401
     from .workflow.chain_agent import ChainAgent as ChainAgent  # noqa: F401
     from .workflow.evaluator_optimizer import (
         EvaluatorOptimizerAgent as EvaluatorOptimizerAgent,
@@ -80,6 +90,9 @@ __all__ = [
     "IterativePlanner",
     "ParallelAgent",
     "RouterAgent",
+    # Tool runner
+    "ToolRunner",
+    "create_tool_runner",
     # Types
     "AgentConfig",
 ]
