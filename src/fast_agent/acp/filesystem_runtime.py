@@ -8,7 +8,6 @@ security compared to direct file system access.
 
 from typing import TYPE_CHECKING, Any
 
-from acp.schema import ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest
 from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
@@ -16,6 +15,7 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
+    from acp.schema import ReadTextFileResponse
 
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
     from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler
@@ -141,7 +141,9 @@ class ACPFilesystemRuntime:
             tools.append(self._write_tool)
         return tools
 
-    async def read_text_file(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
+    async def read_text_file(
+        self, arguments: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Read a text file using ACP filesystem support.
 
@@ -162,11 +164,7 @@ class ACPFilesystemRuntime:
         path = arguments.get("path")
         if not path or not isinstance(path, str):
             return CallToolResult(
-                content=[
-                    text_content(
-                        "Error: 'path' argument is required and must be a string"
-                    )
-                ],
+                content=[text_content("Error: 'path' argument is required and must be a string")],
                 isError=True,
             )
 
@@ -219,16 +217,13 @@ class ACPFilesystemRuntime:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
 
         try:
-            # Build request using proper ACP schema
-            request = ReadTextFileRequest(
-                sessionId=self.session_id,
+            # Send request using the proper ACP method with flattened parameters
+            response: ReadTextFileResponse = await self.connection.read_text_file(
                 path=path,
+                session_id=self.session_id,
                 line=arguments.get("line"),
                 limit=arguments.get("limit"),
             )
-
-            # Send request using the proper ACP method
-            response: ReadTextFileResponse = await self.connection.readTextFile(request)
             content = response.content
 
             self.logger.info(
@@ -265,18 +260,20 @@ class ACPFilesystemRuntime:
             # Notify tool handler of error
             if self._tool_handler and tool_call_id:
                 try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, False, None, str(e)
-                    )
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
                 except Exception as handler_error:
-                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                    self.logger.error(
+                        f"Error in tool complete handler: {handler_error}", exc_info=True
+                    )
 
             return CallToolResult(
                 content=[text_content(f"Error reading file: {e}")],
                 isError=True,
             )
 
-    async def write_text_file(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
+    async def write_text_file(
+        self, arguments: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Write a text file using ACP filesystem support.
 
@@ -297,11 +294,7 @@ class ACPFilesystemRuntime:
         path = arguments.get("path")
         if not path or not isinstance(path, str):
             return CallToolResult(
-                content=[
-                    text_content(
-                        "Error: 'path' argument is required and must be a string"
-                    )
-                ],
+                content=[text_content("Error: 'path' argument is required and must be a string")],
                 isError=True,
             )
 
@@ -309,9 +302,7 @@ class ACPFilesystemRuntime:
         if content is None or not isinstance(content, str):
             return CallToolResult(
                 content=[
-                    text_content(
-                        "Error: 'content' argument is required and must be a string"
-                    )
+                    text_content("Error: 'content' argument is required and must be a string")
                 ],
                 isError=True,
             )
@@ -366,15 +357,12 @@ class ACPFilesystemRuntime:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
 
         try:
-            # Build request using proper ACP schema
-            request = WriteTextFileRequest(
-                sessionId=self.session_id,
-                path=path,
+            # Send request using the proper ACP method with flattened parameters
+            await self.connection.write_text_file(
                 content=content,
+                path=path,
+                session_id=self.session_id,
             )
-
-            # Send request using the proper ACP method
-            await self.connection.writeTextFile(request)
 
             self.logger.info(
                 "File write completed",
@@ -409,11 +397,11 @@ class ACPFilesystemRuntime:
             # Notify tool handler of error
             if self._tool_handler and tool_call_id:
                 try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, False, None, str(e)
-                    )
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
                 except Exception as handler_error:
-                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                    self.logger.error(
+                        f"Error in tool complete handler: {handler_error}", exc_info=True
+                    )
 
             return CallToolResult(
                 content=[text_content(f"Error writing file: {e}")],

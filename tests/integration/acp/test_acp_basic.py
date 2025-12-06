@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
-from acp import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, Implementation, StopReason
+from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -41,43 +41,59 @@ async def test_acp_initialize_and_prompt_roundtrip() -> None:
     client = TestClient()
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
 
-        assert init_response.protocolVersion == 1
-        assert init_response.agentCapabilities is not None
-        assert init_response.agentInfo.name == "fast-agent-acp-test"
+        assert init_response.protocol_version == 1
+        assert init_response.agent_capabilities is not None
+        assert init_response.agent_info.name == "fast-agent-acp-test"
         # AgentCapabilities schema changed upstream; ensure we advertised prompt support.
-        prompt_caps = getattr(init_response.agentCapabilities, "prompts", None) or getattr(
-            init_response.agentCapabilities, "promptCapabilities", None
+        prompt_caps = getattr(init_response.agent_capabilities, "prompts", None) or getattr(
+            init_response.agent_capabilities, "prompt_capabilities", None
         )
         assert prompt_caps is not None
 
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = session_response.session_id
         assert session_id
 
         prompt_text = "echo from ACP integration test"
         prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
+            session_id=session_id, prompt=[text_block(prompt_text)]
         )
-        assert prompt_response.stopReason == END_TURN
+        assert prompt_response.stop_reason == END_TURN
 
         await _wait_for_notifications(client)
-        last_update = client.notifications[-1]
-        assert last_update.sessionId == session_id
-        assert last_update.update.sessionUpdate == "agent_message_chunk"
+
+        # TestClient now stores notifications as dicts with session_id and update keys
+        # Find the agent_message_chunk notification (may not be the last one due to commands update)
+        # The update can be either an object with sessionUpdate attr or a dict with sessionUpdate key
+        def get_session_update_type(update: Any) -> str | None:
+            if hasattr(update, "sessionUpdate"):
+                return update.sessionUpdate
+            if isinstance(update, dict):
+                return update.get("sessionUpdate")
+            return None
+
+        message_updates = [
+            n
+            for n in client.notifications
+            if n["session_id"] == session_id
+            and get_session_update_type(n["update"]) == "agent_message_chunk"
+        ]
+        assert message_updates, (
+            f"Expected agent_message_chunk, got: {[get_session_update_type(n['update']) for n in client.notifications]}"
+        )
+        update = message_updates[-1]["update"]
         # Passthrough model mirrors user input, so the agent content should match the prompt.
-        assert getattr(last_update.update.content, "text", None) == prompt_text
+        content = update.content if hasattr(update, "content") else update.get("content")
+        assert getattr(content, "text", None) == prompt_text
 
 
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:
@@ -99,22 +115,19 @@ async def test_acp_session_modes_included_in_new_session() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
         assert init_response.protocolVersion == 1
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = session_response.session_id
         assert session_id
 
         # Verify modes are included in the response
@@ -130,7 +143,9 @@ async def test_acp_session_modes_included_in_new_session() -> None:
 
         # Verify the current mode is in available modes
         available_mode_ids = [mode.id for mode in modes.availableModes]
-        assert modes.currentModeId in available_mode_ids, "Current mode should be in available modes"
+        assert modes.currentModeId in available_mode_ids, (
+            "Current mode should be in available modes"
+        )
 
 
 @pytest.mark.integration
@@ -147,37 +162,31 @@ async def test_acp_overlapping_prompts_are_refused() -> None:
 
     async with spawn_agent_process(lambda _: client, *FAST_AGENT_CMD) as (connection, _process):
         # Initialize
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
+
         assert init_response.protocolVersion == 1
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = session_response.session_id
         assert session_id
 
         # Send two prompts truly concurrently (no sleep between them)
         # This ensures they both arrive before either completes
         prompt1_task = asyncio.create_task(
-            connection.prompt(
-                PromptRequest(sessionId=session_id, prompt=[text_block("first prompt")])
-            )
+            connection.prompt(session_id=session_id, prompt=[text_block("first prompt")])
         )
 
         # Send immediately without waiting - ensures actual overlap
         prompt2_task = asyncio.create_task(
-            connection.prompt(
-                PromptRequest(sessionId=session_id, prompt=[text_block("overlapping prompt")])
-            )
+            connection.prompt(session_id=session_id, prompt=[text_block("overlapping prompt")])
         )
 
         # Wait for both to complete
@@ -191,6 +200,6 @@ async def test_acp_overlapping_prompts_are_refused() -> None:
 
         # After both complete, a new prompt should succeed
         prompt3_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block("third prompt")])
+            session_id=session_id, prompt=[text_block("third prompt")]
         )
         assert prompt3_response.stopReason == END_TURN

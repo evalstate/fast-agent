@@ -5,10 +5,12 @@ This module handles conversion of content blocks from the Agent Client Protocol 
 to Model Context Protocol (MCP) format for processing by fast-agent.
 """
 
-from typing import Union
+from typing import Union, cast
 
 import acp.schema as acp_schema
 import mcp.types as mcp_types
+from mcp.types import ContentBlock
+from pydantic import AnyUrl
 
 # Type aliases for clarity
 ACPContentBlock = Union[
@@ -19,14 +21,8 @@ ACPContentBlock = Union[
     acp_schema.AudioContentBlock,
 ]
 
-MCPContentBlock = Union[
-    mcp_types.TextContent,
-    mcp_types.ImageContent,
-    mcp_types.EmbeddedResource,
-]
 
-
-def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> MCPContentBlock | None:
+def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> ContentBlock | None:
     """
     Convert an ACP content block to MCP format.
 
@@ -41,13 +37,11 @@ def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> MCPContentBlock 
         - ImageContentBlock -> ImageContent
         - EmbeddedResourceContentBlock -> EmbeddedResource
     """
-    content_type = getattr(acp_content, "type", None)
-
-    if content_type == "text":
+    if isinstance(acp_content, acp_schema.TextContentBlock):
         return _convert_text_content(acp_content)
-    elif content_type == "image":
+    elif isinstance(acp_content, acp_schema.ImageContentBlock):
         return _convert_image_content(acp_content)
-    elif content_type == "resource":
+    elif isinstance(acp_content, acp_schema.EmbeddedResourceContentBlock):
         return _convert_embedded_resource(acp_content)
     else:
         # Unsupported content types (audio, resource links, etc.)
@@ -103,13 +97,13 @@ def _convert_resource_contents(
     """Convert ACP resource contents to MCP resource contents."""
     if isinstance(acp_resource, acp_schema.TextResourceContents):
         return mcp_types.TextResourceContents(
-            uri=acp_resource.uri,
+            uri=AnyUrl(acp_resource.uri),
             mimeType=acp_resource.mimeType if acp_resource.mimeType else None,
             text=acp_resource.text,
         )
     elif isinstance(acp_resource, acp_schema.BlobResourceContents):
         return mcp_types.BlobResourceContents(
-            uri=acp_resource.uri,
+            uri=AnyUrl(acp_resource.uri),
             mimeType=acp_resource.mimeType if acp_resource.mimeType else None,
             blob=acp_resource.blob,
         )
@@ -124,21 +118,20 @@ def _convert_annotations(
     if not acp_annotations:
         return None
 
-    # Both ACP and MCP Annotations have the same structure
-    # Copy over all available fields
+    # Convert audience list if present
+    audience = None
+    if acp_annotations.audience:
+        audience = cast("list[mcp_types.Role]", list(acp_annotations.audience))
+
     return mcp_types.Annotations(
-        audience=acp_annotations.audience
-        if hasattr(acp_annotations, "audience")
-        else None,
-        priority=acp_annotations.priority
-        if hasattr(acp_annotations, "priority")
-        else None,
+        audience=audience,
+        priority=acp_annotations.priority if hasattr(acp_annotations, "priority") else None,
     )
 
 
 def convert_acp_prompt_to_mcp_content_blocks(
     acp_prompt: list[ACPContentBlock],
-) -> list[MCPContentBlock]:
+) -> list[ContentBlock]:
     """
     Convert a list of ACP content blocks to MCP content blocks.
 

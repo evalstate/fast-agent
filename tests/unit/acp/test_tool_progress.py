@@ -20,17 +20,24 @@ from fast_agent.acp.tool_progress import ACPToolProgressManager
 
 class FakeAgentSideConnection:
     """
-    Test double for AgentSideConnection that captures sessionUpdate notifications.
+    Test double for AgentSideConnection that captures session_update notifications.
 
     No mocking - this is a real class designed for testing.
+    Uses SDK 0.7.0 kwargs-style signature.
     """
 
     def __init__(self):
         self.notifications: list[Any] = []
 
-    async def sessionUpdate(self, notification: Any) -> None:
-        """Capture notifications for assertions."""
-        self.notifications.append(notification)
+    async def session_update(
+        self,
+        session_id: str = "",
+        update: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        """Capture notifications for assertions (SDK 0.7.0 kwargs style)."""
+        # Store the update directly for easier test assertions
+        self.notifications.append(update)
 
 
 # =============================================================================
@@ -61,8 +68,8 @@ class TestACPToolProgressManager:
         notification = connection.notifications[0]
 
         # Verify it's a tool_call with pending status
-        assert notification.update.sessionUpdate == "tool_call"
-        assert notification.update.status == "pending"
+        assert notification.sessionUpdate == "tool_call"
+        assert notification.status == "pending"
 
     @pytest.mark.asyncio
     async def test_delta_events_only_notify_after_threshold(self) -> None:
@@ -100,11 +107,11 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 2
 
         delta_notification = connection.notifications[1]
-        assert delta_notification.update.sessionUpdate == "tool_call_update"
-        assert "(streaming: 25 chunks)" in delta_notification.update.title
+        assert delta_notification.sessionUpdate == "tool_call_update"
+        assert "(streaming: 25 chunks)" in delta_notification.title
 
         # rawInput should NOT be set during streaming
-        assert delta_notification.update.rawInput is None
+        assert delta_notification.rawInput is None
 
     @pytest.mark.asyncio
     async def test_delta_chunks_accumulate_correctly(self) -> None:
@@ -134,10 +141,10 @@ class TestACPToolProgressManager:
         # Delta notification should have accumulated content from all chunks
         delta_notification = connection.notifications[1]
         expected_content = "".join(f"chunk{i}_" for i in range(25))
-        assert delta_notification.update.content[0].content.text == expected_content
+        assert delta_notification.content[0].content.text == expected_content
 
         # Title should show 25 chunks
-        assert "(streaming: 25 chunks)" in delta_notification.update.title
+        assert "(streaming: 25 chunks)" in delta_notification.title
 
     @pytest.mark.asyncio
     async def test_delta_before_start_is_dropped(self) -> None:
@@ -299,7 +306,7 @@ class TestACPToolProgressManager:
         # Verify both completion notifications were sent
         completion_notifications = [
             n for n in connection.notifications
-            if hasattr(n.update, 'status') and n.update.status == "completed"
+            if hasattr(n, 'status') and n.status == "completed"
         ]
         assert len(completion_notifications) == 2
 
@@ -334,10 +341,10 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 2
 
         progress_notification = connection.notifications[1]
-        assert "[50/100]" in progress_notification.update.title
-        assert "Downloading..." in progress_notification.update.title
+        assert "[50/100]" in progress_notification.title
+        assert "Downloading..." in progress_notification.title
         # Progress updates use simple title (no args) for cleaner display
-        assert progress_notification.update.title == "server/download_file [50/100] - Downloading..."
+        assert progress_notification.title == "server/download_file [50/100] - Downloading..."
 
     @pytest.mark.asyncio
     async def test_progress_updates_title_with_progress_only(self) -> None:
@@ -365,7 +372,7 @@ class TestACPToolProgressManager:
 
         progress_notification = connection.notifications[1]
         # Should have progress value and message, using simple title (no args)
-        assert progress_notification.update.title == "server/process_data [10] - Processing rows..."
+        assert progress_notification.title == "server/process_data [10] - Processing rows..."
 
     @pytest.mark.asyncio
     async def test_progress_title_uses_simple_format(self) -> None:
@@ -382,7 +389,7 @@ class TestACPToolProgressManager:
 
         # Verify start notification has full title with args
         start_notification = connection.notifications[0]
-        assert "path=" in start_notification.update.title
+        assert "path=" in start_notification.title
 
         # Send multiple progress updates
         await manager.on_tool_progress(
@@ -401,4 +408,4 @@ class TestACPToolProgressManager:
         # Check the last progress notification - should use simple title (no args)
         last_progress = connection.notifications[-1]
         # Simple title without args for cleaner progress display
-        assert last_progress.update.title == "filesystem/read_file [75/100] - Almost done..."
+        assert last_progress.title == "filesystem/read_file [75/100] - Almost done..."
