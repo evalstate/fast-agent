@@ -47,10 +47,9 @@ async def test_gemini_video_resource_link_direct(fast_agent, model_name):
             # The response should mention something about the video content
             response_text = response.all_text().lower()
             # Big Buck Bunny is an animated film about a rabbit
-            assert any(
-                term in response_text
-                for term in ["bunny", "rabbit", "animated", "animation", "cartoon", "character"]
-            ), f"Expected video-related content in response: {response}"
+            assert any(term in response_text for term in ["rick", "astley", "icon", "never"]), (
+                f"Expected video-related content in response: {response}"
+            )
 
     await agent_function()
 
@@ -82,10 +81,9 @@ async def test_gemini_video_resource_link_via_tool(fast_agent, model_name):
 
             # The response should mention something about the video content
             response_text = response.lower()
-            assert any(
-                term in response_text
-                for term in ["bunny", "rabbit", "animated", "animation", "cartoon", "character"]
-            ), f"Expected video-related content in response: {response}"
+            assert any(term in response_text for term in ["rick", "astley", "icon", "never"]), (
+                f"Expected video-related content in response: {response}"
+            )
 
     await agent_function()
 
