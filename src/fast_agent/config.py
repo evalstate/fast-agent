@@ -279,6 +279,9 @@ class AnthropicSettings(BaseModel):
     - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
     """
 
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Anthropic API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 

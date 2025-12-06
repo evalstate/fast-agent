@@ -223,3 +223,25 @@ def test_huggingface_explicit_provider_overrides_default():
     assert llm.default_request_params.model == "moonshotai/kimi-k2-instruct"
     args = _hf_request_args(llm)
     assert args["model"] == "moonshotai/kimi-k2-instruct:custom"
+
+
+def test_model_database_native_structured_output_support():
+    """Test that ModelDatabase correctly identifies models with native structured output support."""
+    # Models that should support native structured output (Anthropic 4.5+ models)
+    assert ModelDatabase.supports_native_structured_output("claude-sonnet-4-5")
+    assert ModelDatabase.supports_native_structured_output("claude-sonnet-4-5-20250929")
+    assert ModelDatabase.supports_native_structured_output("claude-opus-4-1")
+    assert ModelDatabase.supports_native_structured_output("claude-opus-4-5")
+    assert ModelDatabase.supports_native_structured_output("claude-haiku-4-5")
+    assert ModelDatabase.supports_native_structured_output("claude-haiku-4-5-20251001")
+
+    # Models that should NOT support native structured output
+    assert not ModelDatabase.supports_native_structured_output("claude-sonnet-4-0")
+    assert not ModelDatabase.supports_native_structured_output("claude-opus-4-0")
+    assert not ModelDatabase.supports_native_structured_output("claude-3-5-sonnet-latest")
+    assert not ModelDatabase.supports_native_structured_output("claude-3-7-sonnet-latest")
+    assert not ModelDatabase.supports_native_structured_output("gpt-4o")
+    assert not ModelDatabase.supports_native_structured_output("gemini-2.0-flash")
+
+    # Unknown models should return False
+    assert not ModelDatabase.supports_native_structured_output("unknown-model")

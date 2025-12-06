@@ -296,5 +296,161 @@ class TestAnthropicCaching:
         assert found_cache_control, "Template should have cache_control"
 
 
+class TestAnthropicStructuredOutput:
+    """Test cases for Anthropic native structured output functionality."""
+
+    def _create_context_with_cache_mode(self, cache_mode: str) -> Context:
+        """Create a context with specified cache mode."""
+        ctx = Context()
+        ctx.config = Settings()
+        ctx.config.anthropic = AnthropicSettings(
+            api_key="test_key", cache_mode=cache_mode
+        )
+        return ctx
+
+    def _create_llm(self, cache_mode: str = "off") -> AnthropicLLM:
+        """Create an AnthropicLLM instance with specified cache mode."""
+        ctx = self._create_context_with_cache_mode(cache_mode)
+        llm = AnthropicLLM(context=ctx)
+        return llm
+
+    def test_add_additional_properties_false_simple_object(self):
+        """Test that additionalProperties: false is added to a simple object schema."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+                "age": {"type": "integer"},
+            },
+            "required": ["name"],
+        }
+
+        result = AnthropicLLM._add_additional_properties_false(schema)
+
+        assert result["additionalProperties"] is False
+        assert result["type"] == "object"
+        assert "name" in result["properties"]
+
+    def test_add_additional_properties_false_nested_objects(self):
+        """Test that additionalProperties: false is added to nested object schemas."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "user": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                    },
+                },
+            },
+        }
+
+        result = AnthropicLLM._add_additional_properties_false(schema)
+
+        # Top-level object should have additionalProperties: false
+        assert result["additionalProperties"] is False
+        # Nested object should also have additionalProperties: false
+        assert result["properties"]["user"]["additionalProperties"] is False
+
+    def test_add_additional_properties_false_array_items(self):
+        """Test that additionalProperties: false is added to object items in arrays."""
+        schema = {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "item_name": {"type": "string"},
+                },
+            },
+        }
+
+        result = AnthropicLLM._add_additional_properties_false(schema)
+
+        # Array doesn't get additionalProperties
+        assert "additionalProperties" not in result
+        # But items object should have it
+        assert result["items"]["additionalProperties"] is False
+
+    def test_add_additional_properties_false_anyof(self):
+        """Test that additionalProperties: false is added to schemas in anyOf."""
+        schema = {
+            "anyOf": [
+                {"type": "object", "properties": {"a": {"type": "string"}}},
+                {"type": "object", "properties": {"b": {"type": "integer"}}},
+            ],
+        }
+
+        result = AnthropicLLM._add_additional_properties_false(schema)
+
+        assert result["anyOf"][0]["additionalProperties"] is False
+        assert result["anyOf"][1]["additionalProperties"] is False
+
+    def test_add_additional_properties_false_defs(self):
+        """Test that additionalProperties: false is added to $defs and definitions."""
+        schema = {
+            "type": "object",
+            "properties": {"ref": {"$ref": "#/$defs/MyDef"}},
+            "$defs": {
+                "MyDef": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                },
+            },
+        }
+
+        result = AnthropicLLM._add_additional_properties_false(schema)
+
+        assert result["additionalProperties"] is False
+        assert result["$defs"]["MyDef"]["additionalProperties"] is False
+
+    def test_add_additional_properties_false_non_object(self):
+        """Test that non-object schemas are not modified."""
+        schema = {"type": "string"}
+
+        result = AnthropicLLM._add_additional_properties_false(schema)
+
+        assert "additionalProperties" not in result
+        assert result["type"] == "string"
+
+    def test_prepare_output_format(self):
+        """Test that _prepare_output_format creates correct structure."""
+        from pydantic import BaseModel, Field
+
+        class TestModel(BaseModel):
+            name: str = Field(description="The name")
+            count: int = Field(description="The count")
+
+        llm = self._create_llm()
+        output_format = llm._prepare_output_format(TestModel)
+
+        # Check the structure
+        assert output_format["type"] == "json_schema"
+        assert "schema" in output_format
+        schema = output_format["schema"]
+        assert schema["type"] == "object"
+        assert schema["additionalProperties"] is False
+        assert "name" in schema["properties"]
+        assert "count" in schema["properties"]
+
+    def test_supports_native_structured_output_for_supported_models(self):
+        """Test that _supports_native_structured_output returns True for supported models."""
+        llm = self._create_llm()
+
+        # Models that should support native structured output
+        llm.default_request_params.model = "claude-sonnet-4-5"
+        assert llm._supports_native_structured_output("claude-sonnet-4-5")
+        assert llm._supports_native_structured_output("claude-opus-4-5")
+        assert llm._supports_native_structured_output("claude-haiku-4-5")
+
+    def test_supports_native_structured_output_for_unsupported_models(self):
+        """Test that _supports_native_structured_output returns False for unsupported models."""
+        llm = self._create_llm()
+
+        # Models that should NOT support native structured output
+        assert not llm._supports_native_structured_output("claude-sonnet-4-0")
+        assert not llm._supports_native_structured_output("claude-3-5-sonnet-latest")
+        assert not llm._supports_native_structured_output("gpt-4o")
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
