@@ -36,7 +36,8 @@ async def main():
         # Example 1: Event Registration
         console.print("[bold yellow]Example 1: Event Registration Form[/bold yellow]")
         console.print(
-            "[dim]Demonstrates: string validation, email format, URL format, date format[/dim]"
+            "[dim]Demonstrates: string validation, email format, URL format, date format, "
+            "multi-select enums[/dim]"
         )
         result = await agent["forms-demo"].get_resource("elicitation://event-registration")
 
@@ -95,6 +96,7 @@ async def main():
         console.print("• [green]String validation[/green] (min/max length)")
         console.print("• [green]Number validation[/green] (range constraints)")
         console.print("• [green]Radio selections[/green] (enum dropdowns)")
+        console.print("• [green]Multi-select enums[/green] (checkbox lists)")
         console.print("• [green]Boolean selections[/green] (checkboxes)")
         console.print("• [green]Format validation[/green] (email, URL, date, datetime)")
         console.print("• [green]Multiline text[/green] (expandable text areas)")
