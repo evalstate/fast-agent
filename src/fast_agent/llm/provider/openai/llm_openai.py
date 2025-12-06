@@ -88,6 +88,8 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
 
 
 class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage]):
+    # Config section name override (falls back to provider value)
+    config_section: str | None = None
     # OpenAI-specific parameter exclusions
     OPENAI_EXCLUDE_FIELDS = {
         FastAgentLLM.PARAM_MESSAGES,
@@ -140,6 +142,24 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
 
+    def _default_headers(self) -> dict[str, str] | None:
+        """
+        Get custom headers from configuration.
+        Subclasses can override this to provide provider-specific headers.
+        """
+        provider_config = self._get_provider_config()
+        return getattr(provider_config, "default_headers", None) if provider_config else None
+
+    def _get_provider_config(self):
+        """Return the config section for this provider, if available."""
+        context_config = getattr(self.context, "config", None)
+        if not context_config:
+            return None
+        section_name = self.config_section or getattr(self.provider, "value", None)
+        if not section_name:
+            return None
+        return getattr(context_config, section_name, None)
+
     def _openai_client(self) -> AsyncOpenAI:
         """
         Create an OpenAI client instance.
@@ -149,11 +169,18 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         to ensure proper cleanup of aiohttp sessions.
         """
         try:
-            return AsyncOpenAI(
-                api_key=self._api_key(),
-                base_url=self._base_url(),
-                http_client=DefaultAioHttpClient(),
-            )
+            kwargs: dict[str, Any] = {
+                "api_key": self._api_key(),
+                "base_url": self._base_url(),
+                "http_client": DefaultAioHttpClient(),
+            }
+
+            # Add custom headers if configured
+            default_headers = self._default_headers()
+            if default_headers:
+                kwargs["default_headers"] = default_headers
+
+            return AsyncOpenAI(**kwargs)
         except AuthenticationError as e:
             raise ProviderKeyError(
                 "Invalid OpenAI API key",
