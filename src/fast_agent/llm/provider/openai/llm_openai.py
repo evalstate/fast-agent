@@ -140,6 +140,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     def _base_url(self) -> str:
         return self.context.config.openai.base_url if self.context.config.openai else None
 
+    def _default_headers(self) -> dict[str, str] | None:
+        if self.context.config and self.context.config.openai:
+            return self.context.config.openai.default_headers
+        return None
+
     def _openai_client(self) -> AsyncOpenAI:
         """
         Create an OpenAI client instance.
@@ -152,6 +157,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             return AsyncOpenAI(
                 api_key=self._api_key(),
                 base_url=self._base_url(),
+                default_headers=self._default_headers(),
                 http_client=DefaultAioHttpClient(),
             )
         except AuthenticationError as e:

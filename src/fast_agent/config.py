@@ -292,6 +292,9 @@ class OpenAISettings(BaseModel):
 
     base_url: str | None = None
 
+    # Custom headers to pass to the OpenAI client (useful for proxies like Portkey, LiteLLM, etc.)
+    default_headers: dict[str, str] | None = None
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
