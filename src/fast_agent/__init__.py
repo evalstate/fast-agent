@@ -103,6 +103,10 @@ def __getattr__(name: str):
         from fast_agent.core.fastagent import FastAgent
 
         return FastAgent
+    elif name == "ToolRunner":
+        from fast_agent.agents.tool_runner import ToolRunner
+
+        return ToolRunner
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 
@@ -110,6 +114,7 @@ def __getattr__(name: str):
 # Help static analyzers/IDEs resolve symbols and signatures without importing at runtime.
 if TYPE_CHECKING:  # pragma: no cover - typing aid only
     # Provide a concrete import path for type checkers/IDEs
+    from fast_agent.agents.tool_runner import ToolRunner as ToolRunner  # noqa: F401
     from fast_agent.core.fastagent import FastAgent as FastAgent  # noqa: F401
     from fast_agent.mcp.prompt import Prompt as Prompt  # noqa: F401
     from fast_agent.types import ConversationSummary as ConversationSummary  # noqa: F401
@@ -174,4 +179,6 @@ __all__ = [
     "ToolAgent",
     "McpAgent",
     "FastAgent",
+    # Tool runner (lazy loaded)
+    "ToolRunner",
 ]

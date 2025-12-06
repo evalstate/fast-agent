@@ -5,6 +5,7 @@ from mcp.types import CallToolResult, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_runner import ToolRunner
 from fast_agent.constants import (
     DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_ERROR_CHANNEL,
@@ -246,6 +247,60 @@ class ToolAgent(LlmAgent):
     async def list_tools(self) -> ListToolsResult:
         """Return available tools for this agent. Overridable by subclasses."""
         return ListToolsResult(tools=list(self._tool_schemas))
+
+    def tool_runner(
+        self,
+        messages: List[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
+    ) -> ToolRunner:
+        """
+        Create an iterable tool runner for fine-grained control over the tool loop.
+
+        The tool runner is an async iterator that yields each message from Claude
+        during a tool-calling conversation. This allows you to:
+        - Observe intermediate messages as they're generated
+        - Break out of the loop early
+        - Customize parameters between iterations
+        - Manually handle tool responses before they're sent back
+
+        Args:
+            messages: Initial conversation messages
+            request_params: Optional parameters for LLM requests
+            tools: Optional list of available tools (uses agent's tools if not provided)
+
+        Returns:
+            A ToolRunner instance that can be iterated over
+
+        Example:
+            ```python
+            runner = agent.tool_runner(messages=[...])
+
+            # Option 1: Iterate manually
+            async for message in runner:
+                print(f"Claude said: {message.first_text()}")
+                if should_stop:
+                    break
+
+            # Option 2: Just get the final result
+            final = await runner.until_done()
+            ```
+        """
+        if tools is None:
+            tools = list(self._tool_schemas)
+
+        max_iterations = (
+            request_params.max_iterations if request_params else DEFAULT_MAX_ITERATIONS
+        )
+
+        return ToolRunner(
+            agent=self,
+            messages=messages,
+            request_params=request_params,
+            tools=tools,
+            max_iterations=max_iterations,
+            use_history=self.config.use_history,
+        )
 
     async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
         """Execute a tool by name using local FastMCP tools. Overridable by subclasses."""

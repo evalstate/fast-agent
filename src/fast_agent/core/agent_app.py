@@ -2,10 +2,10 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Mapping, Union
+from typing import TYPE_CHECKING, List, Mapping, Sequence, Union
 
 from deprecated import deprecated
-from mcp.types import GetPromptResult, PromptMessage
+from mcp.types import GetPromptResult, PromptMessage, Tool
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
@@ -14,6 +14,9 @@ from fast_agent.interfaces import AgentProtocol
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
+
+if TYPE_CHECKING:
+    from fast_agent.agents.tool_runner import ToolRunner
 
 
 class AgentApp:
@@ -239,6 +242,75 @@ class AgentApp:
         """
         return await self._agent(agent_name).get_resource(
             resource_uri=resource_uri, namespace=server_name
+        )
+
+    def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        agent_name: str | None = None,
+        request_params: RequestParams | None = None,
+        tools: List[Tool] | None = None,
+    ) -> "ToolRunner":
+        """
+        Create an iterable tool runner for fine-grained control over the tool loop.
+
+        The tool runner is an async iterator that yields each message from Claude
+        during a tool-calling conversation. This allows you to:
+        - Observe intermediate messages as they're generated
+        - Break out of the loop early
+        - Customize parameters between iterations
+        - Manually handle tool responses before they're sent back
+
+        Args:
+            messages: Initial conversation messages (string, PromptMessage, or sequence)
+            agent_name: Optional name of the agent to use (defaults to first agent)
+            request_params: Optional parameters for LLM requests
+            tools: Optional list of available tools (uses agent's tools if not provided)
+
+        Returns:
+            A ToolRunner instance that can be iterated over
+
+        Raises:
+            AttributeError: If the selected agent doesn't support tool_runner
+
+        Example:
+            ```python
+            async with fast.run() as app:
+                runner = app.tool_runner("What's the weather in Paris?")
+
+                # Option 1: Iterate manually
+                async for message in runner:
+                    print(f"Claude said: {message.first_text()}")
+                    if should_stop:
+                        break
+
+                # Option 2: Just get the final result
+                final = await runner.until_done()
+            ```
+        """
+        from fast_agent.mcp.helpers.content_helpers import normalize_to_extended_list
+
+        agent = self._agent(agent_name)
+
+        # Check if the agent supports tool_runner
+        if not hasattr(agent, "tool_runner"):
+            raise AttributeError(
+                f"Agent '{agent.name}' does not support tool_runner. "
+                "Only ToolAgent and its subclasses (like McpAgent) support this feature."
+            )
+
+        # Normalize messages to List[PromptMessageExtended]
+        normalized_messages = normalize_to_extended_list(messages)
+
+        return agent.tool_runner(
+            messages=normalized_messages,
+            request_params=request_params,
+            tools=tools,
         )
 
     @deprecated
