@@ -118,3 +118,59 @@ class ProviderKeyManager:
             )
 
         return api_key
+
+    @staticmethod
+    def check_provider_availability(provider_name: str, config: Any) -> bool:
+        """
+        Check if an API key is available for the specified provider without raising errors.
+
+        Args:
+            provider_name: Name of the provider (e.g., "anthropic", "openai")
+            config: The application configuration object (can be None)
+
+        Returns:
+            True if an API key is configured, False otherwise
+        """
+        provider_name = provider_name.lower()
+
+        # Fast-agent provider doesn't need external API keys
+        if provider_name == "fast-agent":
+            return True
+
+        # Generic provider defaults to ollama
+        if provider_name == "generic":
+            return True
+
+        # Check config file first if config is provided
+        api_key = None
+        if config is not None:
+            api_key = ProviderKeyManager.get_config_file_key(provider_name, config)
+
+        # Fall back to environment variable
+        if not api_key:
+            api_key = ProviderKeyManager.get_env_var(provider_name)
+
+        return bool(api_key)
+
+    @staticmethod
+    def get_all_provider_availability(config: Any) -> dict[str, bool]:
+        """
+        Check availability of all known providers.
+
+        Args:
+            config: The application configuration object
+
+        Returns:
+            Dictionary mapping provider names to availability status
+        """
+        from fast_agent.llm.provider_types import Provider
+
+        availability = {}
+        for provider in Provider:
+            # Skip internal providers
+            if provider == Provider.FAST_AGENT:
+                continue
+            availability[provider.value] = ProviderKeyManager.check_provider_availability(
+                provider.value, config
+            )
+        return availability
