@@ -1,7 +1,7 @@
-from typing import Any, Callable, Dict, List, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Sequence, Union
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
-from mcp.types import CallToolResult, ListToolsResult, Tool
+from mcp.types import CallToolResult, ListToolsResult, PromptMessage, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -16,6 +16,9 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+
+if TYPE_CHECKING:
+    from fast_agent.agents.tool_runner import ToolRunner
 
 logger = get_logger(__name__)
 
@@ -269,3 +272,44 @@ class ToolAgent(LlmAgent):
                 content=[text_content(f"Error: {str(e)}")],
                 isError=True,
             )
+
+    async def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+    ) -> "ToolRunner":
+        """
+        Create an iterable tool runner for fine-grained control over the tool loop.
+
+        This allows you to iterate over each LLM response in the tool call loop,
+        inspect intermediate messages, modify behavior between iterations, or
+        break early.
+
+        Args:
+            messages: Initial message(s) to send to the LLM
+            request_params: Optional request parameters
+
+        Returns:
+            ToolRunner that can be iterated to process each LLM response
+
+        Example:
+            runner = await agent.tool_runner("What's the weather in Paris?")
+            async for message in runner:
+                print(message.first_text())
+                # Can break early if needed
+
+            # Or run to completion:
+            final = await runner.until_done()
+        """
+        from fast_agent.agents.tool_runner import create_tool_runner
+
+        return await create_tool_runner(
+            agent=self,
+            messages=messages,
+            request_params=request_params,
+        )
