@@ -262,6 +262,82 @@ class MCPSettings(BaseModel):
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
+class ToolResultClearingSettings(BaseModel):
+    """
+    Settings for the clear_tool_uses_20250919 context editing strategy.
+    Clears tool results when conversation context grows beyond the configured threshold.
+    """
+
+    enabled: bool = True
+    """Whether tool result clearing is enabled."""
+
+    trigger_tokens: int = 100000
+    """Input token threshold at which clearing begins (default: 100,000)."""
+
+    keep_tool_uses: int = 3
+    """Number of recent tool use/result pairs to keep after clearing (default: 3)."""
+
+    clear_at_least_tokens: int | None = None
+    """Optional: Minimum tokens to clear each time. Helps determine if cache invalidation is worthwhile."""
+
+    exclude_tools: list[str] | None = None
+    """Optional: List of tool names that should never be cleared."""
+
+    clear_tool_inputs: bool = False
+    """Whether to clear tool call parameters along with results (default: False)."""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
+class ThinkingClearingSettings(BaseModel):
+    """
+    Settings for the clear_thinking_20251015 context editing strategy.
+    Manages thinking blocks in conversations when extended thinking is enabled.
+    """
+
+    enabled: bool = True
+    """Whether thinking block clearing is enabled."""
+
+    keep_thinking_turns: int | Literal["all"] = 1
+    """
+    Number of recent assistant turns with thinking blocks to preserve.
+    Use an integer > 0 to keep the last N turns, or "all" to keep all thinking blocks.
+    Default is 1 (keep only the last turn's thinking blocks).
+    """
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
+class ContextEditingSettings(BaseModel):
+    """
+    Settings for Anthropic's context editing feature (beta).
+    Allows automatic management of conversation context as it grows.
+
+    This feature requires the 'context-management-2025-06-27' beta header.
+    See: https://docs.anthropic.com/en/docs/build-with-claude/context-editing
+    """
+
+    enabled: bool = False
+    """
+    Master switch for context editing. When False, no context editing is applied.
+    Default is False since this is a beta feature.
+    """
+
+    tool_result_clearing: ToolResultClearingSettings | None = None
+    """
+    Configuration for clearing tool results from context.
+    If None when enabled=True, uses default settings.
+    """
+
+    thinking_clearing: ThinkingClearingSettings | None = None
+    """
+    Configuration for clearing thinking blocks from context.
+    If None when enabled=True, uses default settings.
+    """
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
 class AnthropicSettings(BaseModel):
     """
     Settings for using Anthropic models in the fast-agent application.
@@ -277,6 +353,13 @@ class AnthropicSettings(BaseModel):
     - "off": No caching, even if global prompt_caching is true.
     - "prompt": Caches tools+system prompt (1 block) and template content. Useful for large, static prompts.
     - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
+    """
+
+    context_editing: ContextEditingSettings | None = None
+    """
+    Configuration for context editing (beta feature).
+    When enabled, automatically manages conversation context by clearing old tool results
+    and/or thinking blocks to optimize costs and stay within context limits.
     """
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)

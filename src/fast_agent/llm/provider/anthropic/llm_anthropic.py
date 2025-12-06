@@ -23,6 +23,7 @@ from mcp.types import (
     TextContent,
 )
 
+from fast_agent.config import ContextEditingSettings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
@@ -42,6 +43,9 @@ from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
+
+# Beta header for context management feature
+CONTEXT_MANAGEMENT_BETA = "context-management-2025-06-27"
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
@@ -95,6 +99,81 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if self.context.config and self.context.config.anthropic:
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
+
+    def _get_context_editing_settings(self) -> ContextEditingSettings | None:
+        """Get context editing configuration if enabled."""
+        if self.context.config and self.context.config.anthropic:
+            return self.context.config.anthropic.context_editing
+        return None
+
+    def _build_context_management(self) -> dict[str, Any] | None:
+        """
+        Build the context_management parameter for the API request.
+
+        Returns None if context editing is disabled, otherwise returns
+        a dict with the 'edits' list configured based on settings.
+        """
+        settings = self._get_context_editing_settings()
+        if not settings or not settings.enabled:
+            return None
+
+        edits: list[dict[str, Any]] = []
+
+        # Thinking clearing must come first if both are enabled
+        if settings.thinking_clearing and settings.thinking_clearing.enabled:
+            thinking_edit: dict[str, Any] = {"type": "clear_thinking_20251015"}
+
+            keep_turns = settings.thinking_clearing.keep_thinking_turns
+            if keep_turns == "all":
+                thinking_edit["keep"] = "all"
+            else:
+                thinking_edit["keep"] = {"type": "thinking_turns", "value": keep_turns}
+
+            edits.append(thinking_edit)
+
+        # Tool result clearing
+        if settings.tool_result_clearing and settings.tool_result_clearing.enabled:
+            tool_edit: dict[str, Any] = {"type": "clear_tool_uses_20250919"}
+
+            # Trigger threshold
+            tool_edit["trigger"] = {
+                "type": "input_tokens",
+                "value": settings.tool_result_clearing.trigger_tokens,
+            }
+
+            # Keep configuration
+            tool_edit["keep"] = {
+                "type": "tool_uses",
+                "value": settings.tool_result_clearing.keep_tool_uses,
+            }
+
+            # Optional: clear_at_least
+            if settings.tool_result_clearing.clear_at_least_tokens:
+                tool_edit["clear_at_least"] = {
+                    "type": "input_tokens",
+                    "value": settings.tool_result_clearing.clear_at_least_tokens,
+                }
+
+            # Optional: exclude_tools
+            if settings.tool_result_clearing.exclude_tools:
+                tool_edit["exclude_tools"] = settings.tool_result_clearing.exclude_tools
+
+            # Optional: clear_tool_inputs
+            if settings.tool_result_clearing.clear_tool_inputs:
+                tool_edit["clear_tool_inputs"] = True
+
+            edits.append(tool_edit)
+
+        # If no edits configured, return None
+        if not edits:
+            return None
+
+        return {"edits": edits}
+
+    def _is_context_editing_enabled(self) -> bool:
+        """Check if context editing is enabled."""
+        settings = self._get_context_editing_settings()
+        return settings is not None and settings.enabled
 
     async def _prepare_tools(
         self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
@@ -570,12 +649,26 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             if 0 <= idx < len(messages):
                 self._apply_cache_control_to_message(messages[idx])
 
+        # Add context management if enabled
+        context_management = self._build_context_management()
+        if context_management:
+            arguments["context_management"] = context_management
+            logger.debug(f"Context editing enabled: {context_management}")
+
         logger.debug(f"{arguments}")
         # Use streaming API with helper
+        # If context editing is enabled, use the beta API with the appropriate header
         try:
-            async with anthropic.messages.stream(**arguments) as stream:
-                # Process the stream
-                response = await self._process_stream(stream, model)
+            if self._is_context_editing_enabled():
+                async with anthropic.beta.messages.stream(
+                    **arguments, betas=[CONTEXT_MANAGEMENT_BETA]
+                ) as stream:
+                    # Process the stream
+                    response = await self._process_stream(stream, model)
+            else:
+                async with anthropic.messages.stream(**arguments) as stream:
+                    # Process the stream
+                    response = await self._process_stream(stream, model)
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             logger.info(f"Anthropic completion cancelled: {reason}")
