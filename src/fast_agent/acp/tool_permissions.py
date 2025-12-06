@@ -14,12 +14,11 @@ Key features:
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
 
 from acp.schema import (
     PermissionOption,
-    RequestPermissionRequest,
-    ToolCall,
+    ToolCallUpdate,
     ToolKind,
 )
 
@@ -43,7 +42,7 @@ class ToolPermissionRequest:
 
 
 # Type for permission handler callbacks
-ToolPermissionHandlerT = Callable[[ToolPermissionRequest], asyncio.Future[PermissionResult]]
+ToolPermissionHandlerT = Callable[[ToolPermissionRequest], Awaitable[PermissionResult]]
 
 
 @runtime_checkable
@@ -93,7 +92,9 @@ def _infer_tool_kind(tool_name: str, arguments: dict[str, Any] | None = None) ->
     # Common patterns for tool categorization
     if any(word in name_lower for word in ["read", "get", "fetch", "list", "show", "cat"]):
         return "read"
-    elif any(word in name_lower for word in ["write", "edit", "update", "modify", "patch", "create"]):
+    elif any(
+        word in name_lower for word in ["write", "edit", "update", "modify", "patch", "create"]
+    ):
         return "edit"
     elif any(word in name_lower for word in ["delete", "remove", "clear", "clean", "rm"]):
         return "delete"
@@ -101,9 +102,7 @@ def _infer_tool_kind(tool_name: str, arguments: dict[str, Any] | None = None) ->
         return "move"
     elif any(word in name_lower for word in ["search", "find", "query", "grep", "locate"]):
         return "search"
-    elif any(
-        word in name_lower for word in ["execute", "run", "exec", "command", "bash", "shell"]
-    ):
+    elif any(word in name_lower for word in ["execute", "run", "exec", "command", "bash", "shell"]):
         return "execute"
     elif any(word in name_lower for word in ["think", "plan", "reason", "analyze"]):
         return "think"
@@ -253,45 +252,39 @@ class ACPToolPermissionManager:
                 arg_str = arg_str[:47] + "..."
             title = f"{title}({arg_str})"
 
-        # Create ToolCall object per ACP spec with rawInput for full argument visibility
+        # Create ToolCallUpdate object per ACP spec with raw_input for full argument visibility
         tool_kind = _infer_tool_kind(tool_name, arguments)
-        tool_call = ToolCall(
-            toolCallId=tool_call_id or "pending",
+        tool_call = ToolCallUpdate(
+            tool_call_id=tool_call_id or "pending",
             title=title,
             kind=tool_kind,
             status="pending",
-            rawInput=arguments,  # Include full arguments so client can display them
+            raw_input=arguments,  # Include full arguments so client can display them
         )
 
         # Create permission request with options
         options = [
             PermissionOption(
-                optionId="allow_once",
+                option_id="allow_once",
                 kind="allow_once",
                 name="Allow Once",
             ),
             PermissionOption(
-                optionId="allow_always",
+                option_id="allow_always",
                 kind="allow_always",
                 name="Always Allow",
             ),
             PermissionOption(
-                optionId="reject_once",
+                option_id="reject_once",
                 kind="reject_once",
                 name="Reject Once",
             ),
             PermissionOption(
-                optionId="reject_always",
+                option_id="reject_always",
                 kind="reject_always",
                 name="Never Allow",
             ),
         ]
-
-        request = RequestPermissionRequest(
-            sessionId=self._session_id,
-            options=options,
-            toolCall=tool_call,
-        )
 
         try:
             logger.info(
@@ -301,8 +294,12 @@ class ACPToolPermissionManager:
                 server_name=server_name,
             )
 
-            # Send permission request to client
-            response = await self._connection.requestPermission(request)
+            # Send permission request to client using flattened parameters
+            response = await self._connection.request_permission(
+                options=options,
+                session_id=self._session_id,
+                tool_call=tool_call,
+            )
 
             # Handle response
             return await self._handle_permission_response(

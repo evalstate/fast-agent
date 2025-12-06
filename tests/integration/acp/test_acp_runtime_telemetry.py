@@ -12,9 +12,8 @@ import sys
 from pathlib import Path
 
 import pytest
-from acp import InitializeRequest, NewSessionRequest, PromptRequest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, Implementation, StopReason
+from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
 from acp.stdio import spawn_agent_process
 
 TEST_DIR = Path(__file__).parent
@@ -25,6 +24,22 @@ from test_client import TestClient  # noqa: E402
 
 CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
 END_TURN: StopReason = "end_turn"
+
+
+def _get_session_id(response: object) -> str:
+    return getattr(response, "session_id", None) or getattr(response, "sessionId")
+
+
+def _get_stop_reason(response: object) -> str | None:
+    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
+
+
+def _get_session_update_type(update: object) -> str | None:
+    if hasattr(update, "sessionUpdate"):
+        return update.sessionUpdate
+    if isinstance(update, dict):
+        return update.get("sessionUpdate")
+    return None
 
 
 def get_fast_agent_cmd(with_shell: bool = True) -> tuple:
@@ -72,30 +87,27 @@ async def test_acp_terminal_runtime_telemetry() -> None:
         _process,
     ):
         # Initialize with terminal support enabled
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        init_response = await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=True,
             ),
-            clientInfo=Implementation(name="pytest-telemetry-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-telemetry-client", version="0.0.1"),
         )
-        init_response = await connection.initialize(init_request)
-        assert init_response.protocolVersion == 1
+        assert getattr(init_response, "protocol_version", None) == 1 or getattr(
+            init_response, "protocolVersion", None
+        ) == 1
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
         assert session_id
 
         # Call the execute tool via passthrough model
         prompt_text = '***CALL_TOOL execute {"command": "echo test"}'
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
-        )
-        assert prompt_response.stopReason == END_TURN
+        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client, count=2, timeout=3.0)
@@ -104,31 +116,30 @@ async def test_acp_terminal_runtime_telemetry() -> None:
         tool_notifications = [
             n
             for n in client.notifications
-            if hasattr(n.update, "sessionUpdate")
-            and n.update.sessionUpdate in ["tool_call", "tool_call_update"]
+            if _get_session_update_type(n["update"]) in ["tool_call", "tool_call_update"]
         ]
 
         # Should have at least one tool_call notification
         assert len(tool_notifications) > 0, "Expected tool call notifications for execute"
 
         # First notification should be tool_call (initial)
-        first_notif = tool_notifications[0]
-        assert first_notif.update.sessionUpdate == "tool_call"
-        assert hasattr(first_notif.update, "toolCallId")
-        assert hasattr(first_notif.update, "title")
-        assert hasattr(first_notif.update, "kind")
-        assert hasattr(first_notif.update, "status")
+        first_notif = tool_notifications[0]["update"]
+        assert _get_session_update_type(first_notif) == "tool_call"
+        assert hasattr(first_notif, "toolCallId")
+        assert hasattr(first_notif, "title")
+        assert hasattr(first_notif, "kind")
+        assert hasattr(first_notif, "status")
 
         # Verify the title contains "execute" and "acp_terminal"
-        title = first_notif.update.title
+        title = first_notif.title
         assert "execute" in title.lower() or "acp_terminal" in title.lower()
 
         # Status should start as pending
-        assert first_notif.update.status == "pending"
+        assert first_notif.status == "pending"
 
         # Last notification should be completed or failed
         if len(tool_notifications) > 1:
-            last_status = tool_notifications[-1].update.status
+            last_status = tool_notifications[-1]["update"].status
             assert last_status in ["completed", "failed"], (
                 f"Expected final status, got {last_status}"
             )
@@ -150,28 +161,23 @@ async def test_acp_filesystem_read_runtime_telemetry() -> None:
         _process,
     ):
         # Initialize with filesystem support enabled
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-telemetry-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-telemetry-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
 
         # Call the read_text_file tool via passthrough model
         prompt_text = f'***CALL_TOOL read_text_file {{"path": "{test_path}"}}'
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
-        )
-        assert prompt_response.stopReason == END_TURN
+        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client, count=2, timeout=3.0)
@@ -180,26 +186,25 @@ async def test_acp_filesystem_read_runtime_telemetry() -> None:
         tool_notifications = [
             n
             for n in client.notifications
-            if hasattr(n.update, "sessionUpdate")
-            and n.update.sessionUpdate in ["tool_call", "tool_call_update"]
+            if _get_session_update_type(n["update"]) in ["tool_call", "tool_call_update"]
         ]
 
         # Should have at least one tool_call notification
         assert len(tool_notifications) > 0, "Expected tool call notifications for read_text_file"
 
         # First notification should be tool_call (initial)
-        first_notif = tool_notifications[0]
-        assert first_notif.update.sessionUpdate == "tool_call"
-        assert hasattr(first_notif.update, "toolCallId")
-        assert hasattr(first_notif.update, "title")
+        first_notif = tool_notifications[0]["update"]
+        assert _get_session_update_type(first_notif) == "tool_call"
+        assert hasattr(first_notif, "toolCallId")
+        assert hasattr(first_notif, "title")
 
         # Verify the title contains "read_text_file" and "acp_filesystem"
-        title = first_notif.update.title
+        title = first_notif.title
         assert "read_text_file" in title.lower() or "acp_filesystem" in title.lower()
 
         # Last notification should be completed
         if len(tool_notifications) > 1:
-            last_status = tool_notifications[-1].update.status
+            last_status = tool_notifications[-1]["update"].status
             assert last_status in ["completed", "failed"]
 
 
@@ -214,30 +219,25 @@ async def test_acp_filesystem_write_runtime_telemetry() -> None:
         _process,
     ):
         # Initialize with filesystem support enabled
-        init_request = InitializeRequest(
-            protocolVersion=1,
-            clientCapabilities=ClientCapabilities(
-                fs={"readTextFile": True, "writeTextFile": True},
+        await connection.initialize(
+            protocol_version=1,
+            client_capabilities=ClientCapabilities(
+                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
                 terminal=False,
             ),
-            clientInfo=Implementation(name="pytest-telemetry-client", version="0.0.1"),
+            client_info=Implementation(name="pytest-telemetry-client", version="0.0.1"),
         )
-        await connection.initialize(init_request)
 
         # Create session
-        session_response = await connection.newSession(
-            NewSessionRequest(mcpServers=[], cwd=str(TEST_DIR))
-        )
-        session_id = session_response.sessionId
+        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+        session_id = _get_session_id(session_response)
 
         # Call the write_text_file tool via passthrough model
         test_path = "/test/output.txt"
         test_content = "Test content from tool call"
         prompt_text = f'***CALL_TOOL write_text_file {{"path": "{test_path}", "content": "{test_content}"}}'
-        prompt_response = await connection.prompt(
-            PromptRequest(sessionId=session_id, prompt=[text_block(prompt_text)])
-        )
-        assert prompt_response.stopReason == END_TURN
+        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+        assert _get_stop_reason(prompt_response) == END_TURN
 
         # Wait for notifications
         await _wait_for_notifications(client, count=2, timeout=3.0)
@@ -246,21 +246,20 @@ async def test_acp_filesystem_write_runtime_telemetry() -> None:
         tool_notifications = [
             n
             for n in client.notifications
-            if hasattr(n.update, "sessionUpdate")
-            and n.update.sessionUpdate in ["tool_call", "tool_call_update"]
+            if _get_session_update_type(n["update"]) in ["tool_call", "tool_call_update"]
         ]
 
         # Should have at least one tool_call notification
         assert len(tool_notifications) > 0, "Expected tool call notifications for write_text_file"
 
         # First notification should be tool_call (initial)
-        first_notif = tool_notifications[0]
-        assert first_notif.update.sessionUpdate == "tool_call"
-        assert hasattr(first_notif.update, "toolCallId")
-        assert hasattr(first_notif.update, "title")
+        first_notif = tool_notifications[0]["update"]
+        assert _get_session_update_type(first_notif) == "tool_call"
+        assert hasattr(first_notif, "toolCallId")
+        assert hasattr(first_notif, "title")
 
         # Verify the title contains "write_text_file" and "acp_filesystem"
-        title = first_notif.update.title
+        title = first_notif.title
         assert "write_text_file" in title.lower() or "acp_filesystem" in title.lower()
 
         # Verify the file was written
@@ -269,5 +268,5 @@ async def test_acp_filesystem_write_runtime_telemetry() -> None:
 
         # Last notification should be completed
         if len(tool_notifications) > 1:
-            last_status = tool_notifications[-1].update.status
+            last_status = tool_notifications[-1]["update"].status
             assert last_status in ["completed", "failed"]
