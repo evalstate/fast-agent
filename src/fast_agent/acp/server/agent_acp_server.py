@@ -8,7 +8,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 import asyncio
 import uuid
 from importlib.metadata import version as get_version
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from acp import Agent as ACPAgent
 from acp import (
@@ -69,9 +69,6 @@ from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
-
-if TYPE_CHECKING:
-    from acp.agent.connection import AgentSideConnection
 
 logger = get_logger(__name__)
 
