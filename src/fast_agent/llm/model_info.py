@@ -30,6 +30,7 @@ class ModelInfo:
     tokenizes: list[str]
     json_mode: str | None
     reasoning: str | None
+    native_structured_output: bool = False
 
     @property
     def supports_text(self) -> bool:
@@ -99,4 +100,5 @@ class ModelInfo:
             tokenizes=params.tokenizes,
             json_mode=params.json_mode,
             reasoning=params.reasoning,
+            native_structured_output=params.native_structured_output,
         )

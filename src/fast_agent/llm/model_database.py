@@ -31,6 +31,9 @@ class ModelParameters(BaseModel):
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
 
+    native_structured_output: bool = False
+    """Whether the model supports native structured outputs (e.g., Anthropic's output_format beta)"""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -154,11 +157,31 @@ class ModelDatabase:
         reasoning="openai",
     )
 
-    ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
+    # Anthropic 4.0 series (no native structured output support)
+    ANTHROPIC_OPUS_4_0 = ModelParameters(
         context_window=200000, max_output_tokens=32000, tokenizes=ANTHROPIC_MULTIMODAL
     )
-    ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
+    ANTHROPIC_SONNET_4_0 = ModelParameters(
         context_window=200000, max_output_tokens=64000, tokenizes=ANTHROPIC_MULTIMODAL
+    )
+    # Anthropic 4.1+ series (supports native structured outputs via output_format beta)
+    ANTHROPIC_OPUS_4_STRUCTURED = ModelParameters(
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        native_structured_output=True,
+    )
+    ANTHROPIC_SONNET_4_5_STRUCTURED = ModelParameters(
+        context_window=200000,
+        max_output_tokens=64000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        native_structured_output=True,
+    )
+    ANTHROPIC_HAIKU_4_5_STRUCTURED = ModelParameters(
+        context_window=200000,
+        max_output_tokens=64000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        native_structured_output=True,
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -296,16 +319,16 @@ class ModelDatabase:
         "claude-3-7-sonnet": ANTHROPIC_37_SERIES,
         "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES,
         "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES,
-        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
-        "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
-        "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
+        "claude-sonnet-4-0": ANTHROPIC_SONNET_4_0,
+        "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_0,
+        "claude-sonnet-4-5": ANTHROPIC_SONNET_4_5_STRUCTURED,
+        "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_5_STRUCTURED,
+        "claude-opus-4-0": ANTHROPIC_OPUS_4_0,
+        "claude-opus-4-20250514": ANTHROPIC_OPUS_4_0,
+        "claude-opus-4-1": ANTHROPIC_OPUS_4_STRUCTURED,
+        "claude-opus-4-5": ANTHROPIC_OPUS_4_STRUCTURED,
+        "claude-haiku-4-5-20251001": ANTHROPIC_HAIKU_4_5_STRUCTURED,
+        "claude-haiku-4-5": ANTHROPIC_HAIKU_4_5_STRUCTURED,
         # DeepSeek Models
         "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
         # Google Gemini Models (vanilla aliases and versioned)
@@ -408,6 +431,12 @@ class ModelDatabase:
         """Get supported reasoning output style for a model"""
         params = cls.get_model_params(model)
         return params.reasoning if params else None
+
+    @classmethod
+    def supports_native_structured_output(cls, model: str) -> bool:
+        """Check if a model supports native structured outputs (e.g., Anthropic's output_format beta)"""
+        params = cls.get_model_params(model)
+        return params.native_structured_output if params else False
 
     @classmethod
     def get_stream_mode(cls, model: str | None) -> Literal["openai", "manual"]:
