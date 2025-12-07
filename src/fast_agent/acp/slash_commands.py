@@ -11,7 +11,7 @@ import textwrap
 import time
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from acp.schema import (
     AvailableCommand,
@@ -21,6 +21,7 @@ from acp.schema import (
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
 
     from fast_agent.core.fastagent import AgentInstance
+
+logger = get_logger(__name__)
 
 
 class SlashCommandHandler:
@@ -106,6 +109,10 @@ class SlashCommandHandler:
             ),
         }
 
+        # Dynamic commands registered by agents at runtime
+        # Maps command name -> async handler function
+        self._dynamic_handlers: dict[str, Callable[[str], Awaitable[str]]] = {}
+
     def get_available_commands(self) -> list[AvailableCommand]:
         """Get the list of available commands for this session."""
         return list(self.commands.values())
@@ -120,6 +127,94 @@ class SlashCommandHandler:
             agent_name: Name of the agent to use for slash commands
         """
         self.current_agent_name = agent_name
+
+    # --- Dynamic Command Registration ---
+
+    def register_dynamic_command(
+        self,
+        name: str,
+        handler: Callable[[str], Awaitable[str]],
+        description: str,
+        hint: str | None = None,
+    ) -> Callable[[], None]:
+        """
+        Register a dynamic slash command for this session.
+
+        Dynamic commands can be registered by agents at runtime to extend
+        the available slash commands. They take precedence over built-in
+        commands if there's a name collision.
+
+        Args:
+            name: Command name (without the leading /)
+            handler: Async function that takes arguments string, returns response
+            description: Short description shown in command list
+            hint: Optional hint for command arguments (e.g., "<filename>")
+
+        Returns:
+            A function that unregisters the command when called.
+
+        Example:
+            async def handle_ping(args: str) -> str:
+                return f"Pong! {args}"
+
+            unregister = handler.register_dynamic_command(
+                "ping", handle_ping, "Ping test"
+            )
+        """
+        # Store the handler
+        self._dynamic_handlers[name] = handler
+
+        # Create the AvailableCommand entry
+        input_spec = None
+        if hint:
+            input_spec = AvailableCommandInput(root=UnstructuredCommandInput(hint=hint))
+
+        self.commands[name] = AvailableCommand(
+            name=name,
+            description=description,
+            input=input_spec,
+        )
+
+        logger.info(
+            "Dynamic slash command registered",
+            name="dynamic_command_registered",
+            command=name,
+            session_id=self.session_id,
+        )
+
+        # Return unregister function
+        def unregister() -> None:
+            self.unregister_dynamic_command(name)
+
+        return unregister
+
+    def unregister_dynamic_command(self, name: str) -> bool:
+        """
+        Unregister a previously registered dynamic command.
+
+        Args:
+            name: Command name to unregister
+
+        Returns:
+            True if command was found and removed, False otherwise.
+        """
+        if name in self._dynamic_handlers:
+            del self._dynamic_handlers[name]
+            if name in self.commands:
+                del self.commands[name]
+
+            logger.info(
+                "Dynamic slash command unregistered",
+                name="dynamic_command_unregistered",
+                command=name,
+                session_id=self.session_id,
+            )
+            return True
+        return False
+
+    def is_dynamic_command(self, command_name: str) -> bool:
+        """Check if a command is a dynamically registered command."""
+        return command_name in self._dynamic_handlers
 
     def _get_current_agent(self) -> AgentProtocol | None:
         """Return the current agent or None if it does not exist."""
@@ -189,7 +284,21 @@ class SlashCommandHandler:
                 f"  /{cmd.name} - {cmd.description}" for cmd in self.commands.values()
             )
 
-        # Route to specific command handler
+        # Check for dynamic command first (takes precedence)
+        if command_name in self._dynamic_handlers:
+            try:
+                return await self._dynamic_handlers[command_name](arguments)
+            except Exception as e:
+                logger.error(
+                    "Dynamic command execution failed",
+                    name="dynamic_command_error",
+                    command=command_name,
+                    error=str(e),
+                    exc_info=True,
+                )
+                return f"Error executing /{command_name}: {e}"
+
+        # Route to built-in command handlers
         if command_name == "status":
             return await self._handle_status(arguments)
         if command_name == "tools":

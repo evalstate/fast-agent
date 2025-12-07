@@ -30,12 +30,14 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
+    from fast_agent.acp.session_context import ACPSessionContext
     from fast_agent.agents.agent_types import AgentType
     from fast_agent.llm.model_info import ModelInfo
 
 __all__ = [
     "FastAgentLLMProtocol",
     "StreamingAgentProtocol",
+    "ACPAwareProtocol",
     "LlmAgentProtocol",
     "AgentProtocol",
     "LLMFactoryProtocol",
@@ -262,3 +264,34 @@ class StreamingAgentProtocol(AgentProtocol, Protocol):
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]: ...
+
+
+@runtime_checkable
+class ACPAwareProtocol(Protocol):
+    """
+    Protocol for agents that can interact with ACP infrastructure.
+
+    When running under ACP transport, agents implementing this protocol
+    receive an ACPSessionContext that provides access to:
+    - Slash command registration
+    - Session updates
+    - Mode change notifications
+    - Client capability queries
+
+    When not running under ACP, acp_context will be None.
+    """
+
+    @property
+    def acp_context(self) -> "ACPSessionContext | None":
+        """
+        ACP session context, or None if not running under ACP.
+
+        This context provides methods for interacting with the ACP
+        infrastructure, such as registering commands and sending updates.
+        """
+        ...
+
+    @acp_context.setter
+    def acp_context(self, value: "ACPSessionContext | None") -> None:
+        """Set the ACP session context."""
+        ...

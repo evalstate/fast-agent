@@ -2,6 +2,12 @@
 
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.server.agent_acp_server import AgentACPServer
+from fast_agent.acp.session_context import ACPSessionContext
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 
-__all__ = ["AgentACPServer", "ACPFilesystemRuntime", "ACPTerminalRuntime"]
+__all__ = [
+    "AgentACPServer",
+    "ACPFilesystemRuntime",
+    "ACPTerminalRuntime",
+    "ACPSessionContext",
+]

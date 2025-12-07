@@ -48,6 +48,7 @@ from acp.schema import (
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
+from fast_agent.acp.session_context import ACPSessionContext
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
@@ -222,8 +223,14 @@ class AgentACPServer(ACPAgent):
         # Permission handler tracking
         self._session_permission_handlers: dict[str, ACPToolPermissionAdapter] = {}
 
+        # Tool progress manager tracking
+        self._session_tool_handlers: dict[str, ACPToolProgressManager] = {}
+
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
+
+        # ACP session contexts for each session (provides unified agent access to ACP)
+        self._session_contexts: dict[str, ACPSessionContext] = {}
 
         # Late-binding prompt context by session (e.g., client-provided cwd)
         self._session_prompt_context: dict[str, dict[str, str]] = {}
@@ -519,6 +526,7 @@ class AgentACPServer(ACPAgent):
             if self._connection:
                 # Create a progress manager for this session
                 tool_handler = ACPToolProgressManager(self._connection, session_id)
+                self._session_tool_handlers[session_id] = tool_handler
                 workflow_telemetry = ToolHandlerWorkflowTelemetry(
                     tool_handler, server_name=self.server_name
                 )
@@ -710,6 +718,29 @@ class AgentACPServer(ACPAgent):
         )
         self._session_slash_handlers[session_id] = slash_handler
 
+        # Create ACPSessionContext and inject into all agents
+        if self._connection:
+            acp_context = ACPSessionContext(
+                session_id=session_id,
+                _connection=self._connection,
+                _server=self,
+                tool_handler=self._session_tool_handlers.get(session_id),
+                permission_handler=self._session_permission_handlers.get(session_id),
+                slash_handler=slash_handler,
+            )
+            self._session_contexts[session_id] = acp_context
+
+            # Inject context into all agents that support it
+            for agent_name, agent in instance.agents.items():
+                if hasattr(agent, "acp_context"):
+                    agent.acp_context = acp_context
+                    logger.info(
+                        "ACP session context injected",
+                        name="acp_context_injected",
+                        session_id=session_id,
+                        agent_name=agent_name,
+                    )
+
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
@@ -797,13 +828,28 @@ class AgentACPServer(ACPAgent):
                 f"Invalid mode ID '{mode_id}'. Available modes: {list(instance.agents.keys())}"
             )
 
+        # Get old mode before updating
+        old_mode = self._session_current_agent.get(session_id, self.primary_agent_name)
+
         # Update the session's current agent
         self._session_current_agent[session_id] = mode_id
+
+        # Notify ACP context listeners of the mode change
+        acp_context = self._session_contexts.get(session_id)
+        if acp_context and old_mode != mode_id:
+            # Fire mode change notification asynchronously
+            asyncio.create_task(acp_context._notify_mode_change(old_mode, mode_id))
+
+        # Also update the slash handler's current agent
+        slash_handler = self._session_slash_handlers.get(session_id)
+        if slash_handler:
+            slash_handler.set_current_agent(mode_id)
 
         logger.info(
             "Session mode updated",
             name="acp_set_session_mode_success",
             session_id=session_id,
+            old_mode=old_mode,
             new_mode=mode_id,
         )
 
@@ -1300,6 +1346,12 @@ class AgentACPServer(ACPAgent):
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up ACP session contexts
+            self._session_contexts.clear()
+
+            # Clean up tool handlers
+            self._session_tool_handlers.clear()
 
             # Clean up session current agent mapping
             self._session_current_agent.clear()

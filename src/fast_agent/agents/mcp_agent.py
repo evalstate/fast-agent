@@ -11,6 +11,7 @@ from abc import ABC
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Iterable,
     Mapping,
@@ -54,6 +55,7 @@ from fast_agent.tools.elicitation import (
     set_elicitation_input_callback,
 )
 from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.tools.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 
@@ -66,6 +68,7 @@ LLM = TypeVar("LLM", bound=FastAgentLLMProtocol)
 if TYPE_CHECKING:
     from rich.text import Text
 
+    from fast_agent.acp.session_context import ACPSessionContext
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
     from fast_agent.skills import SkillManifest
@@ -174,6 +177,9 @@ class McpAgent(ABC, ToolAgent):
 
         # Allow filesystem runtime injection (e.g., for ACP filesystem support)
         self._filesystem_runtime = None
+
+        # ACP session context - set when running under ACP transport
+        self._acp_context: ACPSessionContext | None = None
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -489,6 +495,52 @@ class McpAgent(ABC, ToolAgent):
             f"Filesystem runtime injected: {type(runtime).__name__}",
             runtime_type=type(runtime).__name__,
         )
+
+    # --- ACP Context ---
+
+    @property
+    def acp_context(self) -> "ACPSessionContext | None":
+        """
+        ACP session context, or None if not running under ACP.
+
+        When running under ACP transport, this context provides methods for:
+        - Registering temporary slash commands
+        - Sending session updates to the client
+        - Listening for mode changes
+        - Querying client capabilities
+
+        Example:
+            if self.acp_context:
+                self.acp_context.register_command(
+                    "mystatus", self._handle_mystatus, "Show custom status"
+                )
+        """
+        return self._acp_context
+
+    @acp_context.setter
+    def acp_context(self, value: "ACPSessionContext | None") -> None:
+        """Set the ACP session context."""
+        self._acp_context = value
+        if value is not None:
+            self._on_acp_context_set(value)
+
+    def _on_acp_context_set(self, ctx: "ACPSessionContext") -> None:
+        """
+        Called when ACP context is set. Override in subclasses to register commands.
+
+        This hook is called after the ACP context has been injected, allowing
+        agents to register custom slash commands or set up mode change listeners.
+
+        Args:
+            ctx: The ACP session context
+
+        Example:
+            def _on_acp_context_set(self, ctx: ACPSessionContext) -> None:
+                ctx.register_command("mystatus", self._handle_mystatus, "Show status")
+                ctx.on_mode_change(self._handle_mode_change)
+        """
+        # Default implementation does nothing - subclasses can override
+        pass
 
     async def call_tool(
         self, name: str, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
@@ -938,6 +990,170 @@ class McpAgent(ABC, ToolAgent):
                 self.display.show_tool_result(name=self._name, result=error_result)
 
         return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
+
+    # ToolRunner integration
+    def _create_tool_runner(
+        self,
+        *,
+        generate_fn: Callable[[list[PromptMessageExtended]], Awaitable[PromptMessageExtended]],
+        messages: list[PromptMessageExtended],
+        tools: list[Tool],
+        available_tools: list[str],
+        max_iterations: int,
+        parallel_tool_calls: bool,
+    ) -> ToolRunner:
+        # Cache namespaced tool metadata for routing and display
+        namespaced_tools = self._aggregator._namespaced_tool_map
+
+        async def _on_tool_call(
+            tool_name: str,
+            tool_args: dict[str, Any] | None,
+            tool_use_id: str | None,
+        ) -> None:
+            namespaced_tool = namespaced_tools.get(tool_name)
+            candidate_namespaced_tool = None
+            local_tool = self._execution_tools.get(tool_name)
+            if namespaced_tool is None and local_tool is None:
+                candidate_namespaced_tool = next(
+                    (candidate for candidate in namespaced_tools.values() if candidate.tool.name == tool_name),
+                    None,
+                )
+
+            display_tool_name, bottom_items, highlight_index = self._prepare_tool_display(
+                tool_name=tool_name,
+                namespaced_tool=namespaced_tool,
+                candidate_namespaced_tool=candidate_namespaced_tool,
+                local_tool=local_tool,
+                fallback_order=self._unique_preserving_order(available_tools),
+            )
+
+            metadata: dict[str, Any] | None = None
+            if (
+                self._shell_runtime_enabled
+                and self._shell_runtime.tool
+                and tool_name == self._shell_runtime.tool.name
+            ):
+                metadata = self._shell_runtime.metadata((tool_args or {}).get("command"))
+            elif self._external_runtime and hasattr(self._external_runtime, "metadata"):
+                if self._external_runtime.tool and tool_name == self._external_runtime.tool.name:
+                    metadata = self._external_runtime.metadata()
+            elif self._filesystem_runtime and hasattr(self._filesystem_runtime, "metadata"):
+                if any(tool.name == tool_name for tool in getattr(self._filesystem_runtime, "tools", [])):
+                    metadata = self._filesystem_runtime.metadata()
+
+            self.display.show_tool_call(
+                name=self._name,
+                tool_args=tool_args or {},
+                bottom_items=bottom_items,
+                tool_name=display_tool_name,
+                highlight_index=highlight_index,
+                max_item_length=12,
+                metadata=metadata,
+            )
+
+        async def _on_tool_result(
+            tool_name: str,
+            result: CallToolResult,
+            duration_ms: float,
+            tool_use_id: str | None,
+        ) -> None:
+            namespaced_tool = namespaced_tools.get(tool_name)
+            candidate_namespaced_tool = None
+            if namespaced_tool is None:
+                candidate_namespaced_tool = next(
+                    (candidate for candidate in namespaced_tools.values() if candidate.tool.name == tool_name),
+                    None,
+                )
+            skybridge_config = None
+            skybridge_tool = namespaced_tool or candidate_namespaced_tool
+            if skybridge_tool:
+                skybridge_config = await self._aggregator.get_skybridge_config(skybridge_tool.server_name)
+
+            display_tool_name = (
+                (namespaced_tool or candidate_namespaced_tool).namespaced_tool_name
+                if (namespaced_tool or candidate_namespaced_tool) is not None
+                else tool_name
+            )
+
+            if not getattr(result, "_suppress_display", False):
+                self.display.show_tool_result(
+                    name=self._name,
+                    result=result,
+                    tool_name=display_tool_name,
+                    skybridge_config=skybridge_config,
+                    timing_ms=duration_ms,
+                )
+
+        hooks = ToolRunnerHooks(
+            on_tool_call=_on_tool_call,
+            on_tool_result=_on_tool_result,
+        )
+
+        return ToolRunner(
+            generate_fn=generate_fn,
+            tools=tools,
+            messages=messages,
+            max_iterations=max_iterations,
+            use_history=self.config.use_history,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_executor=self._tool_executor,
+            tool_validator=lambda name: self._is_tool_available(name, available_tools, namespaced_tools),
+            tool_result_factory=self._tool_result_factory,
+            hooks=hooks,
+        )
+
+    async def _tool_executor(
+        self, tool_name: str, tool_args: dict[str, Any] | None, tool_use_id: str | None
+    ) -> CallToolResult:
+        return await self.call_tool(tool_name, tool_args, tool_use_id)
+
+    def _tool_result_factory(
+        self,
+        tool_results: dict[str, CallToolResult],
+        tool_timings: dict[str, dict[str, float | str | None]] | None,
+        tool_loop_error: str | None,
+    ) -> PromptMessageExtended:
+        return self._finalize_tool_results(
+            tool_results,
+            tool_timings=tool_timings,
+            tool_loop_error=tool_loop_error,
+        )
+
+    def _is_tool_available(
+        self,
+        tool_name: str,
+        available_tools: list[str],
+        namespaced_tools: dict[str, NamespacedTool],
+    ) -> bool:
+        is_external_runtime_tool = (
+            self._external_runtime
+            and hasattr(self._external_runtime, "tool")
+            and self._external_runtime.tool
+            and tool_name == self._external_runtime.tool.name
+        )
+        is_filesystem_runtime_tool = (
+            self._filesystem_runtime
+            and hasattr(self._filesystem_runtime, "tools")
+            and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
+        )
+
+        namespaced_tool = namespaced_tools.get(tool_name)
+        candidate_namespaced_tool = None
+        if namespaced_tool is None and tool_name not in self._execution_tools:
+            candidate_namespaced_tool = next(
+                (candidate for candidate in namespaced_tools.values() if candidate.tool.name == tool_name),
+                None,
+            )
+
+        return (
+            tool_name == HUMAN_INPUT_TOOL_NAME
+            or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
+            or is_external_runtime_tool
+            or is_filesystem_runtime_tool
+            or namespaced_tool is not None
+            or tool_name in available_tools
+            or candidate_namespaced_tool is not None
+        )
 
     def _prepare_tool_display(
         self,
