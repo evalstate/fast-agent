@@ -1,4 +1,5 @@
-from typing import Any, Callable, Dict, List, Sequence
+import functools
+from typing import Any, Awaitable, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
@@ -14,8 +15,10 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
+from fast_agent.tools.tool_runner import ToolRunner, ToolRunnerHooks
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.ui.console import console
 
 logger = get_logger(__name__)
 
@@ -35,6 +38,7 @@ class ToolAgent(LlmAgent):
         tools: Sequence[FastMCPTool | Callable] = [],
         context: Context | None = None,
     ) -> None:
+        console.print("[dim]ToolAgent init[/dim]")
         super().__init__(config=config, context=context)
 
         self._execution_tools: dict[str, FastMCPTool] = {}
@@ -81,55 +85,133 @@ class ToolAgent(LlmAgent):
         tools: List[Tool] | None = None,
     ) -> PromptMessageExtended:
         """
-        Generate a response using the LLM, and handle tool calls if necessary.
-        Messages are already normalized to List[PromptMessageExtended].
+        Generate a response using the LLM, and handle tool calls via ToolRunner.
         """
+
+        console.print("[dim]ToolAgent.generate_impl: entered[/dim]")
         if tools is None:
             tools = (await self.list_tools()).tools
 
-        iterations = 0
+        available_tools = [t.name for t in tools]
         max_iterations = request_params.max_iterations if request_params else DEFAULT_MAX_ITERATIONS
+        parallel_param = getattr(request_params, "parallel_tool_calls", None)
+        parallel_tool_calls = True if parallel_param is None else bool(parallel_param)
 
-        while True:
-            result = await super().generate_impl(
-                messages,
+        async def _generate_once(msgs: List[PromptMessageExtended]) -> PromptMessageExtended:
+            console.print("[dim]ToolAgent: calling LLM via ToolRunner[/dim]")
+            # Call parent implementation explicitly; zero-arg super() is invalid in this closure
+            from fast_agent.agents.llm_agent import LlmAgent
+
+            resp = await LlmAgent.generate_impl(
+                self,
+                msgs,
                 request_params=request_params,
                 tools=tools,
             )
+            console.print(f"[dim]ToolAgent: LLM returned stop_reason={resp.stop_reason}[/dim]")
+            return resp
 
-            if LlmStopReason.TOOL_USE == result.stop_reason:
-                tool_message = await self.run_tools(result)
-                error_channel_messages = (tool_message.channels or {}).get(FAST_AGENT_ERROR_CHANNEL)
-                if error_channel_messages:
-                    tool_result_contents = [
-                        content
-                        for tool_result in (tool_message.tool_results or {}).values()
-                        for content in tool_result.content
-                    ]
-                    if tool_result_contents:
-                        if result.content is None:
-                            result.content = []
-                        result.content.extend(tool_result_contents)
-                    result.stop_reason = LlmStopReason.ERROR
-                    break
-                if self.config.use_history:
-                    messages = [tool_message]
-                else:
-                    messages.extend([result, tool_message])
-            else:
-                break
-
-            iterations += 1
-            if iterations > max_iterations:
-                logger.warning("Max iterations reached, stopping tool loop")
-                break
-        return result
+        runner = self._create_tool_runner(
+            generate_fn=_generate_once,
+            messages=messages,
+            tools=tools,
+            available_tools=available_tools,
+            max_iterations=max_iterations,
+            parallel_tool_calls=parallel_tool_calls,
+        )
+        try:
+            result = await runner.run_until_done()
+            console.print(f"[dim]ToolAgent: runner completed with stop_reason={result.stop_reason}[/dim]")
+            return result
+        except Exception as exc:  # pragma: no cover - defensive fallback
+            console.print(f"[red]ToolRunner failed: {exc}[/red]")
+            logger.error("ToolRunner failed", exc_info=exc)
+            raise
 
     # we take care of tool results, so skip displaying them
     def show_user_message(self, message: PromptMessageExtended) -> None:
         if message.tool_results:
             return
         super().show_user_message(message)
+
+    # Hookable tool runner configuration ---------------------------------
+
+    def _create_tool_runner(
+        self,
+        *,
+        generate_fn: Callable[[List[PromptMessageExtended]], Awaitable[PromptMessageExtended]],
+        messages: List[PromptMessageExtended],
+        tools: List[Tool],
+        available_tools: List[str],
+        max_iterations: int,
+        parallel_tool_calls: bool,
+    ) -> ToolRunner:
+        hooks = ToolRunnerHooks(
+            on_tool_call=functools.partial(self._on_tool_call, available_tools=available_tools),
+            on_tool_result=self._on_tool_result,
+        )
+
+        return ToolRunner(
+            generate_fn=generate_fn,
+            tools=tools,
+            messages=messages,
+            max_iterations=max_iterations,
+            use_history=self.config.use_history,
+            parallel_tool_calls=parallel_tool_calls,
+            tool_executor=self._tool_executor,
+            tool_validator=lambda name: name in available_tools or name in self._execution_tools,
+            tool_result_factory=self._tool_result_factory,
+            hooks=hooks,
+        )
+
+    async def _tool_executor(
+        self, tool_name: str, tool_args: dict[str, Any] | None, tool_use_id: str | None
+    ) -> CallToolResult:
+        return await self.call_tool(tool_name, tool_args)
+
+    def _tool_result_factory(
+        self,
+        tool_results: dict[str, CallToolResult],
+        tool_timings: dict[str, dict[str, float | str | None]] | None,
+        tool_loop_error: str | None,
+    ) -> PromptMessageExtended:
+        return self._finalize_tool_results(
+            tool_results,
+            tool_timings=tool_timings,
+            tool_loop_error=tool_loop_error,
+        )
+
+    async def _on_tool_call(
+        self,
+        tool_name: str,
+        tool_args: dict[str, Any] | None,
+        tool_use_id: str | None,
+        *,
+        available_tools: List[str],
+    ) -> None:
+        highlight_index = None
+        try:
+            highlight_index = available_tools.index(tool_name)
+        except ValueError:
+            pass
+
+        self.display.show_tool_call(
+            name=self.name,
+            tool_args=tool_args or {},
+            bottom_items=available_tools,
+            tool_name=tool_name,
+            highlight_index=highlight_index,
+            max_item_length=12,
+        )
+
+    async def _on_tool_result(
+        self,
+        tool_name: str,
+        result: CallToolResult,
+        duration_ms: float,
+        tool_use_id: str | None,
+    ) -> None:
+        self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms)
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Runs the tools in the request, and returns a new User message with the results"""
