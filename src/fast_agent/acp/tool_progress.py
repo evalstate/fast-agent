@@ -18,15 +18,16 @@ from acp.helpers import (
     embedded_blob_resource,
     embedded_text_resource,
     image_block,
+    resource_block,
     resource_link_block,
     text_block,
     tool_content,
 )
-from acp.schema import EmbeddedResourceContentBlock, ToolKind
+from acp.schema import ToolKind
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
-    ContentBlock,
+    ContentBlock as MCPContentBlock,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
@@ -272,42 +273,38 @@ class ACPToolProgressManager:
                 tool_use_id=tool_use_id,
             )
 
+    # Tool kind patterns: mapping from ToolKind to keyword patterns
+    _TOOL_KIND_PATTERNS: dict[ToolKind, tuple[str, ...]] = {
+        "read": ("read", "get", "fetch", "list", "show"),
+        "edit": ("write", "edit", "update", "modify", "patch"),
+        "delete": ("delete", "remove", "clear", "clean", "rm"),
+        "move": ("move", "rename", "mv"),
+        "search": ("search", "find", "query", "grep"),
+        "execute": ("execute", "run", "exec", "command", "bash", "shell"),
+        "think": ("think", "plan", "reason"),
+        "fetch": ("fetch", "download", "http", "request"),
+    }
+
     def _infer_tool_kind(self, tool_name: str, arguments: dict[str, Any] | None) -> ToolKind:
         """
         Infer the tool kind from the tool name and arguments.
 
         Args:
             tool_name: Name of the tool being called
-            arguments: Tool arguments
+            arguments: Tool arguments (reserved for future use)
 
         Returns:
             The inferred ToolKind
         """
         name_lower = tool_name.lower()
 
-        # Common patterns for tool categorization
-        if any(word in name_lower for word in ["read", "get", "fetch", "list", "show"]):
-            return "read"
-        elif any(word in name_lower for word in ["write", "edit", "update", "modify", "patch"]):
-            return "edit"
-        elif any(word in name_lower for word in ["delete", "remove", "clear", "clean", "rm"]):
-            return "delete"
-        elif any(word in name_lower for word in ["move", "rename", "mv"]):
-            return "move"
-        elif any(word in name_lower for word in ["search", "find", "query", "grep"]):
-            return "search"
-        elif any(
-            word in name_lower for word in ["execute", "run", "exec", "command", "bash", "shell"]
-        ):
-            return "execute"
-        elif any(word in name_lower for word in ["think", "plan", "reason"]):
-            return "think"
-        elif any(word in name_lower for word in ["fetch", "download", "http", "request"]):
-            return "fetch"
+        for kind, patterns in self._TOOL_KIND_PATTERNS.items():
+            if any(pattern in name_lower for pattern in patterns):
+                return kind
 
         return "other"
 
-    def _convert_mcp_content_to_acp(self, content: list[ContentBlock] | None):
+    def _convert_mcp_content_to_acp(self, content: list[MCPContentBlock] | None) -> list | None:
         """
         Convert MCP content blocks to ACP tool call content using SDK helpers.
 
@@ -324,63 +321,52 @@ class ACPToolProgressManager:
 
         for block in content:
             try:
-                if isinstance(block, TextContent):
-                    # MCP TextContent -> ACP TextContentBlock using SDK helper
-                    acp_content.append(tool_content(text_block(block.text)))
+                match block:
+                    case TextContent():
+                        acp_content.append(tool_content(text_block(block.text)))
 
-                elif isinstance(block, ImageContent):
-                    # MCP ImageContent -> ACP ImageContentBlock using SDK helper
-                    acp_content.append(tool_content(image_block(block.data, block.mimeType)))
+                    case ImageContent():
+                        acp_content.append(tool_content(image_block(block.data, block.mimeType)))
 
-                elif isinstance(block, AudioContent):
-                    # MCP AudioContent -> ACP AudioContentBlock using SDK helper
-                    acp_content.append(tool_content(audio_block(block.data, block.mimeType)))
+                    case AudioContent():
+                        acp_content.append(tool_content(audio_block(block.data, block.mimeType)))
 
-                elif isinstance(block, ResourceLink):
-                    # MCP ResourceLink -> ACP ResourceContentBlock using SDK helper
-                    # Note: ResourceLink has uri, mimeType but resource_link_block wants name
-                    # Use the URI as the name for now
-                    acp_content.append(
-                        tool_content(
-                            resource_link_block(
-                                name=str(block.uri),
-                                uri=str(block.uri),
-                                mime_type=block.mimeType if hasattr(block, "mimeType") else None,
-                            )
-                        )
-                    )
-
-                elif isinstance(block, EmbeddedResource):
-                    # MCP EmbeddedResource -> ACP EmbeddedResourceContentBlock
-                    resource = block.resource
-                    if isinstance(resource, TextResourceContents):
-                        embedded_res = embedded_text_resource(
-                            uri=str(resource.uri),
-                            text=resource.text,
-                            mime_type=resource.mimeType,
-                        )
+                    case ResourceLink():
+                        # Use URI as the name for resource links
                         acp_content.append(
                             tool_content(
-                                EmbeddedResourceContentBlock(type="resource", resource=embedded_res)
+                                resource_link_block(
+                                    name=str(block.uri),
+                                    uri=str(block.uri),
+                                    mime_type=getattr(block, "mimeType", None),
+                                )
                             )
                         )
-                    elif isinstance(resource, BlobResourceContents):
-                        embedded_res = embedded_blob_resource(
-                            uri=str(resource.uri),
-                            blob=resource.blob,
-                            mime_type=resource.mimeType,
+
+                    case EmbeddedResource():
+                        # Use SDK's resource_block helper with embedded resource contents
+                        match block.resource:
+                            case TextResourceContents():
+                                embedded_res = embedded_text_resource(
+                                    uri=str(block.resource.uri),
+                                    text=block.resource.text,
+                                    mime_type=block.resource.mimeType,
+                                )
+                            case BlobResourceContents():
+                                embedded_res = embedded_blob_resource(
+                                    uri=str(block.resource.uri),
+                                    blob=block.resource.blob,
+                                    mime_type=block.resource.mimeType,
+                                )
+                            case _:
+                                continue  # Skip unsupported resource types
+                        acp_content.append(tool_content(resource_block(embedded_res)))
+
+                    case _:
+                        logger.warning(
+                            f"Unknown content type: {type(block).__name__}",
+                            name="acp_unknown_content_type",
                         )
-                        acp_content.append(
-                            tool_content(
-                                EmbeddedResourceContentBlock(type="resource", resource=embedded_res)
-                            )
-                        )
-                else:
-                    # Unknown content type - log warning and skip
-                    logger.warning(
-                        f"Unknown content type: {type(block).__name__}",
-                        name="acp_unknown_content_type",
-                    )
             except Exception as e:
                 logger.error(
                     f"Error converting content block {type(block).__name__}: {e}",
@@ -702,7 +688,7 @@ class ACPToolProgressManager:
         self,
         tool_call_id: str,
         success: bool,
-        content: list[ContentBlock] | None = None,
+        content: list[MCPContentBlock] | None = None,
         error: str | None = None,
     ) -> None:
         """
