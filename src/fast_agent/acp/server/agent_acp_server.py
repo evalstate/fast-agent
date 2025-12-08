@@ -24,6 +24,8 @@ from acp import (
 )
 from acp.helpers import (
     ContentBlock as ACPContentBlock,
+)
+from acp.helpers import (
     update_agent_message_text,
     update_agent_thought_text,
 )

@@ -27,12 +27,14 @@ from acp.schema import ToolKind
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
-    ContentBlock as MCPContentBlock,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
     TextContent,
     TextResourceContents,
+)
+from mcp.types import (
+    ContentBlock as MCPContentBlock,
 )
 
 from fast_agent.core.logging.logger import get_logger

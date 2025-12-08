@@ -103,7 +103,7 @@ def _convert_annotations(
     if not acp_annotations:
         return None
 
-    audience = cast(list[mcp_types.Role], list(acp_annotations.audience)) if acp_annotations.audience else None
+    audience = cast("list[mcp_types.Role]", list(acp_annotations.audience)) if acp_annotations.audience else None
     return mcp_types.Annotations(
         audience=audience,
         priority=getattr(acp_annotations, "priority", None),
