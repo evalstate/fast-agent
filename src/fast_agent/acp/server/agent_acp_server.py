@@ -23,26 +23,22 @@ from acp import (
     Client as ACPClient,
 )
 from acp.helpers import (
+    ContentBlock as ACPContentBlock,
     update_agent_message_text,
     update_agent_thought_text,
 )
 from acp.schema import (
     AgentCapabilities,
-    AudioContentBlock,
     AvailableCommandsUpdate,
     ClientCapabilities,
-    EmbeddedResourceContentBlock,
     HttpMcpServer,
-    ImageContentBlock,
     Implementation,
     McpServerStdio,
     PromptCapabilities,
-    ResourceContentBlock,
     SessionMode,
     SessionModeState,
     SseMcpServer,
     StopReason,
-    TextContentBlock,
 )
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
@@ -827,13 +823,7 @@ class AgentACPServer(ACPAgent):
 
     async def prompt(
         self,
-        prompt: list[
-            TextContentBlock
-            | ImageContentBlock
-            | AudioContentBlock
-            | ResourceContentBlock
-            | EmbeddedResourceContentBlock
-        ],
+        prompt: list[ACPContentBlock],
         session_id: str,
         **kwargs: Any,
     ) -> PromptResponse:

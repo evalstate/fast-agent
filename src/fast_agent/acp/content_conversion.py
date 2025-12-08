@@ -5,21 +5,13 @@ This module handles conversion of content blocks from the Agent Client Protocol 
 to Model Context Protocol (MCP) format for processing by fast-agent.
 """
 
-from typing import Union, cast
+from typing import cast
 
 import acp.schema as acp_schema
 import mcp.types as mcp_types
+from acp.helpers import ContentBlock as ACPContentBlock
 from mcp.types import ContentBlock
 from pydantic import AnyUrl
-
-# Type aliases for clarity
-ACPContentBlock = Union[
-    acp_schema.TextContentBlock,
-    acp_schema.ImageContentBlock,
-    acp_schema.EmbeddedResourceContentBlock,
-    acp_schema.ResourceContentBlock,
-    acp_schema.AudioContentBlock,
-]
 
 
 def convert_acp_content_to_mcp(acp_content: ACPContentBlock) -> ContentBlock | None:
@@ -92,8 +84,8 @@ def _convert_embedded_resource(
 
 
 def _convert_resource_contents(
-    acp_resource: Union[acp_schema.TextResourceContents, acp_schema.BlobResourceContents],
-) -> Union[mcp_types.TextResourceContents, mcp_types.BlobResourceContents]:
+    acp_resource: acp_schema.TextResourceContents | acp_schema.BlobResourceContents,
+) -> mcp_types.TextResourceContents | mcp_types.BlobResourceContents:
     """Convert ACP resource contents to MCP resource contents."""
     if isinstance(acp_resource, acp_schema.TextResourceContents):
         return mcp_types.TextResourceContents(
