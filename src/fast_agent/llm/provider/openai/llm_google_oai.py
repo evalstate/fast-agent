@@ -7,6 +7,8 @@ DEFAULT_GOOGLE_MODEL = "gemini-2.0-flash"
 
 
 class GoogleOaiLLM(OpenAILLM):
+    config_section = "google"
+
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, provider=Provider.GOOGLE_OAI, **kwargs)
 

@@ -902,7 +902,11 @@ class McpAgent(ABC, ToolAgent):
                 duration_ms = round((end_time - start_time) * 1000, 2)
 
                 tool_results[correlation_id] = result
-                tool_timings[correlation_id] = duration_ms
+                # Store timing and transport channel info
+                tool_timings[correlation_id] = {
+                    "timing_ms": duration_ms,
+                    "transport_channel": getattr(result, "transport_channel", None)
+                }
 
                 # Show tool result (like ToolAgent does)
                 skybridge_config = None
@@ -918,7 +922,7 @@ class McpAgent(ABC, ToolAgent):
                         result=result,
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
-                        timing_ms=duration_ms,
+                        timing_ms=duration_ms,  # Use local duration_ms variable for display
                     )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
@@ -1328,6 +1332,6 @@ class McpAgent(ABC, ToolAgent):
         Returns:
             UsageAccumulator object if LLM is attached, None otherwise
         """
-        if self._llm:
-            return self._llm.usage_accumulator
+        if self.llm:
+            return self.llm.usage_accumulator
         return None

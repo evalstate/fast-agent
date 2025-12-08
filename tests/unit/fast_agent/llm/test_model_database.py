@@ -61,6 +61,31 @@ def test_model_database_supports_mime_basic():
     assert ModelDatabase.supports_mime("gpt-4o", "png")
 
 
+def test_model_database_google_video_audio_mime_types():
+    """Test that Google models support expanded video/audio MIME types."""
+    # Video formats (MP4, AVI, FLV, MOV, MPEG, MPG, WebM)
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "video/mp4")
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "video/x-msvideo")  # AVI
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "video/x-flv")  # FLV
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "video/quicktime")  # MOV
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "video/mpeg")  # MPEG, MPG
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "video/webm")
+
+    # Audio formats
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "audio/wav")
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "audio/mpeg")
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "audio/mp3")
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "audio/aac")
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "audio/ogg")
+    assert ModelDatabase.supports_mime("gemini-2.0-flash", "audio/flac")
+
+    # Non-Google models should NOT support video/audio
+    assert not ModelDatabase.supports_mime("claude-sonnet-4-0", "video/mp4")
+    assert not ModelDatabase.supports_mime("claude-sonnet-4-0", "audio/wav")
+    assert not ModelDatabase.supports_mime("gpt-4o", "video/mp4")
+    assert not ModelDatabase.supports_mime("gpt-4o", "audio/mpeg")
+
+
 def test_llm_uses_model_database_for_max_tokens():
     """Test that LLM instances use ModelDatabase for maxTokens defaults"""
 
@@ -131,7 +156,7 @@ def test_model_database_reasoning_modes():
     assert ModelDatabase.get_reasoning("o1") == "openai"
     assert ModelDatabase.get_reasoning("o3-mini") == "openai"
     assert ModelDatabase.get_reasoning("gpt-5") == "openai"
-    assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "tags"
+    assert ModelDatabase.get_reasoning("zai-org/glm-4.6") == "reasoning_content"
     assert ModelDatabase.get_reasoning("gpt-4o") is None
 
 

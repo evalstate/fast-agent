@@ -1027,6 +1027,25 @@ async def get_enhanced_input(
                                     f"[dim]Experimental: Streaming Enabled - {streaming_mode} mode[/dim]"
                                 )
 
+                        # Show model source if configured via env var or config file
+                        model_source = getattr(agent_context.config, "model_source", None)
+                        if model_source:
+                            rich_print(f"[dim]Model selected via {model_source}[/dim]")
+
+                        # Show HuggingFace model and provider info if applicable
+                        try:
+                            if active_agent.llm:
+                                get_hf_info = getattr(active_agent.llm, "get_hf_display_info", None)
+                                if get_hf_info:
+                                    hf_info = get_hf_info()
+                                    model = hf_info.get("model", "unknown")
+                                    provider = hf_info.get("provider", "auto-routing")
+                                    rich_print(
+                                        f"[dim]HuggingFace: {model} via {provider}[/dim]"
+                                    )
+                        except Exception:
+                            pass
+
         if shell_enabled:
             modes_display = ", ".join(shell_access_modes or ("direct",))
             shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display

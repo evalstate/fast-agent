@@ -18,7 +18,12 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_decorator import LlmDecorator, ModelT
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.context import Context
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import (
+    get_text,
+    is_image_content,
+    is_resource_content,
+    is_resource_link,
+)
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 from fast_agent.ui.console_display import ConsoleDisplay
@@ -198,7 +203,7 @@ class LlmAgent(LlmDecorator):
 
         # Use provided name/model or fall back to defaults
         display_name = name if name is not None else self.name
-        display_model = model if model is not None else (self.llm.model_name if self._llm else None)
+        display_model = model if model is not None else (self.llm.model_name if self.llm else None)
 
         # Convert highlight_items to highlight_index
         highlight_index = None
@@ -226,9 +231,36 @@ class LlmAgent(LlmDecorator):
 
     def show_user_message(self, message: PromptMessageExtended) -> None:
         """Display a user message in a formatted panel."""
-        model = self.llm.model_name
-        chat_turn = self._llm.chat_turn()
-        self.display.show_user_message(message.last_text() or "", model, chat_turn, name=self.name)
+        model = self.llm.model_name if self.llm else None
+        chat_turn = self.llm.chat_turn() if self.llm else 0
+
+        # Extract attachment descriptions from non-text content
+        attachments: list[str] = []
+        for content in message.content:
+            if is_resource_link(content):
+                # ResourceLink: show name or mime type
+                from mcp.types import ResourceLink
+
+                assert isinstance(content, ResourceLink)
+                label = content.name or content.mimeType or "resource"
+                attachments.append(label)
+            elif is_image_content(content):
+                attachments.append("image")
+            elif is_resource_content(content):
+                # EmbeddedResource: show name or uri
+                from mcp.types import EmbeddedResource
+
+                assert isinstance(content, EmbeddedResource)
+                label = getattr(content.resource, "name", None) or str(content.resource.uri)
+                attachments.append(label)
+
+        self.display.show_user_message(
+            message.last_text() or "",
+            model,
+            chat_turn,
+            name=self.name,
+            attachments=attachments if attachments else None,
+        )
 
     def _should_stream(self) -> bool:
         """Determine whether streaming display should be used."""
@@ -255,7 +287,7 @@ class LlmAgent(LlmDecorator):
 
         if self._should_stream():
             display_name = self.name
-            display_model = self.llm.model_name if self._llm else None
+            display_model = self.llm.model_name if self.llm else None
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None
@@ -265,7 +297,7 @@ class LlmAgent(LlmDecorator):
                 model=display_model,
             ) as stream_handle:
                 try:
-                    remove_listener = self.llm.add_stream_listener(stream_handle.update)
+                    remove_listener = self.llm.add_stream_listener(stream_handle.update_chunk)
                     remove_tool_listener = self.llm.add_tool_stream_listener(
                         stream_handle.handle_tool_event
                     )

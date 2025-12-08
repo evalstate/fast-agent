@@ -53,9 +53,8 @@ def display_usage_report(
 
                 # Get model name via typed property when available
                 model = "unknown"
-                if hasattr(agent, "_llm") and agent._llm:
-                    llm = agent._llm
-                    model = getattr(llm, "model_name", None) or "unknown"
+                if agent.llm:
+                    model = agent.llm.model_name or "unknown"
 
                 # Standardize model name truncation - use consistent 25 char width with 22+... truncation
                 if len(model) > 25:

@@ -50,10 +50,23 @@ class ModelDatabase:
         "image/jpeg",
         "image/png",
         "image/webp",
+        "image/gif",
         "application/pdf",
+        # Audio formats
         "audio/wav",
-        "audio/mp3",
+        "audio/mpeg",  # Official MP3 MIME type
+        "audio/mp3",  # Common alias
+        "audio/aac",
+        "audio/ogg",
+        "audio/flac",
+        "audio/webm",
+        # Video formats (MP4, AVI, FLV, MOV, MPEG, MPG, WebM)
         "video/mp4",
+        "video/x-msvideo",  # AVI
+        "video/x-flv",  # FLV
+        "video/quicktime",  # MOV
+        "video/mpeg",  # MPEG, MPG
+        "video/webm",
     ]
     QWEN_MULTIMODAL = ["text/plain", "image/jpeg", "image/png", "image/webp"]
     XAI_VISION = ["text/plain", "image/jpeg", "image/png", "image/webp"]
@@ -86,14 +99,6 @@ class ModelDatabase:
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
     ANTHROPIC_37_SERIES = ModelParameters(
         context_window=200000, max_output_tokens=16384, tokenizes=ANTHROPIC_MULTIMODAL
-    )
-
-    GEMINI_FLASH = ModelParameters(
-        context_window=1048576, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
-    )
-
-    GEMINI_PRO = ModelParameters(
-        context_window=1_048_576, max_output_tokens=65_536, tokenizes=GOOGLE_MULTIMODAL
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -136,7 +141,11 @@ class ModelDatabase:
         reasoning="openai",
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
-        context_window=131072, max_output_tokens=32766, tokenizes=TEXT_ONLY, json_mode="object"
+        context_window=131072,
+        max_output_tokens=32766,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="gpt_oss",
     )
     OPENAI_GPT_5 = ModelParameters(
         context_window=400000,
@@ -167,13 +176,28 @@ class ModelDatabase:
         json_mode="object",
         reasoning="tags",
     )
-    GEMINI_2_5_PRO = ModelParameters(
-        context_window=2097152, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
+
+    GEMINI_STANDARD = ModelParameters(
+        context_window=1_048_576, max_output_tokens=65_536, tokenizes=GOOGLE_MULTIMODAL
+    )
+
+    GEMINI_2_FLASH = ModelParameters(
+        context_window=1_048_576, max_output_tokens=8192, tokenizes=GOOGLE_MULTIMODAL
     )
 
     # 31/08/25 switched to object mode (even though groq says schema supported and used to work..)
     KIMI_MOONSHOT = ModelParameters(
-        context_window=262144, max_output_tokens=16384, tokenizes=TEXT_ONLY, json_mode="object"
+        context_window=262144,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+    )
+    KIMI_MOONSHOT_THINKING = ModelParameters(
+        context_window=262144,
+        max_output_tokens=16384,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
     )
 
     # FIXME: xAI has not documented the max output tokens for Grok 4. Using Grok 3 as a placeholder. Will need to update when available (if ever)
@@ -193,12 +217,19 @@ class ModelDatabase:
         max_output_tokens=8192,
         tokenizes=TEXT_ONLY,
         json_mode="object",
-        reasoning="tags",
+        reasoning="reasoning_content",
         stream_mode="manual",
     )
 
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
         context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
+    )
+
+    HF_PROVIDER_DEEPSEEK32 = ModelParameters(
+        context_window=163_800,
+        max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        reasoning="gpt_oss",
     )
 
     HF_PROVIDER_QWEN3_NEXT = ModelParameters(
@@ -271,20 +302,22 @@ class ModelDatabase:
         "claude-sonnet-4-5-20250929": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-opus-4-0": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-1": ANTHROPIC_OPUS_4_VERSIONED,
+        "claude-opus-4-5": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-opus-4-20250514": ANTHROPIC_OPUS_4_VERSIONED,
         "claude-haiku-4-5-20251001": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-haiku-4-5": ANTHROPIC_SONNET_4_VERSIONED,
         # DeepSeek Models
         "deepseek-chat": DEEPSEEK_CHAT_STANDARD,
         # Google Gemini Models (vanilla aliases and versioned)
-        "gemini-2.0-flash": GEMINI_FLASH,
-        "gemini-2.5-flash-preview": GEMINI_FLASH,
-        "gemini-2.5-pro-preview": GEMINI_2_5_PRO,
-        "gemini-2.5-flash-preview-05-20": GEMINI_FLASH,
-        "gemini-2.5-pro-preview-05-06": GEMINI_PRO,
-        "gemini-2.5-pro": GEMINI_PRO,
-        "gemini-2.5-flash-preview-09-2025": GEMINI_FLASH,
-        "gemini-2.5-flash": GEMINI_FLASH,
+        "gemini-2.0-flash": GEMINI_2_FLASH,
+        "gemini-2.5-flash-preview": GEMINI_STANDARD,
+        "gemini-2.5-pro-preview": GEMINI_STANDARD,
+        "gemini-2.5-flash-preview-05-20": GEMINI_STANDARD,
+        "gemini-2.5-pro-preview-05-06": GEMINI_STANDARD,
+        "gemini-2.5-pro": GEMINI_STANDARD,
+        "gemini-2.5-flash-preview-09-2025": GEMINI_STANDARD,
+        "gemini-2.5-flash": GEMINI_STANDARD,
+        "gemini-3-pro-preview": GEMINI_STANDARD,
         # xAI Grok Models
         "grok-4-fast-reasoning": GROK_4_VLM,
         "grok-4-fast-non-reasoning": GROK_4_VLM,
@@ -294,16 +327,19 @@ class ModelDatabase:
         "grok-3-mini": GROK_3,
         "grok-3-fast": GROK_3,
         "grok-3-mini-fast": GROK_3,
+        "moonshotai/kimi-k2": KIMI_MOONSHOT,
         "moonshotai/kimi-k2-instruct-0905": KIMI_MOONSHOT,
-        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT,
+        "moonshotai/kimi-k2-thinking": KIMI_MOONSHOT_THINKING,
+        "moonshotai/kimi-k2-thinking-0905": KIMI_MOONSHOT_THINKING,
         "qwen/qwen3-32b": QWEN3_REASONER,
         "deepseek-r1-distill-llama-70b": DEEPSEEK_DISTILL,
-        "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,
-        "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,
+        "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
+        "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
         "minimaxai/minimax-m2": GLM_46,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
+        "deepseek-ai/DeepSeek-V3.2-Exp": HF_PROVIDER_DEEPSEEK32,
     }
 
     @classmethod

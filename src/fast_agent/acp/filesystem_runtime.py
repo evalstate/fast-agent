@@ -8,7 +8,6 @@ security compared to direct file system access.
 
 from typing import TYPE_CHECKING, Any
 
-from acp.schema import ReadTextFileRequest, ReadTextFileResponse, WriteTextFileRequest
 from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
@@ -16,8 +15,10 @@ from fast_agent.mcp.helpers.content_helpers import text_content
 
 if TYPE_CHECKING:
     from acp import AgentSideConnection
+    from acp.schema import ReadTextFileResponse
 
     from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+    from fast_agent.mcp.tool_permission_handler import ToolPermissionHandler
 
 logger = get_logger(__name__)
 
@@ -40,6 +41,7 @@ class ACPFilesystemRuntime:
         enable_read: bool = True,
         enable_write: bool = True,
         tool_handler: "ToolExecutionHandler | None" = None,
+        permission_handler: "ToolPermissionHandler | None" = None,
     ):
         """
         Initialize the ACP filesystem runtime.
@@ -52,6 +54,7 @@ class ACPFilesystemRuntime:
             enable_read: Whether to enable the read_text_file tool
             enable_write: Whether to enable the write_text_file tool
             tool_handler: Optional tool execution handler for telemetry
+            permission_handler: Optional permission handler for tool execution authorization
         """
         self.connection = connection
         self.session_id = session_id
@@ -60,6 +63,7 @@ class ACPFilesystemRuntime:
         self._enable_read = enable_read
         self._enable_write = enable_write
         self._tool_handler = tool_handler
+        self._permission_handler = permission_handler
 
         # Tool definition for reading text files
         self._read_tool = Tool(
@@ -137,7 +141,9 @@ class ACPFilesystemRuntime:
             tools.append(self._write_tool)
         return tools
 
-    async def read_text_file(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
+    async def read_text_file(
+        self, arguments: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Read a text file using ACP filesystem support.
 
@@ -158,11 +164,7 @@ class ACPFilesystemRuntime:
         path = arguments.get("path")
         if not path or not isinstance(path, str):
             return CallToolResult(
-                content=[
-                    text_content(
-                        "Error: 'path' argument is required and must be a string"
-                    )
-                ],
+                content=[text_content("Error: 'path' argument is required and must be a string")],
                 isError=True,
             )
 
@@ -171,6 +173,38 @@ class ACPFilesystemRuntime:
             session_id=self.session_id,
             path=path,
         )
+
+        # Check permission before execution
+        if self._permission_handler:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    tool_name="read_text_file",
+                    server_name="acp_filesystem",
+                    arguments=arguments,
+                    tool_use_id=tool_use_id,
+                )
+                if not permission_result.allowed:
+                    error_msg = permission_result.error_message or (
+                        f"Permission denied for reading file: {path}"
+                    )
+                    self.logger.info(
+                        "File read denied by permission handler",
+                        data={
+                            "path": path,
+                            "cancelled": permission_result.is_cancelled,
+                        },
+                    )
+                    return CallToolResult(
+                        content=[text_content(error_msg)],
+                        isError=True,
+                    )
+            except Exception as e:
+                self.logger.error(f"Error checking file read permission: {e}", exc_info=True)
+                # Fail-safe: deny on permission check error
+                return CallToolResult(
+                    content=[text_content(f"Permission check failed: {e}")],
+                    isError=True,
+                )
 
         # Notify tool handler that execution is starting
         tool_call_id = None
@@ -183,16 +217,13 @@ class ACPFilesystemRuntime:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
 
         try:
-            # Build request using proper ACP schema
-            request = ReadTextFileRequest(
-                sessionId=self.session_id,
+            # Send request using the proper ACP method with flattened parameters
+            response: ReadTextFileResponse = await self.connection.read_text_file(
                 path=path,
+                session_id=self.session_id,
                 line=arguments.get("line"),
                 limit=arguments.get("limit"),
             )
-
-            # Send request using the proper ACP method
-            response: ReadTextFileResponse = await self.connection.readTextFile(request)
             content = response.content
 
             self.logger.info(
@@ -229,18 +260,20 @@ class ACPFilesystemRuntime:
             # Notify tool handler of error
             if self._tool_handler and tool_call_id:
                 try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, False, None, str(e)
-                    )
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
                 except Exception as handler_error:
-                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                    self.logger.error(
+                        f"Error in tool complete handler: {handler_error}", exc_info=True
+                    )
 
             return CallToolResult(
                 content=[text_content(f"Error reading file: {e}")],
                 isError=True,
             )
 
-    async def write_text_file(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
+    async def write_text_file(
+        self, arguments: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Write a text file using ACP filesystem support.
 
@@ -261,11 +294,7 @@ class ACPFilesystemRuntime:
         path = arguments.get("path")
         if not path or not isinstance(path, str):
             return CallToolResult(
-                content=[
-                    text_content(
-                        "Error: 'path' argument is required and must be a string"
-                    )
-                ],
+                content=[text_content("Error: 'path' argument is required and must be a string")],
                 isError=True,
             )
 
@@ -273,9 +302,7 @@ class ACPFilesystemRuntime:
         if content is None or not isinstance(content, str):
             return CallToolResult(
                 content=[
-                    text_content(
-                        "Error: 'content' argument is required and must be a string"
-                    )
+                    text_content("Error: 'content' argument is required and must be a string")
                 ],
                 isError=True,
             )
@@ -286,6 +313,38 @@ class ACPFilesystemRuntime:
             path=path,
             content_length=len(content),
         )
+
+        # Check permission before execution
+        if self._permission_handler:
+            try:
+                permission_result = await self._permission_handler.check_permission(
+                    tool_name="write_text_file",
+                    server_name="acp_filesystem",
+                    arguments=arguments,
+                    tool_use_id=tool_use_id,
+                )
+                if not permission_result.allowed:
+                    error_msg = permission_result.error_message or (
+                        f"Permission denied for writing file: {path}"
+                    )
+                    self.logger.info(
+                        "File write denied by permission handler",
+                        data={
+                            "path": path,
+                            "cancelled": permission_result.is_cancelled,
+                        },
+                    )
+                    return CallToolResult(
+                        content=[text_content(error_msg)],
+                        isError=True,
+                    )
+            except Exception as e:
+                self.logger.error(f"Error checking file write permission: {e}", exc_info=True)
+                # Fail-safe: deny on permission check error
+                return CallToolResult(
+                    content=[text_content(f"Permission check failed: {e}")],
+                    isError=True,
+                )
 
         # Notify tool handler that execution is starting
         tool_call_id = None
@@ -298,15 +357,12 @@ class ACPFilesystemRuntime:
                 self.logger.error(f"Error in tool start handler: {e}", exc_info=True)
 
         try:
-            # Build request using proper ACP schema
-            request = WriteTextFileRequest(
-                sessionId=self.session_id,
-                path=path,
+            # Send request using the proper ACP method with flattened parameters
+            await self.connection.write_text_file(
                 content=content,
+                path=path,
+                session_id=self.session_id,
             )
-
-            # Send request using the proper ACP method
-            await self.connection.writeTextFile(request)
 
             self.logger.info(
                 "File write completed",
@@ -341,11 +397,11 @@ class ACPFilesystemRuntime:
             # Notify tool handler of error
             if self._tool_handler and tool_call_id:
                 try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, False, None, str(e)
-                    )
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
                 except Exception as handler_error:
-                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                    self.logger.error(
+                        f"Error in tool complete handler: {handler_error}", exc_info=True
+                    )
 
             return CallToolResult(
                 content=[text_content(f"Error writing file: {e}")],

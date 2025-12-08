@@ -18,21 +18,23 @@ from acp.helpers import (
     embedded_blob_resource,
     embedded_text_resource,
     image_block,
+    resource_block,
     resource_link_block,
-    session_notification,
     text_block,
     tool_content,
 )
-from acp.schema import EmbeddedResourceContentBlock, ToolKind
+from acp.schema import ToolKind
 from mcp.types import (
     AudioContent,
     BlobResourceContents,
-    ContentBlock,
     EmbeddedResource,
     ImageContent,
     ResourceLink,
     TextContent,
     TextResourceContents,
+)
+from mcp.types import (
+    ContentBlock as MCPContentBlock,
 )
 
 from fast_agent.core.logging.logger import get_logger
@@ -69,11 +71,59 @@ class ACPToolProgressManager:
         self._tracker = ToolCallTracker()
         # Map ACP tool_call_id → external_id for reverse lookups
         self._tool_call_id_to_external_id: dict[str, str] = {}
+        # Map tool_call_id → simple title (server/tool) for progress updates
+        self._simple_titles: dict[str, str] = {}
+        # Map tool_call_id → full title (with args) for completion
+        self._full_titles: dict[str, str] = {}
         # Track tool_use_id from stream events to avoid duplicate notifications
         self._stream_tool_use_ids: dict[str, str] = {}  # tool_use_id → external_id
         # Track pending stream notification tasks
         self._stream_tasks: dict[str, asyncio.Task] = {}  # tool_use_id → task
+        # Track stream chunk counts for title updates
+        self._stream_chunk_counts: dict[str, int] = {}  # tool_use_id → chunk count
+        # Track base titles for streaming tools (before chunk count suffix)
+        self._stream_base_titles: dict[str, str] = {}  # tool_use_id → base title
         self._lock = asyncio.Lock()
+
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """
+        Get the ACP toolCallId for a given LLM tool_use_id.
+
+        This is used by the permission handler to ensure the permission request
+        references the same toolCallId as any existing streaming notification.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+
+        Returns:
+            The ACP toolCallId if a streaming notification was already sent, None otherwise
+        """
+        # Check if there's a pending stream notification task for this tool_use_id
+        # If so, wait for it to complete so the toolCallId is available
+        task = self._stream_tasks.get(tool_use_id)
+        if task and not task.done():
+            try:
+                await task
+            except Exception:
+                pass  # Ignore errors, just ensure task completed
+
+        # Now look up the toolCallId
+        external_id = self._stream_tool_use_ids.get(tool_use_id)
+        if external_id:
+            # Look up the toolCallId from the tracker
+            async with self._lock:
+                try:
+                    model = self._tracker.tool_call_model(external_id)
+                    if model and hasattr(model, "toolCallId"):
+                        return model.toolCallId
+                except Exception:
+                    # Swallow and fall back to local mapping
+                    pass
+                # Fallback: check our own mapping
+                for tool_call_id, ext_id in self._tool_call_id_to_external_id.items():
+                    if ext_id == external_id:
+                        return tool_call_id
+        return None
 
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
@@ -91,23 +141,37 @@ class ACPToolProgressManager:
             tool_use_id = info.get("tool_use_id")
 
             if tool_name and tool_use_id:
+                # Generate external_id SYNCHRONOUSLY to avoid race with delta events
+                external_id = str(uuid.uuid4())
+                self._stream_tool_use_ids[tool_use_id] = external_id
+
                 # Schedule async notification sending and store the task
-                task = asyncio.create_task(self._send_stream_start_notification(tool_name, tool_use_id))
+                task = asyncio.create_task(
+                    self._send_stream_start_notification(tool_name, tool_use_id, external_id)
+                )
                 # Store task reference so we can await it in on_tool_start if needed
                 self._stream_tasks[tool_use_id] = task
 
-    async def _send_stream_start_notification(self, tool_name: str, tool_use_id: str) -> None:
+        elif event_type == "delta" and info:
+            tool_use_id = info.get("tool_use_id")
+            chunk = info.get("chunk")
+
+            if tool_use_id and chunk:
+                # Schedule async notification with accumulated arguments
+                asyncio.create_task(self._send_stream_delta_notification(tool_use_id, chunk))
+
+    async def _send_stream_start_notification(
+        self, tool_name: str, tool_use_id: str, external_id: str
+    ) -> None:
         """
         Send early ACP notification when tool stream starts.
 
         Args:
             tool_name: Name of the tool being called (may be namespaced like "server__tool")
             tool_use_id: LLM's tool use ID
+            external_id: Pre-generated external ID for SDK tracker
         """
         try:
-            # Generate external ID for SDK tracker
-            external_id = str(uuid.uuid4())
-
             # Parse the tool name if it's namespaced (e.g., "acp_filesystem__write_text_file")
             if is_namespaced_name(tool_name):
                 server_name = get_server_name(tool_name)
@@ -127,9 +191,6 @@ class ACPToolProgressManager:
 
             # Use SDK tracker to create the tool call start notification
             async with self._lock:
-                # Track that we sent a stream notification for this tool_use_id
-                self._stream_tool_use_ids[tool_use_id] = external_id
-
                 tool_call_start = self._tracker.start(
                     external_id=external_id,
                     title=title,
@@ -139,10 +200,14 @@ class ACPToolProgressManager:
                 )
                 # Store mapping from ACP tool_call_id to external_id
                 self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+                # Initialize streaming state for this tool
+                self._stream_base_titles[tool_use_id] = title
+                self._stream_chunk_counts[tool_use_id] = 0
 
             # Send initial notification
-            notification = session_notification(self._session_id, tool_call_start)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(
+                session_id=self._session_id, update=tool_call_start
+            )
 
             logger.debug(
                 f"Sent early stream tool call notification: {tool_call_start.toolCallId}",
@@ -164,42 +229,84 @@ class ACPToolProgressManager:
             if tool_use_id in self._stream_tasks:
                 del self._stream_tasks[tool_use_id]
 
+    async def _send_stream_delta_notification(self, tool_use_id: str, chunk: str) -> None:
+        """
+        Send ACP notification with tool argument chunk as it streams.
+
+        Accumulates chunks into content and updates title with chunk count.
+
+        Args:
+            tool_use_id: LLM's tool use ID
+            chunk: JSON fragment chunk
+        """
+        try:
+            async with self._lock:
+                external_id = self._stream_tool_use_ids.get(tool_use_id)
+                if not external_id:
+                    # No start notification sent yet, skip this chunk
+                    return
+
+                # Increment chunk count and build title with count
+                self._stream_chunk_counts[tool_use_id] = (
+                    self._stream_chunk_counts.get(tool_use_id, 0) + 1
+                )
+                chunk_count = self._stream_chunk_counts[tool_use_id]
+                base_title = self._stream_base_titles.get(tool_use_id, "Tool")
+                title_with_count = f"{base_title} (streaming: {chunk_count} chunks)"
+
+                # Use SDK's append_stream_text to accumulate chunks into content
+                update = self._tracker.append_stream_text(
+                    external_id=external_id,
+                    text=chunk,
+                    title=title_with_count,
+                )
+
+            # Only send notifications after 25 chunks to avoid UI noise for small calls
+            if chunk_count < 25:
+                return
+
+            # Send notification outside the lock
+            await self._connection.session_update(session_id=self._session_id, update=update)
+
+        except Exception as e:
+            logger.debug(
+                f"Error sending stream delta notification: {e}",
+                name="acp_tool_stream_delta_error",
+                tool_use_id=tool_use_id,
+            )
+
+    # Tool kind patterns: mapping from ToolKind to keyword patterns
+    _TOOL_KIND_PATTERNS: dict[ToolKind, tuple[str, ...]] = {
+        "read": ("read", "get", "fetch", "list", "show"),
+        "edit": ("write", "edit", "update", "modify", "patch"),
+        "delete": ("delete", "remove", "clear", "clean", "rm"),
+        "move": ("move", "rename", "mv"),
+        "search": ("search", "find", "query", "grep"),
+        "execute": ("execute", "run", "exec", "command", "bash", "shell"),
+        "think": ("think", "plan", "reason"),
+        "fetch": ("fetch", "download", "http", "request"),
+    }
+
     def _infer_tool_kind(self, tool_name: str, arguments: dict[str, Any] | None) -> ToolKind:
         """
         Infer the tool kind from the tool name and arguments.
 
         Args:
             tool_name: Name of the tool being called
-            arguments: Tool arguments
+            arguments: Tool arguments (reserved for future use)
 
         Returns:
             The inferred ToolKind
         """
         name_lower = tool_name.lower()
 
-        # Common patterns for tool categorization
-        if any(word in name_lower for word in ["read", "get", "fetch", "list", "show"]):
-            return "read"
-        elif any(word in name_lower for word in ["write", "edit", "update", "modify", "patch"]):
-            return "edit"
-        elif any(word in name_lower for word in ["delete", "remove", "clear", "clean", "rm"]):
-            return "delete"
-        elif any(word in name_lower for word in ["move", "rename", "mv"]):
-            return "move"
-        elif any(word in name_lower for word in ["search", "find", "query", "grep"]):
-            return "search"
-        elif any(
-            word in name_lower for word in ["execute", "run", "exec", "command", "bash", "shell"]
-        ):
-            return "execute"
-        elif any(word in name_lower for word in ["think", "plan", "reason"]):
-            return "think"
-        elif any(word in name_lower for word in ["fetch", "download", "http", "request"]):
-            return "fetch"
+        for kind, patterns in self._TOOL_KIND_PATTERNS.items():
+            if any(pattern in name_lower for pattern in patterns):
+                return kind
 
         return "other"
 
-    def _convert_mcp_content_to_acp(self, content: list[ContentBlock] | None):
+    def _convert_mcp_content_to_acp(self, content: list[MCPContentBlock] | None) -> list | None:
         """
         Convert MCP content blocks to ACP tool call content using SDK helpers.
 
@@ -216,67 +323,52 @@ class ACPToolProgressManager:
 
         for block in content:
             try:
-                if isinstance(block, TextContent):
-                    # MCP TextContent -> ACP TextContentBlock using SDK helper
-                    acp_content.append(tool_content(text_block(block.text)))
+                match block:
+                    case TextContent():
+                        acp_content.append(tool_content(text_block(block.text)))
 
-                elif isinstance(block, ImageContent):
-                    # MCP ImageContent -> ACP ImageContentBlock using SDK helper
-                    acp_content.append(tool_content(image_block(block.data, block.mimeType)))
+                    case ImageContent():
+                        acp_content.append(tool_content(image_block(block.data, block.mimeType)))
 
-                elif isinstance(block, AudioContent):
-                    # MCP AudioContent -> ACP AudioContentBlock using SDK helper
-                    acp_content.append(tool_content(audio_block(block.data, block.mimeType)))
+                    case AudioContent():
+                        acp_content.append(tool_content(audio_block(block.data, block.mimeType)))
 
-                elif isinstance(block, ResourceLink):
-                    # MCP ResourceLink -> ACP ResourceContentBlock using SDK helper
-                    # Note: ResourceLink has uri, mimeType but resource_link_block wants name
-                    # Use the URI as the name for now
-                    acp_content.append(
-                        tool_content(
-                            resource_link_block(
-                                name=str(block.uri),
-                                uri=str(block.uri),
-                                mime_type=block.mimeType if hasattr(block, "mimeType") else None,
-                            )
-                        )
-                    )
-
-                elif isinstance(block, EmbeddedResource):
-                    # MCP EmbeddedResource -> ACP EmbeddedResourceContentBlock
-                    resource = block.resource
-                    if isinstance(resource, TextResourceContents):
-                        embedded_res = embedded_text_resource(
-                            uri=str(resource.uri),
-                            text=resource.text,
-                            mime_type=resource.mimeType,
-                        )
+                    case ResourceLink():
+                        # Use URI as the name for resource links
                         acp_content.append(
                             tool_content(
-                                EmbeddedResourceContentBlock(
-                                    type="embedded_resource", resource=embedded_res
+                                resource_link_block(
+                                    name=str(block.uri),
+                                    uri=str(block.uri),
+                                    mime_type=getattr(block, "mimeType", None),
                                 )
                             )
                         )
-                    elif isinstance(resource, BlobResourceContents):
-                        embedded_res = embedded_blob_resource(
-                            uri=str(resource.uri),
-                            blob=resource.blob,
-                            mime_type=resource.mimeType,
-                        )
-                        acp_content.append(
-                            tool_content(
-                                EmbeddedResourceContentBlock(
-                                    type="embedded_resource", resource=embedded_res
+
+                    case EmbeddedResource():
+                        # Use SDK's resource_block helper with embedded resource contents
+                        match block.resource:
+                            case TextResourceContents():
+                                embedded_res = embedded_text_resource(
+                                    uri=str(block.resource.uri),
+                                    text=block.resource.text,
+                                    mime_type=block.resource.mimeType,
                                 )
-                            )
+                            case BlobResourceContents():
+                                embedded_res = embedded_blob_resource(
+                                    uri=str(block.resource.uri),
+                                    blob=block.resource.blob,
+                                    mime_type=block.resource.mimeType,
+                                )
+                            case _:
+                                continue  # Skip unsupported resource types
+                        acp_content.append(tool_content(resource_block(embedded_res)))
+
+                    case _:
+                        logger.warning(
+                            f"Unknown content type: {type(block).__name__}",
+                            name="acp_unknown_content_type",
                         )
-                else:
-                    # Unknown content type - log warning and skip
-                    logger.warning(
-                        f"Unknown content type: {type(block).__name__}",
-                        name="acp_unknown_content_type",
-                    )
             except Exception as e:
                 logger.error(
                     f"Error converting content block {type(block).__name__}: {e}",
@@ -360,15 +452,38 @@ class ACPToolProgressManager:
         # Use SDK tracker to create or update the tool call notification
         async with self._lock:
             if existing_external_id:
+                # Get final chunk count before clearing
+                final_chunk_count = self._stream_chunk_counts.get(tool_use_id or "", 0)
+
+                # Update title with streamed count only if we showed streaming progress
+                if final_chunk_count >= 25:
+                    title = f"{title} (streamed {final_chunk_count} chunks)"
+
                 # Update the existing stream notification with full details
+                # Clear streaming content by setting content=[] since we now have full rawInput
                 tool_call_update = self._tracker.progress(
                     external_id=existing_external_id,
                     title=title,  # Update with server_name and args
                     kind=kind,  # Re-infer with arguments
                     status="in_progress",  # Move from pending to in_progress
-                    raw_input=arguments,  # Add arguments
+                    raw_input=arguments,  # Add complete arguments
+                    content=[],  # Clear streaming content
                 )
                 tool_call_id = tool_call_update.toolCallId
+
+                # Ensure mapping exists - progress() may return different ID than start()
+                # or the stream notification task may not have stored it yet
+                self._tool_call_id_to_external_id[tool_call_id] = existing_external_id
+                # Store simple title (server/tool) for progress updates - no args
+                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store full title (with args) for completion
+                self._full_titles[tool_call_id] = title
+
+                # Clean up streaming state since we're now in execution
+                if tool_use_id:
+                    self._stream_chunk_counts.pop(tool_use_id, None)
+                    self._stream_base_titles.pop(tool_use_id, None)
+                    self._stream_tool_use_ids.pop(tool_use_id, None)
 
                 logger.debug(
                     f"Updated stream tool call with execution details: {tool_call_id}",
@@ -393,6 +508,10 @@ class ACPToolProgressManager:
                 self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
                 tool_call_id = tool_call_start.toolCallId
                 tool_call_update = tool_call_start
+                # Store simple title (server/tool) for progress updates - no args
+                self._simple_titles[tool_call_id] = f"{server_name}/{tool_name}"
+                # Store full title (with args) for completion
+                self._full_titles[tool_call_id] = title
 
                 logger.debug(
                     f"Started tool call tracking: {tool_call_id}",
@@ -405,8 +524,9 @@ class ACPToolProgressManager:
 
         # Send notification (either new start or update)
         try:
-            notification = session_notification(self._session_id, tool_call_update)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(
+                session_id=self._session_id, update=tool_call_update
+            )
         except Exception as e:
             logger.error(
                 f"Error sending tool_call notification: {e}",
@@ -416,6 +536,73 @@ class ACPToolProgressManager:
 
         # Return the ACP tool_call_id for caller to track
         return tool_call_id
+
+    async def on_tool_permission_denied(
+        self,
+        tool_name: str,
+        server_name: str,
+        tool_use_id: str | None,
+        error: str | None = None,
+    ) -> None:
+        """
+        Called when tool execution is denied before it starts.
+
+        Uses any pending stream-start notification to mark the call as failed
+        so ACP clients see the cancellation/denial.
+        """
+        if not tool_use_id:
+            return
+
+        # Wait for any pending stream notification to finish
+        pending_task = self._stream_tasks.get(tool_use_id)
+        if pending_task and not pending_task.done():
+            try:
+                await pending_task
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    f"Stream notification task failed for denied tool: {e}",
+                    name="acp_permission_denied_stream_task_failed",
+                    tool_use_id=tool_use_id,
+                    exc_info=True,
+                )
+
+        async with self._lock:
+            external_id = self._stream_tool_use_ids.get(tool_use_id)
+
+            if not external_id:
+                # No stream notification; nothing to update
+                return
+
+            try:
+                update_data = self._tracker.progress(
+                    external_id=external_id,
+                    status="failed",
+                    content=[tool_content(text_block(error))] if error else None,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.error(
+                    f"Error creating permission-denied update: {e}",
+                    name="acp_permission_denied_update_error",
+                    exc_info=True,
+                )
+                return
+
+        # Send the failure notification
+        try:
+            await self._connection.session_update(session_id=self._session_id, update=update_data)
+        except Exception as e:  # noqa: BLE001
+            logger.error(
+                f"Error sending permission-denied notification: {e}",
+                name="acp_permission_denied_notification_error",
+                exc_info=True,
+            )
+        finally:
+            # Clean up tracker and mappings
+            async with self._lock:
+                self._tracker.forget(external_id)
+                self._stream_tool_use_ids.pop(tool_use_id, None)
+                self._stream_chunk_counts.pop(tool_use_id, None)
+                self._stream_base_titles.pop(tool_use_id, None)
 
     async def on_tool_progress(
         self,
@@ -428,6 +615,7 @@ class ACPToolProgressManager:
         Called when tool execution reports progress.
 
         Implements ToolExecutionHandler.on_tool_progress protocol method.
+        Updates the title with progress percentage and/or message.
 
         Args:
             tool_call_id: The tool call ID
@@ -445,17 +633,31 @@ class ACPToolProgressManager:
                 )
                 return
 
-            # Build content for progress update using SDK helpers
-            content = None
-            if message:
-                content = [tool_content(text_block(message))]
+            # Build updated title with progress info (using simple title without args)
+            simple_title = self._simple_titles.get(tool_call_id, "Tool")
+            title_parts = [simple_title]
 
-            # Use SDK tracker to create progress update
+            # Add progress indicator
+            if total is not None and total > 0:
+                # Show progress/total format (e.g., [50/100])
+                title_parts.append(f"[{progress:.0f}/{total:.0f}]")
+            else:
+                # Show just progress value (e.g., [50])
+                title_parts.append(f"[{progress:.0f}]")
+
+            # Add message if present
+            if message:
+                title_parts.append(f"- {message}")
+
+            updated_title = " ".join(title_parts)
+
+            # Use SDK tracker to create progress update with updated title
+            # Note: We don't include content since the title now shows the progress message
             try:
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status="in_progress",
-                    content=content,
+                    title=updated_title,
                 )
             except Exception as e:
                 logger.error(
@@ -467,15 +669,15 @@ class ACPToolProgressManager:
 
         # Send progress update
         try:
-            notification = session_notification(self._session_id, update_data)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.debug(
                 f"Updated tool call progress: {tool_call_id}",
                 name="acp_tool_progress_update",
                 progress=progress,
                 total=total,
-                message=message,
+                progress_message=message,
+                title=updated_title,
             )
         except Exception as e:
             logger.error(
@@ -488,7 +690,7 @@ class ACPToolProgressManager:
         self,
         tool_call_id: str,
         success: bool,
-        content: list[ContentBlock] | None = None,
+        content: list[MCPContentBlock] | None = None,
         error: str | None = None,
     ) -> None:
         """
@@ -513,6 +715,15 @@ class ACPToolProgressManager:
                 return
 
         # Build content blocks
+        logger.debug(
+            f"on_tool_complete called: {tool_call_id}",
+            name="acp_tool_complete_entry",
+            success=success,
+            has_content=content is not None,
+            content_types=[type(c).__name__ for c in (content or [])],
+            has_error=error is not None,
+        )
+
         if error:
             # Error case: convert error string to text content using SDK helper
             content_blocks = [tool_content(text_block(error))]
@@ -534,9 +745,12 @@ class ACPToolProgressManager:
         # Use SDK tracker to create completion update
         try:
             async with self._lock:
+                # Restore full title with parameters for completion
+                full_title = self._full_titles.get(tool_call_id)
                 update_data = self._tracker.progress(
                     external_id=external_id,
                     status=status,
+                    title=full_title,  # Restore original title with args
                     content=content_blocks,
                     raw_output=raw_output,
                 )
@@ -550,8 +764,7 @@ class ACPToolProgressManager:
 
         # Send completion notification
         try:
-            notification = session_notification(self._session_id, update_data)
-            await self._connection.sessionUpdate(notification)
+            await self._connection.session_update(session_id=self._session_id, update=update_data)
 
             logger.info(
                 f"Completed tool call: {tool_call_id}",
@@ -570,6 +783,8 @@ class ACPToolProgressManager:
             async with self._lock:
                 self._tracker.forget(external_id)
                 self._tool_call_id_to_external_id.pop(tool_call_id, None)
+                self._simple_titles.pop(tool_call_id, None)
+                self._full_titles.pop(tool_call_id, None)
 
     async def cleanup_session_tools(self, session_id: str) -> None:
         """
@@ -583,9 +798,15 @@ class ACPToolProgressManager:
         async with self._lock:
             count = len(self._tool_call_id_to_external_id)
             # Forget all tracked tools
-            for external_id in list(self._tracker._tool_calls.keys()):
+            tracker_calls = getattr(self._tracker, "_calls", {})
+            for external_id in list(tracker_calls.keys()):
                 self._tracker.forget(external_id)
             self._tool_call_id_to_external_id.clear()
+            self._simple_titles.clear()
+            self._full_titles.clear()
+            self._stream_tool_use_ids.clear()
+            self._stream_chunk_counts.clear()
+            self._stream_base_titles.clear()
 
         logger.debug(
             f"Cleaned up {count} tool trackers for session {session_id}",

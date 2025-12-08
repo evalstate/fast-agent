@@ -89,6 +89,44 @@ class ConsoleDisplay:
         return enabled, streaming_mode
 
     @staticmethod
+    def _looks_like_markdown(text: str) -> bool:
+        """
+        Heuristic to detect markdown-ish content.
+
+        We keep this lightweight: focus on common structures that benefit from markdown
+        rendering without requiring strict syntax validation.
+        """
+        import re
+
+        if not text or len(text) < 3:
+            return False
+
+        if "```" in text:
+            return True
+
+        # Simple markers for common cases that the regex might miss
+        # Note: single "*" excluded to avoid false positives
+        simple_markers = ["##", "**", "---", "###"]
+        if any(marker in text for marker in simple_markers):
+            return True
+
+        markdown_patterns = [
+            r"^#{1,6}\s+\S",  # headings
+            r"^\s*[-*+]\s+\S",  # unordered list
+            r"^\s*\d+\.\s+\S",  # ordered list
+            r"`[^`]+`",  # inline code
+            r"\*\*[^*]+\*\*",
+            r"__[^_]+__",
+            r"^\s*>\s+\S",  # blockquote
+            r"\[.+?\]\(.+?\)",  # links
+            r"!\[.*?\]\(.+?\)",  # images
+            r"^\s*\|.+\|\s*$",  # simple tables
+            r"^\s*[-*_]{3,}\s*$",  # horizontal rules
+        ]
+
+        return any(re.search(pattern, text, re.MULTILINE) for pattern in markdown_patterns)
+
+    @staticmethod
     def _format_elapsed(elapsed: float) -> str:
         """Format elapsed seconds for display."""
         if elapsed < 0:
@@ -233,7 +271,7 @@ class ConsoleDisplay:
                     console.console.print(syntax, markup=self._markup)
                 elif check_markdown_markers:
                     # Check for markdown markers before deciding to use markdown rendering
-                    if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                    if self._looks_like_markdown(content):
                         # Has markdown markers - render as markdown with escaping
                         prepared_content = prepare_markdown_content(content, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
@@ -252,15 +290,19 @@ class ConsoleDisplay:
                         else:
                             console.console.print(content, markup=self._markup)
                 else:
+                    # Check if content has substantial XML (mixed content)
+                    # If so, skip markdown rendering as it turns XML into an unreadable blob
+                    has_substantial_xml = content.count("<") > 5 and content.count(">") > 5
+
                     # Check if it looks like markdown
-                    if any(marker in content for marker in ["##", "**", "*", "`", "---", "###"]):
+                    if self._looks_like_markdown(content) and not has_substantial_xml:
                         # Escape HTML/XML tags while preserving code blocks
                         prepared_content = prepare_markdown_content(content, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
                         # Markdown handles its own styling, don't apply style
                         console.console.print(md, markup=self._markup)
                     else:
-                        # Plain text
+                        # Plain text (or mixed markdown+XML content)
                         if (
                             truncate
                             and self.config
@@ -278,7 +320,7 @@ class ConsoleDisplay:
             plain_text = content.plain
 
             # Check if the plain text contains markdown markers
-            if any(marker in plain_text for marker in ["##", "**", "*", "`", "---", "###"]):
+            if self._looks_like_markdown(plain_text):
                 # Split the Text object into segments
                 # We need to handle the main content (which may have markdown)
                 # and any styled segments that were appended
@@ -295,9 +337,7 @@ class ConsoleDisplay:
                     markdown_part = plain_text[:markdown_end]
 
                     # Check if the first part has markdown
-                    if any(
-                        marker in markdown_part for marker in ["##", "**", "*", "`", "---", "###"]
-                    ):
+                    if self._looks_like_markdown(markdown_part):
                         # Render markdown part
                         prepared_content = prepare_markdown_content(markdown_part, self._escape_xml)
                         md = Markdown(prepared_content, code_theme=CODE_STYLE)
@@ -604,7 +644,12 @@ class ConsoleDisplay:
         if not joined.strip():
             return None
 
-        return Text(joined, style="dim default")
+        # Render reasoning in dim italic and leave a blank line before main content
+        text = joined
+        if not text.endswith("\n"):
+            text += "\n"
+        text += "\n"
+        return Text(text, style="dim italic")
 
     async def show_assistant_message(
         self,
@@ -773,6 +818,7 @@ class ConsoleDisplay:
         model: str | None = None,
         chat_turn: int = 0,
         name: str | None = None,
+        attachments: list[str] | None = None,
     ) -> None:
         """Display a user message in the new visual style."""
         if self.config and not self.config.logger.show_chat:
@@ -787,12 +833,20 @@ class ConsoleDisplay:
 
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
+        # Build attachment indicator as pre_content
+        pre_content: Text | None = None
+        if attachments:
+            pre_content = Text()
+            pre_content.append("🔗 ", style="dim")
+            pre_content.append(", ".join(attachments), style="dim blue")
+
         self.display_message(
             content=message,
             message_type=MessageType.USER,
             name=name,
             right_info=right_info,
             truncate_content=False,  # User messages typically shouldn't be truncated
+            pre_content=pre_content,
         )
 
     def show_system_message(
@@ -917,12 +971,8 @@ class ConsoleDisplay:
 
             # Get model name
             model = "unknown"
-            if (
-                hasattr(agent, "_llm")
-                and agent._llm
-                and hasattr(agent._llm, "default_request_params")
-            ):
-                model = getattr(agent._llm.default_request_params, "model", "unknown")
+            if agent.llm:
+                model = agent.llm.model_name or "unknown"
 
             # Get usage information
             tokens = 0

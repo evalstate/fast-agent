@@ -84,6 +84,7 @@ class ModelFactory:
         "claude-3-opus-latest": Provider.ANTHROPIC,
         "claude-opus-4-0": Provider.ANTHROPIC,
         "claude-opus-4-1": Provider.ANTHROPIC,
+        "claude-opus-4-5": Provider.ANTHROPIC,
         "claude-opus-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-20250514": Provider.ANTHROPIC,
         "claude-sonnet-4-0": Provider.ANTHROPIC,
@@ -96,6 +97,7 @@ class ModelFactory:
         "gemini-2.5-flash-preview-09-2025": Provider.GOOGLE,
         "gemini-2.5-pro-preview-05-06": Provider.GOOGLE,
         "gemini-2.5-pro": Provider.GOOGLE,
+        "gemini-3-pro-preview": Provider.GOOGLE,
         "grok-4": Provider.XAI,
         "grok-4-0709": Provider.XAI,
         "grok-3": Provider.XAI,
@@ -115,30 +117,33 @@ class ModelFactory:
         "sonnet45": "claude-sonnet-4-5",
         "sonnet35": "claude-3-5-sonnet-latest",
         "sonnet37": "claude-3-7-sonnet-latest",
-        "claude": "claude-sonnet-4-0",
+        "claude": "claude-sonnet-4-5",
         "haiku": "claude-haiku-4-5",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
         "hauku45": "claude-haiku-4-5",
-        "opus": "claude-opus-4-1",
+        "opus": "claude-opus-4-5",
         "opus4": "claude-opus-4-1",
+        "opus45": "claude-opus-4-5",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
         "deepseek": "deepseek-chat",
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-09-2025",
         "gemini25pro": "gemini-2.5-pro",
+        "gemini3": "gemini-3-pro-preview",
         "grok-4-fast": "xai.grok-4-fast-non-reasoning",
         "grok-4-fast-reasoning": "xai.grok-4-fast-reasoning",
         "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
         "minimax": "hf.MiniMaxAI/MiniMax-M2",
-        "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905",
+        "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
         "gpt-oss": "hf.openai/gpt-oss-120b",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
-        "glm": "hf.zai-org/GLM-4.6",
+        "glm": "hf.zai-org/GLM-4.6:cerebras",
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",
+        "deepseek32": "deepseek-ai/DeepSeek-V3.2-Exp:novita",
     }
 
     @staticmethod
@@ -166,15 +171,30 @@ class ModelFactory:
     }
 
     @classmethod
-    def parse_model_string(cls, model_string: str) -> ModelConfig:
-        """Parse a model string into a ModelConfig object"""
+    def parse_model_string(
+        cls, model_string: str, aliases: dict[str, str] | None = None
+    ) -> ModelConfig:
+        """Parse a model string into a ModelConfig object
+
+        Args:
+            model_string: The model specification string (e.g. "gpt-4.1", "kimi:groq")
+            aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
+        """
+        if aliases is None:
+            aliases = cls.MODEL_ALIASES
+
         suffix: str | None = None
         if ":" in model_string:
             base, suffix = model_string.rsplit(":", 1)
             if base:
                 model_string = base
 
-        model_string = cls.MODEL_ALIASES.get(model_string, model_string)
+        model_string = aliases.get(model_string, model_string)
+
+        # If user provided a suffix (e.g., kimi:groq), strip any existing suffix
+        # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
+        if suffix and ":" in model_string:
+            model_string = model_string.rsplit(":", 1)[0]
         parts = model_string.split(".")
 
         model_name_str = model_string  # Default full string as model name initially
@@ -239,17 +259,20 @@ class ModelFactory:
         )
 
     @classmethod
-    def create_factory(cls, model_string: str) -> LLMFactoryProtocol:
+    def create_factory(
+        cls, model_string: str, aliases: dict[str, str] | None = None
+    ) -> LLMFactoryProtocol:
         """
         Creates a factory function that follows the attach_llm protocol.
 
         Args:
             model_string: The model specification string (e.g. "gpt-4.1")
+            aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
 
         Returns:
             A callable that takes an agent parameter and returns an LLM instance
         """
-        config = cls.parse_model_string(model_string)
+        config = cls.parse_model_string(model_string, aliases=aliases)
 
         # Ensure provider is valid before trying to access PROVIDER_CLASSES with it
         # Lazily ensure provider class map is populated and supports this provider

@@ -1,4 +1,4 @@
-# FastAgent Configuration File
+# fast-agent Configuration File
 
 # Default Model Configuration:
 #
@@ -11,6 +11,9 @@
 # Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
 
 default_model: passthrough
+
+#otel:
+#  enabled: true # Enable or disable OpenTelemetry
 
 # Logging and Console Configuration:
 logger:

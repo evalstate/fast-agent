@@ -12,32 +12,43 @@ from typing import Any, Awaitable, Callable
 
 from acp import Agent as ACPAgent
 from acp import (
-    AgentSideConnection,
-    CancelNotification,
-    InitializeRequest,
+    Client,
     InitializeResponse,
-    NewSessionRequest,
     NewSessionResponse,
-    PromptRequest,
     PromptResponse,
-    SetSessionModeRequest,
     SetSessionModeResponse,
+    run_agent,
 )
-from acp.helpers import session_notification, update_agent_message_text
+from acp import (
+    Client as ACPClient,
+)
+from acp.helpers import (
+    ContentBlock as ACPContentBlock,
+)
+from acp.helpers import (
+    update_agent_message_text,
+    update_agent_thought_text,
+)
 from acp.schema import (
     AgentCapabilities,
+    AvailableCommandsUpdate,
+    ClientCapabilities,
+    HttpMcpServer,
     Implementation,
+    McpServerStdio,
     PromptCapabilities,
     SessionMode,
     SessionModeState,
+    SseMcpServer,
     StopReason,
 )
-from acp.stdio import stdio_streams
 
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
+from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -52,6 +63,7 @@ from fast_agent.core.prompt_templates import (
 )
 from fast_agent.interfaces import StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
@@ -60,6 +72,8 @@ logger = get_logger(__name__)
 
 END_TURN: StopReason = "end_turn"
 REFUSAL: StopReason = "refusal"
+MAX_TOKENS: StopReason = "max_tokens"
+CANCELLED: StopReason = "cancelled"
 
 
 def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopReason:
@@ -81,17 +95,16 @@ def map_llm_stop_reason_to_acp(llm_stop_reason: LlmStopReason | None) -> StopRea
         if isinstance(llm_stop_reason, LlmStopReason)
         else str(llm_stop_reason)
     )
-
-    mapping = {
+    mapping: dict[str, StopReason] = {
         LlmStopReason.END_TURN.value: END_TURN,
         LlmStopReason.STOP_SEQUENCE.value: END_TURN,  # Normal completion
-        LlmStopReason.MAX_TOKENS.value: "max_tokens",
+        LlmStopReason.MAX_TOKENS.value: MAX_TOKENS,
         LlmStopReason.TOOL_USE.value: END_TURN,  # Tool use is normal completion in ACP
         LlmStopReason.PAUSE.value: END_TURN,  # Pause is treated as normal completion
         LlmStopReason.ERROR.value: REFUSAL,  # Errors are mapped to refusal
         LlmStopReason.TIMEOUT.value: REFUSAL,  # Timeouts are mapped to refusal
         LlmStopReason.SAFETY.value: REFUSAL,  # Safety triggers are mapped to refusal
-        LlmStopReason.CANCELLED.value: "cancelled",  # User cancellation
+        LlmStopReason.CANCELLED.value: CANCELLED,  # User cancellation
     }
 
     return mapping.get(key, END_TURN)
@@ -153,6 +166,7 @@ class AgentACPServer(ACPAgent):
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
         skills_directory_override: str | None = None,
+        permissions_enabled: bool = True,
     ) -> None:
         """
         Initialize the ACP server.
@@ -165,6 +179,7 @@ class AgentACPServer(ACPAgent):
             server_name: Name of the server for capability advertisement
             server_version: Version of the server (defaults to fast-agent version)
             skills_directory_override: Optional skills directory override (relative to session cwd)
+            permissions_enabled: Whether to request tool permissions from client (default: True)
         """
         super().__init__()
 
@@ -174,6 +189,7 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
+        self._permissions_enabled = permissions_enabled
         # Use provided version or get fast-agent version
         if server_version is None:
             try:
@@ -201,6 +217,9 @@ class AgentACPServer(ACPAgent):
         # Filesystem runtime tracking
         self._session_filesystem_runtimes: dict[str, ACPFilesystemRuntime] = {}
 
+        # Permission handler tracking
+        self._session_permission_handlers: dict[str, ACPToolPermissionAdapter] = {}
+
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
 
@@ -211,7 +230,7 @@ class AgentACPServer(ACPAgent):
         self._session_resolved_instructions: dict[str, dict[str, str]] = {}
 
         # Connection reference (set during run_async)
-        self._connection: AgentSideConnection | None = None
+        self._connection: Client | None = None
 
         # Client capabilities and info (set during initialize)
         self._client_supports_terminal: bool = False
@@ -219,7 +238,7 @@ class AgentACPServer(ACPAgent):
         self._client_supports_fs_write: bool = False
         self._client_capabilities: dict | None = None
         self._client_info: dict | None = None
-        self._protocol_version: str | None = None
+        self._protocol_version: int | None = None
 
         # Determine primary agent using FastAgent default flag when available
         self.primary_agent_name = self._select_primary_agent(primary_instance)
@@ -253,7 +272,13 @@ class AgentACPServer(ACPAgent):
         estimated_bytes = int(estimated_tokens * TERMINAL_AVG_BYTES_PER_TOKEN)
         return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, estimated_bytes)
 
-    async def initialize(self, params: InitializeRequest) -> InitializeResponse:
+    async def initialize(
+        self,
+        protocol_version: int,
+        client_capabilities: ClientCapabilities | None = None,
+        client_info: Implementation | None = None,
+        **kwargs: Any,
+    ) -> InitializeResponse:
         """
         Handle ACP initialization request.
 
@@ -261,27 +286,27 @@ class AgentACPServer(ACPAgent):
         """
         try:
             # Store protocol version
-            self._protocol_version = params.protocolVersion
+            self._protocol_version = protocol_version
 
             # Store client info
-            if params.clientInfo:
+            if client_info:
                 self._client_info = {
-                    "name": getattr(params.clientInfo, "name", "unknown"),
-                    "version": getattr(params.clientInfo, "version", "unknown"),
+                    "name": getattr(client_info, "name", "unknown"),
+                    "version": getattr(client_info, "version", "unknown"),
                 }
                 # Include title if available
-                if hasattr(params.clientInfo, "title"):
-                    self._client_info["title"] = params.clientInfo.title
+                if hasattr(client_info, "title"):
+                    self._client_info["title"] = client_info.title
 
             # Store client capabilities
-            if params.clientCapabilities:
+            if client_capabilities:
                 self._client_supports_terminal = bool(
-                    getattr(params.clientCapabilities, "terminal", False)
+                    getattr(client_capabilities, "terminal", False)
                 )
 
                 # Check for filesystem capabilities
-                if hasattr(params.clientCapabilities, "fs"):
-                    fs_caps = params.clientCapabilities.fs
+                if hasattr(client_capabilities, "fs"):
+                    fs_caps = client_capabilities.fs
                     if fs_caps:
                         self._client_supports_fs_read = bool(
                             getattr(fs_caps, "readTextFile", False)
@@ -292,21 +317,18 @@ class AgentACPServer(ACPAgent):
 
                 # Convert capabilities to a dict for status reporting
                 self._client_capabilities = {}
-                if hasattr(params.clientCapabilities, "fs"):
-                    fs_caps = params.clientCapabilities.fs
+                if hasattr(client_capabilities, "fs"):
+                    fs_caps = client_capabilities.fs
                     fs_capabilities = self._extract_fs_capabilities(fs_caps)
                     if fs_capabilities:
                         self._client_capabilities["fs"] = fs_capabilities
 
-                if (
-                    hasattr(params.clientCapabilities, "terminal")
-                    and params.clientCapabilities.terminal
-                ):
+                if hasattr(client_capabilities, "terminal") and client_capabilities.terminal:
                     self._client_capabilities["terminal"] = True
 
                 # Store _meta if present
-                if hasattr(params.clientCapabilities, "_meta"):
-                    meta = params.clientCapabilities._meta
+                if hasattr(client_capabilities, "_meta"):
+                    meta = client_capabilities._meta
                     if meta:
                         self._client_capabilities["_meta"] = (
                             dict(meta) if isinstance(meta, dict) else {}
@@ -315,8 +337,8 @@ class AgentACPServer(ACPAgent):
             logger.info(
                 "ACP initialize request",
                 name="acp_initialize",
-                client_protocol=params.protocolVersion,
-                client_info=params.clientInfo,
+                client_protocol=protocol_version,
+                client_info=client_info,
                 client_supports_terminal=self._client_supports_terminal,
                 client_supports_fs_read=self._client_supports_fs_read,
                 client_supports_fs_write=self._client_supports_fs_write,
@@ -324,13 +346,13 @@ class AgentACPServer(ACPAgent):
 
             # Build our capabilities
             agent_capabilities = AgentCapabilities(
-                promptCapabilities=PromptCapabilities(
+                prompt_capabilities=PromptCapabilities(
                     image=True,  # Support image content
-                    embeddedContext=True,  # Support embedded resources
+                    embedded_context=True,  # Support embedded resources
                     audio=False,  # Don't support audio (yet)
                 ),
                 # We don't support loadSession yet
-                loadSession=False,
+                load_session=False,
             )
 
             # Build agent info using Implementation type
@@ -340,10 +362,10 @@ class AgentACPServer(ACPAgent):
             )
 
             response = InitializeResponse(
-                protocolVersion=params.protocolVersion,  # Echo back the client's version
-                agentCapabilities=agent_capabilities,
-                agentInfo=agent_info,
-                authMethods=[],  # No authentication for now
+                protocol_version=protocol_version,  # Echo back the client's version
+                agent_capabilities=agent_capabilities,
+                agent_info=agent_info,
+                auth_methods=[],  # No authentication for now
             )
 
             logger.info(
@@ -425,8 +447,8 @@ class AgentACPServer(ACPAgent):
         )
 
         return SessionModeState(
-            availableModes=available_modes,
-            currentModeId=current_mode_id,
+            available_modes=available_modes,
+            current_mode_id=current_mode_id,
         )
 
     def _build_session_request_params(self, agent: Any, session_id: str) -> RequestParams | None:
@@ -454,7 +476,12 @@ class AgentACPServer(ACPAgent):
                 return None
         return RequestParams(systemPrompt=resolved)
 
-    async def newSession(self, params: NewSessionRequest) -> NewSessionResponse:
+    async def new_session(
+        self,
+        cwd: str,
+        mcp_servers: list[HttpMcpServer | SseMcpServer | McpServerStdio],
+        **kwargs: Any,
+    ) -> NewSessionResponse:
         """
         Handle new session request.
 
@@ -467,8 +494,8 @@ class AgentACPServer(ACPAgent):
             name="acp_new_session",
             session_id=session_id,
             instance_scope=self._instance_scope,
-            cwd=params.cwd,
-            mcp_server_count=len(params.mcpServers),
+            cwd=cwd,
+            mcp_server_count=len(mcp_servers),
         )
 
         async with self._session_lock:
@@ -545,21 +572,65 @@ class AgentACPServer(ACPAgent):
                                 exc_info=True,
                             )
 
+                # If permissions are enabled, create and register permission handler
+                if self._permissions_enabled:
+                    # Create shared permission store for this session
+                    session_cwd = cwd or "."
+                    permission_store = PermissionStore(cwd=session_cwd)
+
+                    # Create permission adapter with tool_handler for toolCallId lookup
+                    permission_handler = ACPToolPermissionAdapter(
+                        connection=self._connection,
+                        session_id=session_id,
+                        store=permission_store,
+                        cwd=session_cwd,
+                        tool_handler=tool_handler,
+                    )
+                    self._session_permission_handlers[session_id] = permission_handler
+
+                    # Register permission handler with all agents' aggregators
+                    for agent_name, agent in instance.agents.items():
+                        if hasattr(agent, "_aggregator"):
+                            aggregator = agent._aggregator
+                            aggregator._permission_handler = permission_handler
+
+                            logger.info(
+                                "ACP permission handler registered",
+                                name="acp_permission_handler_registered",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                            )
+
+                    logger.info(
+                        "ACP tool permissions enabled for session",
+                        name="acp_permissions_init",
+                        session_id=session_id,
+                        cwd=cwd,
+                    )
+
                 # If client supports terminals and we have shell runtime enabled,
                 # inject ACP terminal runtime to replace local ShellRuntime
                 if self._client_supports_terminal:
                     # Check if any agent has shell runtime enabled
                     for agent_name, agent in instance.agents.items():
-                        if hasattr(agent, "_shell_runtime_enabled") and agent._shell_runtime_enabled:
+                        if (
+                            hasattr(agent, "_shell_runtime_enabled")
+                            and agent._shell_runtime_enabled
+                        ):
                             # Create ACPTerminalRuntime for this session
                             default_limit = self._calculate_terminal_output_limit(agent)
+                            # Get permission handler if enabled for this session
+                            perm_handler = self._session_permission_handlers.get(session_id)
                             terminal_runtime = ACPTerminalRuntime(
                                 connection=self._connection,
                                 session_id=session_id,
                                 activation_reason="via ACP terminal support",
-                                timeout_seconds=getattr(agent._shell_runtime, "timeout_seconds", 90),
+                                timeout_seconds=getattr(
+                                    agent._shell_runtime, "timeout_seconds", 90
+                                ),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
+                                permission_handler=perm_handler,
                             )
 
                             # Inject into agent
@@ -577,6 +648,8 @@ class AgentACPServer(ACPAgent):
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
                 if self._client_supports_fs_read or self._client_supports_fs_write:
+                    # Get permission handler if enabled for this session
+                    perm_handler = self._session_permission_handlers.get(session_id)
                     # Create ACPFilesystemRuntime for this session with appropriate capabilities
                     filesystem_runtime = ACPFilesystemRuntime(
                         connection=self._connection,
@@ -585,6 +658,7 @@ class AgentACPServer(ACPAgent):
                         enable_read=self._client_supports_fs_read,
                         enable_write=self._client_supports_fs_write,
                         tool_handler=tool_handler,
+                        permission_handler=perm_handler,
                     )
                     self._session_filesystem_runtimes[session_id] = filesystem_runtime
 
@@ -604,7 +678,7 @@ class AgentACPServer(ACPAgent):
         # Track per-session template variables (used for late instruction binding)
         session_context: dict[str, str] = {}
         enrich_with_environment_context(
-            session_context, params.cwd, self._client_info, self._skills_directory_override
+            session_context, cwd, self._client_info, self._skills_directory_override
         )
         self._session_prompt_context[session_id] = session_context
 
@@ -626,7 +700,7 @@ class AgentACPServer(ACPAgent):
         slash_handler = SlashCommandHandler(
             session_id,
             instance,
-            self.primary_agent_name,
+            self.primary_agent_name or "default",
             client_info=self._client_info,
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
@@ -663,11 +737,16 @@ class AgentACPServer(ACPAgent):
         )
 
         return NewSessionResponse(
-            sessionId=session_id,
+            session_id=session_id,
             modes=session_modes,
         )
 
-    async def setSessionMode(self, params: SetSessionModeRequest) -> SetSessionModeResponse:
+    async def set_session_mode(
+        self,
+        mode_id: str,
+        session_id: str,
+        **kwargs: Any,
+    ) -> SetSessionModeResponse | None:
         """
         Handle session mode change request.
 
@@ -675,7 +754,8 @@ class AgentACPServer(ACPAgent):
         to the selected mode (agent).
 
         Args:
-            params: SetSessionModeRequest with sessionId and modeId
+            mode_id: The ID of the mode (agent) to switch to
+            session_id: The session ID
 
         Returns:
             SetSessionModeResponse (empty response on success)
@@ -683,9 +763,6 @@ class AgentACPServer(ACPAgent):
         Raises:
             ValueError: If session not found or mode ID is invalid
         """
-        session_id = params.sessionId
-        mode_id = params.modeId
-
         logger.info(
             "ACP set session mode request",
             name="acp_set_session_mode",
@@ -699,7 +776,7 @@ class AgentACPServer(ACPAgent):
 
         if not instance:
             logger.error(
-                "Session not found for setSessionMode",
+                "Session not found for set_session_mode",
                 name="acp_set_mode_error",
                 session_id=session_id,
             )
@@ -708,7 +785,7 @@ class AgentACPServer(ACPAgent):
         # Validate that the mode_id exists in the instance's agents
         if mode_id not in instance.agents:
             logger.error(
-                "Invalid mode ID for setSessionMode",
+                "Invalid mode ID for set_session_mode",
                 name="acp_set_mode_invalid",
                 session_id=session_id,
                 mode_id=mode_id,
@@ -746,7 +823,12 @@ class AgentACPServer(ACPAgent):
 
         return next(iter(instance.agents.keys()))
 
-    async def prompt(self, params: PromptRequest) -> PromptResponse:
+    async def prompt(
+        self,
+        prompt: list[ACPContentBlock],
+        session_id: str,
+        **kwargs: Any,
+    ) -> PromptResponse:
         """
         Handle prompt request.
 
@@ -756,8 +838,6 @@ class AgentACPServer(ACPAgent):
         Per ACP protocol, only one prompt can be active per session at a time. If a prompt
         is already in progress for this session, this will immediately return a refusal.
         """
-        session_id = params.sessionId
-
         logger.info(
             "ACP prompt request",
             name="acp_prompt",
@@ -773,7 +853,7 @@ class AgentACPServer(ACPAgent):
                     session_id=session_id,
                 )
                 # Return immediate refusal - ACP protocol requires sequential prompts per session
-                return PromptResponse(stopReason=REFUSAL)
+                return PromptResponse(stop_reason=REFUSAL)
 
             # Mark this session as having an active prompt
             self._active_prompts.add(session_id)
@@ -796,10 +876,10 @@ class AgentACPServer(ACPAgent):
                     session_id=session_id,
                 )
                 # Return an error response
-                return PromptResponse(stopReason=REFUSAL)
+                return PromptResponse(stop_reason=REFUSAL)
 
             # Convert ACP content blocks to MCP format
-            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(params.prompt)
+            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(prompt)
 
             # Create a PromptMessageExtended with the converted content
             prompt_message = PromptMessageExtended(
@@ -833,7 +913,7 @@ class AgentACPServer(ACPAgent):
                 )
 
                 # Update slash handler with current agent before executing command
-                slash_handler.set_current_agent(current_agent_name)
+                slash_handler.set_current_agent(current_agent_name or "default")
 
                 # Parse and execute the command
                 command_name, arguments = slash_handler.parse_command(prompt_text)
@@ -843,8 +923,9 @@ class AgentACPServer(ACPAgent):
                 if self._connection and response_text:
                     try:
                         message_chunk = update_agent_message_text(response_text)
-                        notification = session_notification(session_id, message_chunk)
-                        await self._connection.sessionUpdate(notification)
+                        await self._connection.session_update(
+                            session_id=session_id, update=message_chunk
+                        )
                         logger.info(
                             "Sent slash command response",
                             name="acp_slash_command_response",
@@ -858,7 +939,7 @@ class AgentACPServer(ACPAgent):
                         )
 
                 # Return success
-                return PromptResponse(stopReason=END_TURN)
+                return PromptResponse(stop_reason=END_TURN)
 
             logger.info(
                 "Sending prompt to fast-agent",
@@ -880,17 +961,22 @@ class AgentACPServer(ACPAgent):
                     remove_listener: Callable[[], None] | None = None
                     streaming_tasks: list[asyncio.Task] = []
                     if self._connection and isinstance(agent, StreamingAgentProtocol):
+                        connection = self._connection
                         update_lock = asyncio.Lock()
 
-                        async def send_stream_update(chunk: str):
+                        async def send_stream_update(chunk: StreamChunk) -> None:
                             """Send sessionUpdate with accumulated text so far."""
-                            if not chunk:
+                            if not chunk.text:
                                 return
                             try:
                                 async with update_lock:
-                                    message_chunk = update_agent_message_text(chunk)
-                                    notification = session_notification(session_id, message_chunk)
-                                    await self._connection.sessionUpdate(notification)
+                                    if chunk.is_reasoning:
+                                        message_chunk = update_agent_thought_text(chunk.text)
+                                    else:
+                                        message_chunk = update_agent_message_text(chunk.text)
+                                    await connection.session_update(
+                                        session_id=session_id, update=message_chunk
+                                    )
                             except Exception as e:
                                 logger.error(
                                     f"Error sending stream update: {e}",
@@ -898,20 +984,13 @@ class AgentACPServer(ACPAgent):
                                     exc_info=True,
                                 )
 
-                        def on_stream_chunk(chunk: str):
+                        def on_stream_chunk(chunk: StreamChunk):
                             """
                             Sync callback from fast-agent streaming.
                             Sends each chunk as it arrives to the ACP client.
                             """
-                            logger.debug(
-                                f"Stream chunk received: {len(chunk)} chars",
-                                name="acp_stream_chunk",
-                                session_id=session_id,
-                                chunk_length=len(chunk),
-                            )
-
-                            # Send update asynchronously (don't await in sync callback)
-                            # Track task to ensure all chunks complete before returning PromptResponse
+                            if not chunk or not chunk.text:
+                                return
                             task = asyncio.create_task(send_stream_update(chunk))
                             streaming_tasks.append(task)
 
@@ -981,8 +1060,9 @@ class AgentACPServer(ACPAgent):
                         if not streaming_tasks and self._connection and response_text:
                             try:
                                 message_chunk = update_agent_message_text(response_text)
-                                notification = session_notification(session_id, message_chunk)
-                                await self._connection.sessionUpdate(notification)
+                                await self._connection.session_update(
+                                    session_id=session_id, update=message_chunk
+                                )
                                 logger.info(
                                     "Sent final sessionUpdate with complete response (no streaming)",
                                     name="acp_final_update",
@@ -1006,7 +1086,7 @@ class AgentACPServer(ACPAgent):
                                     session_id=session_id,
                                 )
                             except Exception:
-                                logger.exception("Failed to remove ACP stream listener after error")
+                                logger.warning("Failed to remove ACP stream listener after error")
                         # Re-raise the original error
                         raise send_error
 
@@ -1016,7 +1096,7 @@ class AgentACPServer(ACPAgent):
                             try:
                                 remove_listener()
                             except Exception:
-                                logger.exception("Failed to remove ACP stream listener")
+                                logger.warning("Failed to remove ACP stream listener")
                             else:
                                 logger.info(
                                     "Removed stream listener",
@@ -1041,7 +1121,7 @@ class AgentACPServer(ACPAgent):
 
             # Return response with appropriate stop reason
             return PromptResponse(
-                stopReason=acp_stop_reason,
+                stop_reason=acp_stop_reason,
             )
         except asyncio.CancelledError:
             # Task was cancelled - return appropriate response
@@ -1050,7 +1130,7 @@ class AgentACPServer(ACPAgent):
                 name="acp_prompt_cancelled",
                 session_id=session_id,
             )
-            return PromptResponse(stopReason="cancelled")
+            return PromptResponse(stop_reason="cancelled")
         finally:
             # Always remove session from active prompts and cleanup task
             async with self._session_lock:
@@ -1062,7 +1142,7 @@ class AgentACPServer(ACPAgent):
                 session_id=session_id,
             )
 
-    async def cancel(self, params: CancelNotification) -> None:
+    async def cancel(self, session_id: str, **kwargs: Any) -> None:
         """
         Handle session/cancel notification from the client.
 
@@ -1073,8 +1153,6 @@ class AgentACPServer(ACPAgent):
         Uses asyncio.Task.cancel() for proper async cancellation, which raises
         asyncio.CancelledError in the running task.
         """
-        session_id = params.sessionId
-
         logger.info(
             "ACP cancel request received",
             name="acp_cancel",
@@ -1098,48 +1176,34 @@ class AgentACPServer(ACPAgent):
                     session_id=session_id,
                 )
 
+    def on_connect(self, conn: ACPClient) -> None:
+        """
+        Called when connection is established.
+
+        Store connection reference for sending session_update notifications.
+        """
+        self._connection = conn
+        logger.info("ACP connection established via on_connect")
+
     async def run_async(self) -> None:
         """
         Run the ACP server over stdio.
 
-        This creates the stdio streams and sets up the ACP connection.
+        Uses the new run_agent helper which handles stdio streams and message routing.
         """
         logger.info("Starting ACP server on stdio")
         # Startup messages are handled by fastagent.py to respect quiet mode and use correct stream
 
         try:
-            # Get stdio streams
-            reader, writer = await stdio_streams()
-
-            # Create the ACP connection
-            # Note: AgentSideConnection expects (writer, reader) order
-            # - input_stream (writer) = where agent writes TO client
-            # - output_stream (reader) = where agent reads FROM client
-            connection = AgentSideConnection(
-                lambda conn: self,
-                writer,  # input_stream = StreamWriter for agent output
-                reader,  # output_stream = StreamReader for agent input
-            )
-
-            # Store the connection reference so we can send sessionUpdate notifications
-            self._connection = connection
-
-            logger.info("ACP connection established, waiting for messages")
-
-            # Keep the connection alive
-            # The connection will handle incoming messages automatically
-            # We just need to wait until it's closed or interrupted
-            try:
-                # Wait indefinitely - the connection will process messages in the background
-                # The Connection class automatically starts a receive loop on creation
-                shutdown_event = asyncio.Event()
-                await shutdown_event.wait()
-            except (asyncio.CancelledError, KeyboardInterrupt):
-                logger.info("ACP server shutting down")
-                # Shutdown message is handled by fastagent.py to respect quiet mode
-            finally:
-                # Close the connection properly
-                await connection._conn.close()
+            # Use the new run_agent helper which handles:
+            # - stdio stream setup
+            # - AgentSideConnection creation
+            # - Message loop
+            # The connection is passed to us via on_connect callback
+            await run_agent(self)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            logger.info("ACP server shutting down")
+            # Shutdown message is handled by fastagent.py to respect quiet mode
 
         except Exception as e:
             logger.error(f"ACP server error: {e}", name="acp_server_error", exc_info=True)
@@ -1163,12 +1227,11 @@ class AgentACPServer(ACPAgent):
 
         try:
             available_commands = slash_handler.get_available_commands()
-            commands_update = {
-                "sessionUpdate": "available_commands_update",
-                "availableCommands": available_commands,
-            }
-            notification = session_notification(session_id, commands_update)
-            await self._connection.sessionUpdate(notification)
+            commands_update = AvailableCommandsUpdate(
+                session_update="available_commands_update",
+                available_commands=available_commands,
+            )
+            await self._connection.session_update(session_id=session_id, update=commands_update)
 
             logger.info(
                 "Sent available_commands_update",
@@ -1213,6 +1276,19 @@ class AgentACPServer(ACPAgent):
                     )
 
             self._session_filesystem_runtimes.clear()
+
+            # Clean up permission handlers
+            for session_id, permission_handler in list(self._session_permission_handlers.items()):
+                try:
+                    await permission_handler.clear_session_cache()
+                    logger.debug(f"Permission handler for session {session_id} cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error cleaning up permission handler for session {session_id}: {e}",
+                        name="acp_permission_cleanup_error",
+                    )
+
+            self._session_permission_handlers.clear()
 
             # Clean up slash command handlers
             self._session_slash_handlers.clear()

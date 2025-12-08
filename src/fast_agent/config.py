@@ -208,6 +208,14 @@ class MCPServerSettings(BaseModel):
     include_instructions: bool = True
     """Whether to include this server's instructions in the system prompt (default: True)."""
 
+    reconnect_on_disconnect: bool = True
+    """Whether to automatically reconnect when the server session is terminated (e.g., 404).
+
+    When enabled, if a remote StreamableHTTP server returns a 404 indicating the session
+    has been terminated (e.g., due to server restart), the client will automatically
+    attempt to re-initialize the connection and retry the operation.
+    """
+
     implementation: Implementation | None = None
 
     @model_validator(mode="before")
@@ -284,31 +292,40 @@ class OpenAISettings(BaseModel):
 
     base_url: str | None = None
 
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the OpenAI API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class DeepSeekSettings(BaseModel):
     """
-    Settings for using OpenAI models in the fast-agent application.
+    Settings for using DeepSeek models in the fast-agent application.
     """
 
     api_key: str | None = None
     # reasoning_effort: Literal["low", "medium", "high"] = "medium"
 
     base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the DeepSeek API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GoogleSettings(BaseModel):
     """
-    Settings for using OpenAI models in the fast-agent application.
+    Settings for using Google models (via OpenAI-compatible API) in the fast-agent application.
     """
 
     api_key: str | None = None
     # reasoning_effort: Literal["low", "medium", "high"] = "medium"
 
     base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Google API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -321,17 +338,23 @@ class XAISettings(BaseModel):
     api_key: str | None = None
     base_url: str | None = "https://api.x.ai/v1"
 
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the xAI API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
 class GenericSettings(BaseModel):
     """
-    Settings for using OpenAI models in the fast-agent application.
+    Settings for using generic OpenAI-compatible models in the fast-agent application.
     """
 
     api_key: str | None = None
 
     base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -344,6 +367,9 @@ class OpenRouterSettings(BaseModel):
     api_key: str | None = None
 
     base_url: str | None = None  # Optional override, defaults handled in provider
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the OpenRouter API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -364,11 +390,14 @@ class AzureSettings(BaseModel):
 
 class GroqSettings(BaseModel):
     """
-    Settings for using xAI Grok models in the fast-agent application.
+    Settings for using Groq models in the fast-agent application.
     """
 
     api_key: str | None = None
     base_url: str | None = "https://api.groq.com/openai/v1"
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Groq API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -399,6 +428,10 @@ class TensorZeroSettings(BaseModel):
 
     base_url: str | None = None
     api_key: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the TensorZero API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -428,6 +461,10 @@ class HuggingFaceSettings(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     default_provider: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the HuggingFace API."""
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 
@@ -548,10 +585,11 @@ class Settings(BaseSettings):
     execution_engine: Literal["asyncio"] = "asyncio"
     """Execution engine for the fast-agent application"""
 
-    default_model: str | None = "gpt-5-mini.low"
+    default_model: str | None = None
     """
     Default model for agents. Format is provider.model_name.<reasoning_effort>, for example openai.o3-mini.low
     Aliases are provided for common models e.g. sonnet, haiku, gpt-4.1, o3-mini etc.
+    If not set, falls back to FAST_AGENT_MODEL env var, then to "gpt-5-mini.low".
     """
 
     auto_sampling: bool = True
@@ -622,6 +660,12 @@ class Settings(BaseSettings):
 
     shell_execution: ShellSettings = ShellSettings()
     """Shell execution timeout and warning settings."""
+
+    llm_retries: int = 0
+    """
+    Number of times to retry transient LLM API errors.
+    Defaults to 0; can be overridden via config or FAST_AGENT_RETRIES env.
+    """
 
     @classmethod
     def find_config(cls) -> Path | None:

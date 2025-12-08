@@ -25,6 +25,7 @@ from pydantic import BaseModel
 from rich.text import Text
 
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
@@ -85,7 +86,7 @@ class FastAgentLLMProtocol(Protocol):
         request_params: RequestParams | None = None,
     ) -> RequestParams: ...
 
-    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
+    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
@@ -116,7 +117,7 @@ class LlmAgentProtocol(Protocol):
     """Protocol defining the minimal interface for LLM agents."""
 
     @property
-    def llm(self) -> FastAgentLLMProtocol: ...
+    def llm(self) -> FastAgentLLMProtocol | None: ...
 
     @property
     def name(self) -> str: ...
@@ -256,7 +257,7 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 class StreamingAgentProtocol(AgentProtocol, Protocol):
     """Optional extension for agents that expose LLM streaming callbacks."""
 
-    def add_stream_listener(self, listener: Callable[[str], None]) -> Callable[[], None]: ...
+    def add_stream_listener(self, listener: Callable[[StreamChunk], None]) -> Callable[[], None]: ...
 
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]

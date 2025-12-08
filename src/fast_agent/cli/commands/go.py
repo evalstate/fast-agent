@@ -123,6 +123,7 @@ async def _run_agent(
     port: int = 8000,
     tool_description: str | None = None,
     instance_scope: str = "shared",
+    permissions_enabled: bool = True,
 ) -> None:
     """Async implementation to run an interactive agent."""
     from fast_agent.mcp.prompts.prompt_load import load_prompt
@@ -141,6 +142,10 @@ async def _run_agent(
         fast_kwargs["skills_directory"] = skills_directory
 
     fast = FastAgent(**fast_kwargs)
+
+    # Set model on args so model source detection works correctly
+    if model:
+        fast.args.model = model
 
     if shell_runtime:
         await fast.app.initialize()
@@ -244,6 +249,7 @@ async def _run_agent(
             port=port,
             tool_description=tool_description,
             instance_scope=instance_scope,
+            permissions_enabled=permissions_enabled,
         )
     else:
         await cli_agent()
@@ -269,6 +275,7 @@ def run_async_agent(
     port: int = 8000,
     tool_description: str | None = None,
     instance_scope: str = "shared",
+    permissions_enabled: bool = True,
 ):
     """Run the async agent function with proper loop handling."""
     server_list = servers.split(",") if servers else None
@@ -379,6 +386,7 @@ def run_async_agent(
                 port=port,
                 tool_description=tool_description,
                 instance_scope=instance_scope,
+                permissions_enabled=permissions_enabled,
             )
         )
     finally:

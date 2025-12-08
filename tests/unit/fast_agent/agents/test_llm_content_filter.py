@@ -112,9 +112,12 @@ async def test_sanitizes_image_content_for_text_only_model():
 
     assert stub.generated_messages is not None
     sent_message = stub.generated_messages[0]
+    # Only original text block remains - no placeholder since some content was kept
     assert len(sent_message.content) == 1
     assert isinstance(sent_message.content[0], TextContent)
+    assert sent_message.content[0].text == "Hello"
 
+    # Removed content should be in error channel
     channels = sent_message.channels or {}
     assert FAST_AGENT_ERROR_CHANNEL in channels
     error_entries = channels[FAST_AGENT_ERROR_CHANNEL]
@@ -151,8 +154,13 @@ async def test_removes_unsupported_tool_result_content():
     assert stub.generated_messages is not None
     sent_message = stub.generated_messages[0]
     sanitized_result = sent_message.tool_results["tool1"]
-    assert sanitized_result.content == []
+    # Should have placeholder text since all content was removed
+    assert len(sanitized_result.content) == 1
+    assert isinstance(sanitized_result.content[0], TextContent)
+    assert "document" in sanitized_result.content[0].text.lower()
+    assert "removed" in sanitized_result.content[0].text.lower()
 
+    # Detailed info (including mime type) is in the error channel
     channels = sent_message.channels or {}
     error_entries = channels[FAST_AGENT_ERROR_CHANNEL]
     assert isinstance(error_entries[0], TextContent)
