@@ -324,7 +324,7 @@ def agent(
         prompts=prompts,
         skills=skills,
         api_key=api_key,
-        tool_options={
+        agents_as_tools_options={
             "history_mode": history_mode,
             "max_parallel": max_parallel,
             "child_timeout_sec": child_timeout_sec,

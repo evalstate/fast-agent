@@ -223,7 +223,11 @@ async def create_agents_by_type(
                         AgentsAsToolsAgent,
                         AgentsAsToolsOptions,
                     )
-                    raw_opts = agent_data.get("tool_options") or {}
+                    raw_opts = (
+                        agent_data.get("agents_as_tools_options")
+                        or agent_data.get("tool_options")
+                        or {}
+                    )
                     opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
                     options = AgentsAsToolsOptions(**opt_kwargs)
 
