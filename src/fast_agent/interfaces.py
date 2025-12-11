@@ -30,6 +30,7 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
+    from fast_agent.acp.acp_context import ACPContext
     from fast_agent.agents.agent_types import AgentType
     from fast_agent.llm.model_info import ModelInfo
 
@@ -38,6 +39,7 @@ __all__ = [
     "StreamingAgentProtocol",
     "LlmAgentProtocol",
     "AgentProtocol",
+    "ACPAwareProtocol",
     "LLMFactoryProtocol",
     "ModelFactoryFunctionProtocol",
     "ModelT",
@@ -262,3 +264,30 @@ class StreamingAgentProtocol(AgentProtocol, Protocol):
     def add_tool_stream_listener(
         self, listener: Callable[[str, dict[str, Any] | None], None]
     ) -> Callable[[], None]: ...
+
+
+@runtime_checkable
+class ACPAwareProtocol(Protocol):
+    """
+    Protocol for agents that can be ACP-aware.
+
+    This protocol defines the interface for agents that can check whether
+    they're running in ACP mode and access ACP features when available.
+
+    Agents implementing this protocol can:
+    - Check if they're in ACP mode via `is_acp_mode`
+    - Access ACP context via `acp` property
+    - Use convenience methods for mode switching, command registration, etc.
+
+    The ACPAwareMixin provides a concrete implementation of this protocol.
+    """
+
+    @property
+    def acp(self) -> "ACPContext | None":
+        """Get the ACP context if available."""
+        ...
+
+    @property
+    def is_acp_mode(self) -> bool:
+        """Check if the agent is running in ACP mode."""
+        ...

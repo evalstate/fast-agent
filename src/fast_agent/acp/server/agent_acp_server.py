@@ -43,6 +43,7 @@ from acp.schema import (
     StopReason,
 )
 
+from fast_agent.acp.acp_context import ACPContext, ClientCapabilities as FAClientCapabilities, ClientInfo
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
@@ -220,8 +221,14 @@ class AgentACPServer(ACPAgent):
         # Permission handler tracking
         self._session_permission_handlers: dict[str, ACPToolPermissionAdapter] = {}
 
+        # Progress manager tracking (for ACPContext)
+        self._session_progress_managers: dict[str, ACPToolProgressManager] = {}
+
         # Slash command handlers for each session
         self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
+
+        # ACPContext per session - centralizes all ACP state for agent access
+        self._session_acp_contexts: dict[str, ACPContext] = {}
 
         # Late-binding prompt context by session (e.g., client-provided cwd)
         self._session_prompt_context: dict[str, dict[str, str]] = {}
@@ -239,6 +246,10 @@ class AgentACPServer(ACPAgent):
         self._client_capabilities: dict | None = None
         self._client_info: dict | None = None
         self._protocol_version: int | None = None
+
+        # Parsed client capabilities and info for ACPContext
+        self._parsed_client_capabilities: FAClientCapabilities | None = None
+        self._parsed_client_info: ClientInfo | None = None
 
         # Determine primary agent using FastAgent default flag when available
         self.primary_agent_name = self._select_primary_agent(primary_instance)
@@ -333,6 +344,15 @@ class AgentACPServer(ACPAgent):
                         self._client_capabilities["_meta"] = (
                             dict(meta) if isinstance(meta, dict) else {}
                         )
+
+            # Parse client capabilities and info for ACPContext
+            self._parsed_client_capabilities = FAClientCapabilities(
+                terminal=self._client_supports_terminal,
+                fs_read=self._client_supports_fs_read,
+                fs_write=self._client_supports_fs_write,
+                _meta=self._client_capabilities.get("_meta", {}) if self._client_capabilities else {},
+            )
+            self._parsed_client_info = ClientInfo.from_acp_info(client_info)
 
             logger.info(
                 "ACP initialize request",
@@ -517,6 +537,7 @@ class AgentACPServer(ACPAgent):
             if self._connection:
                 # Create a progress manager for this session
                 tool_handler = ACPToolProgressManager(self._connection, session_id)
+                self._session_progress_managers[session_id] = tool_handler
                 workflow_telemetry = ToolHandlerWorkflowTelemetry(
                     tool_handler, server_name=self.server_name
                 )
@@ -708,6 +729,64 @@ class AgentACPServer(ACPAgent):
         )
         self._session_slash_handlers[session_id] = slash_handler
 
+        # Create ACPContext for this session - centralizes all ACP state
+        if self._connection:
+            acp_context = ACPContext(
+                connection=self._connection,
+                session_id=session_id,
+                client_capabilities=self._parsed_client_capabilities,
+                client_info=self._parsed_client_info,
+                protocol_version=self._protocol_version,
+            )
+
+            # Store references to runtimes and handlers in ACPContext
+            if session_id in self._session_terminal_runtimes:
+                acp_context.set_terminal_runtime(self._session_terminal_runtimes[session_id])
+            if session_id in self._session_filesystem_runtimes:
+                acp_context.set_filesystem_runtime(self._session_filesystem_runtimes[session_id])
+            if session_id in self._session_permission_handlers:
+                acp_context.set_permission_handler(self._session_permission_handlers[session_id])
+            if session_id in self._session_progress_managers:
+                acp_context.set_progress_manager(self._session_progress_managers[session_id])
+
+            acp_context.set_slash_handler(slash_handler)
+
+            # Store ACPContext
+            self._session_acp_contexts[session_id] = acp_context
+
+            # Set ACPContext on each agent's Context object (if they have one)
+            for agent_name, agent in instance.agents.items():
+                if hasattr(agent, "_context") and agent._context is not None:
+                    agent._context.acp = acp_context
+                    logger.debug(
+                        "ACPContext set on agent",
+                        name="acp_context_set",
+                        session_id=session_id,
+                        agent_name=agent_name,
+                    )
+                elif hasattr(agent, "context"):
+                    # Try via context property
+                    try:
+                        agent.context.acp = acp_context
+                        logger.debug(
+                            "ACPContext set on agent via context property",
+                            name="acp_context_set",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
+                    except Exception:
+                        # Agent may not have a context available
+                        pass
+
+            logger.info(
+                "ACPContext created for session",
+                name="acp_context_created",
+                session_id=session_id,
+                has_terminal=acp_context.terminal_runtime is not None,
+                has_filesystem=acp_context.filesystem_runtime is not None,
+                has_permissions=acp_context.permission_handler is not None,
+            )
+
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
@@ -727,6 +806,12 @@ class AgentACPServer(ACPAgent):
 
         # Initialize the current agent for this session
         self._session_current_agent[session_id] = session_modes.currentModeId
+
+        # Update ACPContext with mode information
+        if session_id in self._session_acp_contexts:
+            acp_context = self._session_acp_contexts[session_id]
+            acp_context.set_available_modes(session_modes.availableModes)
+            acp_context.set_current_mode(session_modes.currentModeId)
 
         logger.info(
             "Session modes initialized",
@@ -797,6 +882,10 @@ class AgentACPServer(ACPAgent):
 
         # Update the session's current agent
         self._session_current_agent[session_id] = mode_id
+
+        # Update ACPContext if available
+        if session_id in self._session_acp_contexts:
+            self._session_acp_contexts[session_id].set_current_mode(mode_id)
 
         logger.info(
             "Session mode updated",
@@ -1290,8 +1379,34 @@ class AgentACPServer(ACPAgent):
 
             self._session_permission_handlers.clear()
 
+            # Clean up progress managers
+            for session_id, progress_manager in list(self._session_progress_managers.items()):
+                try:
+                    await progress_manager.cleanup_session_tools(session_id)
+                    logger.debug(f"Progress manager for session {session_id} cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error cleaning up progress manager for session {session_id}: {e}",
+                        name="acp_progress_cleanup_error",
+                    )
+
+            self._session_progress_managers.clear()
+
             # Clean up slash command handlers
             self._session_slash_handlers.clear()
+
+            # Clean up ACPContexts
+            for session_id, acp_context in list(self._session_acp_contexts.items()):
+                try:
+                    await acp_context.cleanup()
+                    logger.debug(f"ACPContext for session {session_id} cleaned up")
+                except Exception as e:
+                    logger.error(
+                        f"Error cleaning up ACPContext for session {session_id}: {e}",
+                        name="acp_context_cleanup_error",
+                    )
+
+            self._session_acp_contexts.clear()
 
             # Clean up session current agent mapping
             self._session_current_agent.clear()
