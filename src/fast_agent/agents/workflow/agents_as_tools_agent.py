@@ -186,11 +186,12 @@ References
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from enum import Enum
-import json
 from copy import copy
 from typing import TYPE_CHECKING, Any
+from contextlib import contextmanager, nullcontext
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -358,45 +359,40 @@ class AgentsAsToolsAgent(McpAgent):
             self._display_suppression_count = {}
             self._original_display_configs = {}
 
-    def _suppress_child_display(self, child: LlmAgent) -> None:
-        """Suppress child chat output while preserving tool logs."""
+    @contextmanager
+    def _child_display_suppressed(self, child: LlmAgent):
+        """Context manager to hide child chat while keeping tool logs visible."""
         self._ensure_display_maps_initialized()
         child_id = id(child)
         count = self._display_suppression_count.get(child_id, 0)
-        if 0 == count:
+        if count == 0:
             if (
                 hasattr(child, "display")
                 and child.display
                 and getattr(child.display, "config", None)
             ):
-                # Store original config for restoration later
                 self._original_display_configs[child_id] = child.display.config
                 temp_config = copy(child.display.config)
                 if hasattr(temp_config, "logger"):
                     temp_logger = copy(temp_config.logger)
                     temp_logger.show_chat = False
-                    temp_logger.show_tools = True  # Explicitly keep tools visible
+                    temp_logger.show_tools = True
                     temp_config.logger = temp_logger
                 child.display.config = temp_config
         self._display_suppression_count[child_id] = count + 1
-
-    def _release_child_display(self, child: LlmAgent) -> None:
-        """Restore child display configuration when the last tool instance completes."""
-        if not hasattr(self, "_display_suppression_count"):
-            return
-        child_id = id(child)
-        if child_id not in self._display_suppression_count:
-            return
-        self._display_suppression_count[child_id] -= 1
-        if self._display_suppression_count[child_id] <= 0:
-            del self._display_suppression_count[child_id]
-            original_config = self._original_display_configs.pop(child_id, None)
-            if (
-                original_config is not None
-                and hasattr(child, "display")
-                and child.display
-            ):
-                child.display.config = original_config
+        try:
+            yield
+        finally:
+            self._display_suppression_count[child_id] -= 1
+            if self._display_suppression_count[child_id] <= 0:
+                del self._display_suppression_count[child_id]
+                original_config = self._original_display_configs.pop(child_id, None)
+                if (
+                    original_config is not None
+                    and hasattr(child, "display")
+                    and child.display
+                ):
+                    child.display.config = original_config
 
     async def _invoke_child_agent(
         self,
@@ -423,14 +419,14 @@ class AgentsAsToolsAgent(McpAgent):
         child_request = Prompt.user(input_text)
 
         try:
-            # Suppress child agent chat messages (keep tool calls visible)
-            if suppress_display:
-                self._suppress_child_display(child)
-
-            response: PromptMessageExtended = await child.generate(
-                [child_request], None
-            )
-            # Prefer preserving original content blocks for better UI fidelity
+            with (
+                self._child_display_suppressed(child)
+                if suppress_display
+                else nullcontext()
+            ):
+                response: PromptMessageExtended = await child.generate(
+                    [child_request], None
+                )
             content_blocks = list(response.content or [])
 
             from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
@@ -438,7 +434,6 @@ class AgentsAsToolsAgent(McpAgent):
             error_blocks = None
             if response.channels and FAST_AGENT_ERROR_CHANNEL in response.channels:
                 error_blocks = response.channels.get(FAST_AGENT_ERROR_CHANNEL) or []
-                # Append error blocks so they are visible in the tool result panel
                 if error_blocks:
                     content_blocks.extend(error_blocks)
 
@@ -449,9 +444,6 @@ class AgentsAsToolsAgent(McpAgent):
         except Exception as e:
             logger.error(f"Child agent {child.name} failed: {e}")
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
-        finally:
-            if suppress_display:
-                self._release_child_display(child)
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
         return self._child_agents.get(name) or self._child_agents.get(
@@ -529,15 +521,6 @@ class AgentsAsToolsAgent(McpAgent):
                 bottom_items=[f"{label} · {collapsed} more"],
                 max_item_length=28,
             )
-
-    def _summarize_result_text(self, result: CallToolResult) -> str:
-        for block in result.content or []:
-            if is_text_content(block):
-                text = (get_text(block) or "").strip()
-                if text:
-                    text = text.replace("\n", " ")
-                    return text[:180] + "…" if len(text) > 180 else text
-        return ""
 
     def _show_parallel_tool_results(self, records: list[dict[str, Any]]) -> None:
         """Display tool result panels for parallel agent execution.
@@ -639,10 +622,10 @@ class AgentsAsToolsAgent(McpAgent):
 
         try:
             listed = await self.list_tools()
-            available_tools = [t.name for t in listed.tools]
+            available_tools = {t.name for t in listed.tools}
         except Exception as exc:
             logger.warning(f"Failed to list tools before execution: {exc}")
-            available_tools = list(self._child_agents.keys())
+            available_tools = set(self._child_agents.keys())
 
         call_descriptors: list[dict[str, Any]] = []
         descriptor_by_id: dict[str, dict[str, Any]] = {}
