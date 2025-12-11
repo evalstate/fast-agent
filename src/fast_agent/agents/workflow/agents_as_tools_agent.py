@@ -436,8 +436,6 @@ class AgentsAsToolsAgent(McpAgent):
                 )
             content_blocks = list(response.content or [])
 
-            from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-
             error_blocks = None
             if response.channels and FAST_AGENT_ERROR_CHANNEL in response.channels:
                 error_blocks = response.channels.get(FAST_AGENT_ERROR_CHANNEL) or []
@@ -492,7 +490,8 @@ class AgentsAsToolsAgent(McpAgent):
             "missing": "missing",
         }
 
-        limit = self._options.max_display_instances or len(descriptors)
+        total = len(descriptors)
+        limit = self._options.max_display_instances or total
 
         # Show detailed call information for each agent
         for i, desc in enumerate(descriptors[:limit], 1):
@@ -518,9 +517,9 @@ class AgentsAsToolsAgent(McpAgent):
                 bottom_items=[bottom_item],  # Only this instance's label
                 max_item_length=28,
             )
-        if len(descriptors) > limit:
-            collapsed = len(descriptors) - limit
-            label = f"[{limit+1}..{len(descriptors)}]"
+        if total > limit:
+            collapsed = total - limit
+            label = f"[{limit+1}..{total}]"
             self.display.show_tool_call(
                 name=self.name,
                 tool_name=label,
@@ -538,7 +537,8 @@ class AgentsAsToolsAgent(McpAgent):
         if not records:
             return
 
-        limit = self._options.max_display_instances or len(records)
+        total = len(records)
+        limit = self._options.max_display_instances or total
 
         # Show detailed result for each agent
         for i, record in enumerate(records[:limit], 1):
@@ -556,9 +556,9 @@ class AgentsAsToolsAgent(McpAgent):
                     tool_name=display_tool_name,
                     result=result,
                 )
-        if len(records) > limit:
-            collapsed = len(records) - limit
-            label = f"[{limit+1}..{len(records)}]"
+        if total > limit:
+            collapsed = total - limit
+            label = f"[{limit+1}..{total}]"
             self.display.show_tool_result(
                 name=self.name,
                 tool_name=label,
