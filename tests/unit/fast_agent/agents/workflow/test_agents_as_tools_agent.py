@@ -47,6 +47,20 @@ class ErrorChannelChild(FakeChildAgent):
         )
 
 
+class StubNestedAgentsAsTools(AgentsAsToolsAgent):
+    """Stub AgentsAsToolsAgent that responds without hitting an LLM."""
+
+    async def generate(self, messages, request_params=None):
+        return PromptMessageExtended(
+            role="assistant",
+            content=[text_content(f"{self.name}-reply")],
+        )
+
+    async def spawn_detached_instance(self, name: str | None = None):
+        self._name = name or self.name
+        return self
+
+
 @pytest.mark.asyncio
 async def test_list_tools_merges_base_and_child():
     child = FakeChildAgent("child")
@@ -113,3 +127,24 @@ async def test_invoke_child_appends_error_channel():
     assert call_result.isError
     texts = [block.text for block in call_result.content if hasattr(block, "text")]
     assert "err-block" in texts
+
+
+@pytest.mark.asyncio
+async def test_nested_agents_as_tools_preserves_instance_labels():
+    leaf = FakeChildAgent("leaf", response_text="leaf-ok")
+    nested = StubNestedAgentsAsTools(AgentConfig("nested"), [leaf])
+    parent = AgentsAsToolsAgent(AgentConfig("parent"), [nested])
+
+    await nested.initialize()
+    await parent.initialize()
+
+    tool_calls = {
+        "1": CallToolRequest(params=CallToolRequestParams(name="agent__nested", arguments={"text": "hi"})),
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    result_message = await parent.run_tools(request)
+    result = result_message.tool_results["1"]
+    assert not result.isError
+    # Reply should include the instance-suffixed nested agent name.
+    assert any("nested[1]-reply" in (block.text or "") for block in result.content)
