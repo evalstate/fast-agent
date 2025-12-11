@@ -66,7 +66,7 @@ While the core plan intentionally reuses a single child object per agent, there 
 
 Both approaches can be integrated into the factory/runtime layer without rewriting the Agents-as-Tools surface: the parent would simply target a different acquisition strategy when resolving `self._children`. Documenting these options here keeps the plan aligned with future requirements around strict isolation.
 
-### 2.4. Current implementation snapshot — Detached per-call clones (Nov 2025) [x]
+[x] ### 2.4. Current implementation snapshot — Detached per-call clones (Nov 2025)
 
 While §2.3 framed cloning/pooling as optional futures, the active codebase now runs with the **Dedicated child agent per call** strategy so we can guarantee honest per-instance state:
 

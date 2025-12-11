@@ -111,7 +111,7 @@ Overall, the core mechanics of Agents-as-Tools are present and coherent.
 
 ### 3.2. Gaps and fragilities
 
-1. **Display config restoration logic is incomplete** [x]
+1. [x] **Display config restoration logic is incomplete**
 
    - In `call_tool()` we:
      - Always increment `_display_suppression_count[child_id]`.
@@ -126,7 +126,7 @@ Overall, the core mechanics of Agents-as-Tools are present and coherent.
 
    **Effect:** once a child is ever used as a tool, its chat may remain permanently suppressed for all subsequent uses, including direct runs, which is surprising.
 
-2. **Instance naming races on shared child objects** [x]
+2. [x] **Instance naming races on shared child objects**
 
    - Multiple tool calls to the **same child agent** share a single `child` object and a single `child._aggregator`.
    - `call_with_instance_name()` mutates `child._name` and `child._aggregator.agent_name` in each task.
@@ -134,7 +134,7 @@ Overall, the core mechanics of Agents-as-Tools are present and coherent.
 
    **Effect:** progress rows are mostly correct (because we also emit explicit `ProgressEvent`s), but logs and transport stats that come from `MCPAggregator` may mix instance names.
 
-3. **Direct reliance on private internals of `RichProgressDisplay`** [x]
+3. [x] **Direct reliance on private internals of `RichProgressDisplay`**
 
    - `call_with_instance_name()` accesses:
      - `outer_progress_display._taskmap`
@@ -143,12 +143,12 @@ Overall, the core mechanics of Agents-as-Tools are present and coherent.
 
    **Risk:** this is brittle against internal refactors of the progress UI and difficult to test in isolation.
 
-4. **`MessageType` import is unused** [x]
+4. [x] **`MessageType` import is unused**
 
    - `from fast_agent.ui.message_primitives import MessageType` is imported but not used.
    - Indicates some UI scenarios were planned (e.g. structured tool headers) and not implemented.
 
-5. **Stats are per-agent only, not per-instance** [x]
+5. [x] **Stats are per-agent only, not per-instance**
 
    - `UsageAccumulator` is owned by the LLM (via `LlmDecorator.usage_accumulator`).
    - Usage is aggregated per **agent** (e.g. `PM-1-DayStatusSummarizer`), not per `[i]` instance.
@@ -156,7 +156,7 @@ Overall, the core mechanics of Agents-as-Tools are present and coherent.
 
    **Current behavior is acceptable**, but the instance-per-row requirement should be documented as **out of scope** for the first implementation.
 
-6. **Tool availability check and naming** [ ]
+6. [ ] **Tool availability check and naming**
 
    - `run_tools()` validates tool names against `list_tools()` of `AgentsAsToolsAgent` (agent-tools only).
    - There is no support to **merge MCP tools and agent-tools** in `list_tools()`.
