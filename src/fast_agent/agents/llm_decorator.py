@@ -1042,6 +1042,27 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         return request
 
+    async def tool_runner(
+        self,
+        messages: Union[
+            str,
+            PromptMessage,
+            PromptMessageExtended,
+            Sequence[Union[str, PromptMessage, PromptMessageExtended]],
+        ],
+        request_params: RequestParams | None = None,
+    ):
+        """
+        Create an iterable tool runner for fine-grained control over the tool loop.
+
+        This base implementation raises NotImplementedError. Subclasses that
+        support tool use (like ToolAgent) provide the actual implementation.
+        """
+        raise NotImplementedError(
+            f"Agent '{self._name}' does not support tool_runner. "
+            "Use a ToolAgent or McpAgent for tool calling support."
+        )
+
     async def show_assistant_message(
         self,
         message: PromptMessageExtended,
