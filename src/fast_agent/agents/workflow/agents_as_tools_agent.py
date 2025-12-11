@@ -186,6 +186,8 @@ References
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
+from enum import Enum
 import json
 from copy import copy
 from typing import TYPE_CHECKING, Any
@@ -211,6 +213,44 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+class HistoryMode(str, Enum):
+    """History handling for detached child instances."""
+
+    SCRATCH = "scratch"
+    FORK = "fork"
+    FORK_AND_MERGE = "fork_and_merge"
+
+    @classmethod
+    def from_input(cls, value: Any | None) -> HistoryMode:
+        if value is None:
+            return cls.FORK
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value))
+        except Exception:
+            return cls.FORK
+
+
+@dataclass
+class AgentsAsToolsOptions:
+    """Configuration knobs for the Agents-as-Tools wrapper."""
+
+    history_mode: HistoryMode = HistoryMode.FORK
+    max_parallel: int | None = None
+    child_timeout_sec: int | None = None
+    max_display_instances: int = 20
+
+    def __post_init__(self) -> None:
+        self.history_mode = HistoryMode.from_input(self.history_mode)
+        if self.max_parallel is not None and self.max_parallel <= 0:
+            raise ValueError("max_parallel must be > 0 when set")
+        if self.max_display_instances is not None and self.max_display_instances <= 0:
+            raise ValueError("max_display_instances must be > 0")
+        if self.child_timeout_sec is not None and self.child_timeout_sec <= 0:
+            raise ValueError("child_timeout_sec must be > 0 when set")
+
+
 class AgentsAsToolsAgent(McpAgent):
     """MCP-enabled agent that exposes child agents as additional tools.
 
@@ -230,6 +270,7 @@ class AgentsAsToolsAgent(McpAgent):
         self,
         config: AgentConfig,
         agents: list[LlmAgent],
+        options: AgentsAsToolsOptions | None = None,
         context: Any | None = None,
         **kwargs: Any,
     ) -> None:
@@ -242,6 +283,7 @@ class AgentsAsToolsAgent(McpAgent):
             **kwargs: Additional arguments passed through to :class:`McpAgent` and its bases
         """
         super().__init__(config=config, context=context, **kwargs)
+        self._options = options or AgentsAsToolsOptions()
         self._child_agents: dict[str, LlmAgent] = {}
 
         # Build tool name mapping for children
@@ -451,8 +493,10 @@ class AgentsAsToolsAgent(McpAgent):
             "missing": "missing",
         }
 
+        limit = self._options.max_display_instances or len(descriptors)
+
         # Show detailed call information for each agent
-        for i, desc in enumerate(descriptors, 1):
+        for i, desc in enumerate(descriptors[:limit], 1):
             tool_name = desc.get("tool", "(unknown)")
             args = desc.get("args", {})
             status = desc.get("status", "pending")
@@ -475,6 +519,16 @@ class AgentsAsToolsAgent(McpAgent):
                 bottom_items=[bottom_item],  # Only this instance's label
                 max_item_length=28,
             )
+        if len(descriptors) > limit:
+            collapsed = len(descriptors) - limit
+            label = f"[{limit+1}..{len(descriptors)}]"
+            self.display.show_tool_call(
+                name=self.name,
+                tool_name=label,
+                tool_args={"collapsed": collapsed},
+                bottom_items=[f"{label} · {collapsed} more"],
+                max_item_length=28,
+            )
 
     def _summarize_result_text(self, result: CallToolResult) -> str:
         for block in result.content or []:
@@ -494,8 +548,10 @@ class AgentsAsToolsAgent(McpAgent):
         if not records:
             return
 
+        limit = self._options.max_display_instances or len(records)
+
         # Show detailed result for each agent
-        for i, record in enumerate(records, 1):
+        for i, record in enumerate(records[:limit], 1):
             descriptor = record.get("descriptor", {})
             result = record.get("result")
             tool_name = descriptor.get("tool", "(unknown)")
@@ -510,6 +566,17 @@ class AgentsAsToolsAgent(McpAgent):
                     tool_name=display_tool_name,
                     result=result,
                 )
+        if len(records) > limit:
+            collapsed = len(records) - limit
+            label = f"[{limit+1}..{len(records)}]"
+            self.display.show_tool_result(
+                name=self.name,
+                tool_name=label,
+                result=CallToolResult(
+                    content=[text_content(f"{collapsed} more results (collapsed)")],
+                    isError=False,
+                ),
+            )
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Handle mixed MCP + agent-tool batches."""
@@ -612,6 +679,22 @@ class AgentsAsToolsAgent(McpAgent):
             descriptor["status"] = "pending"
             id_list.append(correlation_id)
 
+        max_parallel = self._options.max_parallel
+        if max_parallel and len(id_list) > max_parallel:
+            skipped_ids = id_list[max_parallel:]
+            id_list = id_list[:max_parallel]
+            skip_msg = (
+                f"Skipped {len(skipped_ids)} agent-tool calls (max_parallel={max_parallel})"
+            )
+            tool_loop_error = tool_loop_error or skip_msg
+            for cid in skipped_ids:
+                tool_results[cid] = CallToolResult(
+                    content=[text_content(skip_msg)],
+                    isError=True,
+                )
+                descriptor_by_id[cid]["status"] = "error"
+                descriptor_by_id[cid]["error_message"] = skip_msg
+
         from fast_agent.event_progress import ProgressAction, ProgressEvent
         from fast_agent.ui.progress_display import (
             progress_display as outer_progress_display,
@@ -654,7 +737,11 @@ class AgentsAsToolsAgent(McpAgent):
                     )
                 )
                 progress_started = True
-                return await self._invoke_child_agent(clone, tool_args)
+                call_coro = self._invoke_child_agent(clone, tool_args)
+                timeout = self._options.child_timeout_sec
+                if timeout:
+                    return await asyncio.wait_for(call_coro, timeout=timeout)
+                return await call_coro
             finally:
                 try:
                     await clone.shutdown()
