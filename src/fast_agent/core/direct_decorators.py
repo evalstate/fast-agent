@@ -267,10 +267,6 @@ def agent(
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
     skills: SkillManifest | SkillRegistry | Path | str | None = None,
-    history_mode: Any | None = None,
-    max_parallel: int | None = None,
-    child_timeout_sec: int | None = None,
-    max_display_instances: int | None = None,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -278,6 +274,10 @@ def agent(
     default: bool = False,
     elicitation_handler: ElicitationFnT | None = None,
     api_key: str | None = None,
+    history_mode: Any | None = None,
+    max_parallel: int | None = None,
+    child_timeout_sec: int | None = None,
+    max_display_instances: int | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
     Decorator to create and register a standard agent with type-safe signature.

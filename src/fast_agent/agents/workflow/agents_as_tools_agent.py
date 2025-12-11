@@ -235,7 +235,14 @@ class HistoryMode(str, Enum):
 
 @dataclass(kw_only=True)
 class AgentsAsToolsOptions:
-    """Configuration knobs for the Agents-as-Tools wrapper."""
+    """Configuration knobs for the Agents-as-Tools wrapper.
+
+    Defaults:
+    - history_mode: fork child history (no merge back)
+    - max_parallel: None (no cap; caller may set an explicit limit)
+    - child_timeout_sec: None (no per-child timeout)
+    - max_display_instances: 20 (show first N lines, collapse the rest)
+    """
 
     history_mode: HistoryMode = HistoryMode.FORK
     max_parallel: int | None = None

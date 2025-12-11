@@ -5,10 +5,12 @@ Parent agent ("PMO-orchestrator") calls two child agents
 the ``time`` MCP server for local time and the ``fetch`` MCP server for a short
 news-based update on the given topics.
 
-History handling (default): clones fork parent history and do not merge back.
-To merge back, set `_history_mode = HistoryMode.FORK_AND_MERGE` and (optionally)
-`_child_timeout_sec = 600` on the orchestrator after startup
-(import HistoryMode from fast_agent.agents.workflow.agents_as_tools_agent).
+Defaults: clones fork parent history (no merge-back), no timeout, no parallel cap,
+and collapses progress display after the first 20 instances.
+To change behavior, pass decorator args such as
+`history_mode=HistoryMode.FORK_AND_MERGE`, `child_timeout_sec=600`,
+`max_parallel=8`, `max_display_instances=10`
+(HistoryMode import: fast_agent.agents.workflow.agents_as_tools_agent).
 """
 
 import asyncio
@@ -59,7 +61,7 @@ fast = FastAgent("Agents-as-Tools demo")
         "NY-Project-Manager",
         "London-Project-Manager",
     ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
-    # optional: history_mode="fork_and_merge", child_timeout_sec=600, max_parallel=8
+    # optional: history_mode="fork_and_merge", child_timeout_sec=600, max_parallel=8, max_display_instances=10
 )
 async def main() -> None:
     async with fast.run() as agent:

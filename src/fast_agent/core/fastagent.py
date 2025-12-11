@@ -359,6 +359,7 @@ class FastAgent:
             instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
+            agents: list[str] | None = None,
             servers: list[str] = [],
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
@@ -371,6 +372,10 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
+            history_mode: Any | None = None,
+            max_parallel: int | None = None,
+            child_timeout_sec: int | None = None,
+            max_display_instances: int | None = None,
         ) -> Callable[
             [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
         ]: ...
