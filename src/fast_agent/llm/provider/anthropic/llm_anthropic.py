@@ -33,6 +33,7 @@ from fast_agent.llm.fastagent_llm import (
     FastAgentLLM,
     RequestParams,
 )
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
@@ -45,6 +46,8 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
+# Beta header for Anthropic's native structured outputs feature
+STRUCTURED_OUTPUTS_BETA = "structured-outputs-2025-11-13"
 
 # Type alias for system field - can be string or list of text blocks with cache control
 SystemParam = Union[str, list[TextBlockParam]]
@@ -88,6 +91,75 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
     def _base_url(self) -> str | None:
         assert self.context.config
         return self.context.config.anthropic.base_url if self.context.config.anthropic else None
+
+    def _default_headers(self) -> dict[str, str] | None:
+        """Get default headers from config."""
+        if self.context.config and self.context.config.anthropic:
+            return self.context.config.anthropic.default_headers
+        return None
+
+    def _supports_native_structured_output(self, model: str) -> bool:
+        """Check if the model supports native structured JSON output via output_format parameter."""
+        return ModelDatabase.supports_native_structured_output(model)
+
+    @staticmethod
+    def _add_additional_properties_false(schema: dict) -> dict:
+        """Recursively add additionalProperties: false to all object schemas.
+
+        This is required by Anthropic's structured outputs feature.
+        """
+        if not isinstance(schema, dict):
+            return schema
+
+        result = schema.copy()
+
+        # If this is an object type, add additionalProperties: false
+        if result.get("type") == "object":
+            result["additionalProperties"] = False
+
+        # Recursively process nested schemas
+        if "properties" in result:
+            result["properties"] = {
+                k: AnthropicLLM._add_additional_properties_false(v)
+                for k, v in result["properties"].items()
+            }
+
+        if "items" in result:
+            result["items"] = AnthropicLLM._add_additional_properties_false(result["items"])
+
+        if "anyOf" in result:
+            result["anyOf"] = [
+                AnthropicLLM._add_additional_properties_false(s) for s in result["anyOf"]
+            ]
+
+        if "allOf" in result:
+            result["allOf"] = [
+                AnthropicLLM._add_additional_properties_false(s) for s in result["allOf"]
+            ]
+
+        if "$defs" in result:
+            result["$defs"] = {
+                k: AnthropicLLM._add_additional_properties_false(v)
+                for k, v in result["$defs"].items()
+            }
+
+        if "definitions" in result:
+            result["definitions"] = {
+                k: AnthropicLLM._add_additional_properties_false(v)
+                for k, v in result["definitions"].items()
+            }
+
+        return result
+
+    def _prepare_output_format(self, structured_model: Type[ModelT]) -> dict:
+        """Prepare the output_format parameter for native structured outputs.
+
+        Converts a Pydantic model to the Anthropic output_format structure.
+        """
+        schema = structured_model.model_json_schema()
+        # Add additionalProperties: false to all object schemas
+        schema = self._add_additional_properties_false(schema)
+        return {"type": "json_schema", "schema": schema}
 
     def _get_cache_mode(self) -> str:
         """Get the cache mode configuration."""
@@ -519,24 +591,41 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         cache_mode = self._get_cache_mode()
         logger.debug(f"Anthropic cache_mode: {cache_mode}")
 
-        available_tools = await self._prepare_tools(structured_model, tools)
-
         response_content_blocks: list[ContentBlock] = []
         tool_calls: dict[str, CallToolRequest] | None = None
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
+        # Check if we should use native structured output
+        use_native_structured = (
+            structured_model is not None and self._supports_native_structured_output(model)
+        )
+
+        if use_native_structured:
+            # For native structured output, we only prepare regular tools (not the structured output tool)
+            available_tools = await self._prepare_tools(None, tools)
+            logger.debug(f"Using native structured output for model {model}")
+        else:
+            available_tools = await self._prepare_tools(structured_model, tools)
+
         # Create base arguments dictionary
-        base_args = {
+        base_args: dict[str, Any] = {
             "model": model,
             "messages": messages,
             "stop_sequences": params.stopSequences,
-            "tools": available_tools,
         }
+
+        # Only add tools if we have any
+        if available_tools:
+            base_args["tools"] = available_tools
 
         if self.instruction or params.systemPrompt:
             base_args["system"] = self.instruction or params.systemPrompt
 
-        if structured_model:
+        if use_native_structured:
+            # Use native structured output with output_format
+            base_args["output_format"] = self._prepare_output_format(structured_model)
+        elif structured_model:
+            # Fall back to tool-based structured output
             base_args["tool_choice"] = {"type": "tool", "name": STRUCTURED_OUTPUT_TOOL_NAME}
 
         if params.maxTokens is not None:
@@ -572,10 +661,19 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         logger.debug(f"{arguments}")
         # Use streaming API with helper
+        # For native structured output, use the beta API with the structured-outputs beta
         try:
-            async with anthropic.messages.stream(**arguments) as stream:
-                # Process the stream
-                response = await self._process_stream(stream, model)
+            if use_native_structured:
+                # Use beta API for native structured outputs
+                async with anthropic.beta.messages.stream(
+                    betas=[STRUCTURED_OUTPUTS_BETA], **arguments
+                ) as stream:
+                    # Process the stream
+                    response = await self._process_stream(stream, model)
+            else:
+                async with anthropic.messages.stream(**arguments) as stream:
+                    # Process the stream
+                    response = await self._process_stream(stream, model)
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             logger.info(f"Anthropic completion cancelled: {reason}")
