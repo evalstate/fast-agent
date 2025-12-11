@@ -43,7 +43,8 @@ from acp.schema import (
     StopReason,
 )
 
-from fast_agent.acp.acp_context import ACPContext, ClientCapabilities as FAClientCapabilities, ClientInfo
+from fast_agent.acp.acp_context import ACPContext, ClientInfo
+from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
