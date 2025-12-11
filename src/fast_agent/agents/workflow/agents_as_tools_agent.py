@@ -287,8 +287,9 @@ class AgentsAsToolsAgent(McpAgent):
         self._options = options or AgentsAsToolsOptions()
         self._child_agents: dict[str, LlmAgent] = {}
         self._history_merge_locks: dict[int, asyncio.Lock] = {}
+        self._display_suppression_count: dict[int, int] = {}
+        self._original_display_configs: dict[int, Any] = {}
 
-        # Build tool name mapping for children
         for child in agents:
             tool_name = self._make_tool_name(child.name)
             if tool_name in self._child_agents:
@@ -354,16 +355,9 @@ class AgentsAsToolsAgent(McpAgent):
 
         return ListToolsResult(tools=tools)
 
-    def _ensure_display_maps_initialized(self) -> None:
-        """Lazily initialize display suppression tracking maps."""
-        if not hasattr(self, "_display_suppression_count"):
-            self._display_suppression_count = {}
-            self._original_display_configs = {}
-
     @contextmanager
     def _child_display_suppressed(self, child: LlmAgent):
         """Context manager to hide child chat while keeping tool logs visible."""
-        self._ensure_display_maps_initialized()
         child_id = id(child)
         count = self._display_suppression_count.get(child_id, 0)
         if count == 0:
