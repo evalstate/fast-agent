@@ -171,7 +171,11 @@ this via a hybrid *Agents-as-Tools* agent:
 - At runtime it is instantiated as an internal `AgentsAsToolsAgent`, which:
   - Inherits from `McpAgent` (keeps its own MCP servers/tools).
   - Exposes each child agent as a tool (`agent__ChildName`).
-  - Can mix MCP tools and agent-tools in the same tool loop.
+  - Merges MCP tools and agent-tools in a single `list_tools()` surface.
+  - Supports history/parallel controls:
+    - `history_mode` (default `fork`; `fork_and_merge` to merge clone history back)
+    - `max_parallel` (default unlimited), `child_timeout_sec` (default none)
+    - `max_display_instances` (default 20; collapse progress after top-N)
 
 Minimal example:
 
@@ -194,8 +198,11 @@ Minimal example:
         "NY-Project-Manager",
         "London-Project-Manager",
     ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
-    # history handling (optional): fork by default; set via history_mode
-    # history_mode=HistoryMode.FORK_AND_MERGE to merge clone history back
+    # optional knobs:
+    #   history_mode=HistoryMode.FORK_AND_MERGE to merge clone history back
+    #   max_parallel=8 to cap parallel agent-tools
+    #   child_timeout_sec=600 to bound each child call
+    #   max_display_instances=10 to collapse progress UI after top-N
 )
 async def main() -> None:
     async with fast.run() as agent:
