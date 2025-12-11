@@ -286,6 +286,7 @@ class AgentsAsToolsAgent(McpAgent):
         super().__init__(config=config, context=context, **kwargs)
         self._options = options or AgentsAsToolsOptions()
         self._child_agents: dict[str, LlmAgent] = {}
+        self._history_merge_locks: dict[int, asyncio.Lock] = {}
 
         # Build tool name mapping for children
         for child in agents:
@@ -393,6 +394,18 @@ class AgentsAsToolsAgent(McpAgent):
                     and child.display
                 ):
                     child.display.config = original_config
+
+    async def _merge_child_history(
+        self, target: LlmAgent, clone: LlmAgent, start_index: int
+    ) -> None:
+        """Append clone history from start_index into target with per-target lock."""
+        lock = self._history_merge_locks.setdefault(id(target), asyncio.Lock())
+        async with lock:
+            new_messages = clone.message_history[start_index:]
+            target.append_history(new_messages)
+        # Cleanup to avoid unbounded lock map growth
+        if not lock.locked():
+            self._history_merge_locks.pop(id(target), None)
 
     async def _invoke_child_agent(
         self,
@@ -709,6 +722,22 @@ class AgentsAsToolsAgent(McpAgent):
                     content=[text_content(f"Spawn failed: {exc}")], isError=True
                 )
 
+            # Prepare history according to mode
+            history_mode = self._options.history_mode
+            base_history = child.message_history
+            fork_index = len(base_history)
+            try:
+                if history_mode == HistoryMode.SCRATCH:
+                    clone.load_message_history([])
+                    fork_index = 0
+                else:
+                    clone.load_message_history(base_history)
+            except Exception as hist_exc:
+                logger.warning(
+                    "Failed to load history into clone",
+                    data={"instance_name": instance_name, "error": str(hist_exc)},
+                )
+
             progress_started = False
             try:
                 outer_progress_display.update(
@@ -746,6 +775,19 @@ class AgentsAsToolsAgent(McpAgent):
                             "error": str(merge_exc),
                         },
                     )
+                if history_mode == HistoryMode.FORK_AND_MERGE:
+                    try:
+                        await self._merge_child_history(
+                            target=child, clone=clone, start_index=fork_index
+                        )
+                    except Exception as merge_hist_exc:
+                        logger.warning(
+                            "Failed to merge child history",
+                            data={
+                                "instance_name": instance_name,
+                                "error": str(merge_hist_exc),
+                            },
+                        )
                 if progress_started and instance_name:
                     outer_progress_display.update(
                         ProgressEvent(
