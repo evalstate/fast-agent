@@ -232,7 +232,7 @@ class HistoryMode(str, Enum):
             return cls.FORK
 
 
-@dataclass
+@dataclass(kw_only=True)
 class AgentsAsToolsOptions:
     """Configuration knobs for the Agents-as-Tools wrapper."""
 
