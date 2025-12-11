@@ -983,6 +983,22 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
                 break
         return prefix
 
+    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
+        """Replace message history with a deep copy of supplied messages (or empty list)."""
+        msgs = messages or []
+        self._message_history = [
+            msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg for msg in msgs
+        ]
+
+    def append_history(self, messages: list[PromptMessageExtended] | None) -> None:
+        """Append messages to history as deep copies."""
+        if not messages:
+            return
+        for msg in messages:
+            self._message_history.append(
+                msg.model_copy(deep=True) if hasattr(msg, "model_copy") else msg
+            )
+
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
         if self.llm:

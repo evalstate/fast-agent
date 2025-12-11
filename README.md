@@ -194,6 +194,8 @@ Minimal example:
         "NY-Project-Manager",
         "London-Project-Manager",
     ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
+    # history handling (optional): fork by default; set via history_mode
+    # history_mode=HistoryMode.FORK_AND_MERGE to merge clone history back
 )
 async def main() -> None:
     async with fast.run() as agent:

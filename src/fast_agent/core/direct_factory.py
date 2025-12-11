@@ -221,12 +221,17 @@ async def create_agents_by_type(
                     # Import here to avoid circulars at module import time
                     from fast_agent.agents.workflow.agents_as_tools_agent import (
                         AgentsAsToolsAgent,
+                        AgentsAsToolsOptions,
                     )
+                    raw_opts = agent_data.get("tool_options") or {}
+                    opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
+                    options = AgentsAsToolsOptions(**opt_kwargs)
 
                     agent = AgentsAsToolsAgent(
                         config=config,
                         context=app_instance.context,
                         agents=child_agents,  # expose children as tools
+                        options=options,
                     )
 
                     await agent.initialize()

@@ -267,6 +267,10 @@ def agent(
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
     skills: SkillManifest | SkillRegistry | Path | str | None = None,
+    history_mode: Any | None = None,
+    max_parallel: int | None = None,
+    child_timeout_sec: int | None = None,
+    max_display_instances: int | None = None,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -320,6 +324,12 @@ def agent(
         prompts=prompts,
         skills=skills,
         api_key=api_key,
+        tool_options={
+            "history_mode": history_mode,
+            "max_parallel": max_parallel,
+            "child_timeout_sec": child_timeout_sec,
+            "max_display_instances": max_display_instances,
+        },
     )
 
 

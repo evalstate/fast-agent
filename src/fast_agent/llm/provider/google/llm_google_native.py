@@ -59,15 +59,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         Reads Google API key or Vertex AI configuration from context config.
         """
         try:
-            # Example: Authenticate using API key from config
-            api_key = self._api_key()  # Assuming _api_key() exists in base class
-            if not api_key:
-                # Handle case where API key is missing
-                raise ProviderKeyError(
-                    "Google API key not found.", "Please configure your Google API key."
-                )
-
-            # Check for Vertex AI configuration
+            # Prefer Vertex AI (ADC/IAM) if enabled. This path must NOT require an API key.
             if (
                 self.context
                 and self.context.config
@@ -81,14 +73,22 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                     project=vertex_config.project_id,
                     location=vertex_config.location,
                     # Add other Vertex AI specific options if needed
-                    # http_options=types.HttpOptions(api_version='v1') # Example for v1 API
+                    # http_options=types.HttpOptions(api_version='v1')
                 )
-            else:
-                # Default to Gemini Developer API
-                return genai.Client(
-                    api_key=api_key,
-                    # http_options=types.HttpOptions(api_version='v1') # Example for v1 API
+
+            # Otherwise, default to Gemini Developer API (API key required).
+            api_key = self._api_key()  # Provided via config or GOOGLE_API_KEY
+            if not api_key:
+                raise ProviderKeyError(
+                    "Google API key not found.",
+                    "Please configure your Google API key.",
                 )
+
+            return genai.Client(
+                api_key=api_key,
+                # http_options=types.HttpOptions(api_version='v1')
+            )
+
         except Exception as e:
             # Catch potential initialization errors and raise ProviderKeyError
             raise ProviderKeyError("Failed to initialize Google GenAI client.", str(e)) from e

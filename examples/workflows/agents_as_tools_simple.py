@@ -3,6 +3,11 @@
 Parent agent ("PMO-orchestrator") calls two child agents ("NY-Project-Manager"
 and "London-Project-Manager") as tools. Each child uses the ``time`` MCP
 server to include local time in a brief report.
+
+History handling (default): clones fork parent history and do not merge back.
+If you want merge-back, set `agent._history_mode = HistoryMode.FORK_AND_MERGE`
+and an optional timeout (e.g. `agent._child_timeout_sec = 600`) after startup
+(requires import of HistoryMode from fast_agent.agents.workflow.agents_as_tools_agent).
 """
 
 import asyncio
@@ -30,6 +35,7 @@ fast = FastAgent("Agents-as-Tools simple demo")
         "NY-Project-Manager",
         "London-Project-Manager",
     ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
+    # optional: history_mode="fork_and_merge", child_timeout_sec=600, max_parallel=8
 )
 async def main() -> None:
     async with fast.run() as agent:
