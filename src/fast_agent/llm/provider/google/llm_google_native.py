@@ -1,5 +1,6 @@
 import json
 import secrets
+from collections.abc import Mapping
 
 # Import necessary types and client from google.genai
 from google import genai
@@ -52,6 +53,38 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         # Initialize the converter
         self._converter = GoogleConverter()
 
+    def _vertex_cfg(self) -> tuple[bool, str | None, str | None]:
+        """(enabled, project_id, location) for Vertex config; supports dict/mapping or object."""
+        google_cfg = getattr(getattr(self.context, "config", None), "google", None)
+        vertex = (google_cfg or {}).get("vertex_ai") if isinstance(google_cfg, Mapping) else getattr(google_cfg, "vertex_ai", None)
+        if not vertex:
+            return (False, None, None)
+        if isinstance(vertex, Mapping):
+            return (bool(vertex.get("enabled")), vertex.get("project_id"), vertex.get("location"))
+        return (bool(getattr(vertex, "enabled", False)), getattr(vertex, "project_id", None), getattr(vertex, "location", None))
+
+    def _resolve_model_name(self, model: str) -> str:
+        """Resolve model name; for Vertex, apply a generic preview→base fallback.
+
+        * If the caller passes a full publisher resource name, it is respected as-is.
+        * If Vertex is not enabled, the short id is returned unchanged (Developer API path).
+        * If Vertex is enabled and the id contains '-preview-', the suffix is stripped so that
+          e.g. 'gemini-2.5-flash-preview-09-2025' becomes 'gemini-2.5-flash'.
+        """
+        # Fully-qualified publisher / model resource: do not rewrite.
+        if model.startswith(("projects/", "publishers/")) or "/publishers/" in model:
+            return model
+
+        enabled, project_id, location = self._vertex_cfg()
+        # Developer API path: return the short model id unchanged.
+        if not (enabled and project_id and location):
+            return model
+
+        # Vertex path: strip any '-preview-…' suffix to fall back to the base model id.
+        base_model = model.split("-preview-", 1)[0] if "-preview-" in model else model
+
+        return f"projects/{project_id}/locations/{location}/publishers/google/models/{base_model}"
+
     def _initialize_google_client(self) -> genai.Client:
         """
         Initializes the google.genai client.
@@ -60,24 +93,17 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         """
         try:
             # Prefer Vertex AI (ADC/IAM) if enabled. This path must NOT require an API key.
-            if (
-                self.context
-                and self.context.config
-                and hasattr(self.context.config, "google")
-                and hasattr(self.context.config.google, "vertex_ai")
-                and self.context.config.google.vertex_ai.enabled
-            ):
-                vertex_config = self.context.config.google.vertex_ai
+            vertex_enabled, project_id, location = self._vertex_cfg()
+            if vertex_enabled:
                 return genai.Client(
                     vertexai=True,
-                    project=vertex_config.project_id,
-                    location=vertex_config.location,
-                    # Add other Vertex AI specific options if needed
+                    project=project_id,
+                    location=location,
                     # http_options=types.HttpOptions(api_version='v1')
                 )
 
             # Otherwise, default to Gemini Developer API (API key required).
-            api_key = self._api_key()  # Provided via config or GOOGLE_API_KEY
+            api_key = self._api_key()
             if not api_key:
                 raise ProviderKeyError(
                     "Google API key not found.",
@@ -88,7 +114,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 api_key=api_key,
                 # http_options=types.HttpOptions(api_version='v1')
             )
-
         except Exception as e:
             # Catch potential initialization errors and raise ProviderKeyError
             raise ProviderKeyError("Failed to initialize Google GenAI client.", str(e)) from e
@@ -366,20 +391,21 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
 
         # 3. Call the google.genai API
         client = self._initialize_google_client()
+        model_name = self._resolve_model_name(request_params.model)
         try:
             # Use the async client
             api_response = None
             streaming_supported = response_schema is None and response_mime_type is None
             if streaming_supported:
                 api_response = await self._stream_generate_content(
-                    model=request_params.model,
+                    model=model_name,
                     contents=conversation_history,
                     config=generate_content_config,
                     client=client,
                 )
             if api_response is None:
                 api_response = await client.aio.models.generate_content(
-                    model=request_params.model,
+                    model=model_name,
                     contents=conversation_history,  # Full conversational context for this turn
                     config=generate_content_config,
                 )
@@ -393,7 +419,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             ):
                 try:
                     turn_usage = TurnUsage.from_google(
-                        api_response.usage_metadata, request_params.model
+                        api_response.usage_metadata, model_name
                     )
                     self._finalize_turn_usage(turn_usage)
 
@@ -468,7 +494,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         # This provides a snapshot of what was sent to the provider for debugging
         self.history.set(conversation_history)
 
-        self._log_chat_finished(model=request_params.model)  # Use model from request_params
+        self._log_chat_finished(model=model_name)  # Use resolved model name
         return Prompt.assistant(*responses, stop_reason=stop_reason, tool_calls=tool_calls)
 
     #        return responses  # Return the accumulated responses (fast-agent content types)
