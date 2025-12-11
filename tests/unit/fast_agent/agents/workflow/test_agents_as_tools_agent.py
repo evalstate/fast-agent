@@ -2,7 +2,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
-from mcp import CallToolRequest, ListToolsResult, Tool
+from mcp import CallToolRequest, Tool
 from mcp.types import CallToolRequestParams
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -11,9 +11,9 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
 )
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 
 
 class FakeChildAgent(LlmAgent):

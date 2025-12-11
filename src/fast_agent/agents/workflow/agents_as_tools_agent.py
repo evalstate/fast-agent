@@ -187,11 +187,11 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import contextmanager, nullcontext
+from copy import copy
 from dataclasses import dataclass
 from enum import Enum
-from copy import copy
 from typing import TYPE_CHECKING, Any
-from contextlib import contextmanager, nullcontext
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -200,11 +200,7 @@ from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
-from fast_agent.mcp.helpers.content_helpers import (
-    get_text,
-    is_text_content,
-    text_content,
-)
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.types import PromptMessageExtended
 
 if TYPE_CHECKING:
