@@ -49,24 +49,7 @@ This plan does **not** assume any existing WIP code; it re-derives the feature f
   - Usage summary is per *agent name* (parent + each child), not per instance.
   - Instances show up only in progress/historical views.
 
-### 2.3. Alternative execution models (future options)
-
-While the core plan intentionally reuses a single child object per agent, there are cases where **"honest" per-call isolation** is preferred. Two strategies can be layered onto this design later:
-
-1. **Dedicated child agent per call**
-   - Before dispatching a tool call, clone the target child (including MCP aggregator, LLM, memory) to form a short-lived agent.
-   - Guarantees zero shared state: logs, history, MCP connections stay scoped to that instance.
-   - Downsides: high startup cost (MCP discovery, model warm-up) for every call; extra resource usage if multiple calls run in parallel.
-
-2. **Pre-warmed agent pool**
-   - Keep `N` fully initialized child agents per name (each with its own MCP aggregator/LLM).
-   - A call acquires a free agent from the pool; after completion it returns the instance for reuse.
-   - Pros: isolates state without per-call bootstrap; allows true parallelism as long as pool capacity is available.
-   - Cons: more memory + open MCP connections proportional to pool size; scheduling logic needed when pool is exhausted.
-
-Both approaches can be integrated into the factory/runtime layer without rewriting the Agents-as-Tools surface: the parent would simply target a different acquisition strategy when resolving `self._children`. Documenting these options here keeps the plan aligned with future requirements around strict isolation.
-
-[x] ### 2.4. Current implementation snapshot — Detached per-call clones (Nov 2025)
+[x] ### 2.3. Current implementation snapshot — Detached per-call clones (Nov 2025)
 
 While §2.3 framed cloning/pooling as optional futures, the active codebase now runs with the **Dedicated child agent per call** strategy so we can guarantee honest per-instance state:
 
@@ -469,17 +452,12 @@ This keeps the surface area small and matches the needs of the CLI UI. A future 
 
 The current implementation is intentionally minimal. The items below are still **future** additions (not implemented as of Nov 2025).
 
-1. **Per-instance stats & traces**
-
-   - Extend the runtime to emit per-instance stats objects with `instance_id`, `start_time`, `end_time`, `duration_ms`.
-   - Allow a richer UI (CLI or web) to display per-instance timing bars and aggregates.
-
-2. **Recursive Agents-as-Tools**
+1. **Recursive Agents-as-Tools**
 
    - Explicitly document and test scenarios where children are themselves `AgentsAsToolsAgent` instances.
    - Ensure nested tool calls remain readable in progress and history views.
 
-3. **Correlation-friendly logging**
+2. **Correlation-friendly logging**
 
    - Standardize structured log fields for tools (`agent_name`, `instance_name`, `correlation_id`, `tool_name`).
    - Make `history_display` able to group tool rows per `(correlation_id, instance)` so parallel runs are easier to inspect.
