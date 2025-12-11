@@ -503,6 +503,7 @@ class AgentsAsToolsAgent(McpAgent):
         # Show detailed call information for each agent
         for i, desc in enumerate(descriptors[:limit], 1):
             tool_name = desc.get("tool", "(unknown)")
+            corr_id = desc.get("id")
             args = desc.get("args", {})
             status = desc.get("status", "pending")
 
@@ -510,7 +511,10 @@ class AgentsAsToolsAgent(McpAgent):
                 continue  # Skip display for error tools, will show in results
 
             # Always add individual instance number for clarity
-            display_tool_name = f"{tool_name}[{i}]"
+            suffix = f"[{i}]"
+            if corr_id:
+                suffix = f"[{i}|{corr_id}]"
+            display_tool_name = f"{tool_name}{suffix}"
 
             # Build bottom item for THIS instance only (not all instances)
             status_label = status_labels.get(status, "pending")
@@ -523,6 +527,7 @@ class AgentsAsToolsAgent(McpAgent):
                 tool_args=args,
                 bottom_items=[bottom_item],  # Only this instance's label
                 max_item_length=28,
+                metadata={"correlation_id": corr_id, "instance_name": display_tool_name},
             )
         if total > limit:
             collapsed = total - limit
@@ -552,10 +557,14 @@ class AgentsAsToolsAgent(McpAgent):
             descriptor = record.get("descriptor", {})
             result = record.get("result")
             tool_name = descriptor.get("tool", "(unknown)")
+            corr_id = descriptor.get("id")
 
             if result:
                 # Always add individual instance number for clarity
-                display_tool_name = f"{tool_name}[{i}]"
+                suffix = f"[{i}]"
+                if corr_id:
+                    suffix = f"[{i}|{corr_id}]"
+                display_tool_name = f"{tool_name}{suffix}"
 
                 # Show individual tool result with full content
                 self.display.show_tool_result(
@@ -698,7 +707,7 @@ class AgentsAsToolsAgent(McpAgent):
         )
 
         async def call_with_instance_name(
-            tool_name: str, tool_args: dict[str, Any], instance: int
+            tool_name: str, tool_args: dict[str, Any], instance: int, correlation_id: str
         ) -> CallToolResult:
             child = self._resolve_child_agent(tool_name)
             if not child:
@@ -747,6 +756,9 @@ class AgentsAsToolsAgent(McpAgent):
                         target=instance_name,
                         details="",
                         agent_name=instance_name,
+                        correlation_id=correlation_id,
+                        instance_name=instance_name,
+                        tool_name=tool_name,
                     )
                 )
                 progress_started = True
@@ -796,6 +808,9 @@ class AgentsAsToolsAgent(McpAgent):
                             target=instance_name,
                             details="Completed",
                             agent_name=instance_name,
+                            correlation_id=correlation_id,
+                            instance_name=instance_name,
+                            tool_name=tool_name,
                         )
                     )
 
@@ -803,7 +818,9 @@ class AgentsAsToolsAgent(McpAgent):
             tool_name = descriptor_by_id[cid]["tool"]
             tool_args = descriptor_by_id[cid]["args"]
             tasks.append(
-                asyncio.create_task(call_with_instance_name(tool_name, tool_args, i))
+                asyncio.create_task(
+                    call_with_instance_name(tool_name, tool_args, i, cid)
+                )
             )
 
         self._show_parallel_tool_calls(call_descriptors)

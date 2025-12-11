@@ -36,6 +36,9 @@ class ProgressEvent(BaseModel):
     target: str
     details: str | None = None
     agent_name: str | None = None
+    correlation_id: str | None = None
+    instance_name: str | None = None
+    tool_name: str | None = None
     streaming_tokens: str | None = None  # Special field for streaming token count
     progress: float | None = None  # Current progress value
     total: float | None = None  # Total value for progress calculation
