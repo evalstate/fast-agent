@@ -156,12 +156,10 @@ Overall, the core mechanics of Agents-as-Tools are present and coherent.
 
    **Current behavior is acceptable**, but the instance-per-row requirement should be documented as **out of scope** for the first implementation.
 
-6. [ ] **Tool availability check and naming**
+6. [x] **Tool availability check and naming**
 
-   - `run_tools()` validates tool names against `list_tools()` of `AgentsAsToolsAgent` (agent-tools only).
-   - There is no support to **merge MCP tools and agent-tools** in `list_tools()`.
-
-   **Status:** this matches a conservative interpretation of issue #458, but the design doc leaves the door open to unifying MCP tools and agent-tools; that needs an explicit decision.
+   - `list_tools()` now merges MCP tools (from `McpAgent`) and agent-tools; names are deduped to avoid collisions.
+   - `run_tools()` validates against this merged surface so mixed MCP + agent-tool batches work.
 
 ---
 
@@ -184,8 +182,8 @@ Before making changes, clarify the intended semantics for this repo:
    - No per-instance MCP clients.
 
 4. **Tool namespace composition**
-   - For now, `AgentsAsToolsAgent.list_tools()` returns **only agent-tools**.
-   - MCP tools, if any, must be accessed via separate agents (not through this orchestrator).
+   - `AgentsAsToolsAgent.list_tools()` returns a merged surface: MCP tools plus `agent__Child` tools.
+   - Child tool names are prefixed to avoid collisions; MCP/local tool names remain untouched.
 
 These decisions simplify the fix plan and keep surface area small.
 
