@@ -91,6 +91,15 @@ class ProviderKeyManager:
         if provider_name == "fast-agent":
             return ""
 
+        # Google Vertex AI uses ADC/IAM and does not require an API key.
+        if provider_name == "google":
+            try:
+                cfg = config.model_dump() if isinstance(config, BaseModel) else config
+                if isinstance(cfg, dict) and bool((cfg.get("google") or {}).get("vertex_ai", {}).get("enabled")):
+                    return ""
+            except Exception:
+                pass
+
         api_key = ProviderKeyManager.get_config_file_key(provider_name, config)
         if not api_key:
             api_key = ProviderKeyManager.get_env_var(provider_name)
