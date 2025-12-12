@@ -30,6 +30,7 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
+    from fast_agent.acp.acp_aware_mixin import ACPCommand
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.agents.agent_types import AgentType
     from fast_agent.llm.model_info import ModelInfo
@@ -277,7 +278,7 @@ class ACPAwareProtocol(Protocol):
     Agents implementing this protocol can:
     - Check if they're in ACP mode via `is_acp_mode`
     - Access ACP context via `acp` property
-    - Use convenience methods for mode switching, command registration, etc.
+    - Declare slash commands via `acp_commands` property
 
     The ACPAwareMixin provides a concrete implementation of this protocol.
     """
@@ -290,4 +291,14 @@ class ACPAwareProtocol(Protocol):
     @property
     def is_acp_mode(self) -> bool:
         """Check if the agent is running in ACP mode."""
+        ...
+
+    @property
+    def acp_commands(self) -> dict[str, "ACPCommand"]:
+        """
+        Declare slash commands this agent exposes via ACP.
+
+        Returns a dict mapping command names to ACPCommand instances.
+        Commands are queried dynamically when the agent is the active mode.
+        """
         ...
