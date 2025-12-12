@@ -420,9 +420,6 @@ class ACPContext:
                 except Exception as e:
                     logger.error(f"Error clearing permission cache: {e}", exc_info=True)
 
-            # Clear dynamic commands
-            self._dynamic_commands.clear()
-
             logger.debug(
                 "ACPContext cleaned up",
                 name="acp_context_cleanup",
