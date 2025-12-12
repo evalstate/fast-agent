@@ -270,6 +270,7 @@ def agent(
     instruction_or_kwarg: str | Path | AnyUrl | None = None,
     *,
     instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
+    agents: list[str] | None = None,
     servers: list[str] = [],
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
@@ -282,6 +283,10 @@ def agent(
     default: bool = False,
     elicitation_handler: ElicitationFnT | None = None,
     api_key: str | None = None,
+    history_mode: Any | None = None,
+    max_parallel: int | None = None,
+    child_timeout_sec: int | None = None,
+    max_display_instances: int | None = None,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
     Decorator to create and register a standard agent with type-safe signature.
@@ -315,6 +320,7 @@ def agent(
         AgentType.BASIC,
         name=name,
         instruction=final_instruction,
+        child_agents=agents,
         servers=servers,
         model=model,
         use_history=use_history,
@@ -327,6 +333,12 @@ def agent(
         prompts=prompts,
         skills=skills,
         api_key=api_key,
+        agents_as_tools_options={
+            "history_mode": history_mode,
+            "max_parallel": max_parallel,
+            "child_timeout_sec": child_timeout_sec,
+            "max_display_instances": max_display_instances,
+        },
     )
 
 

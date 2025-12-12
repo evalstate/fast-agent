@@ -100,7 +100,7 @@ if TYPE_CHECKING:
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
-
+_FASTAGENT_DEBUG_PRINTED = False
 
 class FastAgent:
     """
@@ -131,6 +131,17 @@ class FastAgent:
                             (like FastAPI/Uvicorn) that handles its own arguments.
             quiet: If True, disable progress display, tool and message logging for cleaner output
         """
+        global _FASTAGENT_DEBUG_PRINTED
+        if not _FASTAGENT_DEBUG_PRINTED:
+            try:
+                from pathlib import Path
+
+                source_path = Path(__file__).resolve()
+                print(f"[FAST_AGENT DEBUG] FastAgent __init__ from {source_path}")
+            except Exception:
+                print("[FAST_AGENT DEBUG] FastAgent __init__ (path resolution failed)")
+            _FASTAGENT_DEBUG_PRINTED = True
+
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
         self._skills_directory_override = (
@@ -351,6 +362,7 @@ class FastAgent:
             instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
+            agents: list[str] | None = None,
             servers: list[str] = [],
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
@@ -363,6 +375,10 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
+            history_mode: Any | None = None,
+            max_parallel: int | None = None,
+            child_timeout_sec: int | None = None,
+            max_display_instances: int | None = None,
         ) -> Callable[
             [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
         ]: ...
