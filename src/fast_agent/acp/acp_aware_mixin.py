@@ -50,6 +50,19 @@ class ACPCommand:
     input_hint: str | None = None
 
 
+@dataclass
+class ACPModeInfo:
+    """
+    Optional display metadata for ACP modes.
+
+    Agents can override `acp_mode_info()` to provide a custom name and/or
+    description that will be surfaced to ACP clients.
+    """
+
+    name: str | None = None
+    description: str | None = None
+
+
 class ACPAwareMixin(ContextDependent):
     """
     Mixin providing convenient ACP access for agents.
@@ -234,6 +247,13 @@ class ACPAwareMixin(ContextDependent):
                 }
         """
         return {}
+
+    def acp_mode_info(self) -> ACPModeInfo | None:
+        """
+        Optional ACP mode metadata (name/description) for display in clients.
+        Override to customize the label and description for this agent's mode.
+        """
+        return None
 
     # =========================================================================
     # Runtime Access Shortcuts

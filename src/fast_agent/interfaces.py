@@ -30,7 +30,7 @@ from fast_agent.llm.usage_tracking import UsageAccumulator
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 if TYPE_CHECKING:
-    from fast_agent.acp.acp_aware_mixin import ACPCommand
+    from fast_agent.acp.acp_aware_mixin import ACPCommand, ACPModeInfo
     from fast_agent.acp.acp_context import ACPContext
     from fast_agent.agents.agent_types import AgentType
     from fast_agent.llm.model_info import ModelInfo
@@ -300,5 +300,11 @@ class ACPAwareProtocol(Protocol):
 
         Returns a dict mapping command names to ACPCommand instances.
         Commands are queried dynamically when the agent is the active mode.
+        """
+        ...
+
+    def acp_mode_info(self) -> "ACPModeInfo | None":
+        """
+        Optional ACP mode metadata (name/description) for client display.
         """
         ...

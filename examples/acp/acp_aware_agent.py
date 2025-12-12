@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from fast_agent import FastAgent
 from fast_agent.acp import ACPAwareMixin, ACPCommand
+from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
 
 if TYPE_CHECKING:
@@ -144,6 +145,9 @@ class ACPAwareAgent2(ACPAwareMixin, McpAgent):
     async def _handle_bar_command(self, arguments: str) -> str:
         """Handler for the /bar slash command."""
         return "BAR"
+
+    def acp_mode_info(self) -> ACPModeInfo | None:
+        return ACPModeInfo(name="FooBar Agent", description="A custom agent with custom commands")
 
 
 # Use the @fast.custom decorator to register our custom agent class
