@@ -13,15 +13,12 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any
 
 from acp.schema import (
-    AvailableCommand,
-    AvailableCommandInput,
     AvailableCommandsUpdate,
     CurrentModeUpdate,
     SessionMode,
-    UnstructuredCommandInput,
 )
 
 from fast_agent.core.logging.logger import get_logger
@@ -87,10 +84,6 @@ class ClientInfo:
         )
 
 
-# Type alias for slash command handlers
-SlashCommandHandlerFunc = Callable[[str], Awaitable[str]]
-
-
 class ACPContext:
     """
     Centralized ACP runtime context.
@@ -114,13 +107,6 @@ class ACPContext:
 
             # Switch modes
             await agent.acp.switch_mode("specialist_agent")
-
-            # Add dynamic slash commands
-            await agent.acp.add_slash_command(
-                name="analyze",
-                description="Run analysis",
-                handler=my_handler
-            )
     """
 
     def __init__(
@@ -160,9 +146,6 @@ class ACPContext:
         self._permission_handler: "ACPToolPermissionAdapter | None" = None
         self._progress_manager: "ACPToolProgressManager | None" = None
         self._slash_handler: "SlashCommandHandler | None" = None
-
-        # Dynamic slash commands registered by agents
-        self._dynamic_commands: dict[str, tuple[AvailableCommand, SlashCommandHandlerFunc]] = {}
 
         # Lock for async operations
         self._lock = asyncio.Lock()
@@ -365,119 +348,21 @@ class ACPContext:
         self._slash_handler = handler
 
     # =========================================================================
-    # Slash Command Management
+    # Slash Command Updates
     # =========================================================================
 
-    async def add_slash_command(
-        self,
-        name: str,
-        description: str,
-        handler: SlashCommandHandlerFunc,
-        *,
-        input_hint: str | None = None,
-    ) -> None:
+    async def send_available_commands_update(self) -> None:
         """
-        Dynamically add a slash command that agents can expose.
+        Send AvailableCommandsUpdate notification to client.
 
-        Args:
-            name: Command name (without leading slash)
-            description: Human-readable description
-            handler: Async function that takes arguments string and returns response
-            input_hint: Optional hint for command input (e.g., "<filename>")
+        Call this when the available commands may have changed (e.g., after mode switch).
+        Commands are queried from the SlashCommandHandler which combines session
+        commands with agent-specific commands.
         """
-        # Build the AvailableCommand
-        cmd_input = None
-        if input_hint:
-            cmd_input = AvailableCommandInput(
-                root=UnstructuredCommandInput(hint=input_hint)
-            )
+        if not self._slash_handler:
+            return
 
-        command = AvailableCommand(
-            name=name,
-            description=description,
-            input=cmd_input,
-        )
-
-        async with self._lock:
-            self._dynamic_commands[name] = (command, handler)
-
-            # If we have a slash handler, register with it too
-            if self._slash_handler:
-                self._slash_handler.commands[name] = command
-
-        # Send updated available commands to client
-        await self._send_available_commands_update()
-
-        logger.info(
-            "Dynamic slash command added",
-            name="acp_command_added",
-            session_id=self._session_id,
-            command_name=name,
-        )
-
-    async def remove_slash_command(self, name: str) -> bool:
-        """
-        Remove a dynamically added slash command.
-
-        Args:
-            name: Command name to remove
-
-        Returns:
-            True if command was removed, False if it didn't exist
-        """
-        async with self._lock:
-            if name not in self._dynamic_commands:
-                return False
-
-            del self._dynamic_commands[name]
-
-            # Remove from slash handler too
-            if self._slash_handler and name in self._slash_handler.commands:
-                del self._slash_handler.commands[name]
-
-        # Send updated available commands to client
-        await self._send_available_commands_update()
-
-        logger.info(
-            "Dynamic slash command removed",
-            name="acp_command_removed",
-            session_id=self._session_id,
-            command_name=name,
-        )
-        return True
-
-    async def execute_dynamic_command(self, name: str, arguments: str) -> str | None:
-        """
-        Execute a dynamically registered command.
-
-        Args:
-            name: Command name
-            arguments: Command arguments string
-
-        Returns:
-            Response string, or None if command not found
-        """
-        async with self._lock:
-            if name not in self._dynamic_commands:
-                return None
-            _, handler = self._dynamic_commands[name]
-
-        return await handler(arguments)
-
-    def get_dynamic_commands(self) -> list[AvailableCommand]:
-        """Get list of dynamically registered commands."""
-        return [cmd for cmd, _ in self._dynamic_commands.values()]
-
-    async def _send_available_commands_update(self) -> None:
-        """Send AvailableCommandsUpdate notification to client."""
-        # Collect all commands (from slash handler + dynamic)
-        all_commands: list[AvailableCommand] = []
-
-        if self._slash_handler:
-            all_commands.extend(self._slash_handler.get_available_commands())
-        else:
-            # If no slash handler, just use dynamic commands
-            all_commands.extend(self.get_dynamic_commands())
+        all_commands = self._slash_handler.get_available_commands()
 
         commands_update = AvailableCommandsUpdate(
             session_update="available_commands_update",

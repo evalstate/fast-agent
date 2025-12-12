@@ -7,12 +7,13 @@ when running in ACP mode. Agents inheriting this mixin can:
 - Check if they're running in ACP mode
 - Access ACP capabilities (terminal, filesystem, etc.)
 - Switch modes programmatically
-- Add/remove dynamic slash commands
+- Define slash commands declaratively via acp_commands property
 - Query client capabilities
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from fast_agent.context_dependent import ContextDependent
@@ -23,6 +24,30 @@ if TYPE_CHECKING:
 
 # Type alias for slash command handlers
 SlashCommandHandlerFunc = Callable[[str], Awaitable[str]]
+
+
+@dataclass
+class ACPCommand:
+    """
+    Defines a slash command that an agent can expose via ACP.
+
+    Agents declare their commands by overriding the `acp_commands` property
+    to return a dict mapping command names to ACPCommand instances.
+
+    Example:
+        @property
+        def acp_commands(self) -> dict[str, ACPCommand]:
+            return {
+                "analyze": ACPCommand(
+                    description="Analyze the current context",
+                    handler=self._handle_analyze,
+                ),
+            }
+    """
+
+    description: str
+    handler: SlashCommandHandlerFunc
+    input_hint: str | None = None
 
 
 class ACPAwareMixin(ContextDependent):
@@ -179,56 +204,36 @@ class ACPAwareMixin(ContextDependent):
         return acp.supports_filesystem if acp else False
 
     # =========================================================================
-    # Slash Command Shortcuts
+    # Slash Commands (Declarative)
     # =========================================================================
 
-    async def acp_add_command(
-        self,
-        name: str,
-        description: str,
-        handler: SlashCommandHandlerFunc,
-        *,
-        input_hint: str | None = None,
-    ) -> bool:
+    @property
+    def acp_commands(self) -> dict[str, "ACPCommand"]:
         """
-        Add a dynamic slash command.
+        Declare slash commands this agent exposes via ACP.
 
-        Args:
-            name: Command name (without leading slash)
-            description: Human-readable description
-            handler: Async function taking arguments string, returning response
-            input_hint: Optional hint for command input
+        Override this property to provide agent-specific commands.
+        Commands are queried dynamically when the agent is the active mode.
 
         Returns:
-            True if command was added, False if not in ACP mode
+            Dict mapping command names (without slash) to ACPCommand instances.
+
+        Example:
+            @property
+            def acp_commands(self) -> dict[str, ACPCommand]:
+                return {
+                    "analyze": ACPCommand(
+                        description="Analyze the current context",
+                        handler=self._handle_analyze,
+                    ),
+                    "report": ACPCommand(
+                        description="Generate a report",
+                        handler=self._handle_report,
+                        input_hint="<format>",
+                    ),
+                }
         """
-        acp = self.acp
-        if not acp:
-            return False
-
-        await acp.add_slash_command(
-            name=name,
-            description=description,
-            handler=handler,
-            input_hint=input_hint,
-        )
-        return True
-
-    async def acp_remove_command(self, name: str) -> bool:
-        """
-        Remove a dynamic slash command.
-
-        Args:
-            name: Command name to remove
-
-        Returns:
-            True if command was removed, False if not found or not in ACP mode
-        """
-        acp = self.acp
-        if not acp:
-            return False
-
-        return await acp.remove_slash_command(name)
+        return {}
 
     # =========================================================================
     # Runtime Access Shortcuts

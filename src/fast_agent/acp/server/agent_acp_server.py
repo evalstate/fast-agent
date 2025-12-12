@@ -884,9 +884,16 @@ class AgentACPServer(ACPAgent):
         # Update the session's current agent
         self._session_current_agent[session_id] = mode_id
 
-        # Update ACPContext if available
+        # Update slash handler's current agent so it queries the right agent's commands
+        if session_id in self._session_slash_handlers:
+            self._session_slash_handlers[session_id].set_current_agent(mode_id)
+
+        # Update ACPContext and send available_commands_update
+        # (commands may differ per agent)
         if session_id in self._session_acp_contexts:
-            self._session_acp_contexts[session_id].set_current_mode(mode_id)
+            acp_context = self._session_acp_contexts[session_id]
+            acp_context.set_current_mode(mode_id)
+            await acp_context.send_available_commands_update()
 
         logger.info(
             "Session mode updated",

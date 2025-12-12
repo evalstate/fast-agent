@@ -3,6 +3,10 @@ Slash Commands for ACP
 
 Provides slash command support for the ACP server, allowing clients to
 discover and invoke special commands with the /command syntax.
+
+Session commands (status, tools, save, clear, load) are always available.
+Agent-specific commands are queried from the current agent if it implements
+ACPAwareProtocol.
 """
 
 from __future__ import annotations
@@ -22,7 +26,7 @@ from acp.schema import (
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.history.history_exporter import HistoryExporter
-from fast_agent.interfaces import AgentProtocol
+from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
@@ -75,8 +79,8 @@ class SlashCommandHandler:
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
 
-        # Register available commands using SDK's AvailableCommand type
-        self.commands: dict[str, AvailableCommand] = {
+        # Session-level commands (always available, operate on current agent)
+        self._session_commands: dict[str, AvailableCommand] = {
             "status": AvailableCommand(
                 name="status",
                 description="Show fast-agent diagnostics",
@@ -107,8 +111,24 @@ class SlashCommandHandler:
         }
 
     def get_available_commands(self) -> list[AvailableCommand]:
-        """Get the list of available commands for this session."""
-        return list(self.commands.values())
+        """Get combined session commands and current agent's commands."""
+        commands = list(self._session_commands.values())
+
+        # Add agent-specific commands if current agent is ACP-aware
+        agent = self._get_current_agent()
+        if isinstance(agent, ACPAwareProtocol):
+            for name, cmd in agent.acp_commands.items():
+                # Convert ACPCommand to AvailableCommand
+                cmd_input = None
+                if cmd.input_hint:
+                    cmd_input = AvailableCommandInput(
+                        root=UnstructuredCommandInput(hint=cmd.input_hint)
+                    )
+                commands.append(
+                    AvailableCommand(name=name, description=cmd.description, input=cmd_input)
+                )
+
+        return commands
 
     def set_current_agent(self, agent_name: str) -> None:
         """
@@ -184,24 +204,31 @@ class SlashCommandHandler:
         Returns:
             The command response as a string
         """
-        if command_name not in self.commands:
-            return f"Unknown command: /{command_name}\n\nAvailable commands:\n" + "\n".join(
-                f"  /{cmd.name} - {cmd.description}" for cmd in self.commands.values()
-            )
+        # Check session-level commands first
+        if command_name in self._session_commands:
+            if command_name == "status":
+                return await self._handle_status(arguments)
+            if command_name == "tools":
+                return await self._handle_tools()
+            if command_name == "save":
+                return await self._handle_save(arguments)
+            if command_name == "clear":
+                return await self._handle_clear(arguments)
+            if command_name == "load":
+                return await self._handle_load(arguments)
 
-        # Route to specific command handler
-        if command_name == "status":
-            return await self._handle_status(arguments)
-        if command_name == "tools":
-            return await self._handle_tools()
-        if command_name == "save":
-            return await self._handle_save(arguments)
-        if command_name == "clear":
-            return await self._handle_clear(arguments)
-        if command_name == "load":
-            return await self._handle_load(arguments)
+        # Check agent-specific commands
+        agent = self._get_current_agent()
+        if isinstance(agent, ACPAwareProtocol):
+            agent_commands = agent.acp_commands
+            if command_name in agent_commands:
+                return await agent_commands[command_name].handler(arguments)
 
-        return f"Command /{command_name} is not yet implemented."
+        # Unknown command
+        available = self.get_available_commands()
+        return f"Unknown command: /{command_name}\n\nAvailable commands:\n" + "\n".join(
+            f"  /{cmd.name} - {cmd.description}" for cmd in available
+        )
 
     async def _handle_status(self, arguments: str | None = None) -> str:
         """Handle the /status command."""
