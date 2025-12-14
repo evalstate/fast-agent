@@ -162,60 +162,48 @@ uv run workflow/chaining.py --agent post_writer --message "<url>"
 
 Add the `--quiet` switch to disable progress and message display and return only the final response - useful for simple automations.
 
-### Agents-as-Tools (child agents as tools)
+### Agents As Tools
 
-Sometimes one agent needs to call other agents as tools. `fast-agent` supports
-this via a hybrid *Agents-as-Tools* agent:
+The Agents As Tools workflow takes a complex task, breaks it into subtasks, and calls other agents as tools based on the main agent instruction.
 
-- You declare a BASIC agent with `agents=[...]`.
-- At runtime it is instantiated as an internal `AgentsAsToolsAgent`, which:
-  - Inherits from `McpAgent` (keeps its own MCP servers/tools).
-  - Exposes each child agent as a tool (`agent__ChildName`).
-  - Merges MCP tools and agent-tools in a single `list_tools()` surface.
-  - Supports history/parallel controls:
-    - `history_mode` (default `fork`; `fork_and_merge` to merge clone history back)
-    - `max_parallel` (default unlimited), `child_timeout_sec` (default none)
-    - `max_display_instances` (default 20; collapse progress after top-N)
+This pattern is inspired by the OpenAI Agents SDK [Agents as tools](https://openai.github.io/openai-agents-python/tools/#agents-as-tools) feature.
 
-Minimal example:
+With child agents exposed as tools, you can implement routing, parallelization, and orchestrator-workers [decomposition](https://www.anthropic.com/engineering/building-effective-agents) directly in the instruction (and combine them). Multiple tool calls per turn are supported and executed in parallel.
+
+Common usage patterns may combine:
+
+- Routing: choose the right specialist tool(s) based on the user prompt.
+- Parallelization: fan out over independent items/projects, then aggregate.
+- Orchestrator-workers: break a task into scoped subtasks (often via a simple JSON plan), then coordinate execution.
 
 ```python
 @fast.agent(
     name="NY-Project-Manager",
-    instruction="Return current time and project status.",
-    servers=["time"],  # MCP server 'time' configured in fastagent.config.yaml
+    instruction="Return NY time + timezone, plus a one-line project status.",
+    servers=["time"],
 )
 @fast.agent(
     name="London-Project-Manager",
-    instruction="Return current time and news.",
+    instruction="Return London time + timezone, plus a one-line news update.",
     servers=["time"],
 )
 @fast.agent(
     name="PMO-orchestrator",
-    instruction="Get reports. Separate call per topic. NY: {OpenAI, Fast-Agent, Anthropic}, London: Economics",
+    instruction=(
+        "Get reports. Always use one tool call per project/news. "  # parallelization
+        "Responsibilities: NY projects: [OpenAI, Fast-Agent, Anthropic]. London news: [Economics, Art, Culture]. "  # routing
+        "Aggregate results and add a one-line PMO summary."
+    ),
     default=True,
-    agents=[
-        "NY-Project-Manager",
-        "London-Project-Manager",
-    ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
-    # optional knobs:
-    #   history_mode=HistoryMode.FORK_AND_MERGE to merge clone history back
-    #   max_parallel=8 to cap parallel agent-tools
-    #   child_timeout_sec=600 to bound each child call
-    #   max_display_instances=10 to collapse progress UI after top-N
+    agents=["NY-Project-Manager", "London-Project-Manager"],  # orchestrator-workers
 )
 async def main() -> None:
     async with fast.run() as agent:
-        result = await agent("Get PMO report")
-        print(result)
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
+        await agent("Get PMO report. Projects: all. News: Art, Culture")
 ```
 
-Extended example is available in the repository as
-`examples/workflows/agents_as_tools_extended.py`.
+Extended example and all params sample is available in the repository as
+[`examples/workflows/agents_as_tools_extended.py`](examples/workflows/agents_as_tools_extended.py).
 
 ## MCP OAuth (v2.1)
 
