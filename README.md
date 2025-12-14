@@ -162,6 +162,31 @@ uv run workflow/chaining.py --agent post_writer --message "<url>"
 
 Add the `--quiet` switch to disable progress and message display and return only the final response - useful for simple automations.
 
+### MAKER
+
+MAKER (“Massively decomposed Agentic processes with K-voting Error Reduction”) wraps a worker agent and samples it repeatedly until a response achieves a k-vote margin over all alternatives (“first-to-ahead-by-k” voting). This is useful for long chains of simple steps where rare errors would otherwise compound.
+
+- Reference: [Solving a Million-Step LLM Task with Zero Errors](https://arxiv.org/abs/2511.09030)
+- Credit: Lucid Programmer (PR author)
+
+```python
+@fast.agent(
+  name="classifier",
+  instruction="Reply with only: A, B, or C.",
+)
+@fast.maker(
+  name="reliable_classifier",
+  worker="classifier",
+  k=3,
+  max_samples=25,
+  match_strategy="normalized",
+  red_flag_max_length=16,
+)
+async def main():
+  async with fast.run() as agent:
+    await agent.reliable_classifier.send("Classify: ...")
+```
+
 ### Agents As Tools
 
 The Agents As Tools workflow takes a complex task, breaks it into subtasks, and calls other agents as tools based on the main agent instruction.
