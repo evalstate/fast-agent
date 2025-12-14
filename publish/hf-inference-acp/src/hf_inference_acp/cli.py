@@ -7,14 +7,21 @@ import sys
 from importlib.resources import files
 
 from fast_agent import FastAgent
+from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider_types import Provider
 
 from hf_inference_acp.agents import HuggingFaceAgent, SetupAgent
-from hf_inference_acp.config import (
+from hf_inference_acp.hf_config import (
     CONFIG_FILE,
     ensure_config_exists,
     get_default_model,
     has_hf_token,
 )
+from hf_inference_acp.wizard import WizardSetupLLM
+
+# Register wizard-setup model locally
+ModelFactory.MODEL_SPECIFIC_CLASSES["wizard-setup"] = WizardSetupLLM
+ModelFactory.DEFAULT_PROVIDERS["wizard-setup"] = Provider.FAST_AGENT
 
 
 def get_setup_instruction() -> str:
@@ -83,13 +90,18 @@ async def run_agents() -> None:
         quiet=True,
     )
 
-    # Register the Setup agent (passthrough LLM)
+    # Enable shell runtime so agents can use the ACP client's terminal
+    # This allows the agent to run commands via the client's shell
+    await fast.app.initialize()
+    setattr(fast.app.context, "shell_runtime", True)
+
+    # Register the Setup agent (wizard LLM for guided setup)
     # This is always available for configuration
     @fast.custom(
         SetupAgent,
         name="setup",
         instruction=get_setup_instruction(),
-        model="passthrough",
+        model="wizard-setup",
         default=not hf_token_present,
     )
     async def setup_agent():

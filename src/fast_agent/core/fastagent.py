@@ -373,7 +373,7 @@ class FastAgent:
             name: str = "default",
             instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
-            instruction: str | Path | AnyUrl = "You are a helpful agent.",
+            instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
             servers: list[str] = [],
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
@@ -467,7 +467,7 @@ class FastAgent:
             instruction: str | Path | AnyUrl | None = None,
             min_rating: str = "GOOD",
             max_refinements: int = 3,
-			refinement_instruction: str | None = None,
+            refinement_instruction: str | None = None,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -692,7 +692,9 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
-                                permissions_enabled = getattr(self.args, "permissions_enabled", True)
+                                permissions_enabled = getattr(
+                                    self.args, "permissions_enabled", True
+                                )
 
                                 # Pass skills directory override if configured
                                 skills_override = (

@@ -7,17 +7,21 @@ from typing import TYPE_CHECKING
 from fast_agent.acp import ACPAwareMixin, ACPCommand
 from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
+from fast_agent.core.logging.logger import get_logger
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.context import Context
+    from hf_inference_acp.wizard.stages import WizardState
 
-from hf_inference_acp.config import (
+from hf_inference_acp.hf_config import (
     CONFIG_FILE,
     get_default_model,
     has_hf_token,
     update_model_in_config,
 )
+
+logger = get_logger(__name__)
 
 
 class SetupAgent(ACPAwareMixin, McpAgent):
@@ -40,6 +44,45 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         McpAgent.__init__(self, config=config, context=context, **kwargs)
         self._context = context
 
+    async def attach_llm(self, llm_factory, model=None, request_params=None, **kwargs):
+        """Override to set up wizard callback after LLM is attached."""
+        llm = await super().attach_llm(llm_factory, model, request_params, **kwargs)
+
+        # Set up wizard callback if LLM supports it
+        if hasattr(llm, "set_completion_callback"):
+            llm.set_completion_callback(self._on_wizard_complete)
+
+        return llm
+
+    async def _on_wizard_complete(self, state: "WizardState") -> None:
+        """
+        Called when the setup wizard completes successfully.
+
+        Attempts to auto-switch to HuggingFace mode if available.
+        """
+        logger.info(
+            "Wizard completed",
+            name="wizard_complete",
+            model=state.selected_model,
+            username=state.hf_username,
+        )
+
+        # Try to switch to HuggingFace mode
+        if self._context and self._context.acp:
+            try:
+                # Check if huggingface mode is available
+                available_modes = self._context.acp.available_modes
+                if "huggingface" in available_modes:
+                    await self._context.acp.switch_mode("huggingface")
+                    logger.info("Auto-switched to HuggingFace mode")
+                else:
+                    logger.info(
+                        "HuggingFace mode not available for auto-switch. "
+                        "User may need to restart the agent."
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to auto-switch mode: {e}")
+
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
         """Declare slash commands for the Setup agent."""
@@ -61,9 +104,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
     def acp_mode_info(self) -> ACPModeInfo | None:
         """Provide mode info for ACP clients."""
-        return ACPModeInfo(
-            name="Setup", description="Configure HuggingFace inference settings"
-        )
+        return ACPModeInfo(name="Setup", description="Configure Hugging Face settings")
 
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model command."""
@@ -83,7 +124,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
     async def _handle_login(self, arguments: str) -> str:
         """Handler for /login command."""
         return (
-            "To log in to HuggingFace, please run the following command in your terminal:\n\n"
+            "To log in to Hugging Face, please run the following command in your terminal:\n\n"
             "```bash\n"
             "huggingface-cli login\n"
             "```\n\n"
@@ -203,7 +244,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                     f"**Available tools ({len(tool_names)}):**\n{tool_list}{more}"
                 )
             else:
-                return "Connected to HuggingFace MCP server.\n\nNo tools available."
+                return "Connected to Hugging Face MCP server.\n\nNo tools available."
 
         except Exception as e:
             return f"**Error connecting to HuggingFace MCP server:**\n\n`{e}`"

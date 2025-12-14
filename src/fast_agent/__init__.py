@@ -28,10 +28,6 @@ from fast_agent.config import (
     XAISettings,
 )
 
-# Prompt helpers (safe - no heavy dependencies)
-from fast_agent.mcp.prompt import Prompt
-from fast_agent.mcp.prompts.prompt_load import load_prompt
-
 # Type definitions and enums (safe - no dependencies)
 from fast_agent.types import (
     ConversationSummary,
@@ -103,6 +99,16 @@ def __getattr__(name: str):
         from fast_agent.core.fastagent import FastAgent
 
         return FastAgent
+    elif name == "Prompt":
+        # Prompt helper relies on MCP types; load lazily to speed up import time.
+        from fast_agent.mcp.prompt import Prompt
+
+        return Prompt
+    elif name == "load_prompt":
+        # Prompt loader also depends on MCP; defer import until explicitly requested.
+        from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+        return load_prompt
     else:
         raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
 

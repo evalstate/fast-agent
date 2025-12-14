@@ -6,9 +6,15 @@ for the application configuration.
 import os
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from mcp import Implementation
+# Importing the MCP Implementation type eagerly pulls in the full MCP server
+# stack (uvicorn, Starlette, etc.) which slows down startup. We only need the
+# type for annotations, so avoid the runtime import.
+if TYPE_CHECKING:
+    from mcp import Implementation
+else:  # pragma: no cover - used only to satisfy type checkers
+    Implementation = Any
 from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
