@@ -439,9 +439,19 @@ class AgentsAsToolsAgent(McpAgent):
                 content=content_blocks,
                 isError=bool(error_blocks),
             )
-        except Exception as e:
-            logger.error(f"Child agent {child.name} failed: {e}")
-            return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
+        except Exception as exc:
+            import traceback
+
+            logger.error(
+                "Child agent tool call failed",
+                data={
+                    "agent_name": child.name,
+                    "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "traceback": traceback.format_exc(),
+                },
+            )
+            return CallToolResult(content=[text_content(f"Error: {exc}")], isError=True)
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
         return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
