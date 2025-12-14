@@ -27,6 +27,7 @@ class AgentType(StrEnum):
     ROUTER = auto()
     CHAIN = auto()
     ITERATIVE_PLANNER = auto()
+    MAKER = auto()
 
 
 @dataclass

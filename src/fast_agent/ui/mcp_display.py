@@ -147,7 +147,7 @@ def _summarise_call_counts(call_counts: dict[str, int]) -> str | None:
 def _format_session_id(session_id: str | None) -> Text:
     text = Text()
     if not session_id:
-        text.append("none", style="yellow")
+        text.append("None", style="yellow")
         return text
     if session_id == "local":
         text.append("local", style="cyan")

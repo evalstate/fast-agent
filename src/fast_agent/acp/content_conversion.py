@@ -48,7 +48,7 @@ def _convert_text_content(
     return mcp_types.TextContent(
         type="text",
         text=acp_text.text,
-        annotations=_convert_annotations(getattr(acp_text, "annotations", None)),
+        annotations=_convert_annotations(acp_text.annotations),
     )
 
 
@@ -60,7 +60,7 @@ def _convert_image_content(
         type="image",
         data=acp_image.data,
         mimeType=acp_image.mimeType,
-        annotations=_convert_annotations(getattr(acp_image, "annotations", None)),
+        annotations=_convert_annotations(acp_image.annotations),
     )
 
 
@@ -71,7 +71,7 @@ def _convert_embedded_resource(
     return mcp_types.EmbeddedResource(
         type="resource",
         resource=_convert_resource_contents(acp_resource.resource),
-        annotations=_convert_annotations(getattr(acp_resource, "annotations", None)),
+        annotations=_convert_annotations(acp_resource.annotations),
     )
 
 
@@ -103,7 +103,11 @@ def _convert_annotations(
     if not acp_annotations:
         return None
 
-    audience = cast("list[mcp_types.Role]", list(acp_annotations.audience)) if acp_annotations.audience else None
+    audience = (
+        cast("list[mcp_types.Role]", list(acp_annotations.audience))
+        if acp_annotations.audience
+        else None
+    )
     return mcp_types.Annotations(
         audience=audience,
         priority=getattr(acp_annotations, "priority", None),

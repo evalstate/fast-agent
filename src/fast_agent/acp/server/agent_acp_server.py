@@ -7,6 +7,7 @@ and other clients to interact with fast-agent agents over stdio using the ACP pr
 
 import asyncio
 import uuid
+from dataclasses import dataclass, field
 from importlib.metadata import version as get_version
 from typing import Any, Awaitable, Callable
 
@@ -43,6 +44,8 @@ from acp.schema import (
     StopReason,
 )
 
+from fast_agent.acp.acp_context import ACPContext, ClientInfo
+from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
@@ -61,7 +64,7 @@ from fast_agent.core.prompt_templates import (
     apply_template_variables,
     enrich_with_environment_context,
 )
-from fast_agent.interfaces import StreamingAgentProtocol
+from fast_agent.interfaces import ACPAwareProtocol, StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.mcp.helpers.content_helpers import is_text_content
@@ -125,6 +128,23 @@ def format_agent_name_as_title(agent_name: str) -> str:
         Title-cased version of the name
     """
     return agent_name.replace("_", " ").title()
+
+
+@dataclass
+class ACPSessionState:
+    """Aggregated per-session ACP state for easier lifecycle management."""
+
+    session_id: str
+    instance: AgentInstance
+    current_agent_name: str | None = None
+    progress_manager: ACPToolProgressManager | None = None
+    permission_handler: ACPToolPermissionAdapter | None = None
+    terminal_runtime: ACPTerminalRuntime | None = None
+    filesystem_runtime: ACPFilesystemRuntime | None = None
+    slash_handler: SlashCommandHandler | None = None
+    acp_context: ACPContext | None = None
+    prompt_context: dict[str, str] = field(default_factory=dict)
+    resolved_instructions: dict[str, str] = field(default_factory=dict)
 
 
 def truncate_description(text: str, max_length: int = 200) -> str:
@@ -208,26 +228,8 @@ class AgentACPServer(ACPAgent):
         # Track asyncio tasks per session for proper task-based cancellation
         self._session_tasks: dict[str, asyncio.Task] = {}
 
-        # Track current agent per session for ACP mode support
-        self._session_current_agent: dict[str, str] = {}
-
-        # Terminal runtime tracking (for cleanup)
-        self._session_terminal_runtimes: dict[str, ACPTerminalRuntime] = {}
-
-        # Filesystem runtime tracking
-        self._session_filesystem_runtimes: dict[str, ACPFilesystemRuntime] = {}
-
-        # Permission handler tracking
-        self._session_permission_handlers: dict[str, ACPToolPermissionAdapter] = {}
-
-        # Slash command handlers for each session
-        self._session_slash_handlers: dict[str, SlashCommandHandler] = {}
-
-        # Late-binding prompt context by session (e.g., client-provided cwd)
-        self._session_prompt_context: dict[str, dict[str, str]] = {}
-
-        # Per-session resolved instructions (do not mutate shared Agent instances)
-        self._session_resolved_instructions: dict[str, dict[str, str]] = {}
+        # Aggregated per-session state
+        self._session_state: dict[str, ACPSessionState] = {}
 
         # Connection reference (set during run_async)
         self._connection: Client | None = None
@@ -239,6 +241,10 @@ class AgentACPServer(ACPAgent):
         self._client_capabilities: dict | None = None
         self._client_info: dict | None = None
         self._protocol_version: int | None = None
+
+        # Parsed client capabilities and info for ACPContext
+        self._parsed_client_capabilities: FAClientCapabilities | None = None
+        self._parsed_client_info: ClientInfo | None = None
 
         # Determine primary agent using FastAgent default flag when available
         self.primary_agent_name = self._select_primary_agent(primary_instance)
@@ -334,6 +340,15 @@ class AgentACPServer(ACPAgent):
                             dict(meta) if isinstance(meta, dict) else {}
                         )
 
+            # Parse client capabilities and info for ACPContext
+            self._parsed_client_capabilities = FAClientCapabilities(
+                terminal=self._client_supports_terminal,
+                fs_read=self._client_supports_fs_read,
+                fs_write=self._client_supports_fs_write,
+                _meta=self._client_capabilities.get("_meta", {}) if self._client_capabilities else {},
+            )
+            self._parsed_client_info = ClientInfo.from_acp_info(client_info)
+
             logger.info(
                 "ACP initialize request",
                 name="acp_initialize",
@@ -401,7 +416,7 @@ class AgentACPServer(ACPAgent):
         return normalized
 
     def _build_session_modes(
-        self, instance: AgentInstance, session_id: str | None = None
+        self, instance: AgentInstance, session_state: ACPSessionState | None = None
     ) -> SessionModeState:
         """
         Build SessionModeState from an AgentInstance's agents.
@@ -416,7 +431,7 @@ class AgentACPServer(ACPAgent):
         """
         available_modes: list[SessionMode] = []
 
-        resolved_cache = self._session_resolved_instructions.get(session_id or "", {})
+        resolved_cache = session_state.resolved_instructions if session_state else {}
 
         # Create a SessionMode for each agent
         for agent_name, agent in instance.agents.items():
@@ -432,11 +447,34 @@ class AgentACPServer(ACPAgent):
 
             # Format description (first line, truncated to 200 chars)
             description = truncate_description(instruction) if instruction else None
+            display_name = format_agent_name_as_title(agent_name)
+
+            # Allow ACP-aware agents to supply custom name/description
+            if isinstance(agent, ACPAwareProtocol):
+                try:
+                    mode_info = agent.acp_mode_info()
+                except Exception:
+                    logger.warning(
+                        "Error getting acp_mode_info from agent",
+                        name="acp_mode_info_error",
+                        agent_name=agent_name,
+                        exc_info=True,
+                    )
+                    mode_info = None
+
+                if mode_info:
+                    if mode_info.name:
+                        display_name = mode_info.name
+                    if mode_info.description:
+                        description = mode_info.description
+
+            if description:
+                description = truncate_description(description)
 
             # Create the SessionMode
             mode = SessionMode(
                 id=agent_name,
-                name=format_agent_name_as_title(agent_name),
+                name=display_name,
                 description=description,
             )
             available_modes.append(mode)
@@ -451,7 +489,9 @@ class AgentACPServer(ACPAgent):
             current_mode_id=current_mode_id,
         )
 
-    def _build_session_request_params(self, agent: Any, session_id: str) -> RequestParams | None:
+    def _build_session_request_params(
+        self, agent: Any, session_state: ACPSessionState | None
+    ) -> RequestParams | None:
         """
         Apply late-binding template variables to an agent's instruction for this session.
         """
@@ -462,10 +502,10 @@ class AgentACPServer(ACPAgent):
             return None
 
         # Prefer cached resolved instructions to avoid reprocessing templates
-        resolved_cache = self._session_resolved_instructions.get(session_id, {})
+        resolved_cache = session_state.resolved_instructions if session_state else {}
         resolved = resolved_cache.get(getattr(agent, "name", ""), None)
         if not resolved:
-            context = self._session_prompt_context.get(session_id)
+            context = session_state.prompt_context if session_state else None
             if not context:
                 return None
             template = getattr(agent, "instruction", None)
@@ -511,12 +551,15 @@ class AgentACPServer(ACPAgent):
                 instance = self.primary_instance
 
             self.sessions[session_id] = instance
+            session_state = ACPSessionState(session_id=session_id, instance=instance)
+            self._session_state[session_id] = session_state
 
             # Create tool progress manager for this session if connection is available
             tool_handler = None
             if self._connection:
                 # Create a progress manager for this session
                 tool_handler = ACPToolProgressManager(self._connection, session_id)
+                session_state.progress_manager = tool_handler
                 workflow_telemetry = ToolHandlerWorkflowTelemetry(
                     tool_handler, server_name=self.server_name
                 )
@@ -586,7 +629,7 @@ class AgentACPServer(ACPAgent):
                         cwd=session_cwd,
                         tool_handler=tool_handler,
                     )
-                    self._session_permission_handlers[session_id] = permission_handler
+                    session_state.permission_handler = permission_handler
 
                     # Register permission handler with all agents' aggregators
                     for agent_name, agent in instance.agents.items():
@@ -620,7 +663,7 @@ class AgentACPServer(ACPAgent):
                             # Create ACPTerminalRuntime for this session
                             default_limit = self._calculate_terminal_output_limit(agent)
                             # Get permission handler if enabled for this session
-                            perm_handler = self._session_permission_handlers.get(session_id)
+                            perm_handler = session_state.permission_handler
                             terminal_runtime = ACPTerminalRuntime(
                                 connection=self._connection,
                                 session_id=session_id,
@@ -636,7 +679,7 @@ class AgentACPServer(ACPAgent):
                             # Inject into agent
                             if hasattr(agent, "set_external_runtime"):
                                 agent.set_external_runtime(terminal_runtime)
-                                self._session_terminal_runtimes[session_id] = terminal_runtime
+                                session_state.terminal_runtime = terminal_runtime
 
                                 logger.info(
                                     "ACP terminal runtime injected",
@@ -649,7 +692,7 @@ class AgentACPServer(ACPAgent):
                 # If client supports filesystem operations, inject ACP filesystem runtime
                 if self._client_supports_fs_read or self._client_supports_fs_write:
                     # Get permission handler if enabled for this session
-                    perm_handler = self._session_permission_handlers.get(session_id)
+                    perm_handler = session_state.permission_handler
                     # Create ACPFilesystemRuntime for this session with appropriate capabilities
                     filesystem_runtime = ACPFilesystemRuntime(
                         connection=self._connection,
@@ -660,7 +703,7 @@ class AgentACPServer(ACPAgent):
                         tool_handler=tool_handler,
                         permission_handler=perm_handler,
                     )
-                    self._session_filesystem_runtimes[session_id] = filesystem_runtime
+                    session_state.filesystem_runtime = filesystem_runtime
 
                     # Inject filesystem runtime into each agent
                     for agent_name, agent in instance.agents.items():
@@ -680,7 +723,7 @@ class AgentACPServer(ACPAgent):
         enrich_with_environment_context(
             session_context, cwd, self._client_info, self._skills_directory_override
         )
-        self._session_prompt_context[session_id] = session_context
+        session_state.prompt_context = session_context
 
         # Cache resolved instructions for this session (without mutating shared instances)
         resolved_for_session: dict[str, str] = {}
@@ -692,10 +735,10 @@ class AgentACPServer(ACPAgent):
             if resolved:
                 resolved_for_session[agent_name] = resolved
         if resolved_for_session:
-            self._session_resolved_instructions[session_id] = resolved_for_session
+            session_state.resolved_instructions = resolved_for_session
 
         # Create slash command handler for this session
-        resolved_prompts = self._session_resolved_instructions.get(session_id, {})
+        resolved_prompts = session_state.resolved_instructions
 
         slash_handler = SlashCommandHandler(
             session_id,
@@ -706,27 +749,91 @@ class AgentACPServer(ACPAgent):
             protocol_version=self._protocol_version,
             session_instructions=resolved_prompts,
         )
-        self._session_slash_handlers[session_id] = slash_handler
+        session_state.slash_handler = slash_handler
+
+        # Create ACPContext for this session - centralizes all ACP state
+        if self._connection:
+            acp_context = ACPContext(
+                connection=self._connection,
+                session_id=session_id,
+                client_capabilities=self._parsed_client_capabilities,
+                client_info=self._parsed_client_info,
+                protocol_version=self._protocol_version,
+            )
+
+            # Store references to runtimes and handlers in ACPContext
+            if session_state.terminal_runtime:
+                acp_context.set_terminal_runtime(session_state.terminal_runtime)
+            if session_state.filesystem_runtime:
+                acp_context.set_filesystem_runtime(session_state.filesystem_runtime)
+            if session_state.permission_handler:
+                acp_context.set_permission_handler(session_state.permission_handler)
+            if session_state.progress_manager:
+                acp_context.set_progress_manager(session_state.progress_manager)
+
+            acp_context.set_slash_handler(slash_handler)
+
+            # Store ACPContext
+            session_state.acp_context = acp_context
+
+            # Set ACPContext on each agent's Context object (if they have one)
+            for agent_name, agent in instance.agents.items():
+                if hasattr(agent, "_context") and agent._context is not None:
+                    agent._context.acp = acp_context
+                    logger.debug(
+                        "ACPContext set on agent",
+                        name="acp_context_set",
+                        session_id=session_id,
+                        agent_name=agent_name,
+                    )
+                elif hasattr(agent, "context"):
+                    # Try via context property
+                    try:
+                        agent.context.acp = acp_context
+                        logger.debug(
+                            "ACPContext set on agent via context property",
+                            name="acp_context_set",
+                            session_id=session_id,
+                            agent_name=agent_name,
+                        )
+                    except Exception:
+                        # Agent may not have a context available
+                        pass
+
+            logger.info(
+                "ACPContext created for session",
+                name="acp_context_created",
+                session_id=session_id,
+                has_terminal=acp_context.terminal_runtime is not None,
+                has_filesystem=acp_context.filesystem_runtime is not None,
+                has_permissions=acp_context.permission_handler is not None,
+            )
+            session_state.acp_context = acp_context
 
         logger.info(
             "ACP new session created",
             name="acp_new_session_created",
             session_id=session_id,
             total_sessions=len(self.sessions),
-            terminal_enabled=session_id in self._session_terminal_runtimes,
-            filesystem_enabled=session_id in self._session_filesystem_runtimes,
+            terminal_enabled=session_state.terminal_runtime is not None,
+            filesystem_enabled=session_state.filesystem_runtime is not None,
         )
 
         # Schedule available_commands_update notification to be sent after response is returned
         # This ensures the client receives session/new response before the session/update notification
         if self._connection:
-            asyncio.create_task(self._send_available_commands_update(session_id, slash_handler))
+            asyncio.create_task(self._send_available_commands_update(session_id))
 
         # Build session modes from the instance's agents
-        session_modes = self._build_session_modes(instance, session_id)
+        session_modes = self._build_session_modes(instance, session_state)
 
         # Initialize the current agent for this session
-        self._session_current_agent[session_id] = session_modes.currentModeId
+        session_state.current_agent_name = session_modes.currentModeId
+
+        # Update ACPContext with mode information
+        if session_state.acp_context:
+            session_state.acp_context.set_available_modes(session_modes.availableModes)
+            session_state.acp_context.set_current_mode(session_modes.currentModeId)
 
         logger.info(
             "Session modes initialized",
@@ -773,6 +880,7 @@ class AgentACPServer(ACPAgent):
         # Get the agent instance for this session
         async with self._session_lock:
             instance = self.sessions.get(session_id)
+            session_state = self._session_state.get(session_id)
 
         if not instance:
             logger.error(
@@ -796,7 +904,19 @@ class AgentACPServer(ACPAgent):
             )
 
         # Update the session's current agent
-        self._session_current_agent[session_id] = mode_id
+        if session_state:
+            session_state.current_agent_name = mode_id
+
+        # Update slash handler's current agent so it queries the right agent's commands
+        if session_state and session_state.slash_handler:
+            session_state.slash_handler.set_current_agent(mode_id)
+
+        # Update ACPContext and send available_commands_update
+        # (commands may differ per agent)
+        if session_state and session_state.acp_context:
+            acp_context = session_state.acp_context
+            acp_context.set_current_mode(mode_id)
+            await acp_context.send_available_commands_update()
 
         logger.info(
             "Session mode updated",
@@ -888,14 +1008,15 @@ class AgentACPServer(ACPAgent):
             )
 
             # Get current agent for this session (defaults to primary agent if not set)
-            current_agent_name = self._session_current_agent.get(
-                session_id, self.primary_agent_name
+            session_state = self._session_state.get(session_id)
+            current_agent_name = (
+                session_state.current_agent_name if session_state else self.primary_agent_name
             )
 
             # Check if this is a slash command
             # Only process slash commands if the prompt is a single text block
             # This ensures resources, images, and multi-part prompts are never treated as commands
-            slash_handler = self._session_slash_handlers.get(session_id)
+            slash_handler = session_state.slash_handler if session_state else None
             is_single_text_block = len(mcp_content_blocks) == 1 and is_text_content(
                 mcp_content_blocks[0]
             )
@@ -1007,7 +1128,7 @@ class AgentACPServer(ACPAgent):
                     try:
                         # This will trigger streaming callbacks as chunks arrive
                         session_request_params = self._build_session_request_params(
-                            agent, session_id
+                            agent, session_state
                         )
                         result = await agent.generate(
                             prompt_message,
@@ -1213,9 +1334,7 @@ class AgentACPServer(ACPAgent):
             # Clean up sessions
             await self._cleanup_sessions()
 
-    async def _send_available_commands_update(
-        self, session_id: str, slash_handler: SlashCommandHandler
-    ) -> None:
+    async def _send_available_commands_update(self, session_id: str) -> None:
         """
         Send available_commands_update notification for a session.
 
@@ -1226,7 +1345,11 @@ class AgentACPServer(ACPAgent):
             return
 
         try:
-            available_commands = slash_handler.get_available_commands()
+            session_state = self._session_state.get(session_id)
+            if not session_state or not session_state.slash_handler:
+                return
+
+            available_commands = session_state.slash_handler.get_available_commands()
             commands_update = AvailableCommandsUpdate(
                 session_update="available_commands_update",
                 available_commands=available_commands,
@@ -1251,57 +1374,59 @@ class AgentACPServer(ACPAgent):
         logger.info(f"Cleaning up {len(self.sessions)} sessions")
 
         async with self._session_lock:
-            # Clean up terminal runtimes (must release as per ACP spec)
-            for session_id, terminal_runtime in list(self._session_terminal_runtimes.items()):
-                try:
-                    # Terminal runtime cleanup happens automatically via _release_terminal
-                    # in each execute() call, but we log here for completeness
-                    logger.debug(f"Terminal runtime for session {session_id} will be cleaned up")
-                except Exception as e:
-                    logger.error(
-                        f"Error noting terminal cleanup for session {session_id}: {e}",
-                        name="acp_terminal_cleanup_error",
-                    )
+            # Clean up per-session state
+            for session_id, state in list(self._session_state.items()):
+                if state.terminal_runtime:
+                    try:
+                        logger.debug(f"Terminal runtime for session {session_id} will be cleaned up")
+                    except Exception as e:
+                        logger.error(
+                            f"Error noting terminal cleanup for session {session_id}: {e}",
+                            name="acp_terminal_cleanup_error",
+                        )
 
-            self._session_terminal_runtimes.clear()
+                if state.filesystem_runtime:
+                    try:
+                        logger.debug(f"Filesystem runtime for session {session_id} cleaned up")
+                    except Exception as e:
+                        logger.error(
+                            f"Error noting filesystem cleanup for session {session_id}: {e}",
+                            name="acp_filesystem_cleanup_error",
+                        )
 
-            # Clean up filesystem runtimes
-            for session_id, filesystem_runtime in list(self._session_filesystem_runtimes.items()):
-                try:
-                    logger.debug(f"Filesystem runtime for session {session_id} cleaned up")
-                except Exception as e:
-                    logger.error(
-                        f"Error noting filesystem cleanup for session {session_id}: {e}",
-                        name="acp_filesystem_cleanup_error",
-                    )
+                if state.permission_handler:
+                    try:
+                        await state.permission_handler.clear_session_cache()
+                        logger.debug(f"Permission handler for session {session_id} cleaned up")
+                    except Exception as e:
+                        logger.error(
+                            f"Error cleaning up permission handler for session {session_id}: {e}",
+                            name="acp_permission_cleanup_error",
+                        )
 
-            self._session_filesystem_runtimes.clear()
+                if state.progress_manager:
+                    try:
+                        await state.progress_manager.cleanup_session_tools(session_id)
+                        logger.debug(f"Progress manager for session {session_id} cleaned up")
+                    except Exception as e:
+                        logger.error(
+                            f"Error cleaning up progress manager for session {session_id}: {e}",
+                            name="acp_progress_cleanup_error",
+                        )
 
-            # Clean up permission handlers
-            for session_id, permission_handler in list(self._session_permission_handlers.items()):
-                try:
-                    await permission_handler.clear_session_cache()
-                    logger.debug(f"Permission handler for session {session_id} cleaned up")
-                except Exception as e:
-                    logger.error(
-                        f"Error cleaning up permission handler for session {session_id}: {e}",
-                        name="acp_permission_cleanup_error",
-                    )
+                if state.acp_context:
+                    try:
+                        await state.acp_context.cleanup()
+                        logger.debug(f"ACPContext for session {session_id} cleaned up")
+                    except Exception as e:
+                        logger.error(
+                            f"Error cleaning up ACPContext for session {session_id}: {e}",
+                            name="acp_context_cleanup_error",
+                        )
 
-            self._session_permission_handlers.clear()
-
-            # Clean up slash command handlers
-            self._session_slash_handlers.clear()
-
-            # Clean up session current agent mapping
-            self._session_current_agent.clear()
-
-            # Clear tasks
+            self._session_state.clear()
             self._session_tasks.clear()
-
-            # Clear stored prompt contexts
-            self._session_prompt_context.clear()
-            self._session_resolved_instructions.clear()
+            self._active_prompts.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:

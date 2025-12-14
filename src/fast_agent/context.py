@@ -29,10 +29,12 @@ from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.skills import SkillRegistry
 
 if TYPE_CHECKING:
+    from fast_agent.acp.acp_context import ACPContext
     from fast_agent.core.executor.workflow_signal import SignalWaitCallback
     from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 else:
     # Runtime placeholders for the types
+    ACPContext = Any
     SignalWaitCallback = Any
     MCPConnectionManager = Any
 
@@ -61,6 +63,10 @@ class Context(BaseModel):
 
     tracer: trace.Tracer | None = None
     _connection_manager: "MCPConnectionManager | None" = None
+
+    # ACP context - set when running in ACP mode
+    # Provides agents access to ACP capabilities (mode switching, commands, etc.)
+    acp: "ACPContext | None" = None
 
     model_config = ConfigDict(
         extra="allow",

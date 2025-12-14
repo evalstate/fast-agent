@@ -81,6 +81,15 @@ class DecoratedEvaluatorOptimizerProtocol(DecoratedAgentProtocol[P, R], Protocol
     _evaluator: str
 
 
+# Protocol for maker functions
+class DecoratedMakerProtocol(DecoratedAgentProtocol[P, R], Protocol):
+    """Protocol for decorated MAKER functions with additional metadata."""
+
+    _worker: str
+    _k: int
+    _max_samples: int
+
+
 def _fetch_url_content(url: str) -> str:
     """
     Fetch content from a URL.
@@ -696,5 +705,80 @@ def evaluator_optimizer(
         min_rating=min_rating,
         max_refinements=max_refinements,
         refinement_instruction=refinement_instruction,
+        default=default,
+    )
+
+
+def maker(
+    self,
+    name: str,
+    *,
+    worker: str,
+    k: int = 3,
+    max_samples: int = 50,
+    match_strategy: str = "exact",
+    red_flag_max_length: int | None = None,
+    instruction: str | Path | AnyUrl | None = None,
+    default: bool = False,
+) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
+    """
+    Decorator to create a MAKER agent for statistical error correction via voting.
+
+    MAKER: Massively decomposed Agentic processes with K-voting Error Reduction.
+
+    Based on the paper "Solving a Million-Step LLM Task with Zero Errors"
+    (arXiv:2511.09030). Implements first-to-ahead-by-k voting where multiple
+    samples are drawn from a worker agent, and the first response to achieve
+    a k-vote margin over alternatives wins.
+
+    This enables high reliability with cost-effective models by trading
+    compute (multiple samples) for accuracy (statistical consensus).
+
+    Args:
+        name: Name of the MAKER agent
+        worker: Name of the agent to sample from for voting
+        k: Margin required to declare winner (first-to-ahead-by-k).
+           Higher k = more reliable but more samples needed.
+           Default of 3 provides strong guarantees for most use cases.
+        max_samples: Maximum samples before falling back to plurality vote
+        match_strategy: How to compare responses for voting:
+            - "exact": Character-for-character match
+            - "normalized": Ignore whitespace and case differences
+            - "structured": Parse as JSON and compare structurally
+        red_flag_max_length: Discard responses longer than this (characters).
+                             Per the paper, overly long responses correlate
+                             with errors. None = no length limit.
+        instruction: Base instruction for the MAKER agent
+        default: Whether to mark this as the default agent
+
+    Returns:
+        A decorator that registers the MAKER agent
+
+    Example:
+        @fast.agent(name="calculator", instruction="Return only the numeric result")
+        @fast.maker(name="reliable_calc", worker="calculator", k=3)
+        async def main():
+            async with fast.run() as agent:
+                result = await agent.reliable_calc.send("What is 17 * 23?")
+    """
+    default_instruction = """
+    MAKER: Massively decomposed Agentic processes with K-voting Error Reduction.
+    Implements statistical error correction through voting consensus.
+    Multiple samples are drawn and the first response to achieve a k-vote
+    margin wins, ensuring high reliability even with cost-effective models.
+    """
+    resolved_instruction = _resolve_instruction(instruction or default_instruction)
+
+    return _decorator_impl(
+        self,
+        AgentType.MAKER,
+        name=name,
+        instruction=resolved_instruction,
+        servers=[],  # MAKER doesn't connect to servers directly
+        worker=worker,
+        k=k,
+        max_samples=max_samples,
+        match_strategy=match_strategy,
+        red_flag_max_length=red_flag_max_length,
         default=default,
     )

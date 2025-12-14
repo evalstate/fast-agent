@@ -481,6 +481,35 @@ async def create_agents_by_type(
                 await evaluator_optimizer.initialize()
                 result_agents[name] = evaluator_optimizer
 
+            elif agent_type == AgentType.MAKER:
+                # MAKER: Massively decomposed Agentic processes with K-voting Error Reduction
+                from fast_agent.agents.workflow.maker_agent import MakerAgent, MatchStrategy
+
+                worker_name = agent_data["worker"]
+                if worker_name not in active_agents:
+                    raise AgentConfigError(f"Worker agent {worker_name} not found")
+
+                worker_agent = active_agents[worker_name]
+
+                # Parse match strategy
+                match_strategy_str = agent_data.get("match_strategy", "exact")
+                match_strategy = MatchStrategy(match_strategy_str)
+
+                # Create the MAKER agent
+                maker_agent = MakerAgent(
+                    config=config,
+                    context=app_instance.context,
+                    worker_agent=worker_agent,
+                    k=agent_data.get("k", 3),
+                    max_samples=agent_data.get("max_samples", 50),
+                    match_strategy=match_strategy,
+                    red_flag_max_length=agent_data.get("red_flag_max_length"),
+                )
+
+                # Initialize the agent
+                await maker_agent.initialize()
+                result_agents[name] = maker_agent
+
             else:
                 raise ValueError(f"Unknown agent type: {agent_type}")
 

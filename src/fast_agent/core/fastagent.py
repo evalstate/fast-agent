@@ -48,6 +48,9 @@ from fast_agent.core.direct_decorators import (
     iterative_planner as orchestrator2_decorator,
 )
 from fast_agent.core.direct_decorators import (
+    maker as maker_decorator,
+)
+from fast_agent.core.direct_decorators import (
     orchestrator as orchestrator_decorator,
 )
 from fast_agent.core.direct_decorators import (
@@ -484,6 +487,19 @@ class FastAgent:
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
+        def maker(
+            self,
+            name: str,
+            *,
+            worker: str,
+            k: int = 3,
+            max_samples: int = 50,
+            match_strategy: str = "exact",
+            red_flag_max_length: int | None = None,
+            instruction: str | Path | AnyUrl | None = None,
+            default: bool = False,
+        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+
     # Runtime bindings (actual implementations)
     agent = agent_decorator
     custom = custom_decorator
@@ -493,6 +509,7 @@ class FastAgent:
     chain = chain_decorator
     parallel = parallel_decorator
     evaluator_optimizer = evaluator_optimizer_decorator
+    maker = maker_decorator
 
     def _get_acp_server_class(self):
         """Import and return the ACP server class with helpful error handling."""
