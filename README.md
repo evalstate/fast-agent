@@ -498,8 +498,8 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
 
 ```python
 @fast.agent(
-  name="orchestrator",                    # parent agent name
-  instruction="instruction",              # parent instruction (routing/decomposition/aggregation)
+  name="orchestrator",                    # orchestrator agent name
+  instruction="instruction",              # orchestrator instruction (routing/decomposition/aggregation)
   agents=["agent1", "agent2"],            # exposed as tools: agent__agent1, agent__agent2
   history_mode="fork",                    # scratch|fork|fork_and_merge
   max_parallel=128,                       # cap parallel child tool calls (OpenAI limit is 128)
