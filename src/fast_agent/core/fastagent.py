@@ -100,7 +100,7 @@ if TYPE_CHECKING:
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
-_FASTAGENT_DEBUG_PRINTED = False
+
 
 class FastAgent:
     """
@@ -131,16 +131,6 @@ class FastAgent:
                             (like FastAPI/Uvicorn) that handles its own arguments.
             quiet: If True, disable progress display, tool and message logging for cleaner output
         """
-        global _FASTAGENT_DEBUG_PRINTED
-        if not _FASTAGENT_DEBUG_PRINTED:
-            try:
-                from pathlib import Path
-
-                source_path = Path(__file__).resolve()
-                print(f"[FAST_AGENT DEBUG] FastAgent __init__ from {source_path}")
-            except Exception:
-                print("[FAST_AGENT DEBUG] FastAgent __init__ (path resolution failed)")
-            _FASTAGENT_DEBUG_PRINTED = True
 
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
@@ -483,7 +473,7 @@ class FastAgent:
             instruction: str | Path | AnyUrl | None = None,
             min_rating: str = "GOOD",
             max_refinements: int = 3,
-			refinement_instruction: str | None = None,
+            refinement_instruction: str | None = None,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -708,7 +698,9 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
-                                permissions_enabled = getattr(self.args, "permissions_enabled", True)
+                                permissions_enabled = getattr(
+                                    self.args, "permissions_enabled", True
+                                )
 
                                 # Pass skills directory override if configured
                                 skills_override = (
