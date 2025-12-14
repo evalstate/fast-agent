@@ -48,49 +48,6 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
     namespace = event.namespace
     agent_name = event_data.get("agent_name")
 
-    # General progress debug logging (including action value and type)
-    try:
-        from pathlib import Path
-
-        debug_path = Path.home() / "logs" / "progress_actions_debug.log"
-        debug_line = (
-            "[DEBUG PROGRESS] "
-            f"namespace={namespace} "
-            f"action={action.value} "
-            f"raw_type={type(raw_action).__name__} "
-            f"agent_name={agent_name} "
-            f"tool_name={event_data.get('tool_name')} "
-            f"server_name={event_data.get('server_name')} "
-            f"model={event_data.get('model')} "
-            f"tool_event={event_data.get('tool_event')}\n"
-        )
-        debug_path.parent.mkdir(parents=True, exist_ok=True)
-        with debug_path.open("a", encoding="utf-8") as f:
-            f.write(debug_line)
-    except Exception:
-        pass
-
-    # Temporary diagnostic logging for CALLING_TOOL routing issues
-    if action == ProgressAction.CALLING_TOOL:
-        try:
-            from pathlib import Path
-
-            ct_path = Path.home() / "logs" / "calling_tool_debug.log"
-            ct_line = (
-                "[DEBUG CALLING_TOOL] "
-                f"namespace={namespace} "
-                f"agent_name={agent_name} "
-                f"tool_name={event_data.get('tool_name')} "
-                f"server_name={event_data.get('server_name')} "
-                f"model={event_data.get('model')} "
-                f"tool_event={event_data.get('tool_event')}\n"
-            )
-            ct_path.parent.mkdir(parents=True, exist_ok=True)
-            with ct_path.open("a", encoding="utf-8") as f:
-                f.write(ct_line)
-        except Exception:
-            pass
-
     target = agent_name
     details = ""
     if action == ProgressAction.FATAL_ERROR:
