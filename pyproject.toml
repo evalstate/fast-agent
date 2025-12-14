@@ -155,8 +155,10 @@ ignore=["E501"]
 [tool.uv.workspace]
 members = [
     "publish/fast-agent-acp",
+    "publish/hf-inference-acp",
 ]
 
 [tool.uv.sources]
 fast-agent-mcp = { workspace = true }
 fast-agent-acp = { workspace = true }
+hf-inference-acp = { workspace = true }
