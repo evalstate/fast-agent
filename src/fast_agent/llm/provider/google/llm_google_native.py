@@ -19,6 +19,7 @@ from mcp.types import (
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.fastagent_llm import FastAgentLLM
+from fast_agent.llm.model_database import ModelDatabase
 
 # Import the new converter class
 from fast_agent.llm.provider.google.google_converter import GoogleConverter
@@ -121,6 +122,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Google-specific default parameters."""
         chosen_model = kwargs.get("model", DEFAULT_GOOGLE_MODEL)
+        # Gemini models have different max output token limits; for example,
+        # gemini-2.0-flash only supports up to 8192 output tokens.
+        max_tokens = ModelDatabase.get_max_output_tokens(chosen_model) or 65536
 
         return RequestParams(
             model=chosen_model,
@@ -128,7 +132,8 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             parallel_tool_calls=True,  # Assume parallel tool calls are supported by default with native API
             max_iterations=20,
             use_history=True,
-            maxTokens=65536,  # Default max tokens for Google models
+            # Pick a safe default per model (e.g. gemini-2.0-flash is limited to 8192).
+            maxTokens=max_tokens,
             # Include other relevant default parameters
         )
 
