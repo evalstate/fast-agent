@@ -131,6 +131,7 @@ class FastAgent:
                             (like FastAPI/Uvicorn) that handles its own arguments.
             quiet: If True, disable progress display, tool and message logging for cleaner output
         """
+
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
         self._skills_directory_override = (
@@ -351,6 +352,7 @@ class FastAgent:
             instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
             instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
+            agents: list[str] | None = None,
             servers: list[str] = [],
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
@@ -363,6 +365,10 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
+            history_mode: Any | None = None,
+            max_parallel: int | None = None,
+            child_timeout_sec: int | None = None,
+            max_display_instances: int | None = None,
         ) -> Callable[
             [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
         ]: ...
@@ -467,7 +473,7 @@ class FastAgent:
             instruction: str | Path | AnyUrl | None = None,
             min_rating: str = "GOOD",
             max_refinements: int = 3,
-			refinement_instruction: str | None = None,
+            refinement_instruction: str | None = None,
             default: bool = False,
         ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
 
@@ -692,7 +698,9 @@ class FastAgent:
 
                                 server_name = getattr(self.args, "server_name", None)
                                 instance_scope = getattr(self.args, "instance_scope", "shared")
-                                permissions_enabled = getattr(self.args, "permissions_enabled", True)
+                                permissions_enabled = getattr(
+                                    self.args, "permissions_enabled", True
+                                )
 
                                 # Pass skills directory override if configured
                                 skills_override = (

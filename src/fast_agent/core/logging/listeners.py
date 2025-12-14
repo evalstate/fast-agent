@@ -28,17 +28,29 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
     if not isinstance(event_data, dict):
         return None
 
-    progress_action = event_data.get("progress_action")
-    if not progress_action:
+    raw_action = event_data.get("progress_action")
+    if not raw_action:
+        return None
+
+    # Coerce raw_action (enum or string) into a ProgressAction instance
+    try:
+        action = (
+            raw_action
+            if isinstance(raw_action, ProgressAction)
+            else ProgressAction(str(raw_action))
+        )
+    except Exception:
+        # If we cannot coerce, drop this event from progress handling
         return None
 
     # Build target string based on the event type.
     # Progress display is currently [time] [event] --- [target] [details]
     namespace = event.namespace
     agent_name = event_data.get("agent_name")
+
     target = agent_name
     details = ""
-    if progress_action == ProgressAction.FATAL_ERROR:
+    if action == ProgressAction.FATAL_ERROR:
         details = event_data.get("error_message", "An error occurred")
     elif "mcp_aggregator" in namespace:
         server_name = event_data.get("server_name", "")
@@ -50,7 +62,7 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
             details = f"{server_name}"
 
         # For TOOL_PROGRESS, use progress message if available, otherwise keep default
-        if progress_action == ProgressAction.TOOL_PROGRESS:
+        if action == ProgressAction.TOOL_PROGRESS:
             progress_message = event_data.get("details", "")
             if progress_message:  # Only override if message is non-empty
                 details = progress_message
@@ -76,20 +88,20 @@ def convert_log_event(event: Event) -> "ProgressEvent | None":
         if not target:
             target = event_data.get("target", "unknown")
 
-    # Extract streaming token count for STREAMING actions
+    # Extract streaming token count for STREAMING/THINKING actions
     streaming_tokens = None
-    if progress_action == ProgressAction.STREAMING or progress_action == ProgressAction.THINKING:
+    if action == ProgressAction.STREAMING or action == ProgressAction.THINKING:
         streaming_tokens = event_data.get("details", "")
 
     # Extract progress data for TOOL_PROGRESS actions
     progress = None
     total = None
-    if progress_action == ProgressAction.TOOL_PROGRESS:
+    if action == ProgressAction.TOOL_PROGRESS:
         progress = event_data.get("progress")
         total = event_data.get("total")
 
     return ProgressEvent(
-        action=ProgressAction(progress_action),
+        action=action,
         target=target or "unknown",
         details=details,
         agent_name=event_data.get("agent_name"),

@@ -537,14 +537,18 @@ class ConsoleDisplay:
         tool_name: str | None = None,
         skybridge_config: "SkybridgeServerConfig | None" = None,
         timing_ms: float | None = None,
+        type_label: str | None = None,
     ) -> None:
-        self._tool_display.show_tool_result(
-            result,
-            name=name,
-            tool_name=tool_name,
-            skybridge_config=skybridge_config,
-            timing_ms=timing_ms,
-        )
+        kwargs: dict[str, Any] = {
+            "name": name,
+            "tool_name": tool_name,
+            "skybridge_config": skybridge_config,
+            "timing_ms": timing_ms,
+        }
+        if type_label is not None:
+            kwargs["type_label"] = type_label
+
+        self._tool_display.show_tool_result(result, **kwargs)
 
     def show_tool_call(
         self,
@@ -555,16 +559,19 @@ class ConsoleDisplay:
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
+        type_label: str | None = None,
     ) -> None:
-        self._tool_display.show_tool_call(
-            tool_name,
-            tool_args,
-            bottom_items=bottom_items,
-            highlight_index=highlight_index,
-            max_item_length=max_item_length,
-            name=name,
-            metadata=metadata,
-        )
+        kwargs: dict[str, Any] = {
+            "bottom_items": bottom_items,
+            "highlight_index": highlight_index,
+            "max_item_length": max_item_length,
+            "name": name,
+            "metadata": metadata,
+        }
+        if type_label is not None:
+            kwargs["type_label"] = type_label
+
+        self._tool_display.show_tool_call(tool_name, tool_args, **kwargs)
 
     async def show_tool_update(self, updated_server: str, agent_name: str | None = None) -> None:
         await self._tool_display.show_tool_update(updated_server, agent_name=agent_name)

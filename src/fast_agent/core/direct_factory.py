@@ -208,33 +208,80 @@ async def create_agents_by_type(
             # Type-specific initialization based on the Enum type
             # Note: Above we compared string values from config, here we compare Enum objects directly
             if agent_type == AgentType.BASIC:
-                # Create agent with UI support if needed
-                agent = _create_agent_with_ui_if_needed(
-                    McpAgent,
-                    config,
-                    app_instance.context,
-                )
+                # If BASIC agent declares child_agents, build an Agents-as-Tools wrapper
+                child_names = agent_data.get("child_agents", []) or []
+                if child_names:
+                    # Ensure child agents are already created
+                    child_agents: list[AgentProtocol] = []
+                    for agent_name in child_names:
+                        if agent_name not in active_agents:
+                            raise AgentConfigError(f"Agent {agent_name} not found")
+                        child_agents.append(active_agents[agent_name])
 
-                await agent.initialize()
+                    # Import here to avoid circulars at module import time
+                    from fast_agent.agents.workflow.agents_as_tools_agent import (
+                        AgentsAsToolsAgent,
+                        AgentsAsToolsOptions,
+                    )
+                    raw_opts = agent_data.get("agents_as_tools_options") or {}
+                    opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
+                    options = AgentsAsToolsOptions(**opt_kwargs)
 
-                # Attach LLM to the agent
-                llm_factory = model_factory_func(model=config.model)
-                await agent.attach_llm(
-                    llm_factory,
-                    request_params=config.default_request_params,
-                    api_key=config.api_key,
-                )
-                result_agents[name] = agent
+                    agent = AgentsAsToolsAgent(
+                        config=config,
+                        context=app_instance.context,
+                        agents=child_agents,  # expose children as tools
+                        options=options,
+                    )
 
-                # Log successful agent creation
-                logger.info(
-                    f"Loaded {name}",
-                    data={
-                        "progress_action": ProgressAction.LOADED,
-                        "agent_name": name,
-                        "target": name,
-                    },
-                )
+                    await agent.initialize()
+
+                    # Attach LLM to the agent
+                    llm_factory = model_factory_func(model=config.model)
+                    await agent.attach_llm(
+                        llm_factory,
+                        request_params=config.default_request_params,
+                        api_key=config.api_key,
+                    )
+                    result_agents[name] = agent
+
+                    # Log successful agent creation
+                    logger.info(
+                        f"Loaded {name}",
+                        data={
+                            "progress_action": ProgressAction.LOADED,
+                            "agent_name": name,
+                            "target": name,
+                        },
+                    )
+                else:
+                    # Create agent with UI support if needed
+                    agent = _create_agent_with_ui_if_needed(
+                        McpAgent,
+                        config,
+                        app_instance.context,
+                    )
+
+                    await agent.initialize()
+
+                    # Attach LLM to the agent
+                    llm_factory = model_factory_func(model=config.model)
+                    await agent.attach_llm(
+                        llm_factory,
+                        request_params=config.default_request_params,
+                        api_key=config.api_key,
+                    )
+                    result_agents[name] = agent
+
+                    # Log successful agent creation
+                    logger.info(
+                        f"Loaded {name}",
+                        data={
+                            "progress_action": ProgressAction.LOADED,
+                            "agent_name": name,
+                            "target": name,
+                        },
+                    )
 
             elif agent_type == AgentType.CUSTOM:
                 # Get the class to instantiate (support legacy 'agent_class' and new 'cls')

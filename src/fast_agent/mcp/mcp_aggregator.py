@@ -147,9 +147,12 @@ class MCPAggregator(ContextDependent):
                 manager = MCPConnectionManager(server_registry, context=context)
                 await manager.__aenter__()
                 context._connection_manager = manager
+                self._owns_connection_manager = True
             self._persistent_connection_manager = cast(
                 "MCPConnectionManager", context._connection_manager
             )
+        else:
+            self._persistent_connection_manager = None
 
         # Import the display component here to avoid circular imports
         from fast_agent.ui.console_display import ConsoleDisplay
@@ -192,6 +195,8 @@ class MCPAggregator(ContextDependent):
         self.connection_persistence = connection_persistence
         self.agent_name = name
         self.config = config  # Store the config for access in session factory
+        self._persistent_connection_manager: MCPConnectionManager | None = None
+        self._owns_connection_manager = False
 
         # Store tool execution handler for integration with ACP or other protocols
         # Default to NoOpToolExecutionHandler if none provided
@@ -263,7 +268,7 @@ class MCPAggregator(ContextDependent):
         if self.connection_persistence and self._persistent_connection_manager:
             try:
                 # Only attempt cleanup if we own the connection manager
-                if (
+                if self._owns_connection_manager and (
                     hasattr(self.context, "_connection_manager")
                     and self.context._connection_manager == self._persistent_connection_manager
                 ):
@@ -1173,9 +1178,7 @@ class MCPAggregator(ContextDependent):
         """Handle ConnectionError by attempting to reconnect to the server."""
         from fast_agent.ui import console
 
-        console.console.print(
-            f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
-        )
+        console.console.print(f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]")
 
         try:
             if self.connection_persistence:
@@ -1387,9 +1390,7 @@ class MCPAggregator(ContextDependent):
                             f"{namespaced_tool_name}"
                         )
                     else:
-                        error_msg = (
-                            f"The user has declined permission to use this tool: {namespaced_tool_name}"
-                        )
+                        error_msg = f"The user has declined permission to use this tool: {namespaced_tool_name}"
 
                 # Notify tool handler so ACP clients can reflect the cancellation/denial
                 if hasattr(self._tool_handler, "on_tool_permission_denied"):
