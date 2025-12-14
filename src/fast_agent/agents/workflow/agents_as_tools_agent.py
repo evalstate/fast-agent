@@ -289,7 +289,7 @@ class AgentsAsToolsAgent(McpAgent):
         super().__init__(config=config, context=context, **kwargs)
         self._options = options or AgentsAsToolsOptions()
         self._child_agents: dict[str, LlmAgent] = {}
-        self._history_merge_locks: dict[int, asyncio.Lock] = {}
+        self._history_merge_lock = asyncio.Lock()
         self._display_suppression_count: dict[int, int] = {}
         self._original_display_configs: dict[int, Any] = {}
 
@@ -391,14 +391,10 @@ class AgentsAsToolsAgent(McpAgent):
     async def _merge_child_history(
         self, target: LlmAgent, clone: LlmAgent, start_index: int
     ) -> None:
-        """Append clone history from start_index into target with per-target lock."""
-        lock = self._history_merge_locks.setdefault(id(target), asyncio.Lock())
-        async with lock:
+        """Append clone history from start_index into target with a global merge lock."""
+        async with self._history_merge_lock:
             new_messages = clone.message_history[start_index:]
             target.append_history(new_messages)
-        # Cleanup to avoid unbounded lock map growth
-        if not lock.locked():
-            self._history_merge_locks.pop(id(target), None)
 
     async def _invoke_child_agent(
         self,
