@@ -385,11 +385,7 @@ class AgentsAsToolsAgent(McpAgent):
             if self._display_suppression_count[child_id] <= 0:
                 del self._display_suppression_count[child_id]
                 original_config = self._original_display_configs.pop(child_id, None)
-                if (
-                    original_config is not None
-                    and hasattr(child, "display")
-                    and child.display
-                ):
+                if original_config is not None and hasattr(child, "display") and child.display:
                     child.display.config = original_config
 
     async def _merge_child_history(
@@ -429,14 +425,8 @@ class AgentsAsToolsAgent(McpAgent):
         child_request = Prompt.user(input_text)
 
         try:
-            with (
-                self._child_display_suppressed(child)
-                if suppress_display
-                else nullcontext()
-            ):
-                response: PromptMessageExtended = await child.generate(
-                    [child_request], None
-                )
+            with self._child_display_suppressed(child) if suppress_display else nullcontext():
+                response: PromptMessageExtended = await child.generate([child_request], None)
             content_blocks = list(response.content or [])
 
             error_blocks = None
@@ -454,9 +444,7 @@ class AgentsAsToolsAgent(McpAgent):
             return CallToolResult(content=[text_content(f"Error: {e}")], isError=True)
 
     def _resolve_child_agent(self, name: str) -> LlmAgent | None:
-        return self._child_agents.get(name) or self._child_agents.get(
-            self._make_tool_name(name)
-        )
+        return self._child_agents.get(name) or self._child_agents.get(self._make_tool_name(name))
 
     async def call_tool(
         self,
@@ -524,16 +512,18 @@ class AgentsAsToolsAgent(McpAgent):
                 bottom_items=[bottom_item],  # Only this instance's label
                 max_item_length=28,
                 metadata={"correlation_id": corr_id, "instance_name": display_tool_name},
+                type_label="subagent",
             )
         if total > limit:
             collapsed = total - limit
-            label = f"[{limit+1}..{total}]"
+            label = f"[{limit + 1}..{total}]"
             self.display.show_tool_call(
                 name=self.name,
                 tool_name=label,
                 tool_args={"collapsed": collapsed},
                 bottom_items=[f"{label} · {collapsed} more"],
                 max_item_length=28,
+                type_label="subagent",
             )
 
     def _show_parallel_tool_results(self, records: list[dict[str, Any]]) -> None:
@@ -566,14 +556,16 @@ class AgentsAsToolsAgent(McpAgent):
                 self.display.show_tool_result(
                     name=self.name,
                     tool_name=display_tool_name,
+                    type_label="subagent response",
                     result=result,
                 )
         if total > limit:
             collapsed = total - limit
-            label = f"[{limit+1}..{total}]"
+            label = f"[{limit + 1}..{total}]"
             self.display.show_tool_result(
                 name=self.name,
                 tool_name=label,
+                type_label="subagent response",
                 result=CallToolResult(
                     content=[text_content(f"{collapsed} more results (collapsed)")],
                     isError=False,
@@ -595,19 +587,13 @@ class AgentsAsToolsAgent(McpAgent):
         if not child_ids:
             return await super().run_tools(request)
 
-        child_results, child_error = await self._run_child_tools(
-            request, set(child_ids)
-        )
+        child_results, child_error = await self._run_child_tools(request, set(child_ids))
 
         if len(child_ids) == len(request.tool_calls):
-            return self._finalize_tool_results(
-                child_results, tool_loop_error=child_error
-            )
+            return self._finalize_tool_results(child_results, tool_loop_error=child_error)
 
         # Execute remaining MCP/local tools via base implementation
-        remaining_ids = [
-            cid for cid in request.tool_calls.keys() if cid not in child_ids
-        ]
+        remaining_ids = [cid for cid in request.tool_calls.keys() if cid not in child_ids]
         mcp_request = PromptMessageExtended(
             role=request.role,
             content=request.content,
@@ -622,9 +608,7 @@ class AgentsAsToolsAgent(McpAgent):
         combined_results.update(mcp_results)
 
         tool_loop_error = child_error or mcp_error
-        return self._finalize_tool_results(
-            combined_results, tool_loop_error=tool_loop_error
-        )
+        return self._finalize_tool_results(combined_results, tool_loop_error=tool_loop_error)
 
     async def _run_child_tools(
         self,
@@ -685,9 +669,7 @@ class AgentsAsToolsAgent(McpAgent):
         if max_parallel and len(id_list) > max_parallel:
             skipped_ids = id_list[max_parallel:]
             id_list = id_list[:max_parallel]
-            skip_msg = (
-                f"Skipped {len(skipped_ids)} agent-tool calls (max_parallel={max_parallel})"
-            )
+            skip_msg = f"Skipped {len(skipped_ids)} agent-tool calls (max_parallel={max_parallel})"
             tool_loop_error = tool_loop_error or skip_msg
             for cid in skipped_ids:
                 tool_results[cid] = CallToolResult(
@@ -724,9 +706,7 @@ class AgentsAsToolsAgent(McpAgent):
                         "error": str(exc),
                     },
                 )
-                return CallToolResult(
-                    content=[text_content(f"Spawn failed: {exc}")], isError=True
-                )
+                return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
 
             # Prepare history according to mode
             history_mode = self._options.history_mode
@@ -813,11 +793,7 @@ class AgentsAsToolsAgent(McpAgent):
         for i, cid in enumerate(id_list, 1):
             tool_name = descriptor_by_id[cid]["tool"]
             tool_args = descriptor_by_id[cid]["args"]
-            tasks.append(
-                asyncio.create_task(
-                    call_with_instance_name(tool_name, tool_args, i, cid)
-                )
-            )
+            tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i, cid)))
 
         self._show_parallel_tool_calls(call_descriptors)
 

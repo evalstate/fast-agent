@@ -34,6 +34,7 @@ class ToolDisplay:
         tool_name: str | None = None,
         skybridge_config: "SkybridgeServerConfig | None" = None,
         timing_ms: float | None = None,
+        type_label: str = "tool result",
     ) -> None:
         """Display a tool result in the console."""
         config = self._display.config
@@ -101,7 +102,7 @@ class ToolDisplay:
             bottom_metadata_items.append("Structured ■")
 
         bottom_metadata = bottom_metadata_items or None
-        right_info = f"[dim]tool result - {status}[/dim]"
+        right_info = f"[dim]{type_label} - {status}[/dim]"
 
         if has_structured:
             config_map = MESSAGE_CONFIGS[MessageType.TOOL_RESULT]
@@ -200,6 +201,7 @@ class ToolDisplay:
         max_item_length: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
+        type_label: str = "tool call",
     ) -> None:
         """Display a tool call header and body."""
         config = self._display.config
@@ -209,7 +211,7 @@ class ToolDisplay:
         tool_args = tool_args or {}
         metadata = metadata or {}
 
-        right_info = f"[dim]tool request - {tool_name}[/dim]"
+        right_info = f"[dim]{type_label} - {tool_name}[/dim]"
         content: Any = tool_args
         pre_content: Text | None = None
         truncate_content = True

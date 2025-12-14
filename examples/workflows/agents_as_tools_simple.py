@@ -42,6 +42,7 @@ fast = FastAgent("Agents-as-Tools simple demo")
 async def main() -> None:
     async with fast.run() as agent:
         result = await agent("Get PMO report")
+        await agent.interactive()
         print(result)
 
 
