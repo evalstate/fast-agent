@@ -455,6 +455,34 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
 )
 ```
 
+#### MAKER
+
+```python
+@fast.maker(
+  name="maker",                           # name of the workflow
+  worker="worker_agent",                  # worker agent name
+  k=3,                                    # voting margin (first-to-ahead-by-k)
+  max_samples=50,                         # maximum number of samples
+  match_strategy="exact",                 # exact|normalized|structured
+  red_flag_max_length=256,                # flag unusually long outputs
+  instruction="instruction",              # optional instruction override
+)
+```
+
+#### Agents As Tools
+
+```python
+@fast.agent(
+  name="orchestrator",                    # parent agent name
+  instruction="instruction",              # parent instruction (routing/decomposition/aggregation)
+  agents=["agent1", "agent2"],            # exposed as tools: agent__agent1, agent__agent2
+  history_mode="fork",                    # scratch|fork|fork_and_merge
+  max_parallel=128,                       # cap parallel child tool calls (OpenAI limit is 128)
+  child_timeout_sec=600,                  # per-child timeout (seconds)
+  max_display_instances=20,               # collapse progress display after top-N instances
+)
+```
+
 ### Multimodal Support
 
 Add Resources to prompts using either the inbuilt `prompt-server` or MCP Types directly. Convenience class are made available to do so simply, for example:
