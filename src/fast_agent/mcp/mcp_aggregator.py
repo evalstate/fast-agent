@@ -1178,9 +1178,7 @@ class MCPAggregator(ContextDependent):
         """Handle ConnectionError by attempting to reconnect to the server."""
         from fast_agent.ui import console
 
-        console.console.print(
-            f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]"
-        )
+        console.console.print(f"[dim yellow]MCP server {server_name} reconnecting...[/dim yellow]")
 
         try:
             if self.connection_persistence:
@@ -1392,9 +1390,7 @@ class MCPAggregator(ContextDependent):
                             f"{namespaced_tool_name}"
                         )
                     else:
-                        error_msg = (
-                            f"The user has declined permission to use this tool: {namespaced_tool_name}"
-                        )
+                        error_msg = f"The user has declined permission to use this tool: {namespaced_tool_name}"
 
                 # Notify tool handler so ACP clients can reflect the cancellation/denial
                 if hasattr(self._tool_handler, "on_tool_permission_denied"):
@@ -1792,41 +1788,17 @@ class MCPAggregator(ContextDependent):
                 operation_type="prompts/list",
                 operation_name="",
                 method_name="list_prompts",
-                method_args={},
+                error_factory=lambda _: None,
             )
-            new_tools = result.tools or []
 
-            # Update tool maps
-            async with self._tool_map_lock:
-                # Remove old tools for this server
-                old_tools = self._server_to_tool_map.get(server_name, [])
-                for old_tool in old_tools:
-                    if old_tool.namespaced_tool_name in self._namespaced_tool_map:
-                        del self._namespaced_tool_map[old_tool.namespaced_tool_name]
+            # Get prompts from result
+            prompts = getattr(result, "prompts", [])
 
-                # Add new tools
-                self._server_to_tool_map[server_name] = []
-                for tool in new_tools:
-                    namespaced_tool_name = create_namespaced_name(server_name, tool.name)
-                    namespaced_tool = NamespacedTool(
-                        tool=tool,
-                        server_name=server_name,
-                        namespaced_tool_name=namespaced_tool_name,
-                    )
+            # Update cache
+            async with self._prompt_cache_lock:
+                self._prompt_cache[server_name] = prompts
 
-                    self._namespaced_tool_map[namespaced_tool_name] = namespaced_tool
-                    self._server_to_tool_map[server_name].append(namespaced_tool)
-
-            logger.info(
-                f"Successfully refreshed tools for server '{server_name}'",
-                data={
-                    "progress_action": ProgressAction.UPDATED,
-                    "server_name": server_name,
-                    "agent_name": self.agent_name,
-                    "tool_count": len(new_tools),
-                },
-            )
-            results[server_name] = new_tools
+            results[server_name] = prompts
             return results
 
         # No specific server - check if we can use the cache for all servers
@@ -1855,7 +1827,7 @@ class MCPAggregator(ContextDependent):
                     operation_type="prompts/list",
                     operation_name="",
                     method_name="list_prompts",
-                    method_args={},
+                    error_factory=lambda _: None,
                 )
 
                 prompts = getattr(result, "prompts", [])
