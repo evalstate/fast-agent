@@ -69,9 +69,12 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
-        self.current_agent_name = (
-            primary_agent_name  # Track current agent (can change via setSessionMode)
-        )
+        # Track current agent (can change via setSessionMode). Ensure it exists.
+        if primary_agent_name in instance.agents:
+            self.current_agent_name = primary_agent_name
+        else:
+            # Fallback: pick the first registered agent to enable agent-specific commands.
+            self.current_agent_name = next(iter(instance.agents.keys()), primary_agent_name)
         self.history_exporter = history_exporter or HistoryExporter
         self._created_at = time.time()
         self.client_info = client_info
@@ -90,7 +93,7 @@ class SlashCommandHandler:
             ),
             "tools": AvailableCommand(
                 name="tools",
-                description="List available MCP tools",
+                description="List available tools",
                 input=None,
             ),
             "save": AvailableCommand(
@@ -112,7 +115,7 @@ class SlashCommandHandler:
 
     def get_available_commands(self) -> list[AvailableCommand]:
         """Get combined session commands and current agent's commands."""
-        commands = list(self._session_commands.values())
+        commands = list(self._get_allowed_session_commands().values())
 
         # Add agent-specific commands if current agent is ACP-aware
         agent = self._get_current_agent()
@@ -129,6 +132,36 @@ class SlashCommandHandler:
                 )
 
         return commands
+
+    def _get_allowed_session_commands(self) -> dict[str, AvailableCommand]:
+        """
+        Return session-level commands filtered by the current agent's policy.
+
+        By default, all session commands are available. ACP-aware agents can restrict
+        session commands (e.g. Setup/wizard flows) by defining either:
+        - `acp_session_commands_allowlist: set[str] | None` attribute, or
+        - `acp_session_commands_allowlist() -> set[str] | None` method
+        """
+        agent = self._get_current_agent()
+        if not isinstance(agent, ACPAwareProtocol):
+            return self._session_commands
+
+        allowlist = getattr(agent, "acp_session_commands_allowlist", None)
+        if callable(allowlist):
+            try:
+                allowlist = allowlist()
+            except Exception:
+                allowlist = None
+
+        if allowlist is None:
+            return self._session_commands
+
+        try:
+            allowset = {str(name) for name in allowlist}
+        except Exception:
+            return self._session_commands
+
+        return {name: cmd for name, cmd in self._session_commands.items() if name in allowset}
 
     def set_current_agent(self, agent_name: str) -> None:
         """
@@ -204,8 +237,9 @@ class SlashCommandHandler:
         Returns:
             The command response as a string
         """
-        # Check session-level commands first
-        if command_name in self._session_commands:
+        # Check session-level commands first (filtered by agent policy)
+        allowed_session_commands = self._get_allowed_session_commands()
+        if command_name in allowed_session_commands:
             if command_name == "status":
                 return await self._handle_status(arguments)
             if command_name == "tools":
@@ -545,7 +579,7 @@ class SlashCommandHandler:
             )
 
     async def _handle_tools(self) -> str:
-        """List available MCP tools for the current agent."""
+        """List available tools for the current agent."""
         heading = "# tools"
 
         agent, error = self._get_current_agent_or_error(heading)

@@ -121,12 +121,13 @@ class ModelFactory:
         "haiku": "claude-haiku-4-5",
         "haiku3": "claude-3-haiku-20240307",
         "haiku35": "claude-3-5-haiku-latest",
-        "hauku45": "claude-haiku-4-5",
+        "haiku45": "claude-haiku-4-5",
         "opus": "claude-opus-4-5",
         "opus4": "claude-opus-4-1",
         "opus45": "claude-opus-4-5",
         "opus3": "claude-3-opus-latest",
         "deepseekv3": "deepseek-chat",
+        "deepseek3": "deepseek-chat",
         "deepseek": "deepseek-chat",
         "gemini2": "gemini-2.0-flash",
         "gemini25": "gemini-2.5-flash-preview-09-2025",
@@ -195,10 +196,17 @@ class ModelFactory:
         # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
         if suffix and ":" in model_string:
             model_string = model_string.rsplit(":", 1)[0]
+        provider_override: Provider | None = None
+        if "/" in model_string:
+            prefix, rest = model_string.split("/", 1)
+            if prefix and rest and any(p.value == prefix for p in Provider):
+                provider_override = Provider(prefix)
+                model_string = rest
+
         parts = model_string.split(".")
 
         model_name_str = model_string  # Default full string as model name initially
-        provider = None
+        provider: Provider | None = provider_override
         reasoning_effort = None
         parts_for_provider_model = []
 
@@ -213,7 +221,7 @@ class ModelFactory:
         # Try to match longest possible provider string
         identified_provider_parts = 0  # How many parts belong to the provider string
 
-        if len(parts_for_provider_model) >= 2:
+        if provider is None and len(parts_for_provider_model) >= 2:
             potential_provider_str = f"{parts_for_provider_model[0]}.{parts_for_provider_model[1]}"
             if any(p.value == potential_provider_str for p in Provider):
                 provider = Provider(potential_provider_str)

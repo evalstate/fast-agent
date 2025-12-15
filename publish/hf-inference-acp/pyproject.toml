@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hf-inference-acp"
+version = "0.1.0"
+description = "Hugging Face inference agent with ACP support, powered by fast-agent-mcp"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Fast Agent Maintainers", email = "fastagent@llmindset.co.uk" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.13.5,<3.14"
+dependencies = [
+    "fast-agent-mcp>=0.4.4",
+    "huggingface_hub>=1.2.3",
+    "ruamel.yaml>=0.18.16",
+]
+
+[project.urls]
+Homepage = "https://github.com/evalstate/fast-agent"
+Repository = "https://github.com/evalstate/fast-agent"
+Issues = "https://github.com/evalstate/fast-agent/issues"
+
+[project.scripts]
+hf-inference-acp = "hf_inference_acp.cli:main"
+
+[tool.hatch.build]
+packages = ["src/hf_inference_acp"]
+
+[tool.hatch.build.targets.wheel]
+artifacts = ["src/hf_inference_acp/resources/*"]

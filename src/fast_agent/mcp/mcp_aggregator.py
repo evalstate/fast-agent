@@ -350,12 +350,14 @@ class MCPAggregator(ContextDependent):
 
         return session_factory
 
-    async def load_servers(self) -> None:
+    async def load_servers(self, *, force_connect: bool = False) -> None:
         """
         Discover tools from each server in parallel and build an index of namespaced tool names.
         Also populate the prompt cache.
+
+        Set force_connect=True to override load_on_start guards (e.g., when a user issues /connect).
         """
-        if self.initialized:
+        if self.initialized and not force_connect:
             logger.debug("MCPAggregator already initialized.")
             return
 
@@ -368,7 +370,24 @@ class MCPAggregator(ContextDependent):
 
         self._skybridge_configs.clear()
 
+        servers_to_load: list[str] = []
+        skipped_servers: list[str] = []
+
         for server_name in self.server_names:
+            # Check if server should be loaded on start
+            if self.context and getattr(self.context, "server_registry", None):
+                server_config = self.context.server_registry.get_server_config(server_name)
+                if (
+                    server_config
+                    and not getattr(server_config, "load_on_start", True)
+                    and not force_connect
+                ):
+                    logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
+                    skipped_servers.append(server_name)
+                    continue
+
+            servers_to_load.append(server_name)
+
             if self.connection_persistence:
                 logger.info(
                     f"Creating persistent connection to server: {server_name}",
@@ -391,6 +410,15 @@ class MCPAggregator(ContextDependent):
                 data={
                     "progress_action": ProgressAction.INITIALIZED,
                     "agent_name": self.agent_name,
+                },
+            )
+
+        if skipped_servers:
+            logger.debug(
+                "Deferred MCP servers due to load_on_start=False",
+                data={
+                    "agent_name": self.agent_name,
+                    "servers": skipped_servers,
                 },
             )
 
@@ -442,9 +470,13 @@ class MCPAggregator(ContextDependent):
 
             return server_name, tools, prompts
 
+        if not servers_to_load:
+            self.initialized = True
+            return
+
         # Gather data from all servers concurrently
         results = await gather(
-            *(load_server_data(server_name) for server_name in self.server_names),
+            *(load_server_data(server_name) for server_name in servers_to_load),
             return_exceptions=True,
         )
 
@@ -490,19 +522,20 @@ class MCPAggregator(ContextDependent):
                 },
             )
 
-        await self._initialize_skybridge_configs()
+        await self._initialize_skybridge_configs(servers_to_load)
 
         self._display_startup_state(total_tool_count, total_prompt_count)
 
         self.initialized = True
 
-    async def _initialize_skybridge_configs(self) -> None:
+    async def _initialize_skybridge_configs(self, server_names: list[str] | None = None) -> None:
         """Discover Skybridge resources across servers."""
-        if not self.server_names:
+        target_servers = server_names if server_names is not None else self.server_names
+        if not target_servers:
             return
 
         tasks = [
-            self._evaluate_skybridge_for_server(server_name) for server_name in self.server_names
+            self._evaluate_skybridge_for_server(server_name) for server_name in target_servers
         ]
         results = await gather(*tasks, return_exceptions=True)
 

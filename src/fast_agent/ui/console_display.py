@@ -7,7 +7,7 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
 
-from fast_agent.config import Settings
+from fast_agent.config import LoggerSettings, Settings
 from fast_agent.constants import REASONING
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.ui import console
@@ -57,9 +57,22 @@ class ConsoleDisplay:
             config: Configuration object containing display preferences
         """
         self.config = config
-        self._markup = config.logger.enable_markup if config else True
+        self._logger_settings = self._resolve_logger_settings(config)
+        if self.config and not getattr(self.config, "logger", None):
+            # Ensure callers passing in a bare namespace still get sane defaults
+            try:
+                setattr(self.config, "logger", self._logger_settings)
+            except Exception:
+                pass
+        self._markup = getattr(self._logger_settings, "enable_markup", True)
         self._escape_xml = True
         self._tool_display = ToolDisplay(self)
+
+    @staticmethod
+    def _resolve_logger_settings(config: Settings | None) -> LoggerSettings:
+        """Provide a logger settings object even when callers omit it."""
+        logger_settings = getattr(config, "logger", None) if config else None
+        return logger_settings if logger_settings is not None else LoggerSettings()
 
     @property
     def code_style(self) -> str:

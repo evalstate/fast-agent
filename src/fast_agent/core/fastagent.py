@@ -379,7 +379,7 @@ class FastAgent:
             name: str = "default",
             instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
-            instruction: str | Path | AnyUrl = "You are a helpful agent.",
+            instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
             servers: list[str] = [],
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,

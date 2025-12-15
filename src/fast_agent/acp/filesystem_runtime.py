@@ -68,8 +68,7 @@ class ACPFilesystemRuntime:
         # Tool definition for reading text files
         self._read_tool = Tool(
             name="read_text_file",
-            description="Read content from a text file. Returns the file contents as a string. "
-            "The client handles file access and permissions.",
+            description="Read content from a text file. Returns the file contents as a string. ",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -96,8 +95,7 @@ class ACPFilesystemRuntime:
         # Tool definition for writing text files
         self._write_tool = Tool(
             name="write_text_file",
-            description="Write content to a text file. Creates or overwrites the file. "
-            "The client handles file access and permissions.",
+            description="Write content to a text file. Creates or overwrites the file. ",
             inputSchema={
                 "type": "object",
                 "properties": {

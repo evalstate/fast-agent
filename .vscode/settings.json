@@ -16,5 +16,6 @@
   "python.testing.unittestEnabled": false,
   "python.testing.pytestEnabled": true,
   "python.analysis.typeCheckingMode": "standard",
-  "python.analysis.nodeExecutable": "auto"
+  "python.analysis.nodeExecutable": "auto",
+  "python-envs.pythonProjects": []
 }

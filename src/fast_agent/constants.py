@@ -17,11 +17,17 @@ DEFAULT_MAX_ITERATIONS = 99
 DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT = 8192
 """Baseline byte limit for ACP terminal output when no model info exists."""
 
-TERMINAL_OUTPUT_TOKEN_RATIO = 0.5
-"""Assume terminal output may consume at least half of model max output tokens."""
+TERMINAL_OUTPUT_TOKEN_RATIO = 0.25
+"""Target fraction of model max output tokens to budget for terminal output."""
+
+TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO = 0.2
+"""Leave headroom for tool wrapper text and other turn data."""
 
 TERMINAL_AVG_BYTES_PER_TOKEN = 4
 """Conservative bytes-per-token estimate for mapping token budgets to byte limits."""
+
+MAX_TERMINAL_OUTPUT_BYTE_LIMIT = 32768
+"""Hard cap on default ACP terminal output to avoid oversized tool payloads."""
 
 DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 

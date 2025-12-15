@@ -1,0 +1,21 @@
+# HuggingFace Inference ACP Configuration
+
+# Default model for HuggingFace inference
+# Format: hf.<org>/<model>:<provider>
+# Examples:
+#   - hf.moonshotai/Kimi-K2-Instruct-0905
+#   - hf.moonshotai/Kimi-K2-Instruct-0905:groq
+#   - hf.MiniMaxAI/MiniMax-M2
+default_model: kimi
+
+# MCP Servers configuration
+# The HuggingFace MCP server is connected lazily via /connect command
+mcp:
+  servers:
+    huggingface:
+      url: "https://huggingface.co/mcp"
+      load_on_start: false
+
+hf:
+#  api_key: hf_xxxxxx - you can set your API key here (takes priority)
+#  default_provider: [together|cerberas|groq|etc.]

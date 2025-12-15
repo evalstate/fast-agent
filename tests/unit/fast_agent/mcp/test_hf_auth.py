@@ -112,7 +112,7 @@ class TestGetHfTokenFromEnv:
     def test_token_empty_string(self):
         original = _set_hf_token("")
         try:
-            assert get_hf_token_from_env() == ""
+            assert None is get_hf_token_from_env()
         finally:
             _restore_hf_token(original)
 

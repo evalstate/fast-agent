@@ -51,10 +51,22 @@ def get_hf_token_from_env() -> str | None:
     """
     Get the HuggingFace token from the HF_TOKEN environment variable.
 
+    Falls back to `huggingface_hub.get_token()` when available, so users who have
+    authenticated via `hf auth login` don't need to manually export HF_TOKEN.
+
     Returns:
         The HF_TOKEN value if set, None otherwise
     """
-    return os.environ.get("HF_TOKEN")
+    token = os.environ.get("HF_TOKEN")
+    if token:
+        return token
+
+    try:
+        from huggingface_hub import get_token  # type: ignore
+
+        return get_token()
+    except Exception:
+        return None
 
 
 def should_add_hf_auth(url: str, existing_headers: dict[str, str] | None) -> bool:

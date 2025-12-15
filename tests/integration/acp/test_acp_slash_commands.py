@@ -141,7 +141,7 @@ async def test_slash_command_status() -> None:
     response = await handler.execute_command("status", "")
 
     # Should contain expected sections
-    assert "Fast-Agent Status" in response or "fast-agent" in response.lower()
+    assert "fast-agent Status" in response or "fast-agent" in response.lower()
     assert "Version" in response or "version" in response.lower()
     assert "Model" in response or "model" in response.lower()
     # Context stats should be present even if values are minimal
