@@ -10,22 +10,24 @@ uvx hf-inference-acp
 
 ## What is this?
 
-This package provides an ACP-compatible agent for Hugging Face Inference API. It allows you to use Hugging Face's Inference Providers through any ACP-compatible client (like Claude Code).
+This package provides an ACP-compatible agent for Hugging Face Inference API. It allows you to use Hugging Face's Inference Providers through any ACP-compatible client (like Toad).
 
 ## Features
 
-- **Setup Mode**: Configure HuggingFace credentials and model settings
-- **Hugging Face Mode**: AI assistant powered by HuggingFace Inference API
-- **HuggingFace MCP Server**: Built-in integration with HuggingFace's MCP server for accessing models, datasets, and spaces
+- **Setup Mode**: Configure Hugging Face credentials and model settings
+- **Hugging Face Mode**: AI assistant powered by Hugging Face Inference API
+- **HuggingFace MCP Server**: Built-in integration with Hugging Face's MCP server for accessing models, datasets, and spaces
 
 ## Quick Start
 
 1. Run the agent:
+
    ```bash
    uvx hf-inference-acp
    ```
 
 2. If `HF_TOKEN` is not set, you'll start in **Setup** mode with these commands:
+
    - `/login` - Get instructions for HuggingFace authentication
    - `/set-model <model>` - Set the default model
    - `/check` - Verify your configuration
@@ -52,6 +54,7 @@ mcp:
 Set your HuggingFace token using one of these methods:
 
 1. **Environment variable**:
+
    ```bash
    export HF_TOKEN=your_token_here
    ```
