@@ -9,7 +9,6 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
-from fast_agent.types import PromptMessageExtended
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
     has_hf_token,
@@ -23,6 +22,7 @@ if TYPE_CHECKING:
     from mcp import Tool
 
     from fast_agent.llm.fastagent_llm import RequestParams
+    from fast_agent.types import PromptMessageExtended
 
 logger = get_logger(__name__)
 
