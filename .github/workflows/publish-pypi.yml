@@ -49,16 +49,12 @@ jobs:
           pushd publish/fast-agent-acp
           uv build
           popd
-          mkdir -p dist
-          cp publish/fast-agent-acp/dist/* dist/
 
       - name: Build Hugging Face inference package
         run: |
           pushd publish/hf-inference-acp
           uv build
           popd
-          mkdir -p dist
-          cp publish/hf-inference-acp/dist/* dist/
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
