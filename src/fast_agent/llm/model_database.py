@@ -278,6 +278,7 @@ class ModelDatabase:
         "gpt-5.1": OPENAI_GPT_5,
         "gpt-5.1-mini": OPENAI_GPT_5,  # pre-emptive
         "gpt-5.1-nano": OPENAI_GPT_5,  # pre-emptive
+        "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
         "claude-3-haiku-20240307": ANTHROPIC_LEGACY,
