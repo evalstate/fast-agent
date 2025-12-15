@@ -45,16 +45,10 @@ jobs:
         run: uv build --package fast-agent-mcp
 
       - name: Build wrapper package
-        run: |
-          uv build --package fast-agent-acp
-          mkdir -p dist
-          cp publish/fast-agent-acp/dist/* dist/
+        run: uv build --package fast-agent-acp
 
       - name: Build Hugging Face inference package
-        run: |
-          uv build --package hf-inference-acp
-          mkdir -p dist
-          cp publish/hf-inference-acp/dist/* dist/
+        run: uv build --package hf-inference-acp
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
