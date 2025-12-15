@@ -478,7 +478,7 @@ wheels = [
 
 [[package]]
 name = "fast-agent-acp"
-version = "0.3.27"
+version = "0.4.7"
 source = { editable = "publish/fast-agent-acp" }
 dependencies = [
     { name = "fast-agent-mcp" },
@@ -489,7 +489,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.4.7"
+version = "0.4.8"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -774,7 +774,7 @@ wheels = [
 
 [[package]]
 name = "hf-inference-acp"
-version = "0.1.0"
+version = "0.4.7"
 source = { editable = "publish/hf-inference-acp" }
 dependencies = [
     { name = "fast-agent-mcp" },
