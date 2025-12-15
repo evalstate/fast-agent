@@ -1,15 +1,12 @@
-"""Simple Agents-as-Tools PMO example.
+"""Agents-as-Tools PMO example.
 
-Parent agent ("PMO-orchestrator") calls two child agents ("NY-Project-Manager"
-and "London-Project-Manager") as tools. Each child uses the ``time`` MCP
-server to include local time in a brief report.
+PMO-orchestrator calls NY/London agents as tools; each uses the `time` MCP server.
 
-Defaults: clones fork parent history (no merge-back), no timeout, no parallel cap,
-and collapses progress display after the first 20 instances.
-If you want merge-back or other limits, pass decorator args:
-`history_mode=HistoryMode.FORK_AND_MERGE`, `child_timeout_sec=600`,
-`max_parallel=8`, `max_display_instances=10`
-(HistoryMode import: fast_agent.agents.workflow.agents_as_tools_agent).
+Illustrates: routing, parallelization, and orchestrator-workers from Anthropic’s
+[Building effective agents](https://www.anthropic.com/engineering/building-effective-agents).
+
+This pattern and sample are inspired by the OpenAI Agents SDK
+[Agents as tools](https://openai.github.io/openai-agents-python/tools/#agents-as-tools) feature.
 """
 
 import asyncio
@@ -21,29 +18,27 @@ fast = FastAgent("Agents-as-Tools simple demo")
 
 @fast.agent(
     name="NY-Project-Manager",
-    instruction="Return current time and project status.",
-    servers=["time"],  # MCP server 'time' configured in fastagent.config.yaml
+    instruction="Return NY time + timezone, plus a one-line project status.",
+    servers=["time"],
 )
 @fast.agent(
     name="London-Project-Manager",
-    instruction="Return current time and news.",
+    instruction="Return London time + timezone, plus a one-line news update.",
     servers=["time"],
 )
 @fast.agent(
     name="PMO-orchestrator",
-    instruction="Get reports. Separate call per topic. NY: {OpenAI, Fast-Agent, Anthropic}, London: Economics",
+    instruction=(
+        "Get reports. Always use one tool call per project/news. "  # parallelization
+        "Responsibilities: NY projects: [OpenAI, Fast-Agent, Anthropic]. London news: [Economics, Art, Culture]. "  # routing
+        "Aggregate results and add a one-line PMO summary."
+    ),
     default=True,
-    agents=[
-        "NY-Project-Manager",
-        "London-Project-Manager",
-    ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
-    # optional: history_mode="fork_and_merge", child_timeout_sec=600, max_parallel=8, max_display_instances=10
+    agents=["NY-Project-Manager", "London-Project-Manager"],  # orchestrator-workers
 )
 async def main() -> None:
     async with fast.run() as agent:
-        result = await agent("Get PMO report")
-        await agent.interactive()
-        print(result)
+        await agent("Get PMO report. Projects: all. News: Art, Culture")
 
 
 if __name__ == "__main__":

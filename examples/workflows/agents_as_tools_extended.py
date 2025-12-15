@@ -1,21 +1,41 @@
 """Agents-as-Tools example: project managers for NY and London.
 
+Children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager.
+
 Parent agent ("PMO-orchestrator") calls two child agents
-("NY-Project-Manager" and "London-Project-Manager") as tools. Each child uses
-the ``time`` MCP server for local time and the ``fetch`` MCP server for a short
+("NY-Project-Manager" and "London-Project-Manager") as tools. 
+
+Each child uses the `time` MCP server for local time and the `fetch` MCP server for a short
 news-based update on the given topics.
 
-Defaults: clones fork parent history (no merge-back), no timeout, no parallel cap,
-and collapses progress display after the first 20 instances.
-To change behavior, pass decorator args such as
-`history_mode=HistoryMode.FORK_AND_MERGE`, `child_timeout_sec=600`,
-`max_parallel=8`, `max_display_instances=10`
-(HistoryMode import: fast_agent.agents.workflow.agents_as_tools_agent).
+Common usage patterns may combine:
+
+- Routing: choose the right specialist tool(s) based on the user prompt.
+- Parallelization: fan out over independent items/projects, then aggregate.
+- Orchestrator-workers: break a task into scoped subtasks (often via a simple JSON plan), then coordinate execution.
+
+How it works:
+
+- You declare a parent agent with `agents=[...]`.
+- At runtime it is instantiated as an internal `AgentsAsToolsAgent`, which:
+  - Inherits from `McpAgent` (keeps its own MCP servers/tools).
+  - Exposes each child agent as a tool (`agent__ChildName`).
+  - Merges MCP tools and agent-tools in a single `list_tools()` surface.
+  - Supports history/parallel controls:
+    - `history_mode` (controls child history):
+      - `scratch`: clones start with empty history
+      - `**fork**` (default): clones start from the template child history; no merge-back
+      - `fork_and_merge`: merge clone history back into the template child agent
+    - `max_parallel` (default unlimited)
+    - `child_timeout_sec` (default none)
+    - `max_display_instances` (default 20; collapse progress after top-N)
+
 """
 
 import asyncio
 
 from fast_agent import FastAgent
+from fast_agent.agents.workflow.agents_as_tools_agent import HistoryMode
 
 # Create the application
 fast = FastAgent("Agents-as-Tools demo")
@@ -60,8 +80,14 @@ fast = FastAgent("Agents-as-Tools demo")
     agents=[
         "NY-Project-Manager",
         "London-Project-Manager",
-    ],  # children are exposed as tools: agent__NY-Project-Manager, agent__London-Project-Manager
-    # optional: history_mode="fork_and_merge", child_timeout_sec=600, max_parallel=8, max_display_instances=10
+    ],  
+    # Defaults: clones fork parent history (no merge-back), no timeout, no parallel cap,
+    # and collapses progress display after the first 20 instances.
+    # To change behavior, pass decorator args
+    history_mode=HistoryMode.SCRATCH,
+    max_parallel=128,
+    child_timeout_sec=120,
+    max_display_instances=20
 )
 async def main() -> None:
     async with fast.run() as agent:
