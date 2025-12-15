@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fast-agent-acp"
-version = "0.3.27"
+version = "0.4.7"
 description = "Convenience launcher that pulls in fast-agent-mcp and exposes the ACP CLI entrypoint."
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -18,7 +18,7 @@ classifiers = [
 ]
 requires-python = ">=3.13.5,<3.14"
 dependencies = [
-    "fast-agent-mcp==0.3.27",
+    "fast-agent-mcp==0.4.7",
 ]
 
 [project.urls]
