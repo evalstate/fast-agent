@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_ch
 
 from acp.schema import (
     PermissionOption,
+    ToolCallProgress,
     ToolCallUpdate,
     ToolKind,
 )
@@ -251,6 +252,24 @@ class ACPToolPermissionManager:
             if len(arg_str) > 50:
                 arg_str = arg_str[:47] + "..."
             title = f"{title}({arg_str})"
+
+        # If we have an ACP toolCallId already (e.g. from streaming tool notifications),
+        # proactively update the tool call title so the client UI matches the permission prompt.
+        if tool_call_id and len(tool_call_id) == 32:
+            lowered = tool_call_id.lower()
+            if all(ch in "0123456789abcdef" for ch in lowered):
+                try:
+                    await self._connection.session_update(
+                        session_id=self._session_id,
+                        update=ToolCallProgress(
+                            tool_call_id=tool_call_id,
+                            title=title,
+                            status="pending",
+                            session_update="tool_call_update",
+                        ),
+                    )
+                except Exception:
+                    pass
 
         # Create ToolCallUpdate object per ACP spec with raw_input for full argument visibility
         tool_kind = _infer_tool_kind(tool_name, arguments)

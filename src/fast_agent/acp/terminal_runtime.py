@@ -67,22 +67,22 @@ class ACPTerminalRuntime:
         self.logger = logger_instance or logger
         self.timeout_seconds = timeout_seconds
         self._tool_handler = tool_handler
-        self._default_output_byte_limit = default_output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        self._default_output_byte_limit = (
+            default_output_byte_limit or DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
+        )
         self._permission_handler = permission_handler
 
         # Tool definition for LLM
         self._tool = Tool(
             name="execute",
-            description="Run a shell command in the client's terminal. "
-            "The client will display the terminal and handle execution. "
-            "You will receive the output when the command completes.",
+            description="Execute a shell command.",
             inputSchema={
                 "type": "object",
                 "properties": {
                     "command": {
                         "type": "string",
                         "description": "The shell command to execute. Do not include shell "
-                        "prefix (bash -c, etc.) - just provide the command string.",
+                        "prefix (bash -c, etc.).",
                     },
                     "args": {
                         "type": "array",
@@ -98,10 +98,11 @@ class ACPTerminalRuntime:
                         "type": "string",
                         "description": "Optional absolute path for working directory.",
                     },
-                    "outputByteLimit": {
-                        "type": "integer",
-                        "description": "Optional maximum bytes of output to retain (prevents unbounded buffers).",
-                    },
+                    # Do not allow model to handle this for the moment.
+                    # "outputByteLimit": {
+                    #     "type": "integer",
+                    #     "description": "Maximum bytes of output to retain.  (prevents unbounded buffers).",
+                    # },
                 },
                 "required": ["command"],
                 "additionalProperties": False,
@@ -120,7 +121,9 @@ class ACPTerminalRuntime:
         """Get the execute tool definition."""
         return self._tool
 
-    async def execute(self, arguments: dict[str, Any], tool_use_id: str | None = None) -> CallToolResult:
+    async def execute(
+        self, arguments: dict[str, Any], tool_use_id: str | None = None
+    ) -> CallToolResult:
         """
         Execute a command using ACP terminal support.
 
@@ -142,9 +145,7 @@ class ACPTerminalRuntime:
         if not command or not isinstance(command, str):
             return CallToolResult(
                 content=[
-                    text_content(
-                        "Error: 'command' argument is required and must be a string"
-                    )
+                    text_content("Error: 'command' argument is required and must be a string")
                 ],
                 isError=True,
             )
@@ -232,7 +233,9 @@ class ACPTerminalRuntime:
             else:
                 create_params["outputByteLimit"] = self._default_output_byte_limit
 
-            create_result = await self.connection._conn.send_request("terminal/create", create_params)
+            create_result = await self.connection._conn.send_request(
+                "terminal/create", create_params
+            )
             terminal_id = create_result.get("terminalId")
 
             if not terminal_id:
@@ -301,7 +304,9 @@ class ACPTerminalRuntime:
             # Step 3: Get the output
             self.logger.debug(f"Retrieving output from terminal {terminal_id}")
             output_params = {"sessionId": self.session_id, "terminalId": terminal_id}
-            output_result = await self.connection._conn.send_request("terminal/output", output_params)
+            output_result = await self.connection._conn.send_request(
+                "terminal/output", output_params
+            )
             output_text = output_result.get("output", "")
             truncated = output_result.get("truncated", False)
 
@@ -363,11 +368,11 @@ class ACPTerminalRuntime:
             # Notify tool handler of error
             if self._tool_handler and tool_call_id:
                 try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, False, None, str(e)
-                    )
+                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
                 except Exception as handler_error:
-                    self.logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
+                    self.logger.error(
+                        f"Error in tool complete handler: {handler_error}", exc_info=True
+                    )
 
             return CallToolResult(
                 content=[text_content(f"Terminal execution error: {e}")],

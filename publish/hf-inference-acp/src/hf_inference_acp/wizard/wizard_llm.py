@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from mcp import Tool
+from mcp import CallToolRequest
+from mcp.types import CallToolRequestParams
 
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -12,21 +13,18 @@ from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.types import PromptMessageExtended
-
+from fast_agent.types.llm_stop_reason import LlmStopReason
 from hf_inference_acp.hf_config import (
     get_hf_token,
     has_hf_token,
     update_api_key_in_config,
     update_model_in_config,
 )
-from hf_inference_acp.wizard.model_catalog import (
-    CUSTOM_MODEL_OPTION,
-    build_model_selection_schema,
-    get_model_by_id,
-)
 from hf_inference_acp.wizard.stages import WizardStage, WizardState
 
 if TYPE_CHECKING:
+    from mcp import Tool
+
     from fast_agent.llm.fastagent_llm import RequestParams
 
 logger = get_logger(__name__)
@@ -51,9 +49,7 @@ class WizardSetupLLM(PassthroughLLM):
         self._on_complete_callback: Callable[["WizardState"], Any] | None = None
         self.logger = get_logger(__name__)
 
-    def set_completion_callback(
-        self, callback: Callable[["WizardState"], Any]
-    ) -> None:
+    def set_completion_callback(self, callback: Callable[["WizardState"], Any]) -> None:
         """Set callback to be called when wizard completes."""
         self._on_complete_callback = callback
 
@@ -84,9 +80,14 @@ class WizardSetupLLM(PassthroughLLM):
             return result
 
         # Process through wizard state machine
-        response_text = await self._process_stage(user_input)
+        response = await self._process_stage(user_input)
 
-        result = Prompt.assistant(response_text)
+        # Handlers can return either a string or a PromptMessageExtended (for tool calls)
+        if isinstance(response, PromptMessageExtended):
+            result = response
+        else:
+            result = Prompt.assistant(response)
+
         self._track_usage(multipart_messages, result)
         return result
 
@@ -96,18 +97,19 @@ class WizardSetupLLM(PassthroughLLM):
         result: PromptMessageExtended,
     ) -> None:
         """Track usage for billing/analytics."""
+        tool_call_count = len(result.tool_calls) if result.tool_calls else 0
         turn_usage = create_turn_usage_from_messages(
             input_content=input_messages[-1].all_text(),
             output_content=result.all_text(),
             model="wizard-setup",
             model_type="wizard-setup",
-            tool_calls=0,
+            tool_calls=tool_call_count,
             delay_seconds=0.0,
         )
         self.usage_accumulator.add_turn(turn_usage)
 
-    async def _process_stage(self, user_input: str) -> str:
-        """Process current stage and return response."""
+    async def _process_stage(self, user_input: str) -> str | PromptMessageExtended:
+        """Process current stage and return response (string or PromptMessageExtended for tool calls)."""
         # Handle first message - show welcome
         if self._state.first_message:
             self._state.first_message = False
@@ -132,17 +134,16 @@ class WizardSetupLLM(PassthroughLLM):
     def _render_welcome(self) -> str:
         """Render the welcome message."""
         self._state.stage = WizardStage.WELCOME
-        return """
-================================================================================
-        HuggingFace Inference Setup Wizard
-================================================================================
+        return """# Hugging Face Inference Providers Setup Wizard
+
+---
 
 Welcome! This wizard will help you configure:
 
-  1. Your HuggingFace token (required for API access)
-  2. Your default inference model
+1. Your Hugging Face token (required for API access)
+1. Your default inference model
 
-Type 'go' to begin, or 'skip' to use slash commands instead.
+Type `go` to begin, or `skip` to use slash commands instead.
 """
 
     async def _handle_welcome(self, user_input: str) -> str:
@@ -178,19 +179,15 @@ Type any command to continue.
 
     def _render_token_guide(self) -> str:
         """Render token setup instructions."""
-        return """
-================================================================================
-        Step 1: HuggingFace Token Setup
-================================================================================
+        return """## Step 1 -  Hugging Face Token Setup
 
-Your HuggingFace token is not configured.
+Your Hugging Face token is not configured.
 
 Options:
-  [1] Run interactive login (huggingface-cli login)
+  [1] Run interactive login (hf auth login)
   [2] I'll set HF_TOKEN manually
 
---------------------------------------------------------------------------------
-Enter 1 or 2, or type 'check' after setting your token:
+Enter 1 or 2, or type `check` after setting your token:
 """
 
     def _render_manual_token_instructions(self) -> str:
@@ -206,21 +203,36 @@ Option A - Environment variable:
     export HF_TOKEN=hf_your_token_here
 
 Option B - CLI login (in a separate terminal):
-    huggingface-cli login
+    hf auth login
 
 --------------------------------------------------------------------------------
-Type 'check' to verify your token, or '1' to run interactive login.
+Type `check` to verify your token, or `1` to run interactive login.
 """
 
-    async def _handle_token_guide(self, user_input: str) -> str:
+    async def _handle_token_guide(self, user_input: str) -> str | PromptMessageExtended:
         """Handle token guide stage input."""
         cmd = user_input.lower().strip()
 
         if cmd == "1" or cmd == "login":
-            # Use CALL_TOOL marker to invoke execute tool for interactive login
+            # Return a proper tool call request for interactive login
             # After the tool runs, user will need to type 'check' to continue
             self._state.awaiting_login_result = True
-            return "***CALL_TOOL execute {\"command\": \"huggingface-cli login\"}"
+            tool_call_id = f"hf_login_{self._correlation_id}"
+            self._correlation_id += 1
+            return Prompt.assistant(
+                "Running `hf auth login`... Follow the prompts in the terminal.\n\n"
+                "Type `check` when done to verify your token.",
+                tool_calls={
+                    tool_call_id: CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(
+                            name="execute",
+                            arguments={"command": "hf auth login"},
+                        ),
+                    )
+                },
+                stop_reason=LlmStopReason.TOOL_USE,
+            )
         elif cmd == "2" or cmd == "manual":
             return self._render_manual_token_instructions()
         elif cmd in ("check", "verify"):
@@ -254,9 +266,8 @@ Type 'check' to verify your token, or '1' to run interactive login.
 
             # Move to model selection
             self._state.stage = WizardStage.MODEL_SELECT
-            return f"""
-Token verified successfully! Connected as: {username}
-
+            return f"""Token verified - connected as: `{username}`
+            
 {self._render_model_selection()}"""
         except Exception as e:
             self._state.token_verified = False
@@ -269,9 +280,7 @@ Token verification failed: {e}
 
     def _render_model_selection(self) -> str:
         """Render model selection prompt."""
-        return """
-================================================================================
-        Step 2: Select Default Model
+        return """## Step 2 : Select Default Model
 ================================================================================
 
 Choose your default inference model by entering a number:
@@ -385,10 +394,10 @@ Model ID: {self._state.selected_model}
 ================================================================================
 
 Your configuration has been saved:
-  - Token: verified (connected as {self._state.hf_username or 'unknown'})
+  - Token: verified (connected as {self._state.hf_username or "unknown"})
   - Model: {self._state.selected_model}
 
-You're now ready to use the HuggingFace assistant!
+You're now ready to use the Hugging Face assistant!
 
 Switching to chat mode...
 """

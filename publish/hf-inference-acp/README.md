@@ -1,6 +1,6 @@
 # hf-inference-acp
 
-HuggingFace inference agent with ACP (Agent Client Protocol) support, powered by fast-agent-mcp.
+Hugging Face inference agent with ACP (Agent Client Protocol) support, powered by fast-agent-mcp.
 
 ## Installation
 
@@ -10,7 +10,7 @@ uvx hf-inference-acp
 
 ## What is this?
 
-This package provides an ACP-compatible agent for HuggingFace Inference API. It allows you to use HuggingFace's inference services through any ACP-compatible client (like Claude Code).
+This package provides an ACP-compatible agent for Hugging Face Inference API. It allows you to use Hugging Face's Inference Providers through any ACP-compatible client (like Claude Code).
 
 ## Features
 
@@ -32,7 +32,7 @@ This package provides an ACP-compatible agent for HuggingFace Inference API. It 
 
 3. Once authenticated (HF_TOKEN is set), you'll automatically start in **Hugging Face** mode.
 
-4. In **Hugging Face** mode, use `/connect` to connect to the HuggingFace MCP server for model/dataset search tools.
+4. In **Hugging Face** mode, use `/connect` to connect to the Hugging Face MCP server for model/dataset search tools.
 
 ## Configuration
 

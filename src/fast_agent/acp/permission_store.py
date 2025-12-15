@@ -157,7 +157,7 @@ class PermissionStore:
 
         # Build markdown content
         lines = [
-            "# Fast-Agent Tool Permissions",
+            "# fast-agent Tool Permissions",
             "",
             "This file stores persistent tool execution permissions.",
             "You can edit this file manually to add or remove permissions.",
@@ -180,9 +180,7 @@ class PermissionStore:
             name="permission_store_saved",
         )
 
-    async def get(
-        self, server_name: str, tool_name: str
-    ) -> PermissionDecision | None:
+    async def get(self, server_name: str, tool_name: str) -> PermissionDecision | None:
         """
         Get stored permission for a server/tool.
 
@@ -198,9 +196,7 @@ class PermissionStore:
             key = self._get_permission_key(server_name, tool_name)
             return self._cache.get(key)
 
-    async def set(
-        self, server_name: str, tool_name: str, decision: PermissionDecision
-    ) -> None:
+    async def set(self, server_name: str, tool_name: str, decision: PermissionDecision) -> None:
         """
         Store a permission decision.
 

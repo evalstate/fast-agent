@@ -277,6 +277,16 @@ class ACPContext:
                     session_id=self._session_id,
                     update=mode_update,
                 )
+
+                # Keep server-side slash command routing and command lists consistent with
+                # agent-initiated mode switches.
+                if self._slash_handler:
+                    try:
+                        self._slash_handler.set_current_agent(mode_id)
+                    except Exception:
+                        pass
+                await self.send_available_commands_update()
+
                 logger.info(
                     "Mode switched via agent request",
                     name="acp_mode_switch",

@@ -104,6 +104,16 @@ class ProviderKeyManager:
         if not api_key:
             api_key = ProviderKeyManager.get_env_var(provider_name)
 
+        # HuggingFace: also support tokens managed by huggingface_hub (e.g. `hf auth login`)
+        # even when HF_TOKEN isn't explicitly set in the environment or config.
+        if not api_key and provider_name in {"hf", "huggingface"}:
+            try:
+                from huggingface_hub import get_token  # type: ignore
+
+                api_key = get_token()
+            except Exception:
+                pass
+
         if not api_key and provider_name == "generic":
             api_key = "ollama"  # Default for generic provider
 

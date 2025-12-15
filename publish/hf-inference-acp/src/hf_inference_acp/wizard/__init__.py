@@ -1,4 +1,4 @@
-"""HuggingFace Inference Setup Wizard package."""
+"""Hugging Face Inference Setup Wizard package."""
 
 from hf_inference_acp.wizard.model_catalog import (
     CURATED_MODELS,

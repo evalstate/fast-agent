@@ -55,7 +55,9 @@ from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
+    MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
     TERMINAL_AVG_BYTES_PER_TOKEN,
+    TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO,
     TERMINAL_OUTPUT_TOKEN_RATIO,
 )
 from fast_agent.core.fastagent import AgentInstance
@@ -267,6 +269,10 @@ class AgentACPServer(ACPAgent):
         # Some workflow agents (e.g., chain/parallel) don't attach an LLM directly.
         llm = getattr(agent, "_llm", None)
         model_name = getattr(llm, "model_name", None)
+        return self._calculate_terminal_output_limit_for_model(model_name)
+
+    @staticmethod
+    def _calculate_terminal_output_limit_for_model(model_name: str | None) -> int:
         if not model_name:
             return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
@@ -274,9 +280,14 @@ class AgentACPServer(ACPAgent):
         if not max_tokens:
             return DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT
 
-        estimated_tokens = max(int(max_tokens * TERMINAL_OUTPUT_TOKEN_RATIO), 1)
-        estimated_bytes = int(estimated_tokens * TERMINAL_AVG_BYTES_PER_TOKEN)
-        return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, estimated_bytes)
+        terminal_token_budget = max(int(max_tokens * TERMINAL_OUTPUT_TOKEN_RATIO), 1)
+        terminal_token_budget = max(
+            int(terminal_token_budget * (1 - TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO)), 1
+        )
+        terminal_byte_budget = int(terminal_token_budget * TERMINAL_AVG_BYTES_PER_TOKEN)
+
+        terminal_byte_budget = min(terminal_byte_budget, MAX_TERMINAL_OUTPUT_BYTE_LIMIT)
+        return max(DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT, terminal_byte_budget)
 
     async def initialize(
         self,
@@ -1007,11 +1018,17 @@ class AgentACPServer(ACPAgent):
                 content=mcp_content_blocks,
             )
 
-            # Get current agent for this session (defaults to primary agent if not set)
+            # Get current agent for this session (defaults to primary agent if not set).
+            # Prefer ACPContext.current_mode so agent-initiated mode switches route correctly.
             session_state = self._session_state.get(session_id)
-            current_agent_name = (
-                session_state.current_agent_name if session_state else self.primary_agent_name
-            )
+            acp_context = session_state.acp_context if session_state else None
+            current_agent_name = None
+            if acp_context is not None:
+                current_agent_name = acp_context.current_mode
+            if not current_agent_name and session_state:
+                current_agent_name = session_state.current_agent_name
+            if not current_agent_name:
+                current_agent_name = self.primary_agent_name
 
             # Check if this is a slash command
             # Only process slash commands if the prompt is a single text block

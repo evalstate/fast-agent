@@ -22,25 +22,44 @@ def get_hf_token() -> str | None:
     2. HF_TOKEN environment variable
     3. huggingface_hub token file (~/.cache/huggingface/token)
     """
+    token, _ = discover_hf_token()
+    return token
+
+
+def discover_hf_token(*, ignore_env: bool = False) -> tuple[str | None, str | None]:
+    """
+    Discover the HF token and report where it came from.
+
+    Returns:
+        (token, source) where source is one of: "config", "env", "huggingface_hub", or None
+    """
     # 1. Check our config file first
     config = load_config()
     hf_config = config.get("hf", {})
     if api_key := hf_config.get("api_key"):
-        return api_key
+        return api_key, "config"
 
     # 2. Check environment variable
-    if env_token := os.environ.get("HF_TOKEN"):
-        return env_token
+    if not ignore_env:
+        if env_token := os.environ.get("HF_TOKEN"):
+            return env_token, "env"
 
     # 3. Check huggingface_hub token file
     try:
         from huggingface_hub import get_token
 
-        return get_token()
+        token = get_token()
+        return token, "huggingface_hub" if token else (None, None)
     except ImportError:
         pass
 
-    return None
+    return None, None
+
+
+def get_hf_token_source(*, ignore_env: bool = False) -> str | None:
+    """Return the discovered HF token source without returning the token itself."""
+    _, source = discover_hf_token(ignore_env=ignore_env)
+    return source
 
 
 def has_hf_token() -> bool:
@@ -61,9 +80,7 @@ def ensure_config_exists() -> Path:
 
     # Create config file from template if it doesn't exist
     if not CONFIG_FILE.exists():
-        resource_path = (
-            files("hf_inference_acp").joinpath("resources").joinpath("hf.config.yaml")
-        )
+        resource_path = files("hf_inference_acp").joinpath("resources").joinpath("hf.config.yaml")
         if resource_path.is_file():
             template_content = resource_path.read_text()
             CONFIG_FILE.write_text(template_content)
@@ -103,11 +120,11 @@ def update_model_in_config(model: str) -> None:
 def update_api_key_in_config(api_key: str) -> None:
     """Update the hf.api_key in the config file.
 
-    This stores the HuggingFace token in the config file so the LLM provider
+    This stores the Hugging Face token in the config file so the LLM provider
     can access it via the standard ProviderKeyManager mechanism.
 
     Args:
-        api_key: The HuggingFace API token
+        api_key: The Hugging Face API token
     """
     config_path = ensure_config_exists()
     config = load_config()

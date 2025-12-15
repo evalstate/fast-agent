@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import os
+import uuid
 from typing import TYPE_CHECKING
 
 from fast_agent.acp import ACPAwareMixin, ACPCommand
 from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
+from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.logging.logger import get_logger
+
+from acp.helpers import text_block, tool_content
+from acp.schema import ToolCallProgress, ToolCallStart
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
@@ -17,6 +23,7 @@ if TYPE_CHECKING:
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
     get_default_model,
+    get_hf_token_source,
     has_hf_token,
     update_model_in_config,
 )
@@ -70,6 +77,9 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         # Try to switch to HuggingFace mode
         if self._context and self._context.acp:
             try:
+                if state.selected_model:
+                    await self._apply_model_to_running_hf_agent(state.selected_model)
+
                 # Check if huggingface mode is available
                 available_modes = self._context.acp.available_modes
                 if "huggingface" in available_modes:
@@ -82,6 +92,28 @@ class SetupAgent(ACPAwareMixin, McpAgent):
                     )
             except Exception as e:
                 logger.warning(f"Failed to auto-switch mode: {e}")
+
+    async def _apply_model_to_running_hf_agent(self, model: str) -> bool:
+        """
+        If the HuggingFace agent exists in this ACP session, update it in-place.
+
+        Returns True if we found the agent and attempted an update.
+        """
+        acp = self.acp
+        if not acp or not acp.slash_handler:
+            return False
+        instance = getattr(acp.slash_handler, "instance", None)
+        agents = getattr(instance, "agents", None) if instance else None
+        if not isinstance(agents, dict):
+            return False
+        hf_agent = agents.get("huggingface")
+        if not hf_agent or not hasattr(hf_agent, "apply_model"):
+            return False
+        try:
+            await hf_agent.apply_model(model)
+            return True
+        except Exception:
+            return True
 
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
@@ -106,6 +138,11 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         """Provide mode info for ACP clients."""
         return ACPModeInfo(name="Setup", description="Configure Hugging Face settings")
 
+    @property
+    def acp_session_commands_allowlist(self) -> set[str]:
+        """Restrict built-in session commands for setup flows."""
+        return {"status"}
+
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model command."""
         model = arguments.strip()
@@ -117,7 +154,12 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
         try:
             update_model_in_config(model)
-            return f"Default model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+            applied = await self._apply_model_to_running_hf_agent(model)
+            applied_note = "\n\nApplied to the running Hugging Face agent." if applied else ""
+            return (
+                f"Default model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+                f"{applied_note}"
+            )
         except Exception as e:
             return f"Error updating config: {e}"
 
@@ -152,7 +194,11 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
         # Check HF_TOKEN
         if has_hf_token():
-            lines.append("- **HF_TOKEN**: set")
+            # Prefer the original discovery source recorded at startup (if present),
+            # otherwise re-run discovery (may report "env" if auto-populated).
+            source = os.environ.get("FAST_AGENT_HF_TOKEN_SOURCE") or get_hf_token_source()
+            suffix = f" (source: {source})" if source else ""
+            lines.append(f"- **HF_TOKEN**: set{suffix}")
         else:
             lines.append("- **HF_TOKEN**: NOT SET")
             lines.append("  Use `/login` or set `HF_TOKEN` environment variable")
@@ -170,10 +216,10 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
 class HuggingFaceAgent(ACPAwareMixin, McpAgent):
     """
-    Main HuggingFace inference agent.
+    Main Hugging Face inference agent.
 
-    This is a standard agent that uses the HuggingFace LLM provider.
-    Supports lazy connection to HuggingFace MCP server via /connect command.
+    This is a standard agent that uses the Hugging Face LLM provider.
+    Supports lazy connection to Hugging Face MCP server via /connect command.
     """
 
     def __init__(
@@ -182,18 +228,23 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         context: "Context | None" = None,
         **kwargs,
     ) -> None:
-        """Initialize the HuggingFace agent."""
+        """Initialize the Hugging  Face agent."""
         McpAgent.__init__(self, config=config, context=context, **kwargs)
         self._context = context
         self._hf_mcp_connected = False
 
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
-        """Declare slash commands for the HuggingFace agent."""
+        """Declare slash commands for the Hugging Face agent."""
         return {
             "connect": ACPCommand(
-                description="Connect to HuggingFace MCP server",
+                description="Connect to Hugging Face MCP server",
                 handler=self._handle_connect,
+            ),
+            "set-model": ACPCommand(
+                description="Set the active Hugging Face model for this session",
+                input_hint="<model-name>",
+                handler=self._handle_set_model,
             ),
         }
 
@@ -205,21 +256,61 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         )
 
     async def _handle_connect(self, arguments: str) -> str:
-        """Handler for /connect command - lazily connect to HuggingFace MCP server."""
+        """Handler for /connect command - lazily connect to Hugging Face MCP server."""
         if self._hf_mcp_connected:
-            return "Already connected to HuggingFace MCP server."
+            return "Already connected to Hugging Face MCP server."
 
         if not has_hf_token():
             return (
                 "**Error**: HF_TOKEN not set.\n\n"
-                "Please set your HuggingFace token first:\n"
+                "Please set your Hugging Face token first:\n"
                 "```bash\n"
                 "export HF_TOKEN=your_token_here\n"
                 "```\n\n"
                 "Or switch to Setup mode and use `/login` for instructions."
             )
 
+        tool_call_id = str(uuid.uuid4())
+
+        async def _send_connect_update(
+            *,
+            title: str | None = None,
+            status: str | None = None,
+            message: str | None = None,
+        ) -> None:
+            if not self.acp:
+                return
+            try:
+                content = [tool_content(text_block(message))] if message else None
+                await self.acp.send_session_update(
+                    ToolCallProgress(
+                        tool_call_id=tool_call_id,
+                        title=title,
+                        status=status,  # type: ignore[arg-type]
+                        content=content,
+                        session_update="tool_call_update",
+                    )
+                )
+            except Exception:
+                return
+
         try:
+            if self.acp:
+                await self.acp.send_session_update(
+                    ToolCallStart(
+                        tool_call_id=tool_call_id,
+                        title="Connect HuggingFace MCP server",
+                        kind="fetch",
+                        status="in_progress",
+                        session_update="tool_call",
+                    )
+                )
+                await _send_connect_update(
+                    title="Starting connection…",
+                    status="in_progress",
+                    message=f"Starting connection (session {self.acp.session_id})",
+                )
+
             # Add huggingface server to aggregator if not present
             if "huggingface" not in self._aggregator.server_names:
                 self._aggregator.server_names.append("huggingface")
@@ -228,13 +319,31 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             self._aggregator.initialized = False
 
             # Load/connect to the server
+            await _send_connect_update(title="Connecting and initializing…", status="in_progress")
             await self._aggregator.load_servers()
 
             self._hf_mcp_connected = True
+            await _send_connect_update(title="Connected", status="in_progress")
 
             # Get available tools
+            await _send_connect_update(title="Fetching available tools…", status="in_progress")
             tools_result = await self._aggregator.list_tools()
             tool_names = [t.name for t in tools_result.tools] if tools_result.tools else []
+
+            if tool_names:
+                preview = ", ".join(tool_names[:10])
+                suffix = f" (+{len(tool_names) - 10} more)" if len(tool_names) > 10 else ""
+                await _send_connect_update(
+                    title="Connected (tools available)",
+                    status="completed",
+                    message=f"Available tools: {preview}{suffix}",
+                )
+            else:
+                await _send_connect_update(
+                    title="Connected (no tools found)",
+                    status="completed",
+                    message="No tools available from the server.",
+                )
 
             if tool_names:
                 tool_list = "\n".join(f"- `{name}`" for name in tool_names[:10])
@@ -247,4 +356,53 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                 return "Connected to Hugging Face MCP server.\n\nNo tools available."
 
         except Exception as e:
+            await _send_connect_update(
+                title="Connection failed",
+                status="failed",
+                message=str(e),
+            )
             return f"**Error connecting to HuggingFace MCP server:**\n\n`{e}`"
+
+    async def _handle_set_model(self, arguments: str) -> str:
+        """Handler for /set-model in Hugging Face mode."""
+        model = arguments.strip()
+        if not model:
+            return (
+                "Error: Please provide a model name.\n\n"
+                "Example: `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
+            )
+
+        try:
+            update_model_in_config(model)
+            await self.apply_model(model)
+            return f"Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+        except Exception as e:
+            return f"Error setting model: {e}"
+
+    async def apply_model(self, model: str) -> None:
+        """
+        Switch the active LLM model for this running agent.
+
+        This updates the agent config and re-attaches a fresh LLM instance.
+        """
+        new_model = (model or "").strip()
+        if not new_model:
+            return
+        if not self.context:
+            return
+
+        # Update agent config/default params so future attachments use the new model.
+        self.config.model = new_model
+        if self.config.default_request_params is not None:
+            self.config.default_request_params.model = new_model
+
+        llm_factory = get_model_factory(
+            self.context,
+            model=new_model,
+            request_params=self.config.default_request_params,
+        )
+        await self.attach_llm(
+            llm_factory,
+            request_params=self.config.default_request_params,
+            api_key=self.config.api_key,
+        )
