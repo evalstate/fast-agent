@@ -31,8 +31,9 @@ Issues = "https://github.com/evalstate/fast-agent/issues"
 [project.scripts]
 hf-inference-acp = "hf_inference_acp.cli:main"
 
-[tool.hatch.build]
-packages = ["src/hf_inference_acp"]
-
 [tool.hatch.build.targets.wheel]
+packages = ["src/hf_inference_acp"]
 artifacts = ["src/hf_inference_acp/resources/*"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/hf_inference_acp"]
