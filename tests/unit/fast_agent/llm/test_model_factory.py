@@ -48,7 +48,9 @@ def test_full_model_strings():
             None,
         ),
         ("openai.gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
+        ("openai/gpt-4.1", Provider.OPENAI, "gpt-4.1", None),
         ("openai.o1.high", Provider.OPENAI, "o1", ReasoningEffort.HIGH),
+        ("openai/o1.high", Provider.OPENAI, "o1", ReasoningEffort.HIGH),
     ]
 
     for model_str, exp_provider, exp_model, exp_effort in cases:

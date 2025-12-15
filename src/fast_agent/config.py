@@ -211,6 +211,9 @@ class MCPServerSettings(BaseModel):
     cwd: str | None = None
     """Working directory for the executed server command."""
 
+    load_on_start: bool = True
+    """Whether to connect to this server automatically when the agent starts."""
+
     include_instructions: bool = True
     """Whether to include this server's instructions in the system prompt (default: True)."""
 

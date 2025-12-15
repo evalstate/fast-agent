@@ -339,13 +339,68 @@ class ModelDatabase:
         "minimaxai/minimax-m2": GLM_46,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
-        "deepseek-ai/DeepSeek-V3.2-Exp": HF_PROVIDER_DEEPSEEK32,
+        "deepseek-ai/deepseek-v3.2-exp": HF_PROVIDER_DEEPSEEK32,
     }
 
     @classmethod
     def get_model_params(cls, model: str) -> ModelParameters | None:
         """Get model parameters for a given model name"""
-        return cls.MODELS.get(model.lower())
+        if not model:
+            return None
+
+        normalized = cls.normalize_model_name(model)
+        return cls.MODELS.get(normalized)
+
+    @classmethod
+    def normalize_model_name(cls, model: str) -> str:
+        """Normalize model specs (provider/effort/aliases) to a ModelDatabase key.
+
+        This intentionally delegates to ModelFactory parsing where possible rather than
+        re-implementing model string semantics in the database layer.
+        """
+        from fast_agent.core.exceptions import ModelConfigError
+        from fast_agent.llm.model_factory import ModelFactory
+        from fast_agent.llm.provider_types import Provider
+
+        model_spec = (model or "").strip()
+        if not model_spec:
+            return ""
+
+        # If it's already a known key, keep it as-is (after casing/whitespace normalization).
+        direct_key = model_spec.lower()
+        if direct_key in cls.MODELS:
+            return direct_key
+
+        # Apply aliases first (case-insensitive).
+        aliased = ModelFactory.MODEL_ALIASES.get(model_spec)
+        if not aliased:
+            aliased = ModelFactory.MODEL_ALIASES.get(model_spec.lower())
+        if aliased:
+            model_spec = aliased
+            direct_key = model_spec.strip().lower()
+            if direct_key in cls.MODELS:
+                return direct_key
+
+        # Parse known spec formats to strip provider prefixes and reasoning effort.
+        try:
+            parsed = ModelFactory.parse_model_string(model_spec)
+            model_spec = parsed.model_name
+
+            # HF uses `model:provider` for routing; the suffix is not part of the model id.
+            if parsed.provider == Provider.HUGGINGFACE and ":" in model_spec:
+                model_spec = model_spec.rsplit(":", 1)[0]
+        except ModelConfigError:
+            # Best-effort fallback: keep original spec if it can't be parsed.
+            pass
+
+        # If parsing failed, still support common "model:route" forms by stripping the suffix
+        # only when the base resolves to a known database key.
+        if ":" in model_spec:
+            base = model_spec.rsplit(":", 1)[0].strip().lower()
+            if base in cls.MODELS:
+                return base
+
+        return model_spec.strip().lower()
 
     @classmethod
     def get_context_window(cls, model: str) -> int | None:

@@ -10,7 +10,6 @@ import asyncio
 import os
 import shlex
 import sys
-from importlib.resources import files
 from pathlib import Path  # noqa: TC003 - typer needs runtime access
 
 import typer
@@ -29,6 +28,7 @@ from hf_inference_acp.hf_config import (
     ensure_config_exists,
     get_default_model,
     has_hf_token,
+    load_system_prompt,
 )
 from hf_inference_acp.wizard import WizardSetupLLM
 
@@ -79,24 +79,10 @@ To start using the AI assistant, ensure HF_TOKEN is set and switch to the "Huggi
 def get_hf_instruction() -> str:
     """Generate the instruction for the HuggingFace agent.
 
-    Uses file_silent templates to include optional markdown files.
+    Loads from ~/.config/hf-inference/hf.system_prompt.md so users can customize it.
+    The file is created from the template on first run.
     """
-    # Load the system prompt template from resources
-    try:
-        resource_path = (
-            files("hf_inference_acp").joinpath("resources").joinpath("hf.system_prompt.md")
-        )
-        if resource_path.is_file():
-            return resource_path.read_text()
-    except Exception:
-        pass
-
-    # Fallback to basic instruction
-    return """You are a helpful AI assistant powered by Hugging Face Inference API.
-
-{{file_silent:AGENTS.md}}
-{{file_silent:huggingface.md}}
-"""
+    return load_system_prompt()
 
 
 def _parse_stdio_servers(
@@ -218,14 +204,20 @@ async def run_agents(
     if hf_token_present:
         instruction = instruction_override or get_hf_instruction()
 
+        # Ensure huggingface is always in the servers list
+        # (load_on_start in config controls whether it connects automatically)
+        if server_list is None:
+            server_list = []
+        if "huggingface" not in server_list:
+            server_list.append("huggingface")
+
         # Register the HuggingFace agent (uses HF LLM)
-        # Note: HuggingFace MCP server is connected lazily via /connect command
         @fast.custom(
             HuggingFaceAgent,
             name="huggingface",
             instruction=instruction,
             model=effective_model,
-            servers=server_list or [],  # Empty default keeps /connect behavior
+            servers=server_list,
             default=True,
         )
         async def hf_agent():

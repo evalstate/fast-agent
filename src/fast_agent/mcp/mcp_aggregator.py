@@ -364,6 +364,13 @@ class MCPAggregator(ContextDependent):
         self._skybridge_configs.clear()
 
         for server_name in self.server_names:
+            # Check if server should be loaded on start
+            if self.context and getattr(self.context, "server_registry", None):
+                server_config = self.context.server_registry.get_server_config(server_name)
+                if server_config and not getattr(server_config, "load_on_start", True):
+                    logger.debug(f"Skipping server '{server_name}' - load_on_start=False")
+                    continue
+
             if self.connection_persistence:
                 logger.info(
                     f"Creating persistent connection to server: {server_name}",

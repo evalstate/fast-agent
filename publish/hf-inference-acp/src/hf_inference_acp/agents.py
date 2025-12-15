@@ -14,6 +14,7 @@ from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
 from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.request_params import RequestParams
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
@@ -149,7 +150,8 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         if not model:
             return (
                 "Error: Please provide a model name.\n\n"
-                "Example: `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
+                "Example: `/set-model kimi`\n\n"
+                "You can also provide a full model id, e.g. `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
             )
 
         try:
@@ -369,7 +371,8 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         if not model:
             return (
                 "Error: Please provide a model name.\n\n"
-                "Example: `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
+                "Example: `/set-model kimi`\n\n"
+                "You can also provide a full model id, e.g. `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
             )
 
         try:
@@ -391,15 +394,17 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         if not self.context:
             return
 
-        # Update agent config/default params so future attachments use the new model.
+        # Update agent config so future attachments use the new model spec.
+        # Do not set `RequestParams.model`: that field is a provider-level override and can
+        # accidentally force the full spec (or even None) into the outgoing request body.
         self.config.model = new_model
         if self.config.default_request_params is not None:
-            self.config.default_request_params.model = new_model
+            params_without_model = self.config.default_request_params.model_dump(exclude={"model"})
+            self.config.default_request_params = RequestParams(**params_without_model)
 
         llm_factory = get_model_factory(
             self.context,
             model=new_model,
-            request_params=self.config.default_request_params,
         )
         await self.attach_llm(
             llm_factory,

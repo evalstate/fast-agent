@@ -4,17 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable
 
-from mcp import CallToolRequest
-from mcp.types import CallToolRequestParams
-
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.types import PromptMessageExtended
-from fast_agent.types.llm_stop_reason import LlmStopReason
-from hf_inference_acp.hf_config import has_hf_token, update_model_in_config
+from hf_inference_acp.hf_config import (
+    CONFIG_FILE,
+    has_hf_token,
+    update_mcp_server_load_on_start,
+    update_model_in_config,
+)
+from hf_inference_acp.wizard.model_catalog import CURATED_MODELS
 from hf_inference_acp.wizard.stages import WizardStage, WizardState
 
 if TYPE_CHECKING:
@@ -77,12 +79,7 @@ class WizardSetupLLM(PassthroughLLM):
         # Process through wizard state machine
         response = await self._process_stage(user_input)
 
-        # Handlers can return either a string or a PromptMessageExtended (for tool calls)
-        if isinstance(response, PromptMessageExtended):
-            result = response
-        else:
-            result = Prompt.assistant(response)
-
+        result = Prompt.assistant(response)
         self._track_usage(multipart_messages, result)
         return result
 
@@ -103,12 +100,24 @@ class WizardSetupLLM(PassthroughLLM):
         )
         self.usage_accumulator.add_turn(turn_usage)
 
-    async def _process_stage(self, user_input: str) -> str | PromptMessageExtended:
-        """Process current stage and return response (string or PromptMessageExtended for tool calls)."""
-        # Handle first message - show welcome
+    async def _process_stage(self, user_input: str) -> str:
+        """Process current stage and return response."""
+        # Handle first message - show welcome, but if user already typed a
+        # recognized command, process it immediately without making them repeat
         if self._state.first_message:
             self._state.first_message = False
-            return self._render_welcome()
+            cmd = user_input.lower().strip()
+            if cmd in ("go", "start", "begin", "y", "yes", "ok"):
+                # User already said go, skip welcome and proceed
+                self._state.stage = WizardStage.TOKEN_CHECK
+                return await self._handle_token_check(user_input)
+            elif cmd == "skip":
+                # User wants to skip wizard
+                self._state.stage = WizardStage.WELCOME
+                return await self._handle_welcome(user_input)
+            else:
+                # Show welcome for any other input
+                return self._render_welcome()
 
         # Route to appropriate handler based on current stage
         handlers = {
@@ -117,6 +126,7 @@ class WizardSetupLLM(PassthroughLLM):
             WizardStage.TOKEN_GUIDE: self._handle_token_guide,
             WizardStage.TOKEN_VERIFY: self._handle_token_verify,
             WizardStage.MODEL_SELECT: self._handle_model_select,
+            WizardStage.MCP_CONNECT: self._handle_mcp_connect,
             WizardStage.CONFIRM: self._handle_confirm,
             WizardStage.COMPLETE: self._handle_complete,
         }
@@ -136,7 +146,8 @@ class WizardSetupLLM(PassthroughLLM):
 Welcome! This wizard will help you configure:
 
 1. Your Hugging Face token (required for API access)
-1. Your default inference model
+2. Your default inference model
+3. Whether to connect to the Hugging Face MCP server on startup
 
 Type `go` to begin, or `skip` to use slash commands instead.
 """
@@ -174,63 +185,35 @@ Type any command to continue.
 
     def _render_token_guide(self) -> str:
         """Render token setup instructions."""
-        return """## Step 1 -  Hugging Face Token Setup
+        return f"""## Step 1 - Hugging Face Token Setup
 
 Your Hugging Face token is not configured.
 
-Options:
-  [1] Run interactive login (hf auth login)
-  [2] I'll set HF_TOKEN manually
+Set it using one of these methods:
 
-Enter 1 or 2, or type `check` after setting your token:
-"""
+**Option A** - Run `hf auth login`. In Toad, type `$hf auth login`
 
-    def _render_manual_token_instructions(self) -> str:
-        """Render manual token setup instructions."""
-        return """
-To set up your token manually:
+**Option B** - Set environment variable:
+    `export HF_TOKEN=hf_YOUR_TOKEN`
 
-  1. Visit: https://huggingface.co/settings/tokens
-  2. Create a new token with "Read" access
-  3. Set it using one of these methods:
+**Option C** - Add to config file `{CONFIG_FILE}`:
 
-Option A - Environment variable:
-    export HF_TOKEN=hf_your_token_here
+```yaml
+hf:
+    api_key: hf_your_token_here
+```
 
-Option B - CLI login (in a separate terminal):
-    hf auth login
+Get your token at: https://huggingface.co/settings/tokens
 
 --------------------------------------------------------------------------------
-Type `check` to verify your token, or `1` to run interactive login.
+Type `check` after setting your token to continue.
 """
 
-    async def _handle_token_guide(self, user_input: str) -> str | PromptMessageExtended:
+    async def _handle_token_guide(self, user_input: str) -> str:
         """Handle token guide stage input."""
         cmd = user_input.lower().strip()
 
-        if cmd == "1" or cmd == "login":
-            # Return a proper tool call request for interactive login
-            # After the tool runs, user will need to type 'check' to continue
-            self._state.awaiting_login_result = True
-            tool_call_id = f"hf_login_{self._correlation_id}"
-            self._correlation_id += 1
-            return Prompt.assistant(
-                "Running `hf auth login`... Follow the prompts in the terminal.\n\n"
-                "Type `check` when done to verify your token.",
-                tool_calls={
-                    tool_call_id: CallToolRequest(
-                        method="tools/call",
-                        params=CallToolRequestParams(
-                            name="execute",
-                            arguments={"command": "hf auth login"},
-                        ),
-                    )
-                },
-                stop_reason=LlmStopReason.TOOL_USE,
-            )
-        elif cmd == "2" or cmd == "manual":
-            return self._render_manual_token_instructions()
-        elif cmd in ("check", "verify"):
+        if cmd in ("check", "verify"):
             # Re-check token
             self._state.stage = WizardStage.TOKEN_CHECK
             return await self._handle_token_check(user_input)
@@ -268,57 +251,54 @@ Token verification failed: {e}
 
     def _render_model_selection(self) -> str:
         """Render model selection prompt."""
-        return """## Step 2 : Select Default Model
-================================================================================
+        lines = [
+            "## Step 2 : Select Default Model",
+            "",
+            "Choose your default inference model by entering a number:",
+            "",
+        ]
 
-Choose your default inference model by entering a number:
+        for i, model in enumerate(CURATED_MODELS, start=1):
+            lines.append(f"  {i}. {model.display_name} (`{model.id}`)")
+            lines.append(f"     {model.description}")
+            lines.append("")
 
-  1. Kimi K2 Instruct (moonshotai/Kimi-K2-Instruct-0905)
-     Fast, capable instruct model - good general purpose choice
-
-  2. DeepSeek R1 (deepseek-ai/DeepSeek-R1)
-     Advanced reasoning model with strong capabilities
-
-  3. Qwen3 235B (Qwen/Qwen3-235B-A22B)
-     Large parameter model, high capability
-
-  4. Llama 4 Maverick 17B (meta-llama/Llama-4-Maverick-17B-128E-Instruct)
-     Meta's latest Llama model with strong performance
-
-  5. Custom model (enter model ID manually)
-
---------------------------------------------------------------------------------
-Enter a number (1-5) or type a model ID directly:
-"""
+        custom_index = len(CURATED_MODELS) + 1
+        lines.extend(
+            [
+                f"  {custom_index}. Custom model (enter model ID manually)",
+                "",
+                "-" * 80,
+                f"Enter a number (1-{custom_index}), a curated ID (e.g. `kimi`), or type a model ID directly:",
+                "",
+            ]
+        )
+        return "\n".join(lines)
 
     async def _handle_model_select(self, user_input: str) -> str:
         """Handle model selection input."""
         user_input = user_input.strip()
 
-        # Map numbers to models
-        model_map = {
-            "1": "hf.moonshotai/Kimi-K2-Instruct-0905",
-            "2": "hf.deepseek-ai/DeepSeek-R1",
-            "3": "hf.Qwen/Qwen3-235B-A22B",
-            "4": "hf.meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-        }
-
-        display_map = {
-            "1": "Kimi K2 Instruct",
-            "2": "DeepSeek R1",
-            "3": "Qwen3 235B",
-            "4": "Llama 4 Maverick 17B",
-        }
-
-        if user_input == "5":
+        custom_index = len(CURATED_MODELS) + 1
+        if user_input == str(custom_index):
             # Custom model entry
             return """
 Enter the full model ID (e.g., hf.organization/model-name):
 """
 
-        if user_input in model_map:
-            self._state.selected_model = model_map[user_input]
-            self._state.selected_model_display = display_map[user_input]
+        if user_input.isdigit():
+            selection = int(user_input)
+            if 1 <= selection <= len(CURATED_MODELS):
+                chosen = CURATED_MODELS[selection - 1]
+                # Store the curated ID (shortform alias) in config.
+                self._state.selected_model = chosen.id
+                self._state.selected_model_display = chosen.display_name
+            else:
+                return f"Invalid selection: '{user_input}'\n\n{self._render_model_selection()}"
+        elif any(m.id.lower() == user_input.lower() for m in CURATED_MODELS):
+            chosen = next(m for m in CURATED_MODELS if m.id.lower() == user_input.lower())
+            self._state.selected_model = chosen.id
+            self._state.selected_model_display = chosen.display_name
         elif user_input.startswith("hf.") or "/" in user_input:
             # Direct model ID entry
             if not user_input.startswith("hf."):
@@ -328,22 +308,53 @@ Enter the full model ID (e.g., hf.organization/model-name):
         else:
             return f"Invalid selection: '{user_input}'\n\n{self._render_model_selection()}"
 
-        # Move to confirmation
-        self._state.stage = WizardStage.CONFIRM
-        return self._render_confirmation()
+        # Move to MCP connect step
+        self._state.stage = WizardStage.MCP_CONNECT
+        return self._render_mcp_connect()
+
+    def _render_mcp_connect(self) -> str:
+        """Render MCP server connection prompt."""
+        return """## Step 3 - Hugging Face MCP Server
+
+The Hugging Face MCP server provides additional tools for working with
+models, datasets, and spaces on Hugging Face.
+
+Would you like to connect to the Hugging Face MCP server on startup?
+
+  [y] Yes - connect automatically on startup
+  [n] No - I'll connect manually when needed (use /connect)
+
+Enter y or n:
+"""
+
+    async def _handle_mcp_connect(self, user_input: str) -> str:
+        """Handle MCP connect step input."""
+        cmd = user_input.lower().strip()
+
+        if cmd in ("y", "yes"):
+            self._state.mcp_load_on_start = True
+            self._state.stage = WizardStage.CONFIRM
+            return self._render_confirmation()
+        elif cmd in ("n", "no"):
+            self._state.mcp_load_on_start = False
+            self._state.stage = WizardStage.CONFIRM
+            return self._render_confirmation()
+        elif cmd in ("quit", "exit", "q"):
+            return "Setup cancelled. Your configuration was not changed."
+        else:
+            return self._render_mcp_connect()
 
     def _render_confirmation(self) -> str:
         """Render confirmation prompt."""
-        return f"""
-================================================================================
-        Confirm Selection
-================================================================================
+        mcp_status = "Yes" if self._state.mcp_load_on_start else "No"
+        return f"""## Confirm Settings
 
-You selected: {self._state.selected_model_display}
-Model ID: {self._state.selected_model}
+- **Model**: {self._state.selected_model_display}
+  `{self._state.selected_model}`
+- **MCP server on startup**: {mcp_status}
 
 [y] Confirm and save
-[c] Change selection
+[c] Change model selection
 [q] Quit without saving
 """
 
@@ -360,6 +371,7 @@ Model ID: {self._state.selected_model}
             # Save configuration
             try:
                 update_model_in_config(self._state.selected_model)
+                update_mcp_server_load_on_start("huggingface", self._state.mcp_load_on_start)
                 self._state.stage = WizardStage.COMPLETE
                 return await self._handle_complete(user_input)
             except Exception as e:
@@ -376,16 +388,20 @@ Model ID: {self._state.selected_model}
             except Exception as e:
                 self.logger.warning(f"Completion callback failed: {e}")
 
-        return f"""
-================================================================================
-        Setup Complete!
-================================================================================
+        mcp_status = "Yes" if self._state.mcp_load_on_start else "No"
+        return f"""## Setup Complete!
 
 Your configuration has been saved:
-  - Token: verified (connected as {self._state.hf_username or "unknown"})
-  - Model: {self._state.selected_model}
+  - Token: verified (connected as `{self._state.hf_username or "unknown"}`)
+  - Model: `{self._state.selected_model}`
+  - MCP server on startup: {mcp_status}
 
 You're now ready to use the Hugging Face assistant!
+
+Some tips:
+ - `AGENTS.md` and `huggingface.md` are automatically loaded in the System Prompt
+ - You can include content from URLs with `{{url:https://gist.github.com/...}}` syntax
+ - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
 
 Switching to chat mode...
 """

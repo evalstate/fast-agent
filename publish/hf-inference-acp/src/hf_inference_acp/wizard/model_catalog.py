@@ -17,24 +17,29 @@ class CuratedModel:
 # Curated list of recommended models for HuggingFace inference
 CURATED_MODELS: list[CuratedModel] = [
     CuratedModel(
-        id="hf.moonshotai/Kimi-K2-Instruct-0905",
+        id="kimi",
         display_name="Kimi K2 Instruct",
-        description="Fast, capable instruct model - good general purpose choice",
+        description="Kimi K2-Instruct-0905 is the latest, most capable version of Kimi K2. (default)",
     ),
     CuratedModel(
-        id="hf.deepseek-ai/DeepSeek-R1",
-        display_name="DeepSeek R1",
-        description="Advanced reasoning model with strong capabilities",
+        id="kimithink",
+        display_name="Kimi K2 Thinking",
+        description="Advanced reasoning model",
     ),
     CuratedModel(
-        id="hf.Qwen/Qwen3-235B-A22B",
-        display_name="Qwen3 235B",
-        description="Large parameter model, high capability",
+        id="gpt-oss",
+        display_name="OpenAI gpt-oss-120b",
+        description="OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
     ),
     CuratedModel(
-        id="hf.meta-llama/Llama-4-Maverick-17B-128E-Instruct",
-        display_name="Llama 4 Maverick 17B",
-        description="Meta's latest Llama model with strong performance",
+        id="glm",
+        display_name="GLM 4.6",
+        description="ZAI GLM-4.6: Advanced Agentic, Reasoning and Coding Capabilities",
+    ),
+    CuratedModel(
+        id="minimax",
+        display_name="MiniMax M2",
+        description="MiniMax-M2, a Mini model built for Max coding & agentic workflows",
     ),
 ]
 
@@ -55,15 +60,19 @@ def build_model_selection_schema() -> dict:
     """Build JSON schema for model selection form."""
     options = []
     for model in CURATED_MODELS:
-        options.append({
-            "const": model.id,
-            "title": f"{model.display_name} - {model.description}",
-        })
+        options.append(
+            {
+                "const": model.id,
+                "title": f"{model.display_name} - {model.description}",
+            }
+        )
     # Add custom option
-    options.append({
-        "const": CUSTOM_MODEL_OPTION.id,
-        "title": f"{CUSTOM_MODEL_OPTION.display_name} - {CUSTOM_MODEL_OPTION.description}",
-    })
+    options.append(
+        {
+            "const": CUSTOM_MODEL_OPTION.id,
+            "title": f"{CUSTOM_MODEL_OPTION.display_name} - {CUSTOM_MODEL_OPTION.description}",
+        }
+    )
 
     return {
         "type": "object",
