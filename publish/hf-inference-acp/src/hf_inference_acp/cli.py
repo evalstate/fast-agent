@@ -20,7 +20,9 @@ from fast_agent.cli.commands.go import collect_stdio_commands, resolve_instructi
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.llm.model_factory import ModelFactory
+from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.hf_auth import add_hf_auth_header
 from hf_inference_acp.agents import HuggingFaceAgent, SetupAgent
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
@@ -83,6 +85,48 @@ def get_hf_instruction() -> str:
     The file is created from the template on first run.
     """
     return load_system_prompt()
+
+
+def _ensure_hf_token_from_provider_config(fast: FastAgent) -> None:
+    """Set HF_TOKEN from the fast-agent provider config if it's not already set."""
+    try:
+        cfg = getattr(fast.app.context, "config", None)
+        if cfg is None or os.environ.get("HF_TOKEN"):
+            return
+        # Prefer explicit provider config (fast-agent's Settings.hf.api_key)
+        provider_token = ProviderKeyManager.get_config_file_key("hf", cfg)
+        if provider_token:
+            os.environ["HF_TOKEN"] = provider_token
+    except Exception:
+        # Best-effort; fall back to other discovery mechanisms
+        return
+
+
+def _ensure_hf_mcp_auth_header(fast: FastAgent) -> None:
+    """Attach HF auth header to the huggingface MCP server if not already provided."""
+    try:
+        registry = getattr(fast.app.context, "server_registry", None)
+        if registry is None:
+            return
+
+        server_config = registry.get_server_config("huggingface")
+        if not server_config or not getattr(server_config, "url", None):
+            return
+
+        existing_headers = dict(server_config.headers or {})
+        existing_keys = {k.lower() for k in existing_headers}
+        if {"authorization", "x-hf-authorization"} & existing_keys:
+            return
+
+        updated_headers = add_hf_auth_header(server_config.url, existing_headers)
+        if updated_headers is None:
+            return
+
+        server_config.headers = updated_headers
+        registry.registry["huggingface"] = server_config
+    except Exception:
+        # Avoid breaking startup on header injection failure
+        return
 
 
 def _parse_stdio_servers(
@@ -162,8 +206,6 @@ async def run_agents(
             if source:
                 os.environ["FAST_AGENT_HF_TOKEN_SOURCE"] = source
 
-    hf_token_present = has_hf_token()
-
     default_model = get_default_model()
     effective_model = model or default_model
 
@@ -186,6 +228,10 @@ async def run_agents(
 
     await add_servers_to_config(fast, url_servers or {})
     await add_servers_to_config(fast, stdio_servers or {})
+
+    # Ensure HF_TOKEN is available from provider config for MCP auth
+    _ensure_hf_token_from_provider_config(fast)
+    hf_token_present = has_hf_token()
 
     # Register the Setup agent (wizard LLM for guided setup)
     # This is always available for configuration
@@ -210,6 +256,9 @@ async def run_agents(
             server_list = []
         if "huggingface" not in server_list:
             server_list.append("huggingface")
+
+        # Attach Authorization header to Hugging Face MCP server using HF_TOKEN if not provided
+        _ensure_hf_mcp_auth_header(fast)
 
         # Register the HuggingFace agent (uses HF LLM)
         @fast.custom(

@@ -14,7 +14,9 @@ from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
 from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.request_params import RequestParams
+from fast_agent.mcp.hf_auth import add_hf_auth_header
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
@@ -257,8 +259,53 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             description="AI assistant powered by Hugging Face Inference API",
         )
 
+    def _ensure_hf_token_and_header(self) -> None:
+        """
+        Best-effort sync of HF token from provider config into environment,
+        then attach Authorization/X-HF-Authorization to the MCP server config.
+        """
+        # Prefer provider config token if env isn't set yet
+        try:
+            if (
+                not os.environ.get("HF_TOKEN")
+                and self._context
+                and getattr(self._context, "config", None)
+            ):
+                provider_token = ProviderKeyManager.get_config_file_key("hf", self._context.config)
+                if provider_token:
+                    os.environ["HF_TOKEN"] = provider_token
+        except Exception:
+            pass
+
+        # Inject auth header onto the huggingface server if missing
+        try:
+            registry = getattr(self._context, "server_registry", None)
+            if not registry:
+                return
+            server_config = registry.get_server_config("huggingface")
+            if not server_config or not getattr(server_config, "url", None):
+                return
+
+            existing_headers = dict(server_config.headers or {})
+            existing_keys = {k.lower() for k in existing_headers}
+            if {"authorization", "x-hf-authorization"} & existing_keys:
+                return
+
+            updated_headers = add_hf_auth_header(server_config.url, existing_headers)
+            if updated_headers is None or updated_headers == existing_headers:
+                return
+
+            server_config.headers = updated_headers
+            registry.registry["huggingface"] = server_config
+        except Exception:
+            # Non-fatal; connection attempts will still proceed with existing headers
+            return
+
     async def _handle_connect(self, arguments: str) -> str:
         """Handler for /connect command - lazily connect to Hugging Face MCP server."""
+        # Refresh HF token/header (important when setup flow captured token after start)
+        self._ensure_hf_token_and_header()
+
         if self._hf_mcp_connected:
             return "Already connected to Hugging Face MCP server."
 
@@ -322,7 +369,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
 
             # Load/connect to the server
             await _send_connect_update(title="Connecting and initializing…", status="in_progress")
-            await self._aggregator.load_servers()
+            await self._aggregator.load_servers(force_connect=True)
 
             self._hf_mcp_connected = True
             await _send_connect_update(title="Connected", status="in_progress")

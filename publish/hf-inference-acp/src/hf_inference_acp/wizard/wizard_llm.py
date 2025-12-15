@@ -203,9 +203,10 @@ hf:
     api_key: hf_your_token_here
 ```
 
-Get your token at: https://huggingface.co/settings/tokens
+Create a `READ` or `WRITE` token at: https://huggingface.co/settings/tokens
 
---------------------------------------------------------------------------------
+---
+
 Type `check` after setting your token to continue.
 """
 
@@ -268,7 +269,7 @@ Token verification failed: {e}
             [
                 f"  {custom_index}. Custom model (enter model ID manually)",
                 "",
-                "-" * 80,
+                "---",
                 f"Enter a number (1-{custom_index}), a curated ID (e.g. `kimi`), or type a model ID directly:",
                 "",
             ]
@@ -321,8 +322,8 @@ models, datasets, and spaces on Hugging Face.
 
 Would you like to connect to the Hugging Face MCP server on startup?
 
-  [y] Yes - connect automatically on startup
-  [n] No - I'll connect manually when needed (use /connect)
+- [y] Yes - connect automatically on startup
+- [n] No - I'll connect manually when needed (use /connect)
 
 Enter y or n:
 """
@@ -353,9 +354,9 @@ Enter y or n:
   `{self._state.selected_model}`
 - **MCP server on startup**: {mcp_status}
 
-[y] Confirm and save
-[c] Change model selection
-[q] Quit without saving
+- [y] Confirm and save
+- [c] Change model selection
+- [q] Quit without saving
 """
 
     async def _handle_confirm(self, user_input: str) -> str:
@@ -402,6 +403,7 @@ Some tips:
  - `AGENTS.md` and `huggingface.md` are automatically loaded in the System Prompt
  - You can include content from URLs with `{{url:https://gist.github.com/...}}` syntax
  - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
-
+ - Join https://huggingface.co/toad-hf-inference-explorers to claim **$10** in free inference credits!
+ 
 Switching to chat mode...
 """
