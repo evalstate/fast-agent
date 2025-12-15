@@ -6,14 +6,14 @@ import os
 import uuid
 from typing import TYPE_CHECKING
 
+from acp.helpers import text_block, tool_content
+from acp.schema import ToolCallProgress, ToolCallStart
+
 from fast_agent.acp import ACPAwareMixin, ACPCommand
 from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
 from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.logging.logger import get_logger
-
-from acp.helpers import text_block, tool_content
-from acp.schema import ToolCallProgress, ToolCallStart
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
@@ -125,7 +125,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
                 handler=self._handle_set_model,
             ),
             "login": ACPCommand(
-                description="Log in to HuggingFace (runs huggingface-cli login)",
+                description="Log in to HuggingFace (runs `hf auth login`)",
                 handler=self._handle_login,
             ),
             "check": ACPCommand(
@@ -168,7 +168,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         return (
             "To log in to Hugging Face, please run the following command in your terminal:\n\n"
             "```bash\n"
-            "huggingface-cli login\n"
+            "hf auth login\n"
             "```\n\n"
             "Or set the `HF_TOKEN` environment variable with your token:\n\n"
             "```bash\n"
@@ -179,7 +179,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
     async def _handle_check(self, arguments: str) -> str:
         """Handler for /check command."""
-        lines = ["# HuggingFace Configuration Check\n"]
+        lines = ["# Hugging Face Configuration Check\n"]
 
         # Check huggingface_hub installation
         try:
@@ -190,7 +190,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             )
         except ImportError:
             lines.append("- **huggingface_hub**: NOT INSTALLED")
-            lines.append("  Run: `pip install huggingface_hub`")
+            lines.append("  Run: `uv tool install -U huggingface_hub`")
 
         # Check HF_TOKEN
         if has_hf_token():

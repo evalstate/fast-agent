@@ -117,28 +117,6 @@ def update_model_in_config(model: str) -> None:
         yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
 
-def update_api_key_in_config(api_key: str) -> None:
-    """Update the hf.api_key in the config file.
-
-    This stores the Hugging Face token in the config file so the LLM provider
-    can access it via the standard ProviderKeyManager mechanism.
-
-    Args:
-        api_key: The Hugging Face API token
-    """
-    config_path = ensure_config_exists()
-    config = load_config()
-
-    # Ensure hf section exists
-    if "hf" not in config:
-        config["hf"] = {}
-
-    config["hf"]["api_key"] = api_key
-
-    with open(config_path, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
-
-
 def get_api_key_from_config() -> str | None:
     """Get the hf.api_key from the config file.
 

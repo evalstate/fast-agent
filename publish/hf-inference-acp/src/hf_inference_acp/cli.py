@@ -11,7 +11,7 @@ import os
 import shlex
 import sys
 from importlib.resources import files
-from pathlib import Path
+from pathlib import Path  # noqa: TC003 - typer needs runtime access
 
 import typer
 
@@ -25,10 +25,9 @@ from fast_agent.llm.provider_types import Provider
 from hf_inference_acp.agents import HuggingFaceAgent, SetupAgent
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
+    discover_hf_token,
     ensure_config_exists,
     get_default_model,
-    discover_hf_token,
-    get_hf_token,
     has_hf_token,
 )
 from hf_inference_acp.wizard import WizardSetupLLM

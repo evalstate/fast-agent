@@ -14,12 +14,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-from hf_inference_acp.hf_config import (
-    get_hf_token,
-    has_hf_token,
-    update_api_key_in_config,
-    update_model_in_config,
-)
+from hf_inference_acp.hf_config import has_hf_token, update_model_in_config
 from hf_inference_acp.wizard.stages import WizardStage, WizardState
 
 if TYPE_CHECKING:
@@ -254,15 +249,8 @@ Type `check` to verify your token, or `1` to run interactive login.
             self._state.token_verified = True
             self._state.hf_username = username
 
-            # Save token to our config file for the LLM provider
-            # This ensures the token is available via ProviderKeyManager
-            token = get_hf_token()
-            if token:
-                try:
-                    update_api_key_in_config(token)
-                    self.logger.info("Saved HF token to config file")
-                except Exception as e:
-                    self.logger.warning(f"Failed to save token to config: {e}")
+            # Token is already available via huggingface_hub (from hf auth login or HF_TOKEN env)
+            # ProviderKeyManager discovers it automatically, no need to copy to config file
 
             # Move to model selection
             self._state.stage = WizardStage.MODEL_SELECT
