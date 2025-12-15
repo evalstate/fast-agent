@@ -60,6 +60,4 @@ jobs:
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: |
-          uv publish --package fast-agent-mcp
-          uv publish --package fast-agent-acp
-          uv publish --package hf-inference-acp
+          uv publish dist/*
