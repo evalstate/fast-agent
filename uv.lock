@@ -531,6 +531,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pyyaml" },
+    { name = "ruamel-yaml" },
     { name = "ruff" },
 ]
 tensorzero = [
@@ -549,6 +550,7 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
     { name = "pyyaml" },
+    { name = "ruamel-yaml" },
     { name = "ruff" },
 ]
 
@@ -588,6 +590,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "pyyaml", marker = "extra == 'dev'", specifier = ">=6.0.2" },
     { name = "rich", specifier = ">=14.2.0" },
+    { name = "ruamel-yaml", marker = "extra == 'dev'", specifier = ">=0.18.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8.4" },
     { name = "tensorzero", marker = "extra == 'all-providers'", specifier = ">=2025.7.5" },
     { name = "tensorzero", marker = "extra == 'tensorzero'", specifier = ">=2025.7.5" },
@@ -606,6 +609,7 @@ dev = [
     { name = "pytest-asyncio", specifier = ">=0.21.1" },
     { name = "pytest-cov", specifier = ">=6.1.1" },
     { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "ruamel-yaml", specifier = ">=0.18.0" },
     { name = "ruff", specifier = ">=0.8.4" },
 ]
 
