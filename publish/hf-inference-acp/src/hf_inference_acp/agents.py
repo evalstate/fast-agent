@@ -257,15 +257,55 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             lines.append("- **HF_TOKEN**: NOT SET")
             lines.append("  Use `/login` or set `HF_TOKEN` environment variable")
 
-        # Check config file
+        # Check config file and show model with provider info
         lines.append(f"- **Config file**: `{CONFIG_FILE}`")
         if CONFIG_FILE.exists():
             lines.append("  Status: exists")
-            lines.append(f"  Default model: `{get_default_model()}`")
+            default_model = get_default_model()
+            lines.append(f"  Default model: `{default_model}`")
+
+            # Look up inference providers for the current model
+            provider_info = await self._get_model_provider_info(default_model)
+            if provider_info:
+                lines.append(f"  {provider_info}")
         else:
             lines.append("  Status: will be created on first use")
 
         return "\n".join(lines)
+
+    async def _get_model_provider_info(self, model: str) -> str | None:
+        """Get a brief provider info string for a model.
+
+        Returns None if providers cannot be looked up or model is not a HF model.
+        """
+        from fast_agent.llm.hf_inference_lookup import lookup_inference_providers
+
+        # Extract the HF model ID from various formats
+        model_id = model
+
+        # Strip hf. prefix if present
+        if model_id.startswith("hf."):
+            model_id = model_id[3:]
+
+        # Strip :provider suffix if present
+        if ":" in model_id:
+            model_id = model_id.rsplit(":", 1)[0]
+
+        # Must have org/model format
+        if "/" not in model_id:
+            return None
+
+        try:
+            result = await lookup_inference_providers(model_id)
+            if result.has_providers:
+                providers = result.format_provider_list()
+                return f"Available providers: {providers}"
+            elif result.exists:
+                return "No inference providers available"
+            else:
+                return None
+        except Exception:
+            return None
 
 
 class HuggingFaceAgent(ACPAwareMixin, McpAgent):
