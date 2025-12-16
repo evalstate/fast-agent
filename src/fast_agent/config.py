@@ -184,6 +184,12 @@ class MCPServerSettings(BaseModel):
     read_timeout_seconds: int | None = None
     """The timeout in seconds for the session."""
 
+    http_timeout_seconds: int | None = None
+    """Overall HTTP timeout (seconds) for StreamableHTTP transport. Defaults to MCP SDK."""
+
+    http_read_timeout_seconds: int | None = None
+    """HTTP read timeout (seconds) for StreamableHTTP transport. Defaults to MCP SDK."""
+
     read_transport_sse_timeout_seconds: int = 300
     """The timeout in seconds for the server connection."""
 

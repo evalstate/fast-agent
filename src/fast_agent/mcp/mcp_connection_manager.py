@@ -7,6 +7,7 @@ import traceback
 from datetime import timedelta
 from typing import TYPE_CHECKING, AsyncGenerator, Callable, Union
 
+import httpx
 from anyio import Event, Lock, create_task_group
 from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 from httpx import HTTPStatusError
@@ -16,6 +17,11 @@ from mcp.client.stdio import (
     get_default_environment,
 )
 from mcp.client.streamable_http import GetSessionIdCallback
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    create_mcp_http_client,
+)
 from mcp.types import Implementation, JSONRPCMessage, ServerCapabilities
 
 from fast_agent.config import MCPServerSettings
@@ -554,10 +560,24 @@ class MCPConnectionManager(ContextDependent):
                                 exc_info=True,
                             )
 
+                timeout = None
+                if (
+                    config.http_timeout_seconds is not None
+                    or config.http_read_timeout_seconds is not None
+                ):
+                    timeout = httpx.Timeout(
+                        config.http_timeout_seconds or MCP_DEFAULT_TIMEOUT,
+                        read=config.http_read_timeout_seconds or MCP_DEFAULT_SSE_READ_TIMEOUT,
+                    )
+
+                http_client = create_mcp_http_client(
+                    headers=headers,
+                    auth=oauth_auth,
+                    timeout=timeout,
+                )
                 return tracking_streamablehttp_client(
                     config.url,
-                    headers,
-                    auth=oauth_auth,
+                    http_client=http_client,
                     channel_hook=channel_hook,
                 )
             else:

@@ -401,9 +401,10 @@ You're now ready to use the Hugging Face assistant!
 
 Some tips:
  - `AGENTS.md` and `huggingface.md` are automatically loaded in the System Prompt
+ - Tool Permissions are set on a per-project basis. 
  - You can include content from URLs with `{{url:https://gist.github.com/...}}` syntax
  - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
  - Join https://huggingface.co/toad-hf-inference-explorers to claim **$10** in free inference credits!
- 
-Switching to chat mode...
+
+Transferring to chat mode...
 """
