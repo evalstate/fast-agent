@@ -190,7 +190,8 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         resolved = _resolve_model_string(model)
 
         try:
-            update_model_in_config(resolved)
+            # Save the shortform alias, but apply the resolved form
+            update_model_in_config(model)
             applied = await self._apply_model_to_running_hf_agent(resolved)
             applied_note = "\n\nApplied to the running Hugging Face agent." if applied else ""
             display = f"`{model}` → `{resolved}`" if model != resolved else f"`{resolved}`"
@@ -459,7 +460,8 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         resolved = _resolve_model_string(model)
 
         try:
-            update_model_in_config(resolved)
+            # Save the shortform alias, but apply the resolved form
+            update_model_in_config(model)
             await self.apply_model(resolved)
             display = f"`{model}` → `{resolved}`" if model != resolved else f"`{resolved}`"
             return f"Active model set to: {display}\n\nConfig file updated: `{CONFIG_FILE}`"
