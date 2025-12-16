@@ -109,55 +109,51 @@ def format_model_list_help() -> str:
     Returns a markdown-formatted string showing available models and explaining
     the Hugging Face model format including provider routing.
     """
-    lines = [
-        "## Available Models\n",
-        "| Alias | Model String | Description |",
-        "|-------|--------------|-------------|",
-    ]
+    lines: list[str] = []
+
+    lines.extend(
+        [
+            "",
+            "## Usage",
+            "",
+            "```",
+            "/set-model <alias>",
+            "/set-model <model-string>",
+            "/set-model <org>/<model-name>   # looks up available providers",
+            "```",
+            "",
+            "**Examples:**",
+            "- `/set-model kimi` - Use the Kimi K2 model",
+            "- `/set-model glm` - Use GLM 4.6",
+            "- `/set-model moonshotai/Kimi-K2-Thinking` - Set model (autoroute) and show providers",
+            "",
+            "## Model String Format",
+            "",
+            "You can specify a full model string with optional provider routing:",
+            "",
+            "```",
+            "hf.<org>/<model-name>:<provider>",
+            "```",
+            "",
+            "- `hf.` prefix indicates Hugging Face Inference API",
+            "- `<org>/<model-name>` is the Hugging Face model identifier",
+            "- `:<provider>` routes to a specific inference provider",
+            "",
+            "**Find out more:** https://huggingface.co/docs/inference-providers/index",
+            "",
+        ]
+    )
+
+    lines.extend(
+        [
+            "## Aliased Models\n",
+            "| Alias | Model String | Description |",
+            "|-------|--------------|-------------|",
+        ]
+    )
 
     for model in CURATED_MODELS:
         model_string = _get_model_string(model.id)
         lines.append(f"| `{model.id}` | `{model_string}` | {model.description} |")
-
-    lines.extend([
-        "",
-        "## Usage",
-        "",
-        "```",
-        "/set-model <alias>",
-        "/set-model <model-string>",
-        "/set-model <org>/<model-name>   # looks up available providers",
-        "```",
-        "",
-        "**Examples:**",
-        "- `/set-model kimi` - Use the Kimi K2 model (recommended)",
-        "- `/set-model glm` - Use GLM 4.6",
-        "- `/set-model moonshotai/Kimi-K2-Thinking` - Look up available providers",
-        "",
-        "## Model String Format",
-        "",
-        "You can specify a full model string with optional provider routing:",
-        "",
-        "```",
-        "hf.<org>/<model-name>:<provider>",
-        "```",
-        "",
-        "- `hf.` prefix indicates Hugging Face Inference API",
-        "- `<org>/<model-name>` is the Hugging Face model identifier",
-        "- `:<provider>` routes to a specific inference provider",
-        "",
-        "**Supported providers:** `groq`, `together`, `cerebras`, `novita`, `sambanova`, `fireworks`, `nebius`, `featherless-ai`",
-        "",
-        "**Examples:**",
-        "- `hf.moonshotai/Kimi-K2-Instruct-0905:groq`",
-        "- `hf.moonshotai/Kimi-K2-Thinking:together`",
-        "- `hf.openai/gpt-oss-120b`",
-        "",
-        "## Discovering Providers",
-        "",
-        "When you provide a HuggingFace model ID (e.g., `moonshotai/Kimi-K2-Thinking`),",
-        "the system will look up available inference providers and show you how to",
-        "specify the model with each provider.",
-    ])
 
     return "\n".join(lines)
