@@ -260,11 +260,12 @@ async def run_agents(
 
     # Register the HuggingFace agent (uses HF LLM)
     # Always register so the mode is visible; defaults to Setup mode when token is missing
+    # Use wizard-setup model as fallback when no token - avoids API key errors at startup
     @fast.custom(
         HuggingFaceAgent,
         name="huggingface",
         instruction=instruction,
-        model=effective_model,
+        model=effective_model if hf_token_present else "wizard-setup",
         servers=server_list,
         default=hf_token_present,
     )
