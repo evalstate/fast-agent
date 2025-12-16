@@ -220,12 +220,20 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model command."""
+        from fast_agent.llm.model_factory import ModelFactory
+
         model = arguments.strip()
         if not model:
             return format_model_list_help()
 
         # Normalize the model string (auto-add hf. prefix if needed)
         model = _normalize_hf_model(model)
+
+        # Validate the model string before saving to config
+        try:
+            ModelFactory.parse_model_string(model)
+        except Exception as e:
+            return f"Error: Invalid model `{model}` - {e}"
 
         # Look up inference providers for this model
         provider_info = await _lookup_and_format_providers(model)
@@ -241,7 +249,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
                 f"{applied_note}"
             )
         except Exception as e:
-            return f"Error updating config: {e}"
+            return f"Error setting model: {e}"
 
     async def _handle_login(self, arguments: str) -> str:
         """Handler for /login command."""
@@ -529,6 +537,8 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
 
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model in Hugging Face mode."""
+        from fast_agent.llm.model_factory import ModelFactory
+
         model = arguments.strip()
         if not model:
             return format_model_list_help()
@@ -536,12 +546,19 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         # Normalize the model string (auto-add hf. prefix if needed)
         model = _normalize_hf_model(model)
 
+        # Validate the model string before applying
+        try:
+            ModelFactory.parse_model_string(model)
+        except Exception as e:
+            return f"Error: Invalid model `{model}` - {e}"
+
         # Look up inference providers for this model
         provider_info = await _lookup_and_format_providers(model)
 
         try:
-            update_model_in_config(model)
+            # Apply model first - if this fails, don't update config
             await self.apply_model(model)
+            update_model_in_config(model)
             provider_prefix = f"{provider_info}\n\n" if provider_info else ""
             return f"{provider_prefix}Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
         except Exception as e:
