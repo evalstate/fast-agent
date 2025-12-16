@@ -14,6 +14,7 @@ from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
 from fast_agent.core.direct_factory import get_model_factory
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.request_params import RequestParams
 from fast_agent.mcp.hf_auth import add_hf_auth_header
@@ -30,8 +31,38 @@ from hf_inference_acp.hf_config import (
     has_hf_token,
     update_model_in_config,
 )
+from hf_inference_acp.wizard.model_catalog import CURATED_MODELS
 
 logger = get_logger(__name__)
+
+
+def _resolve_model_string(model: str) -> str:
+    """Resolve a model string using aliases and defaulting to hf provider.
+
+    1. Look up in MODEL_ALIASES
+    2. If no provider prefix, prepend 'hf.'
+    """
+    # Check aliases first
+    resolved = ModelFactory.MODEL_ALIASES.get(model, model)
+
+    # Check if it has a provider prefix (contains '.' before any '/')
+    slash_pos = resolved.find("/")
+    dot_pos = resolved.find(".")
+
+    has_provider = dot_pos != -1 and (slash_pos == -1 or dot_pos < slash_pos)
+
+    if not has_provider:
+        resolved = f"hf.{resolved}"
+
+    return resolved
+
+
+def _get_curated_models_help() -> str:
+    """Build help text showing available curated models."""
+    lines = ["Available models:"]
+    for m in CURATED_MODELS:
+        lines.append(f"  - `{m.id}` - {m.display_name}")
+    return "\n".join(lines)
 
 
 class SetupAgent(ACPAwareMixin, McpAgent):
@@ -152,16 +183,19 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         if not model:
             return (
                 "Error: Please provide a model name.\n\n"
-                "Example: `/set-model kimi`\n\n"
-                "You can also provide a full model id, e.g. `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
+                f"{_get_curated_models_help()}\n\n"
+                "Example: `/set-model kimi`"
             )
 
+        resolved = _resolve_model_string(model)
+
         try:
-            update_model_in_config(model)
-            applied = await self._apply_model_to_running_hf_agent(model)
+            update_model_in_config(resolved)
+            applied = await self._apply_model_to_running_hf_agent(resolved)
             applied_note = "\n\nApplied to the running Hugging Face agent." if applied else ""
+            display = f"`{model}` → `{resolved}`" if model != resolved else f"`{resolved}`"
             return (
-                f"Default model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+                f"Default model set to: {display}\n\nConfig file updated: `{CONFIG_FILE}`"
                 f"{applied_note}"
             )
         except Exception as e:
@@ -418,14 +452,17 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         if not model:
             return (
                 "Error: Please provide a model name.\n\n"
-                "Example: `/set-model kimi`\n\n"
-                "You can also provide a full model id, e.g. `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
+                f"{_get_curated_models_help()}\n\n"
+                "Example: `/set-model kimi`"
             )
 
+        resolved = _resolve_model_string(model)
+
         try:
-            update_model_in_config(model)
-            await self.apply_model(model)
-            return f"Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+            update_model_in_config(resolved)
+            await self.apply_model(resolved)
+            display = f"`{model}` → `{resolved}`" if model != resolved else f"`{resolved}`"
+            return f"Active model set to: {display}\n\nConfig file updated: `{CONFIG_FILE}`"
         except Exception as e:
             return f"Error setting model: {e}"
 
