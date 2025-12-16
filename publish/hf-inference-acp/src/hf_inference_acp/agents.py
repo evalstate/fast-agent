@@ -36,9 +36,9 @@ logger = get_logger(__name__)
 
 
 def _is_raw_hf_model_id(model: str) -> bool:
-    """Check if the model string looks like a raw HuggingFace model ID.
+    """Check if the model string looks like a raw HuggingFace model ID for lookup.
 
-    A raw HF model ID:
+    A raw HF model ID (for provider lookup):
     - Contains a '/' (org/model format)
     - Does not start with 'hf.' prefix
     - Does not have a ':provider' suffix
@@ -63,6 +63,35 @@ def _is_raw_hf_model_id(model: str) -> bool:
         return False
 
     return True
+
+
+def _normalize_hf_model(model: str) -> str:
+    """Normalize a HuggingFace model string by adding hf. prefix if needed.
+
+    If the model looks like a HuggingFace model (org/model format) but doesn't
+    have the hf. prefix, add it automatically.
+
+    Examples:
+        moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
+        hf.moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
+        kimi -> kimi (alias, unchanged)
+        gpt-4o -> gpt-4o (no /, unchanged)
+    """
+    from fast_agent.llm.model_factory import ModelFactory
+
+    # Already has hf. prefix
+    if model.startswith("hf."):
+        return model
+
+    # Check if it's a known alias
+    if model in ModelFactory.MODEL_ALIASES:
+        return model
+
+    # If it has org/model format, add hf. prefix
+    if "/" in model:
+        return f"hf.{model}"
+
+    return model
 
 
 async def _lookup_and_format_providers(model: str) -> str | None:
@@ -205,6 +234,9 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         if provider_info:
             # Return provider information instead of setting the model
             return provider_info
+
+        # Normalize the model string (auto-add hf. prefix if needed)
+        model = _normalize_hf_model(model)
 
         try:
             update_model_in_config(model)
@@ -513,6 +545,9 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         if provider_info:
             # Return provider information instead of setting the model
             return provider_info
+
+        # Normalize the model string (auto-add hf. prefix if needed)
+        model = _normalize_hf_model(model)
 
         try:
             update_model_in_config(model)
