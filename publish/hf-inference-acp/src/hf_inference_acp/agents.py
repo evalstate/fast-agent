@@ -30,6 +30,7 @@ from hf_inference_acp.hf_config import (
     has_hf_token,
     update_model_in_config,
 )
+from hf_inference_acp.wizard.model_catalog import format_model_list_help
 
 logger = get_logger(__name__)
 
@@ -150,11 +151,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         """Handler for /set-model command."""
         model = arguments.strip()
         if not model:
-            return (
-                "Error: Please provide a model name.\n\n"
-                "Example: `/set-model kimi`\n\n"
-                "You can also provide a full model id, e.g. `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
-            )
+            return format_model_list_help()
 
         try:
             update_model_in_config(model)
@@ -416,11 +413,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         """Handler for /set-model in Hugging Face mode."""
         model = arguments.strip()
         if not model:
-            return (
-                "Error: Please provide a model name.\n\n"
-                "Example: `/set-model kimi`\n\n"
-                "You can also provide a full model id, e.g. `/set-model hf.moonshotai/Kimi-K2-Instruct-0905`"
-            )
+            return format_model_list_help()
 
         try:
             update_model_in_config(model)
