@@ -69,6 +69,8 @@ async def _lookup_and_format_providers(model: str) -> str | None:
 
     Returns None if the model is not a HuggingFace model (no '/').
     """
+    import random
+
     # Extract the HF model ID from various formats
     model_id = model
 
@@ -90,14 +92,12 @@ async def _lookup_and_format_providers(model: str) -> str | None:
         result = await lookup_inference_providers(model_id)
         if result.has_providers:
             providers = result.format_provider_list()
-            lines = [
-                f"**Available providers:** {providers}",
-                "",
-                "**To specify a provider:**",
-            ]
-            for model_str in result.format_model_strings()[:4]:
-                lines.append(f"- `/set-model {model_str}`")
-            return "\n".join(lines)
+            model_strings = result.format_model_strings()
+            example = random.choice(model_strings)
+            return (
+                f"**Available providers:** {providers}\n"
+                f"**To specify a provider:** `/set-model {example}`"
+            )
         elif result.exists:
             return "No inference providers currently available for this model."
         else:
@@ -234,10 +234,11 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             update_model_in_config(model)
             applied = await self._apply_model_to_running_hf_agent(model)
             applied_note = "\n\nApplied to the running Hugging Face agent." if applied else ""
-            provider_note = f"\n\n{provider_info}" if provider_info else ""
+            provider_prefix = f"{provider_info}\n\n" if provider_info else ""
             return (
+                f"{provider_prefix}"
                 f"Default model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
-                f"{applied_note}{provider_note}"
+                f"{applied_note}"
             )
         except Exception as e:
             return f"Error updating config: {e}"
@@ -542,8 +543,8 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         try:
             update_model_in_config(model)
             await self.apply_model(model)
-            provider_note = f"\n\n{provider_info}" if provider_info else ""
-            return f"Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`{provider_note}"
+            provider_prefix = f"{provider_info}\n\n" if provider_info else ""
+            return f"{provider_prefix}Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
         except Exception as e:
             return f"Error setting model: {e}"
 
