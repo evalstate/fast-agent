@@ -35,6 +35,82 @@ from hf_inference_acp.wizard.model_catalog import format_model_list_help
 logger = get_logger(__name__)
 
 
+def _is_raw_hf_model_id(model: str) -> bool:
+    """Check if the model string looks like a raw HuggingFace model ID for lookup.
+
+    A raw HF model ID (for provider lookup):
+    - Contains a '/' (org/model format)
+    - Does not start with 'hf.' prefix
+    - Does not have a ':provider' suffix
+    - Is not a known alias
+    """
+    from fast_agent.llm.model_factory import ModelFactory
+
+    # Check if it's a known alias
+    if model in ModelFactory.MODEL_ALIASES:
+        return False
+
+    # Must contain '/' for org/model format
+    if "/" not in model:
+        return False
+
+    # Should not start with 'hf.' (already fully qualified)
+    if model.startswith("hf."):
+        return False
+
+    # Should not have a ':' (already has provider suffix)
+    if ":" in model:
+        return False
+
+    return True
+
+
+def _normalize_hf_model(model: str) -> str:
+    """Normalize a HuggingFace model string by adding hf. prefix if needed.
+
+    If the model looks like a HuggingFace model (org/model format) but doesn't
+    have the hf. prefix, add it automatically.
+
+    Examples:
+        moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
+        hf.moonshotai/Kimi-K2-Thinking:together -> hf.moonshotai/Kimi-K2-Thinking:together
+        kimi -> kimi (alias, unchanged)
+        gpt-4o -> gpt-4o (no /, unchanged)
+    """
+    from fast_agent.llm.model_factory import ModelFactory
+
+    # Already has hf. prefix
+    if model.startswith("hf."):
+        return model
+
+    # Check if it's a known alias
+    if model in ModelFactory.MODEL_ALIASES:
+        return model
+
+    # If it has org/model format, add hf. prefix
+    if "/" in model:
+        return f"hf.{model}"
+
+    return model
+
+
+async def _lookup_and_format_providers(model: str) -> str | None:
+    """Look up inference providers for a model and return a formatted message.
+
+    Returns None if the model is not a raw HuggingFace model ID.
+    """
+    if not _is_raw_hf_model_id(model):
+        return None
+
+    from fast_agent.llm.hf_inference_lookup import (
+        format_inference_lookup_message,
+        lookup_inference_providers,
+    )
+
+    result = await lookup_inference_providers(model)
+    return format_inference_lookup_message(result)
+
+
 class SetupAgent(ACPAwareMixin, McpAgent):
     """
     Setup agent for configuring HuggingFace inference.
@@ -153,6 +229,15 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         if not model:
             return format_model_list_help()
 
+        # Check if this looks like a raw HuggingFace model ID for provider lookup
+        provider_info = await _lookup_and_format_providers(model)
+        if provider_info:
+            # Return provider information instead of setting the model
+            return provider_info
+
+        # Normalize the model string (auto-add hf. prefix if needed)
+        model = _normalize_hf_model(model)
+
         try:
             update_model_in_config(model)
             applied = await self._apply_model_to_running_hf_agent(model)
@@ -204,15 +289,55 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             lines.append("- **HF_TOKEN**: NOT SET")
             lines.append("  Use `/login` or set `HF_TOKEN` environment variable")
 
-        # Check config file
+        # Check config file and show model with provider info
         lines.append(f"- **Config file**: `{CONFIG_FILE}`")
         if CONFIG_FILE.exists():
             lines.append("  Status: exists")
-            lines.append(f"  Default model: `{get_default_model()}`")
+            default_model = get_default_model()
+            lines.append(f"  Default model: `{default_model}`")
+
+            # Look up inference providers for the current model
+            provider_info = await self._get_model_provider_info(default_model)
+            if provider_info:
+                lines.append(f"  {provider_info}")
         else:
             lines.append("  Status: will be created on first use")
 
         return "\n".join(lines)
+
+    async def _get_model_provider_info(self, model: str) -> str | None:
+        """Get a brief provider info string for a model.
+
+        Returns None if providers cannot be looked up or model is not a HF model.
+        """
+        from fast_agent.llm.hf_inference_lookup import lookup_inference_providers
+
+        # Extract the HF model ID from various formats
+        model_id = model
+
+        # Strip hf. prefix if present
+        if model_id.startswith("hf."):
+            model_id = model_id[3:]
+
+        # Strip :provider suffix if present
+        if ":" in model_id:
+            model_id = model_id.rsplit(":", 1)[0]
+
+        # Must have org/model format
+        if "/" not in model_id:
+            return None
+
+        try:
+            result = await lookup_inference_providers(model_id)
+            if result.has_providers:
+                providers = result.format_provider_list()
+                return f"Available providers: {providers}"
+            elif result.exists:
+                return "No inference providers available"
+            else:
+                return None
+        except Exception:
+            return None
 
 
 class HuggingFaceAgent(ACPAwareMixin, McpAgent):
@@ -414,6 +539,15 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         model = arguments.strip()
         if not model:
             return format_model_list_help()
+
+        # Check if this looks like a raw HuggingFace model ID for provider lookup
+        provider_info = await _lookup_and_format_providers(model)
+        if provider_info:
+            # Return provider information instead of setting the model
+            return provider_info
+
+        # Normalize the model string (auto-add hf. prefix if needed)
+        model = _normalize_hf_model(model)
 
         try:
             update_model_in_config(model)
