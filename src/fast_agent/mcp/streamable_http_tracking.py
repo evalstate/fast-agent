@@ -11,20 +11,19 @@ from mcp.client.streamable_http import (
     DEFAULT_RECONNECTION_DELAY_MS,
     LAST_EVENT_ID,
     MAX_RECONNECTION_ATTEMPTS,
-    ResumptionError,
     RequestContext,
     RequestId,
+    ResumptionError,
     StreamableHTTPTransport,
     StreamWriter,
 )
-from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
+from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
-    from datetime import timedelta
 
     from anyio.abc import ObjectReceiveStream, ObjectSendStream
 
