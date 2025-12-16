@@ -35,6 +35,53 @@ from hf_inference_acp.wizard.model_catalog import format_model_list_help
 logger = get_logger(__name__)
 
 
+def _is_raw_hf_model_id(model: str) -> bool:
+    """Check if the model string looks like a raw HuggingFace model ID.
+
+    A raw HF model ID:
+    - Contains a '/' (org/model format)
+    - Does not start with 'hf.' prefix
+    - Does not have a ':provider' suffix
+    - Is not a known alias
+    """
+    from fast_agent.llm.model_factory import ModelFactory
+
+    # Check if it's a known alias
+    if model in ModelFactory.MODEL_ALIASES:
+        return False
+
+    # Must contain '/' for org/model format
+    if "/" not in model:
+        return False
+
+    # Should not start with 'hf.' (already fully qualified)
+    if model.startswith("hf."):
+        return False
+
+    # Should not have a ':' (already has provider suffix)
+    if ":" in model:
+        return False
+
+    return True
+
+
+async def _lookup_and_format_providers(model: str) -> str | None:
+    """Look up inference providers for a model and return a formatted message.
+
+    Returns None if the model is not a raw HuggingFace model ID.
+    """
+    if not _is_raw_hf_model_id(model):
+        return None
+
+    from fast_agent.llm.hf_inference_lookup import (
+        format_inference_lookup_message,
+        lookup_inference_providers,
+    )
+
+    result = await lookup_inference_providers(model)
+    return format_inference_lookup_message(result)
+
+
 class SetupAgent(ACPAwareMixin, McpAgent):
     """
     Setup agent for configuring HuggingFace inference.
@@ -152,6 +199,12 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         model = arguments.strip()
         if not model:
             return format_model_list_help()
+
+        # Check if this looks like a raw HuggingFace model ID for provider lookup
+        provider_info = await _lookup_and_format_providers(model)
+        if provider_info:
+            # Return provider information instead of setting the model
+            return provider_info
 
         try:
             update_model_in_config(model)
@@ -414,6 +467,12 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         model = arguments.strip()
         if not model:
             return format_model_list_help()
+
+        # Check if this looks like a raw HuggingFace model ID for provider lookup
+        provider_info = await _lookup_and_format_providers(model)
+        if provider_info:
+            # Return provider information instead of setting the model
+            return provider_info
 
         try:
             update_model_in_config(model)
