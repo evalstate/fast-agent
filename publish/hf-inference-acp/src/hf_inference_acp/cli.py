@@ -245,32 +245,31 @@ async def run_agents(
     async def setup_agent():
         pass
 
-    # Only register the HuggingFace agent if HF_TOKEN is present
-    # This prevents model initialization errors when token is missing
+    instruction = instruction_override or get_hf_instruction()
+
+    # Ensure huggingface is always in the servers list
+    # (load_on_start in config controls whether it connects automatically)
+    if server_list is None:
+        server_list = []
+    if "huggingface" not in server_list:
+        server_list.append("huggingface")
+
+    # Attach Authorization header to Hugging Face MCP server using HF_TOKEN if available
     if hf_token_present:
-        instruction = instruction_override or get_hf_instruction()
-
-        # Ensure huggingface is always in the servers list
-        # (load_on_start in config controls whether it connects automatically)
-        if server_list is None:
-            server_list = []
-        if "huggingface" not in server_list:
-            server_list.append("huggingface")
-
-        # Attach Authorization header to Hugging Face MCP server using HF_TOKEN if not provided
         _ensure_hf_mcp_auth_header(fast)
 
-        # Register the HuggingFace agent (uses HF LLM)
-        @fast.custom(
-            HuggingFaceAgent,
-            name="huggingface",
-            instruction=instruction,
-            model=effective_model,
-            servers=server_list,
-            default=True,
-        )
-        async def hf_agent():
-            pass
+    # Register the HuggingFace agent (uses HF LLM)
+    # Always register so the mode is visible; defaults to Setup mode when token is missing
+    @fast.custom(
+        HuggingFaceAgent,
+        name="huggingface",
+        instruction=instruction,
+        model=effective_model,
+        servers=server_list,
+        default=hf_token_present,
+    )
+    async def hf_agent():
+        pass
 
     # Start the ACP server
     await fast.start_server(
