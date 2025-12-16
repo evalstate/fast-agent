@@ -95,8 +95,8 @@ async def _lookup_and_format_providers(model: str) -> str | None:
             model_strings = result.format_model_strings()
             example = random.choice(model_strings)
             return (
-                f"**Available providers:** {providers}\n"
-                f"**To specify a provider:** `/set-model {example}`"
+                f"**Available providers:** {providers}\n\n"
+                f"**Autoroutes if no provider specified. Example use:** `/set-model {example}`"
             )
         elif result.exists:
             return "No inference providers currently available for this model."
