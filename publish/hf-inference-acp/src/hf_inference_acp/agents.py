@@ -207,10 +207,10 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         # Check config file
         lines.append(f"- **Config file**: `{CONFIG_FILE}`")
         if CONFIG_FILE.exists():
-            lines.append("  Status: exists")
-            lines.append(f"  Default model: `{get_default_model()}`")
+            lines.append("  - Status: exists")
+            lines.append(f"  - Default model: `{get_default_model()}`")
         else:
-            lines.append("  Status: will be created on first use")
+            lines.append("  - Status: will be created on first use")
 
         return "\n".join(lines)
 

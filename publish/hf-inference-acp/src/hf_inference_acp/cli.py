@@ -264,7 +264,7 @@ async def run_agents(
         HuggingFaceAgent,
         name="huggingface",
         instruction=instruction,
-        model=effective_model,
+        model=effective_model if hf_token_present else "wizard-setup",
         servers=server_list,
         default=hf_token_present,
     )
