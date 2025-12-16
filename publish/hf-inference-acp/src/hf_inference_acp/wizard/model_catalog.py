@@ -14,6 +14,13 @@ class CuratedModel:
     description: str
 
 
+def _get_model_string(alias: str) -> str:
+    """Look up the full model string from MODEL_ALIASES."""
+    from fast_agent.llm.model_factory import ModelFactory
+
+    return ModelFactory.MODEL_ALIASES.get(alias, alias)
+
+
 # Curated list of recommended models for HuggingFace inference
 CURATED_MODELS: list[CuratedModel] = [
     CuratedModel(
@@ -24,12 +31,12 @@ CURATED_MODELS: list[CuratedModel] = [
     CuratedModel(
         id="kimithink",
         display_name="Kimi K2 Thinking",
-        description="Advanced reasoning model",
+        description="Advanced reasoning model with extended thinking",
     ),
     CuratedModel(
         id="gpt-oss",
         display_name="OpenAI gpt-oss-120b",
-        description="OpenAI’s open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
+        description="OpenAI's open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
     ),
     CuratedModel(
         id="glm",
@@ -94,3 +101,55 @@ def get_model_by_id(model_id: str) -> CuratedModel | None:
         if model.id == model_id:
             return model
     return None
+
+
+def format_model_list_help() -> str:
+    """Format the curated model list for display in /set-model help.
+
+    Returns a markdown-formatted string showing available models and explaining
+    the Hugging Face model format including provider routing.
+    """
+    lines = [
+        "## Available Models\n",
+        "| Alias | Model String | Description |",
+        "|-------|--------------|-------------|",
+    ]
+
+    for model in CURATED_MODELS:
+        model_string = _get_model_string(model.id)
+        lines.append(f"| `{model.id}` | `{model_string}` | {model.description} |")
+
+    lines.extend([
+        "",
+        "## Usage",
+        "",
+        "```",
+        "/set-model <alias>",
+        "/set-model <model-string>",
+        "```",
+        "",
+        "**Examples:**",
+        "- `/set-model kimi` - Use the Kimi K2 model (recommended)",
+        "- `/set-model glm` - Use GLM 4.6",
+        "",
+        "## Model String Format",
+        "",
+        "You can also specify a full model string:",
+        "",
+        "```",
+        "hf.<org>/<model-name>:<provider>",
+        "```",
+        "",
+        "- `hf.` prefix indicates Hugging Face Inference API",
+        "- `<org>/<model-name>` is the Hugging Face model identifier",
+        "- `:<provider>` (optional) routes to a specific inference provider",
+        "",
+        "**Supported providers:** `groq`, `together`, `cerebras`, `novita`, `sambanova`, `fireworks`",
+        "",
+        "**Examples:**",
+        "- `hf.moonshotai/Kimi-K2-Instruct-0905:groq`",
+        "- `hf.openai/gpt-oss-120b`",
+        "- `hf.meta-llama/Llama-3.3-70B-Instruct:together`",
+    ])
+
+    return "\n".join(lines)
