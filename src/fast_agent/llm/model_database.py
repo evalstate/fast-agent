@@ -124,7 +124,7 @@ class ModelDatabase:
     )
 
     OPENAI_4O_SERIES = ModelParameters(
-        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_VISION
+        context_window=128000, max_output_tokens=16384, tokenizes=OPENAI_MULTIMODAL
     )
 
     OPENAI_O3_SERIES = ModelParameters(
