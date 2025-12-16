@@ -289,9 +289,9 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             lines.append("  - Status: exists")
             lines.append(f"  - Default model: `{get_default_model()}`")
 
-            provider_info = await self._get_model_provider_info(default_model)
-            if provider_info:
-                lines.append(f"  - {provider_info}")
+            # provider_info = await self._get_model_provider_info(default_model)
+            # if provider_info:
+            #     lines.append(f"  - {provider_info}")
 
         else:
             lines.append("  - Status: will be created on first use")

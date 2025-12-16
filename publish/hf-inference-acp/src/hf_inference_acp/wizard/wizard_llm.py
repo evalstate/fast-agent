@@ -194,7 +194,7 @@ Set it using one of these methods:
 **Option A** - Run `hf auth login`. In Toad, type `$hf auth login`
 
 **Option B** - Set environment variable:
-    `export HF_TOKEN=hf_YOUR_TOKEN`
+    `export HF_TOKEN=hf_YOUR_TOKEN` and restart Toad
 
 **Option C** - Add to config file `{CONFIG_FILE}`:
 
