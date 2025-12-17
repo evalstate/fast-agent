@@ -44,6 +44,7 @@ class WizardSetupLLM(PassthroughLLM):
         super().__init__(name=name, provider=provider, **kwargs)
         self._state = WizardState()
         self._on_complete_callback: Callable[["WizardState"], Any] | None = None
+        self._completion_callback_fired = False
         self.logger = get_logger(__name__)
 
     def set_completion_callback(self, callback: Callable[["WizardState"], Any]) -> None:
@@ -83,6 +84,20 @@ class WizardSetupLLM(PassthroughLLM):
         self._track_usage(multipart_messages, result)
         return result
 
+    def _reset_wizard(self) -> None:
+        """Reset wizard state so the flow can be re-run."""
+        self._state = WizardState()
+        self._completion_callback_fired = False
+
+    def _is_restart_command(self, cmd: str) -> bool:
+        """Return True if the user intends to restart the wizard."""
+        if cmd in ("restart", "reset"):
+            return True
+        # Convenience: after completion, users often try "go"/"setup" to re-run.
+        if self._state.stage == WizardStage.COMPLETE and cmd in ("go", "setup", "start", "begin"):
+            return True
+        return False
+
     def _track_usage(
         self,
         input_messages: list[PromptMessageExtended],
@@ -102,6 +117,15 @@ class WizardSetupLLM(PassthroughLLM):
 
     async def _process_stage(self, user_input: str) -> str:
         """Process current stage and return response."""
+        cmd = user_input.lower().strip()
+
+        if self._is_restart_command(cmd):
+            self._reset_wizard()
+            # Treat the restart request as the first message of a fresh wizard.
+        return await self._process_stage_inner(user_input)
+
+    async def _process_stage_inner(self, user_input: str) -> str:
+        """Internal stage processor."""
         # Handle first message - show welcome, but if user already typed a
         # recognized command, process it immediately without making them repeat
         if self._state.first_message:
@@ -382,12 +406,17 @@ Enter y or n:
 
     async def _handle_complete(self, user_input: str) -> str:
         """Handle completion - show success and trigger callback."""
-        # Call completion callback if set
-        if self._on_complete_callback:
+        if self._state.stage == WizardStage.COMPLETE and self._completion_callback_fired:
+            return "Setup is already complete. Type `restart` to run the wizard again."
+
+        # Call completion callback (once per completion) if set
+        if self._on_complete_callback and not self._completion_callback_fired:
             try:
                 await self._on_complete_callback(self._state)
+                self._completion_callback_fired = True
             except Exception as e:
                 self.logger.warning(f"Completion callback failed: {e}")
+                self._completion_callback_fired = True
 
         mcp_status = "Yes" if self._state.mcp_load_on_start else "No"
         return f"""## Setup Complete!
@@ -401,10 +430,12 @@ You're now ready to use the Hugging Face assistant!
 
 Some tips:
  - `AGENTS.md` and `huggingface.md` are automatically loaded in the System Prompt
- - Tool Permissions are set on a per-project basis. 
- - You can include content from URLs with `{{url:https://gist.github.com/...}}` syntax
+ - You can include content from URLs with `{{{{url:https://gist.github.com/...}}}}` syntax
+ - Tool Permissions are set on a per-project basis. use `/status auth` and `/status authreset` to manage. 
  - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
  - Join https://huggingface.co/toad-hf-inference-explorers to claim **$10** in free inference credits!
 
 Transferring to chat mode...
+
+(If you need to re-run this wizard later, return to `setup` mode and type `go` or `setup`.)
 """
