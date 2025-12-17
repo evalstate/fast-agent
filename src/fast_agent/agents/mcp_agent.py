@@ -7,6 +7,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
+import time
 from abc import ABC
 from typing import (
     TYPE_CHECKING,
@@ -776,9 +777,6 @@ class McpAgent(ABC, ToolAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Override ToolAgent's run_tools to use MCP tools via aggregator."""
-        import asyncio
-        import time
-
         if not request.tool_calls:
             self.logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})

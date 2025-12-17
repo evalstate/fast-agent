@@ -19,8 +19,6 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 if TYPE_CHECKING:
     from mcp import Tool
 
-    from fast_agent.agents.llm_decorator import LlmDecorator  # noqa: F401
-
 
 class _ToolLoopAgent(Protocol):
     config: Any
@@ -94,10 +92,9 @@ class ToolRunner:
         if self._done:
             raise StopAsyncIteration
 
-        full_history = self._full_history_for_next_call()
         if self._hooks.before_llm_call is not None:
-            await self._hooks.before_llm_call(self, full_history)
             full_history = self._full_history_for_next_call()
+            await self._hooks.before_llm_call(self, full_history)
 
         assistant_message = await self._agent._tool_runner_llm_step(
             self._delta_messages,

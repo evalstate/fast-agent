@@ -1,3 +1,5 @@
+import asyncio
+import time
 from typing import Any, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
@@ -115,9 +117,6 @@ class ToolAgent(LlmAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Runs the tools in the request, and returns a new User message with the results"""
-        import asyncio
-        import time
-
         if not request.tool_calls:
             logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
