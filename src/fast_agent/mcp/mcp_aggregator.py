@@ -869,34 +869,51 @@ class MCPAggregator(ContextDependent):
                 "Failed to notify stdio transport activity for %s", server_name, exc_info=True
             )
 
-    async def get_server_instructions(self) -> dict[str, tuple[str, list[str]]]:
+    async def get_server_instructions(self) -> dict[str, tuple[str | None, list[str]]]:
         """
-        Get instructions from all connected servers along with their tool names.
+        Get instructions from currently-connected servers along with their tool names.
 
         Returns:
-            Dict mapping server name to tuple of (instructions, list of tool names)
-        """
-        instructions = {}
+            Dict mapping server name to tuple of (instructions, list of tool names).
 
-        if self.connection_persistence and hasattr(self, "_persistent_connection_manager"):
-            # Get instructions from persistent connections
-            for server_name in self.server_names:
-                try:
-                    server_conn = await self._persistent_connection_manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    # Always include server, even if no instructions
-                    # Get tool names for this server
-                    tool_names = [
-                        namespaced_tool.tool.name
-                        for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items()
-                        if namespaced_tool.server_name == server_name
-                    ]
-                    # Include server even if instructions is None
-                    instructions[server_name] = (server_conn.server_instructions, tool_names)
-                except Exception as e:
-                    logger.debug(f"Failed to get instructions from server {server_name}: {e}")
+        Notes:
+            This method must not implicitly connect to servers. Connection is controlled
+            by `load_servers()` (and its `load_on_start` / `force_connect` behavior).
+            This ensures optional MCP servers don't get launched just because an agent
+            prompt contains the `{{serverInstructions}}` placeholder.
+        """
+        instructions: dict[str, tuple[str | None, list[str]]] = {}
+
+        if not self.connection_persistence:
+            return instructions
+
+        manager = getattr(self, "_persistent_connection_manager", None)
+        if manager is None:
+            return instructions
+
+        # Only read from already-running server connections to avoid implicit connects.
+        running_servers = getattr(manager, "running_servers", {}) or {}
+        for server_name in self.server_names:
+            server_conn = running_servers.get(server_name)
+            if not server_conn:
+                continue
+
+            try:
+                if hasattr(server_conn, "is_healthy") and not server_conn.is_healthy():
+                    continue
+            except Exception:
+                continue
+
+            tool_names = [
+                namespaced_tool.tool.name
+                for _, namespaced_tool in self._namespaced_tool_map.items()
+                if namespaced_tool.server_name == server_name
+            ]
+
+            try:
+                instructions[server_name] = (getattr(server_conn, "server_instructions", None), tool_names)
+            except Exception as e:
+                logger.debug(f"Failed to get instructions from server {server_name}: {e}")
 
         return instructions
 
