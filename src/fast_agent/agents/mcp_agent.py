@@ -103,6 +103,8 @@ class McpAgent(ABC, ToolAgent):
         )
 
         self.instruction = self.config.instruction
+        # Preserve the original instruction template for rebuilding after lazy server connections
+        self._instruction_template: str | None = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
@@ -308,6 +310,29 @@ class McpAgent(ABC, ToolAgent):
             self._default_request_params.systemPrompt = self.instruction
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
+
+    async def rebuild_instruction_templates(self) -> None:
+        """
+        Rebuild the instruction from the original template.
+
+        This is useful when MCP servers are connected lazily (load_on_start=False)
+        and you need to update the system prompt with server instructions after
+        the connection is established.
+
+        The method restores the original template and re-applies all template
+        substitutions including {{serverInstructions}} and {{agentSkills}}.
+        """
+        if not self._instruction_template:
+            self.logger.debug("No instruction template to rebuild from")
+            return
+
+        # Restore from original template
+        self.instruction = self._instruction_template
+
+        # Re-apply all templates (this handles serverInstructions, agentSkills, etc.)
+        await self._apply_instruction_templates()
+
+        self.logger.info(f"Rebuilt instruction templates for agent {self._name}")
 
     def _format_server_instructions(
         self, instructions_data: dict[str, tuple[str | None, list[str]]]

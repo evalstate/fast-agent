@@ -497,6 +497,12 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             self._hf_mcp_connected = True
             await _send_connect_update(title="Connected", status="in_progress")
 
+            # Rebuild instruction templates to include server instructions
+            await _send_connect_update(
+                title="Rebuilding system prompt…", status="in_progress"
+            )
+            await self.rebuild_instruction_templates()
+
             # Get available tools
             await _send_connect_update(title="Fetching available tools…", status="in_progress")
             tools_result = await self._aggregator.list_tools()
