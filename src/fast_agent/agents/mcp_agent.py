@@ -368,7 +368,7 @@ class McpAgent(ABC, ToolAgent):
                 f'<fastagent:mcp-server name="{server_name}">\n'
                 f"<tools>{tools_list}</tools>\n"
                 f"<instructions>\n{instructions}\n</instructions>\n"
-                f"</fastagent:  mcp-server>"
+                f"</fastagent:mcp-server>"
             )
 
         if formatted_parts:
