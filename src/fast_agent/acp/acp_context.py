@@ -454,11 +454,8 @@ class ACPContext:
 
             # Update the SlashCommandHandler's session instructions cache
             # (used by /system command)
-            if self._slash_handler and hasattr(self._slash_handler, "_session_instructions"):
-                if new_instruction:
-                    self._slash_handler._session_instructions[agent_name] = new_instruction
-                elif agent_name in self._slash_handler._session_instructions:
-                    del self._slash_handler._session_instructions[agent_name]
+            if self._slash_handler:
+                self._slash_handler.update_session_instruction(agent_name, new_instruction)
 
             logger.info(
                 "Invalidated instruction cache for agent",
