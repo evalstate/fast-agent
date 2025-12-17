@@ -102,6 +102,8 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
+        # Store both the original template and resolved instruction
+        self._instruction_template = self.config.instruction
         self.instruction = self.config.instruction
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
@@ -344,6 +346,40 @@ class McpAgent(ABC, ToolAgent):
         if formatted_parts:
             return "\n\n".join(formatted_parts)
         return ""
+
+    async def rebuild_instruction_templates(self) -> None:
+        """
+        Re-apply instruction templates after MCP server changes.
+
+        Call this method after connecting new MCP servers (e.g., via /connect command)
+        to update the system prompt with fresh {{serverInstructions}}.
+
+        This method:
+        1. Resets the instruction to the original template
+        2. Re-applies all template substitutions (serverInstructions, agentSkills, etc.)
+        3. Updates default request params
+        4. Invalidates ACP session caches if running in ACP mode
+        """
+        if not self._instruction_template:
+            return
+
+        # Reset to original template
+        self.instruction = self._instruction_template
+
+        # Re-apply templates with fresh server instructions
+        await self._apply_instruction_templates()
+
+        # If running in ACP mode, invalidate the session instruction cache
+        if self.context and hasattr(self.context, "acp") and self.context.acp:
+            try:
+                await self.context.acp.invalidate_instruction_cache(
+                    agent_name=self._name,
+                    new_instruction=self.instruction,
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to invalidate ACP instruction cache: {e}")
+
+        self.logger.info(f"Rebuilt instruction templates for agent {self._name}")
 
     async def __call__(
         self,

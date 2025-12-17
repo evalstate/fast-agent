@@ -784,6 +784,9 @@ class AgentACPServer(ACPAgent):
 
             acp_context.set_slash_handler(slash_handler)
 
+            # Share the resolved instructions cache so agents can invalidate it
+            acp_context.set_resolved_instructions(session_state.resolved_instructions)
+
             # Store ACPContext
             session_state.acp_context = acp_context
 

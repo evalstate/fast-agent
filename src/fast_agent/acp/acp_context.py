@@ -147,6 +147,10 @@ class ACPContext:
         self._progress_manager: "ACPToolProgressManager | None" = None
         self._slash_handler: "SlashCommandHandler | None" = None
 
+        # Reference to session-level resolved instructions cache
+        # (shared with ACPSessionState.resolved_instructions)
+        self._resolved_instructions: dict[str, str] | None = None
+
         # Lock for async operations
         self._lock = asyncio.Lock()
 
@@ -357,6 +361,15 @@ class ACPContext:
         """Set the slash command handler (called by server)."""
         self._slash_handler = handler
 
+    def set_resolved_instructions(self, resolved_instructions: dict[str, str]) -> None:
+        """
+        Set the reference to resolved instructions cache (called by server).
+
+        This should point to the same dict as ACPSessionState.resolved_instructions
+        so that updates are reflected in both places.
+        """
+        self._resolved_instructions = resolved_instructions
+
     # =========================================================================
     # Slash Command Updates
     # =========================================================================
@@ -415,6 +428,44 @@ class ACPContext:
             session_id=self._session_id,
             update=update,
         )
+
+    async def invalidate_instruction_cache(
+        self, agent_name: str, new_instruction: str | None
+    ) -> None:
+        """
+        Invalidate the session instruction cache for an agent.
+
+        Call this when an agent's system prompt has been rebuilt (e.g., after
+        connecting new MCP servers) to ensure the ACP session uses the fresh
+        instruction on subsequent prompts.
+
+        Args:
+            agent_name: Name of the agent whose instruction was updated
+            new_instruction: The new resolved instruction (or None to remove)
+        """
+        async with self._lock:
+            # Update the session-level resolved instructions cache
+            # (used by _build_session_request_params in AgentACPServer)
+            if self._resolved_instructions is not None:
+                if new_instruction:
+                    self._resolved_instructions[agent_name] = new_instruction
+                elif agent_name in self._resolved_instructions:
+                    del self._resolved_instructions[agent_name]
+
+            # Update the SlashCommandHandler's session instructions cache
+            # (used by /system command)
+            if self._slash_handler and hasattr(self._slash_handler, "_session_instructions"):
+                if new_instruction:
+                    self._slash_handler._session_instructions[agent_name] = new_instruction
+                elif agent_name in self._slash_handler._session_instructions:
+                    del self._slash_handler._session_instructions[agent_name]
+
+            logger.info(
+                "Invalidated instruction cache for agent",
+                name="acp_instruction_cache_invalidated",
+                session_id=self._session_id,
+                agent_name=agent_name,
+            )
 
     # =========================================================================
     # Cleanup
