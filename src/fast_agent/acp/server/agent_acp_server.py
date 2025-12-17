@@ -748,6 +748,17 @@ class AgentACPServer(ACPAgent):
         if resolved_for_session:
             session_state.resolved_instructions = resolved_for_session
 
+        # Set session context on agents that have InstructionBuilder
+        # This ensures {{env}}, {{workspaceRoot}}, etc. are available when rebuilding
+        for agent_name, agent in instance.agents.items():
+            if hasattr(agent, "set_instruction_context"):
+                try:
+                    agent.set_instruction_context(session_context)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to set instruction context on agent {agent_name}: {e}"
+                    )
+
         # Create slash command handler for this session
         resolved_prompts = session_state.resolved_instructions
 

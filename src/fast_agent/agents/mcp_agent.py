@@ -325,6 +325,22 @@ class McpAgent(ABC, ToolAgent):
         self._agent_skills_warning_shown = True
         return format_skills_for_prompt(self._skill_manifests)
 
+    def set_instruction_context(self, context: dict[str, str]) -> None:
+        """
+        Set session-level context variables on the instruction builder.
+
+        This should be called when an ACP session is established to provide
+        variables like {{env}}, {{workspaceRoot}}, {{agentSkills}} etc. that
+        are resolved per-session.
+
+        Args:
+            context: Dict mapping placeholder names to values (e.g., {"env": "...", "workspaceRoot": "/path"})
+        """
+        self._instruction_builder.set_many(context)
+        self.logger.debug(
+            f"Set instruction context for agent {self._name}: {list(context.keys())}"
+        )
+
     def _format_server_instructions(
         self, instructions_data: dict[str, tuple[str | None, list[str]]]
     ) -> str:
