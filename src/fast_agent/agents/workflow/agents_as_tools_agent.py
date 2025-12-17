@@ -197,7 +197,7 @@ from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
 
 from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FORCE_SEQUENTIAL_TOOL_CALLS
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
@@ -638,7 +638,6 @@ class AgentsAsToolsAgent(McpAgent):
 
         call_descriptors: list[dict[str, Any]] = []
         descriptor_by_id: dict[str, dict[str, Any]] = {}
-        tasks: list[asyncio.Task] = []
         id_list: list[str] = []
 
         for correlation_id, tool_request in request.tool_calls.items():
@@ -796,15 +795,25 @@ class AgentsAsToolsAgent(McpAgent):
                         )
                     )
 
-        for i, cid in enumerate(id_list, 1):
-            tool_name = descriptor_by_id[cid]["tool"]
-            tool_args = descriptor_by_id[cid]["args"]
-            tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i, cid)))
-
         self._show_parallel_tool_calls(call_descriptors)
 
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[CallToolResult | Exception] = []
+        if id_list:
+            if FORCE_SEQUENTIAL_TOOL_CALLS:
+                for i, cid in enumerate(id_list, 1):
+                    tool_name = descriptor_by_id[cid]["tool"]
+                    tool_args = descriptor_by_id[cid]["args"]
+                    try:
+                        results.append(await call_with_instance_name(tool_name, tool_args, i, cid))
+                    except Exception as exc:
+                        results.append(exc)
+            else:
+                tasks = []
+                for i, cid in enumerate(id_list, 1):
+                    tool_name = descriptor_by_id[cid]["tool"]
+                    tool_args = descriptor_by_id[cid]["args"]
+                    tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i, cid)))
+                results = await asyncio.gather(*tasks, return_exceptions=True)
             for i, result in enumerate(results):
                 correlation_id = id_list[i]
                 if isinstance(result, Exception):

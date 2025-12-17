@@ -10,6 +10,9 @@ FAST_AGENT_ERROR_CHANNEL = "fast-agent-error"
 FAST_AGENT_REMOVED_METADATA_CHANNEL = "fast-agent-removed-meta"
 FAST_AGENT_TIMING = "fast-agent-timing"
 FAST_AGENT_TOOL_TIMING = "fast-agent-tool-timing"
+
+FORCE_SEQUENTIAL_TOOL_CALLS = False
+"""Force tool execution to run sequentially even when multiple tool calls are present."""
 # should we have MAX_TOOL_CALLS instead to constrain by number of tools rather than turns...?
 DEFAULT_MAX_ITERATIONS = 99
 """Maximum number of User/Assistant turns to take"""
