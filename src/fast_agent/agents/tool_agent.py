@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import Any, Callable, Dict, List, Sequence
+from typing import Any, Callable, Dict, List, Sequence, TypedDict
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
@@ -20,6 +20,13 @@ from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams
 
 logger = get_logger(__name__)
+
+
+class ToolTimingInfo(TypedDict):
+    """Timing information for a single tool call."""
+
+    timing_ms: float
+    transport_channel: str | None
 
 
 class ToolAgent(LlmAgent):
@@ -122,7 +129,7 @@ class ToolAgent(LlmAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        tool_timings: dict[str, dict[str, float | str | None]] = {}
+        tool_timings: dict[str, ToolTimingInfo] = {}
         tool_loop_error: str | None = None
         # TODO -- use gather() for parallel results, update display
         tool_schemas = (await self.list_tools()).tools
@@ -254,7 +261,7 @@ class ToolAgent(LlmAgent):
         self,
         tool_results: dict[str, CallToolResult],
         *,
-        tool_timings: dict[str, dict[str, float | str | None]] | None = None,
+        tool_timings: dict[str, ToolTimingInfo] | None = None,
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
         import json

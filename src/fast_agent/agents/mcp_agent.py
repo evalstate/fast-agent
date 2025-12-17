@@ -36,7 +36,7 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
-from fast_agent.agents.tool_agent import ToolAgent
+from fast_agent.agents.tool_agent import ToolAgent, ToolTimingInfo
 from fast_agent.constants import FORCE_SEQUENTIAL_TOOL_CALLS, HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
@@ -782,7 +782,7 @@ class McpAgent(ABC, ToolAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        tool_timings: dict[str, dict[str, float | str | None]] = {}
+        tool_timings: dict[str, ToolTimingInfo] = {}
         tool_loop_error: str | None = None
 
         # Cache available tool names exactly as advertised to the LLM for display/highlighting
