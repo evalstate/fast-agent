@@ -38,6 +38,7 @@ from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.mcp.common import (
@@ -102,9 +103,9 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
-        # Store both the original template and resolved instruction
+        # Store the original template - resolved instruction set after build()
         self._instruction_template = self.config.instruction
-        self.instruction = self.config.instruction
+        self.instruction = self.config.instruction  # Will be replaced by builder output
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
@@ -170,6 +171,13 @@ class McpAgent(ABC, ToolAgent):
         self._bash_tool = self._shell_runtime.tool
         if self._shell_runtime_enabled:
             self._shell_runtime.announce()
+
+        # Create instruction builder with dynamic resolvers
+        self._instruction_builder = InstructionBuilder(self._instruction_template or "")
+        self._instruction_builder.set_resolver(
+            "serverInstructions", self._resolve_server_instructions
+        )
+        self._instruction_builder.set_resolver("agentSkills", self._resolve_agent_skills)
 
         # Allow external runtime injection (e.g., for ACP terminal support)
         self._external_runtime = None
@@ -270,30 +278,18 @@ class McpAgent(ABC, ToolAgent):
         Apply template substitution to the instruction, including server instructions.
         This is called during initialization after servers are connected.
         """
-        if not self.instruction:
+        if not self._instruction_builder.template:
             return
 
-        # Gather server instructions if the template includes {{serverInstructions}}
-        if "{{serverInstructions}}" in self.instruction:
-            try:
-                instructions_data = await self._aggregator.get_server_instructions()
-                server_instructions = self._format_server_instructions(instructions_data)
-            except Exception as e:
-                self.logger.warning(f"Failed to get server instructions: {e}")
-                server_instructions = ""
+        # Build the instruction using the InstructionBuilder
+        self.instruction = await self._instruction_builder.build()
 
-            # Replace the template variable
-            self.instruction = self.instruction.replace(
-                "{{serverInstructions}}", server_instructions
-            )
-
-        skills_placeholder_present = "{{agentSkills}}" in self.instruction
-
-        if skills_placeholder_present:
-            agent_skills = format_skills_for_prompt(self._skill_manifests)
-            self.instruction = self.instruction.replace("{{agentSkills}}", agent_skills)
-            self._agent_skills_warning_shown = True
-        elif self._skill_manifests and not self._agent_skills_warning_shown:
+        # Warn if skills configured but placeholder missing
+        if (
+            self._skill_manifests
+            and not self._agent_skills_warning_shown
+            and "{{agentSkills}}" not in self._instruction_builder.template
+        ):
             warning_message = (
                 "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
                 "Skill descriptions will not be added to the system prompt."
@@ -310,6 +306,24 @@ class McpAgent(ABC, ToolAgent):
             self._default_request_params.systemPrompt = self.instruction
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Instruction Resolvers (for InstructionBuilder)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _resolve_server_instructions(self) -> str:
+        """Resolver for {{serverInstructions}} placeholder."""
+        try:
+            instructions_data = await self._aggregator.get_server_instructions()
+            return self._format_server_instructions(instructions_data)
+        except Exception as e:
+            self.logger.warning(f"Failed to get server instructions: {e}")
+            return ""
+
+    async def _resolve_agent_skills(self) -> str:
+        """Resolver for {{agentSkills}} placeholder."""
+        self._agent_skills_warning_shown = True
+        return format_skills_for_prompt(self._skill_manifests)
 
     def _format_server_instructions(
         self, instructions_data: dict[str, tuple[str | None, list[str]]]
@@ -349,27 +363,25 @@ class McpAgent(ABC, ToolAgent):
 
     async def rebuild_instruction_templates(self) -> None:
         """
-        Re-apply instruction templates after MCP server changes.
+        Rebuild instruction from template with fresh source values.
 
         Call this method after connecting new MCP servers (e.g., via /connect command)
         to update the system prompt with fresh {{serverInstructions}}.
 
-        This method:
-        1. Resets the instruction to the original template
-        2. Re-applies all template substitutions (serverInstructions, agentSkills, etc.)
-        3. Updates default request params
-        4. Invalidates ACP session caches if running in ACP mode
+        The InstructionBuilder re-resolves all dynamic sources (serverInstructions,
+        agentSkills, etc.) each time build() is called.
         """
-        if not self._instruction_template:
+        if not self._instruction_builder.template:
             return
 
-        # Reset to original template
-        self.instruction = self._instruction_template
+        # Rebuild using the instruction builder (resolvers are called fresh)
+        self.instruction = await self._instruction_builder.build()
 
-        # Re-apply templates with fresh server instructions
-        await self._apply_instruction_templates()
+        # Update default request params to match
+        if self._default_request_params:
+            self._default_request_params.systemPrompt = self.instruction
 
-        # If running in ACP mode, invalidate the session instruction cache
+        # Invalidate ACP session caches if running in ACP mode
         if self.context and hasattr(self.context, "acp") and self.context.acp:
             try:
                 await self.context.acp.invalidate_instruction_cache(
