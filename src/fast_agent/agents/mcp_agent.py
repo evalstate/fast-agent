@@ -337,9 +337,7 @@ class McpAgent(ABC, ToolAgent):
             context: Dict mapping placeholder names to values (e.g., {"env": "...", "workspaceRoot": "/path"})
         """
         self._instruction_builder.set_many(context)
-        self.logger.debug(
-            f"Set instruction context for agent {self._name}: {list(context.keys())}"
-        )
+        self.logger.debug(f"Set instruction context for agent {self._name}: {list(context.keys())}")
 
     def _format_server_instructions(
         self, instructions_data: dict[str, tuple[str | None, list[str]]]
@@ -367,10 +365,10 @@ class McpAgent(ABC, ToolAgent):
             tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
 
             formatted_parts.append(
-                f'<mcp-server name="{server_name}">\n'
+                f'<fastagent:mcp-server name="{server_name}">\n'
                 f"<tools>{tools_list}</tools>\n"
                 f"<instructions>\n{instructions}\n</instructions>\n"
-                f"</mcp-server>"
+                f"</fastagent:  mcp-server>"
             )
 
         if formatted_parts:
@@ -494,7 +492,9 @@ class McpAgent(ABC, ToolAgent):
         if namespace not in filters:
             return list(tools)
 
-        filtered = self._filter_server_collections({namespace: tools}, filters, lambda tool: tool.name)
+        filtered = self._filter_server_collections(
+            {namespace: tools}, filters, lambda tool: tool.name
+        )
         return filtered.get(namespace, [])
 
     async def _get_filtered_mcp_tools(self) -> list[Tool]:
@@ -581,7 +581,9 @@ class McpAgent(ABC, ToolAgent):
                     if name == "read_text_file":
                         return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
                     elif name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
+                        return await self._filesystem_runtime.write_text_file(
+                            arguments, tool_use_id
+                        )
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -969,7 +971,7 @@ class McpAgent(ABC, ToolAgent):
                 # Store timing and transport channel info
                 tool_timings[correlation_id] = {
                     "timing_ms": duration_ms,
-                    "transport_channel": getattr(result, "transport_channel", None)
+                    "transport_channel": getattr(result, "transport_channel", None),
                 }
 
                 # Show tool result (like ToolAgent does)
@@ -1001,7 +1003,9 @@ class McpAgent(ABC, ToolAgent):
                 # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
-        return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
+        return self._finalize_tool_results(
+            tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+        )
 
     def _prepare_tool_display(
         self,
