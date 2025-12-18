@@ -38,6 +38,7 @@ from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
+from fast_agent.core.instruction import InstructionBuilder
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.mcp.common import (
@@ -102,7 +103,9 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
-        self.instruction = self.config.instruction
+        # Store the original template - resolved instruction set after build()
+        self._instruction_template = self.config.instruction
+        self.instruction = self.config.instruction  # Will be replaced by builder output
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
@@ -168,6 +171,13 @@ class McpAgent(ABC, ToolAgent):
         self._bash_tool = self._shell_runtime.tool
         if self._shell_runtime_enabled:
             self._shell_runtime.announce()
+
+        # Create instruction builder with dynamic resolvers
+        self._instruction_builder = InstructionBuilder(self._instruction_template or "")
+        self._instruction_builder.set_resolver(
+            "serverInstructions", self._resolve_server_instructions
+        )
+        self._instruction_builder.set_resolver("agentSkills", self._resolve_agent_skills)
 
         # Allow external runtime injection (e.g., for ACP terminal support)
         self._external_runtime = None
@@ -268,30 +278,18 @@ class McpAgent(ABC, ToolAgent):
         Apply template substitution to the instruction, including server instructions.
         This is called during initialization after servers are connected.
         """
-        if not self.instruction:
+        if not self._instruction_builder.template:
             return
 
-        # Gather server instructions if the template includes {{serverInstructions}}
-        if "{{serverInstructions}}" in self.instruction:
-            try:
-                instructions_data = await self._aggregator.get_server_instructions()
-                server_instructions = self._format_server_instructions(instructions_data)
-            except Exception as e:
-                self.logger.warning(f"Failed to get server instructions: {e}")
-                server_instructions = ""
+        # Build the instruction using the InstructionBuilder
+        self.instruction = await self._instruction_builder.build()
 
-            # Replace the template variable
-            self.instruction = self.instruction.replace(
-                "{{serverInstructions}}", server_instructions
-            )
-
-        skills_placeholder_present = "{{agentSkills}}" in self.instruction
-
-        if skills_placeholder_present:
-            agent_skills = format_skills_for_prompt(self._skill_manifests)
-            self.instruction = self.instruction.replace("{{agentSkills}}", agent_skills)
-            self._agent_skills_warning_shown = True
-        elif self._skill_manifests and not self._agent_skills_warning_shown:
+        # Warn if skills configured but placeholder missing
+        if (
+            self._skill_manifests
+            and not self._agent_skills_warning_shown
+            and "{{agentSkills}}" not in self._instruction_builder.template
+        ):
             warning_message = (
                 "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
                 "Skill descriptions will not be added to the system prompt."
@@ -308,6 +306,38 @@ class McpAgent(ABC, ToolAgent):
             self._default_request_params.systemPrompt = self.instruction
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Instruction Resolvers (for InstructionBuilder)
+    # ─────────────────────────────────────────────────────────────────────────
+
+    async def _resolve_server_instructions(self) -> str:
+        """Resolver for {{serverInstructions}} placeholder."""
+        try:
+            instructions_data = await self._aggregator.get_server_instructions()
+            return self._format_server_instructions(instructions_data)
+        except Exception as e:
+            self.logger.warning(f"Failed to get server instructions: {e}")
+            return ""
+
+    async def _resolve_agent_skills(self) -> str:
+        """Resolver for {{agentSkills}} placeholder."""
+        self._agent_skills_warning_shown = True
+        return format_skills_for_prompt(self._skill_manifests)
+
+    def set_instruction_context(self, context: dict[str, str]) -> None:
+        """
+        Set session-level context variables on the instruction builder.
+
+        This should be called when an ACP session is established to provide
+        variables like {{env}}, {{workspaceRoot}}, {{agentSkills}} etc. that
+        are resolved per-session.
+
+        Args:
+            context: Dict mapping placeholder names to values (e.g., {"env": "...", "workspaceRoot": "/path"})
+        """
+        self._instruction_builder.set_many(context)
+        self.logger.debug(f"Set instruction context for agent {self._name}: {list(context.keys())}")
 
     def _format_server_instructions(
         self, instructions_data: dict[str, tuple[str | None, list[str]]]
@@ -335,15 +365,47 @@ class McpAgent(ABC, ToolAgent):
             tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
 
             formatted_parts.append(
-                f'<mcp-server name="{server_name}">\n'
+                f'<fastagent:mcp-server name="{server_name}">\n'
                 f"<tools>{tools_list}</tools>\n"
                 f"<instructions>\n{instructions}\n</instructions>\n"
-                f"</mcp-server>"
+                f"</fastagent:mcp-server>"
             )
 
         if formatted_parts:
             return "\n\n".join(formatted_parts)
         return ""
+
+    async def rebuild_instruction_templates(self) -> None:
+        """
+        Rebuild instruction from template with fresh source values.
+
+        Call this method after connecting new MCP servers (e.g., via /connect command)
+        to update the system prompt with fresh {{serverInstructions}}.
+
+        The InstructionBuilder re-resolves all dynamic sources (serverInstructions,
+        agentSkills, etc.) each time build() is called.
+        """
+        if not self._instruction_builder.template:
+            return
+
+        # Rebuild using the instruction builder (resolvers are called fresh)
+        self.instruction = await self._instruction_builder.build()
+
+        # Update default request params to match
+        if self._default_request_params:
+            self._default_request_params.systemPrompt = self.instruction
+
+        # Invalidate ACP session caches if running in ACP mode
+        if self.context and hasattr(self.context, "acp") and self.context.acp:
+            try:
+                await self.context.acp.invalidate_instruction_cache(
+                    agent_name=self._name,
+                    new_instruction=self.instruction,
+                )
+            except Exception as e:
+                self.logger.warning(f"Failed to invalidate ACP instruction cache: {e}")
+
+        self.logger.info(f"Rebuilt instruction templates for agent {self._name}")
 
     async def __call__(
         self,
@@ -430,7 +492,9 @@ class McpAgent(ABC, ToolAgent):
         if namespace not in filters:
             return list(tools)
 
-        filtered = self._filter_server_collections({namespace: tools}, filters, lambda tool: tool.name)
+        filtered = self._filter_server_collections(
+            {namespace: tools}, filters, lambda tool: tool.name
+        )
         return filtered.get(namespace, [])
 
     async def _get_filtered_mcp_tools(self) -> list[Tool]:
@@ -517,7 +581,9 @@ class McpAgent(ABC, ToolAgent):
                     if name == "read_text_file":
                         return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
                     elif name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
+                        return await self._filesystem_runtime.write_text_file(
+                            arguments, tool_use_id
+                        )
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -905,7 +971,7 @@ class McpAgent(ABC, ToolAgent):
                 # Store timing and transport channel info
                 tool_timings[correlation_id] = {
                     "timing_ms": duration_ms,
-                    "transport_channel": getattr(result, "transport_channel", None)
+                    "transport_channel": getattr(result, "transport_channel", None),
                 }
 
                 # Show tool result (like ToolAgent does)
@@ -937,7 +1003,9 @@ class McpAgent(ABC, ToolAgent):
                 # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
-        return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
+        return self._finalize_tool_results(
+            tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+        )
 
     def _prepare_tool_display(
         self,

@@ -174,6 +174,24 @@ class SlashCommandHandler:
         """
         self.current_agent_name = agent_name
 
+    def update_session_instruction(
+        self, agent_name: str, instruction: str | None
+    ) -> None:
+        """
+        Update the cached session instruction for an agent.
+
+        Call this when an agent's system prompt has been rebuilt (e.g., after
+        connecting new MCP servers) to keep the /system command output current.
+
+        Args:
+            agent_name: Name of the agent whose instruction was updated
+            instruction: The new instruction (or None to remove from cache)
+        """
+        if instruction:
+            self._session_instructions[agent_name] = instruction
+        elif agent_name in self._session_instructions:
+            del self._session_instructions[agent_name]
+
     def _get_current_agent(self) -> AgentProtocol | None:
         """Return the current agent or None if it does not exist."""
         return self.instance.agents.get(self.current_agent_name)
