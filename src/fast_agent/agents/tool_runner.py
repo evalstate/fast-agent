@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import (
     TYPE_CHECKING,
-    Any,
     Awaitable,
     Callable,
     Protocol,
@@ -20,8 +19,12 @@ if TYPE_CHECKING:
     from mcp import Tool
 
 
+class _AgentConfig(Protocol):
+    use_history: bool
+
+
 class _ToolLoopAgent(Protocol):
-    config: Any
+    config: _AgentConfig
 
     async def _tool_runner_llm_step(
         self,
@@ -93,8 +96,7 @@ class ToolRunner:
             raise StopAsyncIteration
 
         if self._hooks.before_llm_call is not None:
-            full_history = self._full_history_for_next_call()
-            await self._hooks.before_llm_call(self, full_history)
+            await self._hooks.before_llm_call(self, self._delta_messages)
 
         assistant_message = await self._agent._tool_runner_llm_step(
             self._delta_messages,
@@ -157,8 +159,9 @@ class ToolRunner:
                 self._delta_messages.append(message)
 
     @property
-    def messages(self) -> list[PromptMessageExtended]:
-        return self._full_history_for_next_call()
+    def delta_messages(self) -> list[PromptMessageExtended]:
+        """Messages to be sent in the next LLM call (not full history)."""
+        return self._delta_messages
 
     @property
     def iteration(self) -> int:
@@ -177,7 +180,7 @@ class ToolRunner:
         return self._pending_tool_request is not None
 
     def _stage_tool_response(self, tool_message: PromptMessageExtended) -> None:
-        if getattr(self._agent.config, "use_history", True):
+        if self._agent.config.use_history:
             self._delta_messages = [tool_message]
         else:
             if self._last_message is not None:
@@ -215,10 +218,3 @@ class ToolRunner:
         )
         if self._iteration > max_iterations:
             self._done = True
-
-    def _full_history_for_next_call(self) -> list[PromptMessageExtended]:
-        agent = self._agent
-        if not hasattr(agent, "_prepare_llm_call"):
-            return list(self._delta_messages)
-        call_ctx = getattr(agent, "_prepare_llm_call")(self._delta_messages, self._request_params)
-        return list(call_ctx.full_history)

@@ -207,7 +207,6 @@ class ToolAgent(LlmAgent):
             )
 
         for correlation_id, tool_name, tool_args in planned_calls:
-
             # Find the index of the current tool in available_tools for highlighting
             highlight_index = None
             try:
