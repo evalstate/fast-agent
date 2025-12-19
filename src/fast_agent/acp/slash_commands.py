@@ -13,13 +13,17 @@ from __future__ import annotations
 
 import textwrap
 import time
+import uuid
 from importlib.metadata import version as get_version
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from acp.helpers import text_block, tool_content
 from acp.schema import (
     AvailableCommand,
     AvailableCommandInput,
+    ToolCallProgress,
+    ToolCallStart,
     UnstructuredCommandInput,
 )
 
@@ -701,6 +705,20 @@ class SlashCommandHandler:
         if argument.strip().lower() in {"q", "quit", "exit"}:
             return "Cancelled."
 
+        agent, error = self._get_current_agent_or_error("# skills add")
+        if error:
+            return error
+
+        tool_call_id = self._build_tool_call_id()
+        await self._send_skills_update(
+            agent,
+            tool_call_id,
+            title="Install skill",
+            status="in_progress",
+            message="Fetching marketplace…",
+            start=True,
+        )
+
         marketplace_url = get_marketplace_url()
         try:
             marketplace = await fetch_marketplace_skills(marketplace_url)
@@ -719,9 +737,11 @@ class SlashCommandHandler:
                 "# skills add",
                 "",
                 f"Marketplace: [source]({marketplace_url})",
-                "",
-                "Available skills:",
             ]
+            repo_hint = self._get_marketplace_repo_hint(marketplace)
+            if repo_hint:
+                lines.append(f"Repository: `{repo_hint}`")
+            lines.extend(["", "Available skills:"])
             lines.extend(self._format_marketplace_list(marketplace))
             lines.append("")
             lines.append("Install with `/skills add <number|name>` or `/skills add q` to cancel.")
@@ -732,18 +752,40 @@ class SlashCommandHandler:
             return "Skill not found. Use `/skills add` to list available skills."
 
         manager_dir = get_manager_directory()
+        repo_label = self._format_repo_label(skill)
+        await self._send_skills_update(
+            agent,
+            tool_call_id,
+            title="Installing skill",
+            status="in_progress",
+            message=(
+                f"Cloning {repo_label} ({skill.repo_subdir})"
+                if repo_label
+                else f"Cloning skill source ({skill.repo_subdir})"
+            ),
+        )
         try:
             install_path = await install_marketplace_skill(
                 skill, destination_root=manager_dir
             )
         except Exception as exc:  # noqa: BLE001
+            await self._send_skills_update(
+                agent,
+                tool_call_id,
+                title="Install failed",
+                status="completed",
+                message=f"Failed to install skill: {exc}",
+            )
             return f"# skills add\n\nFailed to install skill: {exc}"
 
-        agent, error = self._get_current_agent_or_error("# skills add")
-        if error:
-            return error
-
         await self._refresh_agent_skills(agent)
+        await self._send_skills_update(
+            agent,
+            tool_call_id,
+            title="Install complete",
+            status="completed",
+            message=f"Installed {skill.name}",
+        )
 
         return "\n".join(
             [
@@ -801,20 +843,21 @@ class SlashCommandHandler:
         )
 
     async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
-        registry = getattr(agent, "skill_registry", None)
-        if registry is not None:
-            manifests = registry.load_manifests()
-        else:
-            settings = get_settings()
-            override_dirs = None
-            skills_settings = getattr(settings, "skills", None)
-            if skills_settings and getattr(skills_settings, "directories", None):
-                override_dirs = [
-                    Path(entry).expanduser() for entry in skills_settings.directories
-                ]
-            registry, manifests = reload_skill_manifests(
-                base_dir=Path.cwd(), override_directories=override_dirs
-            )
+        settings = get_settings()
+        override_dirs = None
+        skills_settings = getattr(settings, "skills", None)
+        if skills_settings and getattr(skills_settings, "directories", None):
+            override_dirs = [
+                Path(entry).expanduser() for entry in skills_settings.directories
+            ]
+        manager_dir = get_manager_directory()
+        if override_dirs is None:
+            override_dirs = [manager_dir]
+        elif manager_dir not in override_dirs:
+            override_dirs.append(manager_dir)
+        registry, manifests = reload_skill_manifests(
+            base_dir=Path.cwd(), override_directories=override_dirs
+        )
 
         if hasattr(agent, "set_skill_manifests"):
             agent.set_skill_manifests(manifests)
@@ -822,14 +865,29 @@ class SlashCommandHandler:
             agent.skill_registry = registry
         if hasattr(agent, "rebuild_instruction_templates"):
             await agent.rebuild_instruction_templates()
+        context = getattr(agent, "context", None)
+        acp = getattr(context, "acp", None) if context else None
+        if acp:
+            try:
+                await acp.invalidate_instruction_cache(
+                    agent_name=getattr(agent, "name", self.current_agent_name),
+                    new_instruction=getattr(agent, "instruction", None),
+                )
+            except Exception:
+                pass
 
     def _format_local_skills(self, manifests: list[Any], manager_dir: Path) -> str:
         lines = ["# skills", "", f"Directory: `{manager_dir}`", ""]
         if not manifests:
             lines.append("No skills available in the manager directory.")
+            lines.append("")
+            lines.append("Use `/skills add` to install a skill.")
             return "\n".join(lines)
         lines.append("Installed skills:")
         lines.extend(self._format_local_list(manifests))
+        lines.append("")
+        lines.append("Use `/skills add` to install a skill.")
+        lines.append("Remove a skill with `/skills remove <number|name>`.")
         return "\n".join(lines)
 
     def _format_local_list(self, manifests: list[Any]) -> list[str]:
@@ -865,6 +923,60 @@ class SlashCommandHandler:
             if entry.source_url:
                 lines.append(f"  - source: [link]({entry.source_url})")
         return lines
+
+    def _format_repo_label(self, entry: Any) -> str | None:
+        repo_url = getattr(entry, "repo_url", None)
+        if not repo_url:
+            return None
+        repo_ref = getattr(entry, "repo_ref", None)
+        if repo_ref:
+            return f"{repo_url}@{repo_ref}"
+        return repo_url
+
+    def _get_marketplace_repo_hint(self, marketplace: list[Any]) -> str | None:
+        if not marketplace:
+            return None
+        return self._format_repo_label(marketplace[0])
+
+    def _build_tool_call_id(self) -> str:
+        return str(uuid.uuid4())
+
+    async def _send_skills_update(
+        self,
+        agent: AgentProtocol,
+        tool_call_id: str,
+        *,
+        title: str,
+        status: str,
+        message: str | None = None,
+        start: bool = False,
+    ) -> None:
+        acp = getattr(agent, "acp", None)
+        if not acp:
+            return
+        try:
+            if start:
+                await acp.send_session_update(
+                    ToolCallStart(
+                        tool_call_id=tool_call_id,
+                        title=title,
+                        kind="fetch",
+                        status="in_progress",
+                        session_update="tool_call",
+                    )
+                )
+            content = [tool_content(text_block(message))] if message else None
+            await acp.send_session_update(
+                ToolCallProgress(
+                    tool_call_id=tool_call_id,
+                    title=title,
+                    status=status,  # type: ignore[arg-type]
+                    content=content,
+                    session_update="tool_call_update",
+                )
+            )
+        except Exception:
+            return
 
     def _format_tool_lines(self, tool: "Tool", index: int) -> list[str]:
         """
@@ -993,6 +1105,8 @@ class SlashCommandHandler:
             )
 
         try:
+            if hasattr(agent, "rebuild_instruction_templates"):
+                await agent.rebuild_instruction_templates()
             load_history_into_agent(agent, file_path)
         except Exception as exc:
             return "\n".join(
@@ -1005,6 +1119,8 @@ class SlashCommandHandler:
             )
 
         message_count = len(agent.message_history) if hasattr(agent, "message_history") else 0
+        if hasattr(agent, "rebuild_instruction_templates"):
+            await agent.rebuild_instruction_templates()
 
         return "\n".join(
             [

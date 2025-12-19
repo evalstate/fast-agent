@@ -61,14 +61,19 @@ class MarketplaceEntryModel(BaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def _normalize_entry(cls, data: Any) -> Any:
+    def _normalize_entry(cls, data: Any, info: Any) -> Any:
         if not isinstance(data, dict):
             return data
+
+        context = getattr(info, "context", None) or {}
+        default_repo_url = context.get("repo_url")
+        default_repo_ref = context.get("repo_ref")
 
         repo_url = _first_str(data, "repo", "repository", "git", "repo_url")
         repo_ref = _first_str(data, "ref", "branch", "tag", "revision", "commit")
         repo_path = _first_str(data, "path", "skill_path", "directory", "dir", "location")
-        source_url = _first_str(data, "url", "skill_url", "source", "skill_source")
+        source_value = _first_str(data, "url", "skill_url", "source", "skill_source")
+        source_url = source_value if _is_probable_url(source_value) else None
 
         parsed = _parse_github_url(repo_url) if repo_url else None
         if parsed and not repo_path:
@@ -81,12 +86,17 @@ class MarketplaceEntryModel(BaseModel):
             parsed_skill = _parse_github_url(source_url)
             if parsed_skill:
                 repo_url, repo_ref, repo_path = parsed_skill
+        elif source_value and not _is_probable_url(source_value) and not repo_path:
+            repo_path = _normalize_source_path(source_value, data)
 
         name = _first_str(data, "name", "id", "slug", "title")
         description = _first_str(data, "description", "summary")
         if not name and repo_path:
             guessed = PurePosixPath(repo_path).parent.name
             name = guessed or repo_path
+
+        repo_url = repo_url or default_repo_url
+        repo_ref = repo_ref or default_repo_ref
 
         return {
             "name": name,
@@ -114,13 +124,18 @@ class MarketplacePayloadModel(BaseModel):
     @classmethod
     def _normalize_payload(cls, data: Any, info: Any) -> Any:
         entries = _extract_marketplace_entries(data)
-        source_url = None
-        if info is not None and getattr(info, "context", None):
-            source_url = info.context.get("source_url")
-        if source_url:
-            for entry in entries:
-                if isinstance(entry, dict) and "source_url" not in entry:
+        context = getattr(info, "context", None) or {}
+        source_url = context.get("source_url")
+        repo_url = context.get("repo_url")
+        repo_ref = context.get("repo_ref")
+        for entry in entries:
+            if isinstance(entry, dict):
+                if source_url and "source_url" not in entry:
                     entry["source_url"] = source_url
+                if repo_url and "repo_url" not in entry and "repo" not in entry:
+                    entry["repo_url"] = repo_url
+                if repo_ref and "repo_ref" not in entry and "ref" not in entry:
+                    entry["repo_ref"] = repo_ref
         return {"entries": entries}
 
 
@@ -250,9 +265,20 @@ def _normalize_marketplace_url(url: str) -> str:
 def _parse_marketplace_payload(
     payload: Any, *, source_url: str | None = None
 ) -> list[MarketplaceSkill]:
+    repo_url = None
+    repo_ref = None
+    if source_url:
+        parsed = _parse_github_url(source_url)
+        if parsed:
+            repo_url, repo_ref, _ = parsed
     try:
         model = MarketplacePayloadModel.model_validate(
-            payload, context={"source_url": source_url}
+            payload,
+            context={
+                "source_url": source_url,
+                "repo_url": repo_url,
+                "repo_ref": repo_ref,
+            },
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning(
@@ -280,7 +306,7 @@ def _extract_marketplace_entries(payload: Any) -> list[dict[str, Any]]:
     if isinstance(payload, list):
         return [entry for entry in payload if isinstance(entry, dict)]
     if isinstance(payload, dict):
-        for key in ("skills", "items", "entries", "marketplace"):
+        for key in ("skills", "items", "entries", "marketplace", "plugins"):
             value = payload.get(key)
             if isinstance(value, list):
                 return [entry for entry in value if isinstance(entry, dict)]
@@ -331,6 +357,32 @@ def _parse_github_url(url: str | None) -> tuple[str, str | None, str] | None:
             file_path = "/".join(parts[3:])
             return f"https://github.com/{org}/{repo}", ref, file_path
     return None
+
+
+def _is_probable_url(value: str | None) -> bool:
+    if not value:
+        return False
+    parsed = urlparse(value)
+    return bool(parsed.scheme and parsed.netloc)
+
+
+def _normalize_source_path(source: str, entry: dict[str, Any]) -> str | None:
+    if not source:
+        return None
+    source_path = source.strip().lstrip("./")
+    if not source_path:
+        return None
+
+    name = _first_str(entry, "name", "id", "slug", "title")
+    if "/skills/" in source_path:
+        return source_path
+    if source_path.endswith("/skills"):
+        if name:
+            return f"{source_path}/{name}"
+        return source_path
+    if name:
+        return f"{source_path}/skills/{name}"
+    return source_path
 
 
 def _first_str(entry: dict[str, Any], *keys: str) -> str | None:

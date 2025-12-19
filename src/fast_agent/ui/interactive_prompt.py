@@ -319,12 +319,16 @@ class InteractivePrompt:
                             agent_obj = prompt_provider._agent(agent)
 
                             # Load history directly without triggering LLM call
+                            if hasattr(agent_obj, "rebuild_instruction_templates"):
+                                await agent_obj.rebuild_instruction_templates()
                             load_history_into_agent(agent_obj, Path(filename))
 
                             msg_count = len(agent_obj.message_history)
                             rich_print(
                                 f"[green]Loaded {msg_count} messages from {filename}[/green]"
                             )
+                            if hasattr(agent_obj, "rebuild_instruction_templates"):
+                                await agent_obj.rebuild_instruction_templates()
                         except FileNotFoundError:
                             rich_print(f"[red]File not found: {filename}[/red]")
                         except Exception as e:
@@ -1080,6 +1084,14 @@ class InteractivePrompt:
         selection = argument
         if not selection:
             rich_print("\n[bold]Marketplace skills:[/bold]\n")
+            repo_hint = None
+            if marketplace:
+                repo_url = getattr(marketplace[0], "repo_url", None)
+                if repo_url:
+                    repo_ref = getattr(marketplace[0], "repo_ref", None)
+                    repo_hint = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+            if repo_hint:
+                rich_print(f"[dim]Repository: {repo_hint}[/dim]")
             self._render_marketplace_skills(marketplace)
             selection = await get_selection_input(
                 "Install skill by number or name (empty to cancel): ",
@@ -1147,22 +1159,21 @@ class InteractivePrompt:
             "Interactive prompt expects an AgentApp with _agent()"
         )
         agent = prompt_provider._agent(agent_name)
-        registry = getattr(agent, "skill_registry", None)
-        manifests: list[Any]
-
-        if registry is not None:
-            manifests = registry.load_manifests()
-        else:
-            settings = get_settings()
-            override_dirs = None
-            skills_settings = getattr(settings, "skills", None)
-            if skills_settings and getattr(skills_settings, "directories", None):
-                override_dirs = [
-                    Path(entry).expanduser() for entry in skills_settings.directories
-                ]
-            registry, manifests = reload_skill_manifests(
-                base_dir=Path.cwd(), override_directories=override_dirs
-            )
+        settings = get_settings()
+        override_dirs = None
+        skills_settings = getattr(settings, "skills", None)
+        if skills_settings and getattr(skills_settings, "directories", None):
+            override_dirs = [
+                Path(entry).expanduser() for entry in skills_settings.directories
+            ]
+        manager_dir = get_manager_directory()
+        if override_dirs is None:
+            override_dirs = [manager_dir]
+        elif manager_dir not in override_dirs:
+            override_dirs.append(manager_dir)
+        registry, manifests = reload_skill_manifests(
+            base_dir=Path.cwd(), override_directories=override_dirs
+        )
 
         if hasattr(agent, "set_skill_manifests"):
             agent.set_skill_manifests(manifests)
@@ -1197,6 +1208,7 @@ class InteractivePrompt:
         rich_print(f"\n[bold]Skills in [cyan]{manager_dir}[/cyan]:[/bold]\n")
         if not manifests:
             rich_print("[yellow]No skills available in the manager directory[/yellow]")
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
             return
         for index, manifest in enumerate(manifests, 1):
             from rich.text import Text
@@ -1228,8 +1240,10 @@ class InteractivePrompt:
             except ValueError:
                 display_path = source_path
 
-            rich_print(f"     [dim green]source:[/dim green] {display_path}")
-            rich_print()
+        rich_print(f"     [dim green]source:[/dim green] {display_path}")
+        rich_print()
+        rich_print("[dim]Use /skills add to install a skill[/dim]")
+        rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
 
     def _render_install_result(self, skill: Any, install_path: Path) -> None:
         try:
