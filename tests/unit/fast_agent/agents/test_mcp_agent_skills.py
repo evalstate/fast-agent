@@ -6,7 +6,7 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
-from fast_agent.skills.registry import SkillManifest, SkillRegistry, format_skills_for_prompt
+from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
 
 
 def create_skill(
