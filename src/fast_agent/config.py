@@ -103,9 +103,18 @@ class MCPTimelineSettings(BaseModel):
 
 
 class SkillsSettings(BaseModel):
-    """Configuration for the skills directory override."""
+    """Configuration for the skills directory and marketplace."""
 
     directories: list[str] | None = None
+
+    marketplace_url: str = (
+        "https://raw.githubusercontent.com/huggingface/skills/main/"
+        ".claude-plugin/marketplace.json"
+    )
+    """URL of the skills marketplace JSON file."""
+
+    install_directory: str = ".fast-agent/skills"
+    """Directory where marketplace skills are installed."""
 
     model_config = ConfigDict(extra="ignore")
 

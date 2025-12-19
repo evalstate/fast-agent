@@ -30,12 +30,14 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.skills.skills_manager import SkillsManager
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
 
+    from fast_agent.config import SkillsSettings
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.skills.registry import SkillRegistry
 
@@ -63,6 +65,7 @@ class SlashCommandHandler:
         client_capabilities: dict | None = None,
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
+        skills_settings: "SkillsSettings | None" = None,
     ):
         """
         Initialize the slash command handler.
@@ -75,6 +78,7 @@ class SlashCommandHandler:
             client_info: Client information from ACP initialize
             client_capabilities: Client capabilities from ACP initialize
             protocol_version: ACP protocol version
+            skills_settings: Optional skills configuration for marketplace access
         """
         self.session_id = session_id
         self.instance = instance
@@ -91,6 +95,7 @@ class SlashCommandHandler:
         self.client_capabilities = client_capabilities
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
+        self._skills_manager = SkillsManager(settings=skills_settings)
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -120,6 +125,13 @@ class SlashCommandHandler:
                 name="load",
                 description="Load conversation history from file",
                 input=AvailableCommandInput(root=UnstructuredCommandInput(hint="<filename>")),
+            ),
+            "skills": AvailableCommand(
+                name="skills",
+                description="Manage skills (add, remove, list)",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[add [name|#] | remove <name|#>]")
+                ),
             ),
         }
 
@@ -278,6 +290,8 @@ class SlashCommandHandler:
                 return await self._handle_clear(arguments)
             if command_name == "load":
                 return await self._handle_load(arguments)
+            if command_name == "skills":
+                return await self._handle_skills(arguments)
 
         # Check agent-specific commands
         agent = self._get_current_agent()
@@ -915,6 +929,114 @@ class SlashCommandHandler:
                 f"Removed last {role} message.",
             ]
         )
+
+    async def _handle_skills(self, arguments: str | None = None) -> str:
+        """Handle the /skills command and subcommands."""
+        normalized = (arguments or "").strip()
+
+        # Parse subcommand
+        if not normalized:
+            # /skills - list installed skills
+            return await self._handle_skills_list()
+
+        parts = normalized.split(maxsplit=1)
+        subcommand = parts[0].lower()
+        subargs = parts[1] if len(parts) > 1 else ""
+
+        if subcommand == "add":
+            return await self._handle_skills_add(subargs)
+        if subcommand == "remove":
+            return await self._handle_skills_remove(subargs)
+
+        # Unknown subcommand - treat as potential skill name for add
+        return await self._handle_skills_add(normalized)
+
+    async def _handle_skills_list(self) -> str:
+        """Handle /skills - list installed skills."""
+        heading = "# skills"
+        try:
+            formatted = self._skills_manager.format_installed_skills()
+            return f"{heading}\n\n{formatted}"
+        except Exception as e:
+            return f"{heading}\n\nFailed to list skills: {e}"
+
+    async def _handle_skills_add(self, arguments: str) -> str:
+        """Handle /skills add [name|number]."""
+        heading = "# skills add"
+
+        # If no argument, show the marketplace
+        if not arguments.strip():
+            try:
+                marketplace = await self._skills_manager.fetch_marketplace()
+                formatted = self._skills_manager.format_marketplace_skills(marketplace)
+                return f"{heading}\n\n{formatted}"
+            except Exception as e:
+                return f"{heading}\n\nFailed to fetch marketplace: {e}"
+
+        # Handle quit
+        if arguments.strip().lower() == "q":
+            return f"{heading}\n\nCancelled."
+
+        # Try to install the skill
+        try:
+            success, message = await self._skills_manager.install_skill(arguments.strip())
+            result = f"{heading}\n\n{message}"
+
+            if success:
+                # Trigger instruction rebuild for current agent
+                await self._rebuild_skills_prompt()
+                result += "\n\n_System prompt updated with new skill._"
+
+            return result
+        except Exception as e:
+            return f"{heading}\n\nFailed to install skill: {e}"
+
+    async def _handle_skills_remove(self, arguments: str) -> str:
+        """Handle /skills remove <name|number>."""
+        heading = "# skills remove"
+
+        if not arguments.strip():
+            # Show installed skills for reference
+            skills = self._skills_manager.get_installed_skills()
+            if not skills:
+                return f"{heading}\n\nNo skills installed."
+
+            lines = [heading, "", "Installed skills:", ""]
+            for idx, skill in enumerate(skills, start=1):
+                lines.append(f"{idx}. {skill.name}")
+            lines.append("")
+            lines.append("Usage: `/skills remove <name|number>`")
+            return "\n".join(lines)
+
+        # Try to remove the skill
+        success, message = self._skills_manager.remove_skill(arguments.strip())
+        result = f"{heading}\n\n{message}"
+
+        if success:
+            # Trigger instruction rebuild for current agent
+            await self._rebuild_skills_prompt()
+            result += "\n\n_System prompt updated._"
+
+        return result
+
+    async def _rebuild_skills_prompt(self) -> None:
+        """Rebuild instruction templates for the current agent after skill changes."""
+        agent = self._get_current_agent()
+        if not agent:
+            return
+
+        # Call rebuild_instruction_templates if available
+        rebuild_method = getattr(agent, "rebuild_instruction_templates", None)
+        if callable(rebuild_method):
+            try:
+                await rebuild_method()
+            except Exception as e:
+                # Log but don't fail - the skill operation succeeded
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    f"Failed to rebuild instruction templates: {e}"
+                )
 
     def _get_conversation_stats(self, agent) -> list[str]:
         """Get conversation statistics from the agent's message history."""

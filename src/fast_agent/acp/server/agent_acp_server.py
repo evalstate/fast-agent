@@ -763,6 +763,14 @@ class AgentACPServer(ACPAgent):
         # Create slash command handler for this session
         resolved_prompts = session_state.resolved_instructions
 
+        # Get skills settings from primary agent's context if available
+        skills_settings = None
+        primary_agent = instance.agents.get(self.primary_agent_name)
+        if primary_agent:
+            ctx = getattr(primary_agent, "context", None)
+            if ctx and hasattr(ctx, "config") and ctx.config:
+                skills_settings = getattr(ctx.config, "skills", None)
+
         slash_handler = SlashCommandHandler(
             session_id,
             instance,
@@ -771,6 +779,7 @@ class AgentACPServer(ACPAgent):
             client_capabilities=self._client_capabilities,
             protocol_version=self._protocol_version,
             session_instructions=resolved_prompts,
+            skills_settings=skills_settings,
         )
         session_state.slash_handler = slash_handler
 
