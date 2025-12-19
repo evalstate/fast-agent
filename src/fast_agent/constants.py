@@ -43,4 +43,12 @@ DEFAULT_SKILLS_PATHS = [
     ".claude/skills",
 ]
 
+DEFAULT_SKILLS_MARKETPLACE_URL = (
+    "https://raw.githubusercontent.com/huggingface/skills/main/.claude-plugin/marketplace.json"
+)
+"""Default URL for the skills marketplace JSON file."""
+
+DEFAULT_SKILLS_INSTALL_DIR = ".fast-agent/skills"
+"""Default directory for installing skills from the marketplace."""
+
 CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"

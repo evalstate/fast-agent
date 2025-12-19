@@ -4,6 +4,7 @@ from fast_agent.acp.acp_aware_mixin import ACPAwareMixin, ACPCommand, ACPModeInf
 from fast_agent.acp.acp_context import ACPContext, ClientCapabilities, ClientInfo
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.server.agent_acp_server import AgentACPServer
+from fast_agent.acp.skills_commands import SkillsCommandsMixin
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "AgentACPServer",
     "ACPFilesystemRuntime",
     "ACPTerminalRuntime",
+    "SkillsCommandsMixin",
 ]

@@ -103,9 +103,16 @@ class MCPTimelineSettings(BaseModel):
 
 
 class SkillsSettings(BaseModel):
-    """Configuration for the skills directory override."""
+    """Configuration for skills discovery and marketplace."""
 
     directories: list[str] | None = None
+    """Override default skills directories. If None, uses DEFAULT_SKILLS_PATHS."""
+
+    marketplace_url: str | None = None
+    """
+    URL to the skills marketplace JSON file. Defaults to Hugging Face skills marketplace.
+    The marketplace JSON should contain a 'plugins' array with skill definitions.
+    """
 
     model_config = ConfigDict(extra="ignore")
 

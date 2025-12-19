@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from acp.helpers import text_block, tool_content
 from acp.schema import ToolCallProgress, ToolCallStart
 
-from fast_agent.acp import ACPAwareMixin, ACPCommand
+from fast_agent.acp import ACPAwareMixin, ACPCommand, SkillsCommandsMixin
 from fast_agent.acp.acp_aware_mixin import ACPModeInfo
 from fast_agent.agents import McpAgent
 from fast_agent.core.direct_factory import get_model_factory
@@ -341,12 +341,13 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             return None
 
 
-class HuggingFaceAgent(ACPAwareMixin, McpAgent):
+class HuggingFaceAgent(SkillsCommandsMixin, ACPAwareMixin, McpAgent):
     """
     Main Hugging Face inference agent.
 
     This is a standard agent that uses the Hugging Face LLM provider.
     Supports lazy connection to Hugging Face MCP server via /connect command.
+    Includes skills management commands for installing/removing skills.
     """
 
     def __init__(
@@ -363,7 +364,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
         """Declare slash commands for the Hugging Face agent."""
-        return {
+        commands = {
             "connect": ACPCommand(
                 description="Connect to Hugging Face MCP server",
                 handler=self._handle_connect,
@@ -374,6 +375,9 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                 handler=self._handle_set_model,
             ),
         }
+        # Add skills management commands from the mixin
+        commands.update(self.get_skills_commands())
+        return commands
 
     def acp_mode_info(self) -> ACPModeInfo | None:
         """Provide mode info for ACP clients."""
