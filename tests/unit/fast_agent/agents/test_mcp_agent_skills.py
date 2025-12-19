@@ -179,7 +179,7 @@ def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:
     base_dir.mkdir()
 
     # Create registry with base_dir different from skills directory (absolute override)
-    registry = SkillRegistry(base_dir=base_dir, override_directory=skills_root)
+    registry = SkillRegistry(base_dir=base_dir, directories=[skills_root])
     manifests = registry.load_manifests()
 
     assert len(manifests) == 1
@@ -208,7 +208,7 @@ def test_skills_relative_dir_outside_cwd(tmp_path: Path) -> None:
     override_dir = Path("../skills")
 
     # Create registry with workspace as base_dir and relative override
-    registry = SkillRegistry(base_dir=workspace, override_directory=override_dir)
+    registry = SkillRegistry(base_dir=workspace, directories=[override_dir])
     manifests = registry.load_manifests()
 
     assert len(manifests) == 1
