@@ -323,7 +323,13 @@ class McpAgent(ABC, ToolAgent):
     async def _resolve_agent_skills(self) -> str:
         """Resolver for {{agentSkills}} placeholder."""
         self._agent_skills_warning_shown = True
-        return format_skills_for_prompt(self._skill_manifests)
+        # Check if we have a filesystem runtime with read capability (e.g., ACP context)
+        has_read_tool = (
+            self._filesystem_runtime is not None
+            and hasattr(self._filesystem_runtime, "tools")
+            and any(t.name == "read_text_file" for t in self._filesystem_runtime.tools)
+        )
+        return format_skills_for_prompt(self._skill_manifests, has_read_tool=has_read_tool)
 
     def set_instruction_context(self, context: dict[str, str]) -> None:
         """

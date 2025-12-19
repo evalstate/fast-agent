@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Sequence
@@ -9,6 +10,44 @@ import frontmatter
 from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
+
+# Agent Skills name validation pattern per https://agentskills.io/specification.md
+# Lowercase letters, numbers, hyphens only; max 64 chars; no start/end hyphens; no consecutive hyphens
+_SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$")
+_MAX_SKILL_NAME_LENGTH = 64
+
+
+def _validate_skill_name(name: str, manifest_path: Path) -> list[str]:
+    """
+    Validate a skill name against the Agent Skills specification.
+
+    Returns a list of warning messages (empty if valid).
+    Per spec: lowercase letters, numbers, hyphens only; max 64 chars;
+    no start/end hyphens; no consecutive hyphens; must match parent directory.
+    """
+    warnings: list[str] = []
+    parent_dir_name = manifest_path.parent.name
+
+    if len(name) > _MAX_SKILL_NAME_LENGTH:
+        warnings.append(
+            f"Skill name '{name}' exceeds max length of {_MAX_SKILL_NAME_LENGTH} characters"
+        )
+
+    if not _SKILL_NAME_PATTERN.match(name):
+        warnings.append(
+            f"Skill name '{name}' should contain only lowercase letters, numbers, "
+            "and hyphens, and must not start or end with a hyphen"
+        )
+
+    if "--" in name:
+        warnings.append(f"Skill name '{name}' should not contain consecutive hyphens")
+
+    if name != parent_dir_name:
+        warnings.append(
+            f"Skill name '{name}' does not match parent directory '{parent_dir_name}'"
+        )
+
+    return warnings
 
 
 @dataclass(frozen=True)
@@ -189,28 +228,55 @@ class SkillRegistry:
             logger.warning("Skill manifest missing description", data={"path": str(manifest_path)})
             return None, "Missing 'description' field"
 
+        name = name.strip()
+
+        # Validate name against Agent Skills specification (warnings only, not errors)
+        name_warnings = _validate_skill_name(name, manifest_path)
+        for warning in name_warnings:
+            logger.warning(warning, data={"path": str(manifest_path)})
+
         body_text = (post.content or "").strip()
 
         return SkillManifest(
-            name=name.strip(),
+            name=name,
             description=description.strip(),
             body=body_text,
             path=manifest_path,
         ), None
 
 
-def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
+def format_skills_for_prompt(
+    manifests: Sequence[SkillManifest],
+    *,
+    has_read_tool: bool = False,
+) -> str:
     """
     Format a collection of skill manifests into an XML-style block suitable for system prompts.
+
+    Args:
+        manifests: Collection of skill manifests to format
+        has_read_tool: If True, indicates a dedicated read_text_file tool is available
+                      (e.g., in ACP context). If False, assumes shell execute is available.
+
+    Per the Agent Skills standard (https://agentskills.io/integrate-skills.md),
+    filesystem-based agents should use absolute paths to SKILL.md files.
     """
     if not manifests:
         return ""
 
+    # Context-aware preamble based on available tools
+    if has_read_tool:
+        read_instruction = "To use a Skill you must first read the SKILL.md file using the 'read_text_file' tool."
+    else:
+        read_instruction = (
+            "To use a Skill you must first read the SKILL.md file "
+            "(use 'execute' tool with cat or similar)."
+        )
+
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
-        "relevant to the Users task, intent or would increase your effectiveness. \n"
-        "Use 'execute' to run shell commands in the agent workspace. Files you create will be visible to the user."
-        "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
+        "relevant to the Users task, intent or would increase your effectiveness.\n"
+        f"{read_instruction}\n"
         "Paths in Skill documentation are relative to that Skill's directory, NOT the workspace root.\n"
         "For example if the 'test' skill has scripts/example.py access it with <skill_folder>/scripts/example.py.\n"
         "Only use Skills listed in <available_skills> below.\n\n"
@@ -219,10 +285,10 @@ def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
 
     for manifest in manifests:
         description = (manifest.description or "").strip()
-        relative_path = manifest.relative_path
-        path_attr = f' path="{relative_path}"' if relative_path is not None else ""
-        if relative_path is None and manifest.path:
-            path_attr = f' path="{manifest.path}"'
+        # Per Agent Skills standard: use absolute paths for filesystem-based agents
+        # manifest.path is always the absolute path to SKILL.md
+        skill_path = manifest.path
+        path_attr = f' path="{skill_path}"' if skill_path else ""
 
         block_lines: list[str] = [f'<agent-skill name="{manifest.name}"{path_attr}>']
         if description:

@@ -59,7 +59,9 @@ async def test_agent_skills_template_substitution(tmp_path: Path) -> None:
 
     assert "{{agentSkills}}" not in agent.instruction
     assert '<agent-skill name="beta"' in agent.instruction
-    assert 'path="beta/SKILL.md"' in agent.instruction
+    # Per Agent Skills spec, filesystem agents use absolute paths
+    expected_abs_path = skills_root / "beta" / "SKILL.md"
+    assert f'path="{expected_abs_path}"' in agent.instruction
     assert "Beta desc" in agent.instruction
     assert "<instructions>" not in agent.instruction
     assert "Beta body" not in agent.instruction
@@ -108,22 +110,21 @@ def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:
     assert len(manifests) == 1
     manifest = manifests[0]
 
-    # relative_path should be computed from the override directory
-    # Since override_directory was absolute, it stays as the absolute path prefix
+    # relative_path is still computed for internal reference
     assert manifest.relative_path is not None
     assert str(manifest.relative_path).endswith("external/SKILL.md")
 
-    # The absolute path should still be set
+    # The absolute path should be set
     assert manifest.path is not None
     assert manifest.path.is_absolute()
 
-    # format_skills_for_prompt should use the relative path from override
+    # Per Agent Skills spec, format_skills_for_prompt uses absolute paths for filesystem agents
     prompt = format_skills_for_prompt(manifests)
-    assert f'path="{manifest.relative_path}"' in prompt
+    assert f'path="{manifest.path}"' in prompt
 
 
 def test_skills_relative_dir_outside_cwd(tmp_path: Path) -> None:
-    """When skills dir is specified with relative path like ../skills, preserve that path."""
+    """When skills dir is specified with relative path like ../skills, absolute paths are used in prompts."""
     # Create workspace and external skills directories as siblings
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -140,10 +141,11 @@ def test_skills_relative_dir_outside_cwd(tmp_path: Path) -> None:
     assert len(manifests) == 1
     manifest = manifests[0]
 
-    # relative_path should preserve the original relative path prefix
+    # relative_path is still computed for internal reference
     assert manifest.relative_path is not None
     assert str(manifest.relative_path) == "../skills/my-skill/SKILL.md"
 
-    # format_skills_for_prompt should use the relative path
+    # Per Agent Skills spec, format_skills_for_prompt uses absolute paths for filesystem agents
     prompt = format_skills_for_prompt(manifests)
-    assert 'path="../skills/my-skill/SKILL.md"' in prompt
+    expected_abs_path = skills_root / "my-skill" / "SKILL.md"
+    assert f'path="{expected_abs_path}"' in prompt
