@@ -363,7 +363,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
             "tools": "List available MCP Tools",
-            "skills": "List available Agent Skills",
+            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
@@ -1151,7 +1151,13 @@ async def get_enhanced_input(
                 # Return a dictionary with list_tools action
                 return {"list_tools": True}
             elif cmd == "skills":
-                return {"list_skills": True}
+                remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+                if not remainder:
+                    return {"skills_command": {"action": "list", "argument": None}}
+                tokens = remainder.split(maxsplit=1)
+                action = tokens[0].lower()
+                argument = tokens[1].strip() if len(tokens) > 1 else None
+                return {"skills_command": {"action": action, "argument": argument}}
             elif cmd == "exit":
                 return "EXIT"
             elif cmd.lower() == "stop":
@@ -1315,7 +1321,9 @@ async def handle_special_commands(
         rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
-        rich_print("  /skills        - List local skills for the active agent")
+        rich_print("  /skills        - List local skills for the manager directory")
+        rich_print("  /skills add    - Install a skill from the marketplace")
+        rich_print("  /skills remove - Remove a skill from the manager directory")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
         rich_print("  /clear last [agent_name] - Remove the most recent message from history")

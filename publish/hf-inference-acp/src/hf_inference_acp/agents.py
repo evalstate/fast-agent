@@ -216,7 +216,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
     @property
     def acp_session_commands_allowlist(self) -> set[str]:
         """Restrict built-in session commands for setup flows."""
-        return {"status"}
+        return {"status", "skills"}
 
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model command."""

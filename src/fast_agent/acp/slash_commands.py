@@ -15,7 +15,7 @@ import textwrap
 import time
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from acp.schema import (
     AvailableCommand,
@@ -24,6 +24,7 @@ from acp.schema import (
 )
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
@@ -32,6 +33,17 @@ from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
+from fast_agent.skills.manager import (
+    fetch_marketplace_skills,
+    get_manager_directory,
+    get_marketplace_url,
+    install_marketplace_skill,
+    list_local_skills,
+    reload_skill_manifests,
+    remove_local_skill,
+    select_manifest_by_name_or_index,
+    select_skill_by_name_or_index,
+)
 
 if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
@@ -105,6 +117,13 @@ class SlashCommandHandler:
                 name="tools",
                 description="List available tools",
                 input=None,
+            ),
+            "skills": AvailableCommand(
+                name="skills",
+                description="Manage local skills (list/add/remove)",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[add|remove] [name|number]")
+                ),
             ),
             "save": AvailableCommand(
                 name="save",
@@ -272,6 +291,8 @@ class SlashCommandHandler:
                 return await self._handle_status(arguments)
             if command_name == "tools":
                 return await self._handle_tools()
+            if command_name == "skills":
+                return await self._handle_skills(arguments)
             if command_name == "save":
                 return await self._handle_save(arguments)
             if command_name == "clear":
@@ -655,6 +676,195 @@ class SlashCommandHandler:
             lines.append("")
 
         return "\n".join(lines).strip()
+
+    async def _handle_skills(self, arguments: str | None = None) -> str:
+        """Manage local skills (list/add/remove)."""
+        tokens = (arguments or "").strip().split(maxsplit=1)
+        action = tokens[0].lower() if tokens else "list"
+        remainder = tokens[1] if len(tokens) > 1 else ""
+
+        if action in {"list", ""}:
+            return self._handle_skills_list()
+        if action in {"add", "install"}:
+            return await self._handle_skills_add(remainder)
+        if action in {"remove", "rm", "delete", "uninstall"}:
+            return await self._handle_skills_remove(remainder)
+
+        return "Unknown /skills action. Use `/skills`, `/skills add`, or `/skills remove`."
+
+    def _handle_skills_list(self) -> str:
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        return self._format_local_skills(manifests, manager_dir)
+
+    async def _handle_skills_add(self, argument: str) -> str:
+        if argument.strip().lower() in {"q", "quit", "exit"}:
+            return "Cancelled."
+
+        marketplace_url = get_marketplace_url()
+        try:
+            marketplace = await fetch_marketplace_skills(marketplace_url)
+        except Exception as exc:  # noqa: BLE001
+            return (
+                "# skills add\n\n"
+                f"Failed to load marketplace: {exc}\n\n"
+                f"Marketplace: [source]({marketplace_url})"
+            )
+
+        if not marketplace:
+            return "# skills add\n\nNo skills found in the marketplace."
+
+        if not argument:
+            lines = [
+                "# skills add",
+                "",
+                f"Marketplace: [source]({marketplace_url})",
+                "",
+                "Available skills:",
+            ]
+            lines.extend(self._format_marketplace_list(marketplace))
+            lines.append("")
+            lines.append("Install with `/skills add <number|name>` or `/skills add q` to cancel.")
+            return "\n".join(lines)
+
+        skill = select_skill_by_name_or_index(marketplace, argument)
+        if not skill:
+            return "Skill not found. Use `/skills add` to list available skills."
+
+        manager_dir = get_manager_directory()
+        try:
+            install_path = await install_marketplace_skill(
+                skill, destination_root=manager_dir
+            )
+        except Exception as exc:  # noqa: BLE001
+            return f"# skills add\n\nFailed to install skill: {exc}"
+
+        agent, error = self._get_current_agent_or_error("# skills add")
+        if error:
+            return error
+
+        await self._refresh_agent_skills(agent)
+
+        return "\n".join(
+            [
+                "# skills add",
+                "",
+                f"Installed: {skill.name}",
+                f"Location: `{install_path}`",
+            ]
+        )
+
+    async def _handle_skills_remove(self, argument: str) -> str:
+        if argument.strip().lower() in {"q", "quit", "exit"}:
+            return "Cancelled."
+
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        if not manifests:
+            return "# skills remove\n\nNo local skills to remove."
+
+        if not argument:
+            lines = [
+                "# skills remove",
+                "",
+                "Installed skills:",
+            ]
+            lines.extend(self._format_local_list(manifests))
+            lines.append("")
+            lines.append(
+                "Remove with `/skills remove <number|name>` or `/skills remove q` to cancel."
+            )
+            return "\n".join(lines)
+
+        manifest = select_manifest_by_name_or_index(manifests, argument)
+        if not manifest:
+            return "Skill not found. Use `/skills remove` to list installed skills."
+
+        try:
+            skill_dir = Path(manifest.path).parent
+            remove_local_skill(skill_dir, destination_root=manager_dir)
+        except Exception as exc:  # noqa: BLE001
+            return f"# skills remove\n\nFailed to remove skill: {exc}"
+
+        agent, error = self._get_current_agent_or_error("# skills remove")
+        if error:
+            return error
+
+        await self._refresh_agent_skills(agent)
+
+        return "\n".join(
+            [
+                "# skills remove",
+                "",
+                f"Removed: {manifest.name}",
+            ]
+        )
+
+    async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
+        registry = getattr(agent, "skill_registry", None)
+        if registry is not None:
+            manifests = registry.load_manifests()
+        else:
+            settings = get_settings()
+            override_dirs = None
+            skills_settings = getattr(settings, "skills", None)
+            if skills_settings and getattr(skills_settings, "directories", None):
+                override_dirs = [
+                    Path(entry).expanduser() for entry in skills_settings.directories
+                ]
+            registry, manifests = reload_skill_manifests(
+                base_dir=Path.cwd(), override_directories=override_dirs
+            )
+
+        if hasattr(agent, "set_skill_manifests"):
+            agent.set_skill_manifests(manifests)
+        if registry is not None:
+            agent.skill_registry = registry
+        if hasattr(agent, "rebuild_instruction_templates"):
+            await agent.rebuild_instruction_templates()
+
+    def _format_local_skills(self, manifests: list[Any], manager_dir: Path) -> str:
+        lines = ["# skills", "", f"Directory: `{manager_dir}`", ""]
+        if not manifests:
+            lines.append("No skills available in the manager directory.")
+            return "\n".join(lines)
+        lines.append("Installed skills:")
+        lines.extend(self._format_local_list(manifests))
+        return "\n".join(lines)
+
+    def _format_local_list(self, manifests: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for index, manifest in enumerate(manifests, 1):
+            name = getattr(manifest, "name", "")
+            description = getattr(manifest, "description", "")
+            path = Path(getattr(manifest, "path", Path()))
+            source_path = path.parent if path.is_file() else path
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+
+            lines.append(f"- [{index}] {name}")
+            if description:
+                wrapped = textwrap.fill(
+                    description, width=76, subsequent_indent="    "
+                )
+                lines.append(f"  - {wrapped}")
+            lines.append(f"  - source: `{display_path}`")
+        return lines
+
+    def _format_marketplace_list(self, marketplace: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for index, entry in enumerate(marketplace, 1):
+            lines.append(f"- [{index}] {entry.name}")
+            if entry.description:
+                wrapped = textwrap.fill(
+                    entry.description, width=76, subsequent_indent="    "
+                )
+                lines.append(f"  - {wrapped}")
+            if entry.source_url:
+                lines.append(f"  - source: [link]({entry.source_url})")
+        return lines
 
     def _format_tool_lines(self, tool: "Tool", index: int) -> list[str]:
         """

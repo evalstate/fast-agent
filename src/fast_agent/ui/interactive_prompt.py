@@ -15,6 +15,7 @@ Usage:
 """
 
 from pathlib import Path
+import textwrap
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
@@ -26,6 +27,7 @@ from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.config import get_settings
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
@@ -41,6 +43,17 @@ from fast_agent.ui.enhanced_prompt import (
 from fast_agent.ui.history_display import display_history_overview
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
+from fast_agent.skills.manager import (
+    fetch_marketplace_skills,
+    get_manager_directory,
+    get_marketplace_url,
+    install_marketplace_skill,
+    list_local_skills,
+    remove_local_skill,
+    reload_skill_manifests,
+    select_manifest_by_name_or_index,
+    select_skill_by_name_or_index,
+)
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
@@ -174,6 +187,11 @@ class InteractivePrompt:
                         continue
                     elif "list_skills" in command_dict:
                         await self._list_skills(prompt_provider, agent)
+                        continue
+                    elif "skills_command" in command_dict:
+                        await self._handle_skills_command(
+                            prompt_provider, agent, command_dict["skills_command"]
+                        )
                         continue
                     elif "show_usage" in command_dict:
                         # Handle usage display
@@ -1016,62 +1034,210 @@ class InteractivePrompt:
         """List available local skills for an agent."""
 
         try:
-            assert hasattr(prompt_provider, "_agent"), (
-                "Interactive prompt expects an AgentApp with _agent()"
-            )
-            agent = prompt_provider._agent(agent_name)
-
-            rich_print(f"\n[bold]Skills for agent [cyan]{agent_name}[/cyan]:[/bold]")
-
-            skill_manifests = getattr(agent, "_skill_manifests", None)
-            manifests = list(skill_manifests) if skill_manifests else []
-
-            if not manifests:
-                rich_print("[yellow]No skills available for this agent[/yellow]")
-                return
-
-            rich_print()
-
-            for index, manifest in enumerate(manifests, 1):
-                from rich.text import Text
-
-                name = getattr(manifest, "name", "")
-                description = getattr(manifest, "description", "")
-                path = Path(getattr(manifest, "path", Path()))
-
-                tool_line = Text()
-                tool_line.append(f"[{index:2}] ", style="dim cyan")
-                tool_line.append(name, style="bright_blue bold")
-                rich_print(tool_line)
-
-                if description:
-                    import textwrap
-
-                    wrapped_lines = textwrap.wrap(
-                        description.strip(), width=72, subsequent_indent="     "
-                    )
-                    for line in wrapped_lines:
-                        if line.startswith("     "):
-                            rich_print(f"     [white]{line[5:]}[/white]")
-                        else:
-                            rich_print(f"     [white]{line}[/white]")
-
-                source_path = path if path else Path(".")
-                if source_path.is_file():
-                    source_path = source_path.parent
-                try:
-                    display_path = source_path.relative_to(Path.cwd())
-                except ValueError:
-                    display_path = source_path
-
-                rich_print(f"     [dim green]source:[/dim green] {display_path}")
-                rich_print()
+            manager_dir = get_manager_directory()
+            manifests = list_local_skills(manager_dir)
+            self._render_local_skills(manifests, manager_dir)
 
         except Exception as exc:  # noqa: BLE001
             import traceback
 
             rich_print(f"[red]Error listing skills: {exc}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    async def _handle_skills_command(
+        self, prompt_provider: "AgentApp", agent_name: str, payload: dict[str, Any]
+    ) -> None:
+        action = str(payload.get("action") or "list").lower()
+        argument = payload.get("argument")
+
+        if action in {"list", ""}:
+            await self._list_skills(prompt_provider, agent_name)
+            return
+        if action in {"add", "install"}:
+            await self._add_skill(prompt_provider, agent_name, argument)
+            return
+        if action in {"remove", "rm", "delete", "uninstall"}:
+            await self._remove_skill(prompt_provider, agent_name, argument)
+            return
+
+        rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
+
+    async def _add_skill(
+        self, prompt_provider: "AgentApp", agent_name: str, argument: str | None
+    ) -> None:
+        manager_dir = get_manager_directory()
+        marketplace_url = get_marketplace_url()
+        try:
+            marketplace = await fetch_marketplace_skills(marketplace_url)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to load marketplace: {exc}[/red]")
+            return
+
+        if not marketplace:
+            rich_print("[yellow]No skills found in the marketplace.[/yellow]")
+            return
+
+        selection = argument
+        if not selection:
+            rich_print("\n[bold]Marketplace skills:[/bold]\n")
+            self._render_marketplace_skills(marketplace)
+            selection = await get_selection_input(
+                "Install skill by number or name (empty to cancel): ",
+                options=[entry.name for entry in marketplace],
+                allow_cancel=True,
+            )
+            if selection is None:
+                return
+
+        skill = select_skill_by_name_or_index(marketplace, selection)
+        if not skill:
+            rich_print(f"[red]Skill not found: {selection}[/red]")
+            return
+
+        try:
+            install_path = await install_marketplace_skill(
+                skill, destination_root=manager_dir
+            )
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to install skill: {exc}[/red]")
+            return
+
+        self._render_install_result(skill, install_path)
+        await self._refresh_agent_skills(prompt_provider, agent_name)
+
+    async def _remove_skill(
+        self, prompt_provider: "AgentApp", agent_name: str, argument: str | None
+    ) -> None:
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        if not manifests:
+            rich_print("[yellow]No local skills to remove.[/yellow]")
+            return
+
+        selection = argument
+        if not selection:
+            self._render_local_skills(manifests, manager_dir)
+            selection = await get_selection_input(
+                "Remove skill by number or name (empty to cancel): ",
+                options=[manifest.name for manifest in manifests],
+                allow_cancel=True,
+            )
+            if selection is None:
+                return
+
+        manifest = select_manifest_by_name_or_index(manifests, selection)
+        if not manifest:
+            rich_print(f"[red]Skill not found: {selection}[/red]")
+            return
+
+        try:
+            skill_dir = Path(manifest.path).parent
+            remove_local_skill(skill_dir, destination_root=manager_dir)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to remove skill: {exc}[/red]")
+            return
+
+        rich_print(f"[green]Removed skill:[/green] {manifest.name}")
+        await self._refresh_agent_skills(prompt_provider, agent_name)
+
+    async def _refresh_agent_skills(
+        self, prompt_provider: "AgentApp", agent_name: str
+    ) -> None:
+        assert hasattr(prompt_provider, "_agent"), (
+            "Interactive prompt expects an AgentApp with _agent()"
+        )
+        agent = prompt_provider._agent(agent_name)
+        registry = getattr(agent, "skill_registry", None)
+        manifests: list[Any]
+
+        if registry is not None:
+            manifests = registry.load_manifests()
+        else:
+            settings = get_settings()
+            override_dirs = None
+            skills_settings = getattr(settings, "skills", None)
+            if skills_settings and getattr(skills_settings, "directories", None):
+                override_dirs = [
+                    Path(entry).expanduser() for entry in skills_settings.directories
+                ]
+            registry, manifests = reload_skill_manifests(
+                base_dir=Path.cwd(), override_directories=override_dirs
+            )
+
+        if hasattr(agent, "set_skill_manifests"):
+            agent.set_skill_manifests(manifests)
+        if registry is not None:
+            agent.skill_registry = registry
+        if hasattr(agent, "rebuild_instruction_templates"):
+            await agent.rebuild_instruction_templates()
+
+    def _render_marketplace_skills(self, marketplace: list[Any]) -> None:
+        for index, entry in enumerate(marketplace, 1):
+            from rich.text import Text
+
+            tool_line = Text()
+            tool_line.append(f"[{index:2}] ", style="dim cyan")
+            tool_line.append(entry.name, style="bright_blue bold")
+            rich_print(tool_line)
+
+            if entry.description:
+                wrapped_lines = textwrap.wrap(
+                    entry.description.strip(), width=72, subsequent_indent="     "
+                )
+                for line in wrapped_lines:
+                    if line.startswith("     "):
+                        rich_print(f"     [white]{line[5:]}[/white]")
+                    else:
+                        rich_print(f"     [white]{line}[/white]")
+            if entry.source_url:
+                rich_print(f"     [dim green]source:[/dim green] {entry.source_url}")
+            rich_print()
+
+    def _render_local_skills(self, manifests: list[Any], manager_dir: Path) -> None:
+        rich_print(f"\n[bold]Skills in [cyan]{manager_dir}[/cyan]:[/bold]\n")
+        if not manifests:
+            rich_print("[yellow]No skills available in the manager directory[/yellow]")
+            return
+        for index, manifest in enumerate(manifests, 1):
+            from rich.text import Text
+
+            name = getattr(manifest, "name", "")
+            description = getattr(manifest, "description", "")
+            path = Path(getattr(manifest, "path", Path()))
+
+            tool_line = Text()
+            tool_line.append(f"[{index:2}] ", style="dim cyan")
+            tool_line.append(name, style="bright_blue bold")
+            rich_print(tool_line)
+
+            if description:
+                wrapped_lines = textwrap.wrap(
+                    description.strip(), width=72, subsequent_indent="     "
+                )
+                for line in wrapped_lines:
+                    if line.startswith("     "):
+                        rich_print(f"     [white]{line[5:]}[/white]")
+                    else:
+                        rich_print(f"     [white]{line}[/white]")
+
+            source_path = path if path else Path(".")
+            if source_path.is_file():
+                source_path = source_path.parent
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+
+            rich_print(f"     [dim green]source:[/dim green] {display_path}")
+            rich_print()
+
+    def _render_install_result(self, skill: Any, install_path: Path) -> None:
+        try:
+            display_path = install_path.relative_to(Path.cwd())
+        except ValueError:
+            display_path = install_path
+        rich_print(f"[green]Installed skill:[/green] {skill.name}")
+        rich_print(f"[dim green]location:[/dim green] {display_path}")
 
     async def _show_usage(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """
