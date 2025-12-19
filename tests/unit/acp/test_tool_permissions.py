@@ -588,7 +588,12 @@ class TestACPToolPermissionManager:
             cwd=temp_dir,
         )
 
-        result = await manager.check_permission("tool1", "server1", {"arg": "value"})
+        arguments = {
+            "prompt": "lion",
+            "quality": "low",
+            "tool_result": "image",
+        }
+        result = await manager.check_permission("tool1", "server1", arguments)
 
         assert result.allowed is True
         assert result.remember is False
@@ -597,9 +602,12 @@ class TestACPToolPermissionManager:
         # Verify tool_call contains rawInput per ACP spec (now stored as dict)
         request = connection.permission_requests[0]
         assert request["tool_call"] is not None
-        assert request["tool_call"].rawInput == {"arg": "value"}
-        # Title should include argument summary
-        assert "server1/tool1" in request["tool_call"].title
+        assert request["tool_call"].rawInput == arguments
+        # Title should include trimmed argument summary
+        title = request["tool_call"].title
+        assert "server1/tool1" in title
+        assert "prompt=lion" in title
+        assert "tool_result=image" in title
 
     @pytest.mark.asyncio
     async def test_persists_allow_always_to_store(self, temp_dir: Path) -> None:
