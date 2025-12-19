@@ -55,6 +55,7 @@ from fast_agent.tools.elicitation import (
     set_elicitation_input_callback,
 )
 from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.tools.skill_reader import SkillReader
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 
@@ -198,6 +199,12 @@ class McpAgent(ABC, ToolAgent):
                 self._human_input_tool = get_elicitation_tool()
             except Exception:
                 self._human_input_tool = None
+
+        # Create skill reader for reading skill files
+        # This provides a dedicated tool for skill activation per the Agent Skills standard
+        self._skill_reader: SkillReader | None = None
+        if self._skill_manifests:
+            self._skill_reader = SkillReader(self._skill_manifests)
 
         # Register the MCP UI handler as the elicitation callback so fast_agent.tools can call it
         # without importing MCP types. This avoids circular imports and ensures the callback is ready.
@@ -588,6 +595,10 @@ class McpAgent(ABC, ToolAgent):
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
             return await self._shell_runtime.execute(arguments)
+
+        # Handle skill reader tool
+        if self._skill_reader and self._skill_reader.tool and name == self._skill_reader.tool.name:
+            return await self._skill_reader.execute(arguments)
 
         if name == HUMAN_INPUT_TOOL_NAME:
             # Call the elicitation-backed human input tool
@@ -1208,6 +1219,15 @@ class McpAgent(ABC, ToolAgent):
                 if fs_tool and fs_tool.name not in existing_names:
                     merged_tools.append(fs_tool)
                     existing_names.add(fs_tool.name)
+
+        # Add skill reader tool if skills are configured and no ACP filesystem is available
+        # Per Agent Skills standard, filesystem-based agents need a way to read skill files
+        # When ACP provides filesystem capabilities, we defer to those instead
+        if self._skill_reader and not self._filesystem_runtime:
+            skill_tool = self._skill_reader.tool
+            if skill_tool and skill_tool.name not in existing_names:
+                merged_tools.append(skill_tool)
+                existing_names.add(skill_tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)

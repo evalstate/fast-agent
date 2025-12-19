@@ -199,30 +199,48 @@ class SkillRegistry:
         ), None
 
 
-def format_skills_for_prompt(manifests: Sequence[SkillManifest]) -> str:
+def format_skills_for_prompt(
+    manifests: Sequence[SkillManifest], *, use_absolute_paths: bool = True
+) -> str:
     """
     Format a collection of skill manifests into an XML-style block suitable for system prompts.
+
+    This follows the Agent Skills standard (https://agentskills.io/specification.md).
+
+    Args:
+        manifests: Collection of skill manifests to format
+        use_absolute_paths: If True, use absolute paths (recommended for filesystem-based agents).
+                          If False, use relative paths when available.
     """
     if not manifests:
         return ""
 
     preamble = (
-        "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems in any way "
-        "relevant to the Users task, intent or would increase your effectiveness. \n"
-        "Use 'execute' to run shell commands in the agent workspace. Files you create will be visible to the user."
-        "To use a Skill you must first read the SKILL.md file (use 'execute' tool).\n "
-        "Paths in Skill documentation are relative to that Skill's directory, NOT the workspace root.\n"
-        "For example if the 'test' skill has scripts/example.py access it with <skill_folder>/scripts/example.py.\n"
+        "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems "
+        "relevant to the User's task, intent, or would increase your effectiveness.\n"
+        "To activate a Skill, first read its SKILL.md file using the 'read_skill' tool (or 'execute' "
+        "with cat if read_skill is unavailable).\n"
+        "Paths referenced within Skill documentation are relative to that Skill's directory.\n"
         "Only use Skills listed in <available_skills> below.\n\n"
     )
     formatted_parts: list[str] = []
 
     for manifest in manifests:
         description = (manifest.description or "").strip()
-        relative_path = manifest.relative_path
-        path_attr = f' path="{relative_path}"' if relative_path is not None else ""
-        if relative_path is None and manifest.path:
-            path_attr = f' path="{manifest.path}"'
+
+        # Per Agent Skills standard, include the skill location for filesystem-based agents
+        # Using absolute paths is more reliable for agent navigation
+        if use_absolute_paths and manifest.path:
+            # The path points to SKILL.md - use parent for skill directory
+            skill_dir = manifest.path.parent
+            path_attr = f' location="{skill_dir}"'
+        elif manifest.relative_path is not None:
+            # Fallback to relative path (points to SKILL.md)
+            path_attr = f' location="{manifest.relative_path.parent}"'
+        elif manifest.path:
+            path_attr = f' location="{manifest.path.parent}"'
+        else:
+            path_attr = ""
 
         block_lines: list[str] = [f'<agent-skill name="{manifest.name}"{path_attr}>']
         if description:

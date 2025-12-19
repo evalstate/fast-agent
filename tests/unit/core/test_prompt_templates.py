@@ -144,8 +144,10 @@ This is the skill body content.
     assert "agentSkills" in context
     assert "test-skill" in context["agentSkills"]
     assert "A test skill for unit testing" in context["agentSkills"]
-    # Verify path is relative to workspace root, not skills directory
-    assert ".fast-agent/skills/test-skill/SKILL.md" in context["agentSkills"]
+    # Per Agent Skills standard, we now use 'location' attribute with absolute paths
+    # The location points to the skill directory, not the SKILL.md file
+    assert 'location="' in context["agentSkills"]
+    assert str(skills_dir) in context["agentSkills"]
 
 
 def test_enrich_with_environment_context_respects_skills_override(tmp_path):
@@ -186,8 +188,10 @@ description: Custom skill from override
     assert "agentSkills" in context
     assert "custom-skill" in context["agentSkills"]
     assert "default-skill" not in context["agentSkills"]
-    # Verify path uses custom directory relative to workspace root
-    assert "custom-skills/custom-skill/SKILL.md" in context["agentSkills"]
+    # Per Agent Skills standard, we now use 'location' attribute with absolute paths
+    # The location points to the skill directory
+    assert 'location="' in context["agentSkills"]
+    assert str(custom_skills_dir) in context["agentSkills"]
 
 
 def test_load_skills_for_context_handles_missing_directory(tmp_path):
