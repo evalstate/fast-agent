@@ -15,7 +15,7 @@ import textwrap
 import time
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from acp.schema import (
     AvailableCommand,
@@ -37,6 +37,16 @@ if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
 
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.skills.registry import SkillRegistry
+
+
+@runtime_checkable
+class WarningAwareAgent(Protocol):
+    @property
+    def warnings(self) -> list[str]: ...
+
+    @property
+    def skill_registry(self) -> "SkillRegistry | None": ...
 
 
 class SlashCommandHandler:
@@ -1007,24 +1017,15 @@ class SlashCommandHandler:
 
     def _get_warning_report(self, agent, max_entries: int = 5) -> list[str]:
         warnings: list[str] = []
-        if agent:
-            agent_warnings = getattr(agent, "warnings", None)
-            if agent_warnings:
-                warnings.extend(agent_warnings)
-            agent_registry = getattr(agent, "skill_registry", None)
-            registry_warnings = getattr(agent_registry, "warnings", None) if agent_registry else None
-            if registry_warnings:
-                warnings.extend(registry_warnings)
-            context = getattr(agent, "context", None)
-            registry = getattr(context, "skill_registry", None) if context else None
-            context_warnings = getattr(registry, "warnings", None) if registry else None
-            if context_warnings:
-                warnings.extend(context_warnings)
+        if isinstance(agent, WarningAwareAgent):
+            warnings.extend(agent.warnings)
+            if agent.skill_registry:
+                warnings.extend(agent.skill_registry.warnings)
 
         cleaned: list[str] = []
         seen: set[str] = set()
         for warning in warnings:
-            message = warning.strip()
+            message = str(warning).strip()
             if message and message not in seen:
                 cleaned.append(message)
                 seen.add(message)

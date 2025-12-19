@@ -110,7 +110,7 @@ class McpAgent(ABC, ToolAgent):
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
-        if not manifests and context and getattr(context, "skill_registry", None):
+        if not manifests and context and context.skill_registry:
             try:
                 manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
             except Exception:
@@ -123,7 +123,7 @@ class McpAgent(ABC, ToolAgent):
         self.skill_registry: SkillRegistry | None = None
         if isinstance(self.config.skills, SkillRegistry):
             self.skill_registry = self.config.skills
-        elif self.config.skills is None and context and getattr(context, "skill_registry", None):
+        elif self.config.skills is None and context and context.skill_registry:
             self.skill_registry = context.skill_registry
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()
