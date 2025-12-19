@@ -55,6 +55,7 @@ from fast_agent.tools.elicitation import (
     set_elicitation_input_callback,
 )
 from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.tools.skill_reader import SkillReader
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 
@@ -184,6 +185,12 @@ class McpAgent(ABC, ToolAgent):
 
         # Allow filesystem runtime injection (e.g., for ACP filesystem support)
         self._filesystem_runtime = None
+
+        # Initialize skill reader for non-ACP contexts (provides read_skill tool)
+        # Only active when skills are configured; skipped if ACP filesystem provides read_text_file
+        self._skill_reader: SkillReader | None = None
+        if self._skill_manifests:
+            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -323,7 +330,13 @@ class McpAgent(ABC, ToolAgent):
     async def _resolve_agent_skills(self) -> str:
         """Resolver for {{agentSkills}} placeholder."""
         self._agent_skills_warning_shown = True
-        return format_skills_for_prompt(self._skill_manifests)
+        # Determine which tool to reference in the preamble
+        # ACP context provides read_text_file; otherwise use read_skill
+        if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
+            read_tool_name = "read_text_file"
+        else:
+            read_tool_name = "read_skill"
+        return format_skills_for_prompt(self._skill_manifests, read_tool_name=read_tool_name)
 
     def set_instruction_context(self, context: dict[str, str]) -> None:
         """
@@ -584,6 +597,10 @@ class McpAgent(ABC, ToolAgent):
                         return await self._filesystem_runtime.write_text_file(
                             arguments, tool_use_id
                         )
+
+        # Check skill reader (non-ACP context with skills)
+        if self._skill_reader and name == "read_skill":
+            return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -909,12 +926,18 @@ class McpAgent(ABC, ToolAgent):
                 and hasattr(self._filesystem_runtime, "tools")
                 and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
             )
+            is_skill_reader_tool = (
+                self._skill_reader
+                and self._skill_reader.enabled
+                and tool_name == "read_skill"
+            )
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
                 or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
+                or is_skill_reader_tool
                 or namespaced_tool is not None
                 or local_tool is not None
                 or candidate_namespaced_tool is not None
@@ -1208,6 +1231,12 @@ class McpAgent(ABC, ToolAgent):
                 if fs_tool and fs_tool.name not in existing_names:
                     merged_tools.append(fs_tool)
                     existing_names.add(fs_tool.name)
+        elif self._skill_reader and self._skill_reader.enabled:
+            # Non-ACP context with skills: provide read_skill tool
+            skill_tool = self._skill_reader.tool
+            if skill_tool.name not in existing_names:
+                merged_tools.append(skill_tool)
+                existing_names.add(skill_tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)

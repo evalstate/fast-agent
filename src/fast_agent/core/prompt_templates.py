@@ -157,11 +157,12 @@ def enrich_with_environment_context(
     context["pythonVer"] = python_version
 
     # Load and format agent skills
+    # In ACP context, use read_text_file as the tool for reading skills
     if cwd:
         from fast_agent.skills.registry import format_skills_for_prompt
 
         skill_manifests = load_skills_for_context(cwd, skills_directory_override)
-        skills_text = format_skills_for_prompt(skill_manifests)
+        skills_text = format_skills_for_prompt(skill_manifests, read_tool_name="read_text_file")
         context["agentSkills"] = skills_text
 
     env_lines: list[str] = []
