@@ -72,6 +72,31 @@ class TestACPToolProgressManager:
         assert notification.status == "pending"
 
     @pytest.mark.asyncio
+    async def test_on_tool_start_includes_all_args_in_title(self) -> None:
+        """Tool start title should include trimmed argument list."""
+        connection = FakeAgentSideConnection()
+        manager = ACPToolProgressManager(connection, "test-session")
+
+        arguments = {
+            "prompt": "lion",
+            "quality": "low",
+            "tool_result": "image",
+        }
+
+        await manager.on_tool_start(
+            tool_name="openai-images-generate",
+            server_name="media-gen",
+            arguments=arguments,
+        )
+
+        assert len(connection.notifications) == 1
+        notification = connection.notifications[0]
+        assert notification.sessionUpdate == "tool_call"
+        assert "media-gen/openai-images-generate" in notification.title
+        assert "prompt=lion" in notification.title
+        assert "tool_result=image" in notification.title
+
+    @pytest.mark.asyncio
     async def test_delta_events_only_notify_after_threshold(self) -> None:
         """Delta notifications are only sent after 25 chunks to reduce UI noise."""
         connection = FakeAgentSideConnection()

@@ -443,8 +443,8 @@ class ACPToolProgressManager:
         # Create title
         title = f"{server_name}/{tool_name}"
         if arguments:
-            # Include key argument info in title
-            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
+            # Include trimmed arg list info in title
+            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items()))
             if len(arg_str) > 50:
                 arg_str = arg_str[:47] + "..."
             title = f"{title}({arg_str})"
