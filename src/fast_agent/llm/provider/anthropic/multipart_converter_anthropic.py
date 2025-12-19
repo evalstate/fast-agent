@@ -1,5 +1,6 @@
 import re
 from typing import Sequence, Union
+from urllib.parse import urlparse
 
 from anthropic.types import (
     Base64ImageSourceParam,
@@ -83,15 +84,9 @@ class AnthropicConverter:
         if role == "assistant" and multipart_msg.tool_calls:
             for tool_use_id, req in multipart_msg.tool_calls.items():
                 sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
-                name = None
-                args = None
-                try:
-                    params = getattr(req, "params", None)
-                    if params is not None:
-                        name = getattr(params, "name", None)
-                        args = getattr(params, "arguments", None)
-                except Exception:
-                    pass
+                params = req.params
+                name = params.name if params else None
+                args = params.arguments if params else None
 
                 all_content_blocks.append(
                     ToolUseBlockParam(
@@ -230,8 +225,9 @@ class AnthropicConverter:
         """
         resource_content = resource.resource
         uri_str = get_resource_uri(resource)
-        uri = getattr(resource_content, "uri", None)
-        is_url: bool = uri and uri.scheme in ("http", "https")
+        uri = resource_content.uri
+        parsed_uri = urlparse(uri_str) if uri_str else None
+        is_url: bool = bool(parsed_uri and parsed_uri.scheme in ("http", "https"))
 
         # Determine MIME type
         mime_type = AnthropicConverter._determine_mime_type(resource_content)
@@ -320,9 +316,10 @@ class AnthropicConverter:
             resource.resource, "blob"
         ):
             blob_length = len(resource.resource.blob)
+            uri_display = uri._url if uri else (uri_str or "<unknown>")
             return TextBlockParam(
                 type="text",
-                text=f"Embedded Resource {uri._url} with unsupported format {mime_type} ({blob_length} characters)",
+                text=f"Embedded Resource {uri_display} with unsupported format {mime_type} ({blob_length} characters)",
             )
 
         return AnthropicConverter._create_fallback_text(
@@ -342,10 +339,10 @@ class AnthropicConverter:
         Returns:
             The MIME type as a string
         """
-        if getattr(resource, "mimeType", None):
+        if resource.mimeType:
             return resource.mimeType
 
-        if getattr(resource, "uri", None):
+        if resource.uri:
             return guess_mime_type(resource.uri.serialize_url)
 
         if hasattr(resource, "blob"):
@@ -384,9 +381,12 @@ class AnthropicConverter:
         Returns:
             A TextBlockParam with the fallback message
         """
-        if isinstance(resource, EmbeddedResource) and hasattr(resource.resource, "uri"):
+        if isinstance(resource, EmbeddedResource):
             uri = resource.resource.uri
-            return TextBlockParam(type="text", text=f"[{message}: {uri._url}]")
+            if uri:
+                return TextBlockParam(type="text", text=f"[{message}: {uri._url}]")
+            if uri_str := get_resource_uri(resource):
+                return TextBlockParam(type="text", text=f"[{message}: {uri_str}]")
 
         return TextBlockParam(type="text", text=f"[{message}]")
 

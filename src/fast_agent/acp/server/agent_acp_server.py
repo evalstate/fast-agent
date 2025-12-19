@@ -9,7 +9,8 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from importlib.metadata import version as get_version
-from typing import Any, Awaitable, Callable
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Sequence
 
 from acp import Agent as ACPAgent
 from acp import (
@@ -187,7 +188,7 @@ class AgentACPServer(ACPAgent):
         instance_scope: str,
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
-        skills_directory_override: str | None = None,
+        skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
     ) -> None:
         """

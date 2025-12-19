@@ -15,7 +15,7 @@ import textwrap
 import time
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from acp.schema import (
     AvailableCommand,
@@ -37,6 +37,16 @@ if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
 
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.skills.registry import SkillRegistry
+
+
+@runtime_checkable
+class WarningAwareAgent(Protocol):
+    @property
+    def warnings(self) -> list[str]: ...
+
+    @property
+    def skill_registry(self) -> "SkillRegistry | None": ...
 
 
 class SlashCommandHandler:
@@ -482,6 +492,10 @@ class SlashCommandHandler:
         status_lines.extend(["", f"ACP Agent Uptime: {format_duration(uptime_seconds)}"])
         status_lines.extend(["", "## Error Handling"])
         status_lines.extend(self._get_error_handling_report(agent))
+        warning_report = self._get_warning_report(agent)
+        if warning_report:
+            status_lines.append("")
+            status_lines.extend(warning_report)
 
         return "\n".join(status_lines)
 
@@ -1000,6 +1014,31 @@ class SlashCommandHandler:
             return lines
 
         return ["_No errors recorded_"]
+
+    def _get_warning_report(self, agent, max_entries: int = 5) -> list[str]:
+        warnings: list[str] = []
+        if isinstance(agent, WarningAwareAgent):
+            warnings.extend(agent.warnings)
+            if agent.skill_registry:
+                warnings.extend(agent.skill_registry.warnings)
+
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for warning in warnings:
+            message = str(warning).strip()
+            if message and message not in seen:
+                cleaned.append(message)
+                seen.add(message)
+
+        if not cleaned:
+            return []
+
+        lines = ["Warnings:"]
+        for message in cleaned[:max_entries]:
+            lines.append(f"- {message}")
+        if len(cleaned) > max_entries:
+            lines.append(f"- ... ({len(cleaned) - max_entries} more)")
+        return lines
 
     def _context_usage_line(self, summary: ConversationSummary, agent) -> str:
         """Generate a context usage line with token estimation and fallbacks."""

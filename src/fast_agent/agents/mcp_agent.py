@@ -48,13 +48,15 @@ from fast_agent.mcp.common import (
     is_namespaced_name,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool, ServerStatus
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills import SkillManifest
+from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
 from fast_agent.tools.shell_runtime import ShellRuntime
+from fast_agent.tools.skill_reader import SkillReader
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui import console
 
@@ -69,7 +71,6 @@ if TYPE_CHECKING:
 
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.skills import SkillManifest
 
 
 class McpAgent(ABC, ToolAgent):
@@ -109,17 +110,23 @@ class McpAgent(ABC, ToolAgent):
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
-        if not manifests and context and getattr(context, "skill_registry", None):
+        if not manifests and context and context.skill_registry:
             try:
                 manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
             except Exception:
                 manifests = []
 
-        self._skill_manifests = list(manifests)
-        self._skill_map: dict[str, SkillManifest] = {
-            manifest.name: manifest for manifest in manifests
-        }
-        self._agent_skills_warning_shown = False
+        self._skill_manifests: list[SkillManifest] = []
+        self._skill_map: dict[str, SkillManifest] = {}
+        self._skill_reader: SkillReader | None = None
+        self.set_skill_manifests(manifests)
+        self.skill_registry: SkillRegistry | None = None
+        if isinstance(self.config.skills, SkillRegistry):
+            self.skill_registry = self.config.skills
+        elif self.config.skills is None and context and context.skill_registry:
+            self.skill_registry = context.skill_registry
+        self._warnings: list[str] = []
+        self._warning_messages_seen: set[str] = set()
         shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
@@ -285,21 +292,12 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = await self._instruction_builder.build()
 
         # Warn if skills configured but placeholder missing
-        if (
-            self._skill_manifests
-            and not self._agent_skills_warning_shown
-            and "{{agentSkills}}" not in self._instruction_builder.template
-        ):
+        if self._skill_manifests and "{{agentSkills}}" not in self._instruction_builder.template:
             warning_message = (
                 "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
                 "Skill descriptions will not be added to the system prompt."
             )
-            self.logger.warning(warning_message)
-            try:
-                console.console.print(f"[yellow]{warning_message}[/yellow]")
-            except Exception:  # pragma: no cover - console fallback
-                pass
-            self._agent_skills_warning_shown = True
+            self._record_warning(warning_message)
 
         # Update default request params to match
         if self._default_request_params:
@@ -322,8 +320,36 @@ class McpAgent(ABC, ToolAgent):
 
     async def _resolve_agent_skills(self) -> str:
         """Resolver for {{agentSkills}} placeholder."""
-        self._agent_skills_warning_shown = True
-        return format_skills_for_prompt(self._skill_manifests)
+        # Determine which tool to reference in the preamble
+        # ACP context provides read_text_file; otherwise use read_skill
+        if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
+            read_tool_name = "read_text_file"
+        else:
+            read_tool_name = "read_skill"
+        return format_skills_for_prompt(self._skill_manifests, read_tool_name=read_tool_name)
+
+    def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
+        self._skill_manifests = list(manifests)
+        self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
+        if self._skill_manifests:
+            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+        else:
+            self._skill_reader = None
+
+    def _record_warning(self, message: str) -> None:
+        if message in self._warning_messages_seen:
+            return
+        self._warning_messages_seen.add(message)
+        self._warnings.append(message)
+        self.logger.warning(message)
+        try:
+            console.console.print(f"[yellow]{message}[/yellow]")
+        except Exception:  # pragma: no cover - console fallback
+            pass
+
+    @property
+    def warnings(self) -> list[str]:
+        return list(self._warnings)
 
     def set_instruction_context(self, context: dict[str, str]) -> None:
         """
@@ -584,6 +610,10 @@ class McpAgent(ABC, ToolAgent):
                         return await self._filesystem_runtime.write_text_file(
                             arguments, tool_use_id
                         )
+
+        # Check skill reader (non-ACP context with skills)
+        if self._skill_reader and name == "read_skill":
+            return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -909,12 +939,16 @@ class McpAgent(ABC, ToolAgent):
                 and hasattr(self._filesystem_runtime, "tools")
                 and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
             )
+            is_skill_reader_tool = (
+                self._skill_reader and self._skill_reader.enabled and tool_name == "read_skill"
+            )
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
                 or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
+                or is_skill_reader_tool
                 or namespaced_tool is not None
                 or local_tool is not None
                 or candidate_namespaced_tool is not None
@@ -1208,6 +1242,12 @@ class McpAgent(ABC, ToolAgent):
                 if fs_tool and fs_tool.name not in existing_names:
                     merged_tools.append(fs_tool)
                     existing_names.add(fs_tool.name)
+        elif self._skill_reader and self._skill_reader.enabled:
+            # Non-ACP context with skills: provide read_skill tool
+            skill_tool = self._skill_reader.tool
+            if skill_tool.name not in existing_names:
+                merged_tools.append(skill_tool)
+                existing_names.add(skill_tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)

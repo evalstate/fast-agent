@@ -40,7 +40,14 @@ class AgentConfig:
     tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
     resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
     prompts: dict[str, list[str]] = field(default_factory=dict)  # filters for prompts
-    skills: SkillManifest | SkillRegistry | Path | str | None = None
+    skills: (
+        SkillManifest
+        | SkillRegistry
+        | Path
+        | str
+        | list[SkillManifest | SkillRegistry | Path | str | None]
+        | None
+    ) = None
     skill_manifests: list[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
     use_history: bool = True

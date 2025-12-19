@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,16 +8,34 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
+from fast_agent.tools.skill_reader import SkillReader
 
 
-def create_skill(directory: Path, name: str, description: str = "desc", body: str = "Body") -> None:
+def create_skill(
+    directory: Path,
+    name: str,
+    description: str = "desc",
+    body: str = "Body",
+    license: str | None = None,
+    compatibility: str | None = None,
+    allowed_tools: str | None = None,
+) -> None:
+    """Create a skill with optional metadata fields."""
     skill_dir = directory / name
     skill_dir.mkdir(parents=True, exist_ok=True)
     manifest = skill_dir / "SKILL.md"
-    manifest.write_text(
-        f"""---\nname: {name}\ndescription: {description}\n---\n{body}\n""",
-        encoding="utf-8",
-    )
+
+    # Build YAML frontmatter
+    lines = ["---", f"name: {name}", f"description: {description}"]
+    if license:
+        lines.append(f"license: {license}")
+    if compatibility:
+        lines.append(f"compatibility: {compatibility}")
+    if allowed_tools:
+        lines.append(f"allowed-tools: {allowed_tools}")
+    lines.extend(["---", body, ""])
+
+    manifest.write_text("\n".join(lines), encoding="utf-8")
 
 
 @pytest.mark.asyncio
@@ -34,8 +53,61 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
 
     tools_result = await agent.list_tools()
     tool_names = {tool.name for tool in tools_result.tools}
+    # Skills are not exposed as individual tools
     assert "alpha" not in tool_names
-    assert manifests[0].relative_path == Path("alpha/SKILL.md")
+    # But read_skill tool should be available since skills are configured
+    assert "read_skill" in tool_names
+    # Path should be absolute
+    assert manifests[0].path.is_absolute()
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_rejects_relative_path(tmp_path: Path) -> None:
+    """SkillReader must reject non-absolute paths to prevent traversal tricks."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    result = await reader.execute({"path": "skills/alpha/SKILL.md"})
+
+    assert result.isError is True
+    assert "Path must be absolute" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_blocks_outside_skill_directory(tmp_path: Path) -> None:
+    """SkillReader must deny access to files outside the registered skill directories."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("secret", encoding="utf-8")
+
+    result = await reader.execute({"path": str(outside_file)})
+
+    assert result.isError is True
+    assert "not within an allowed skill directory" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_reads_valid_skill_file(tmp_path: Path) -> None:
+    """SkillReader should read a valid skill file inside the allowed directory."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    skill_file = skills_root / "alpha" / "SKILL.md"
+    result = await reader.execute({"path": str(skill_file)})
+
+    assert result.isError is False
+    assert any("Alpha body" in block.text for block in result.content)
 
 
 @pytest.mark.asyncio
@@ -58,10 +130,15 @@ async def test_agent_skills_template_substitution(tmp_path: Path) -> None:
     await agent._apply_instruction_templates()
 
     assert "{{agentSkills}}" not in agent.instruction
-    assert '<agent-skill name="beta"' in agent.instruction
-    assert 'path="beta/SKILL.md"' in agent.instruction
-    assert "Beta desc" in agent.instruction
+    # New standard format uses <skill> and child elements
+    assert "<skill>" in agent.instruction
+    assert "<name>beta</name>" in agent.instruction
+    assert "<description>Beta desc</description>" in agent.instruction
+    # Absolute path in <location> element
+    assert "<location>" in agent.instruction
+    assert str(skills_root / "beta" / "SKILL.md") in agent.instruction
     assert "<instructions>" not in agent.instruction
+    # Body is not included in the skills listing
     assert "Beta body" not in agent.instruction
 
 
@@ -102,28 +179,25 @@ def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:
     base_dir.mkdir()
 
     # Create registry with base_dir different from skills directory (absolute override)
-    registry = SkillRegistry(base_dir=base_dir, override_directory=skills_root)
+    registry = SkillRegistry(base_dir=base_dir, directories=[skills_root])
     manifests = registry.load_manifests()
 
     assert len(manifests) == 1
     manifest = manifests[0]
 
-    # relative_path should be computed from the override directory
-    # Since override_directory was absolute, it stays as the absolute path prefix
-    assert manifest.relative_path is not None
-    assert str(manifest.relative_path).endswith("external/SKILL.md")
-
-    # The absolute path should still be set
+    # Path should be absolute per Agent Skills specification
     assert manifest.path is not None
     assert manifest.path.is_absolute()
 
-    # format_skills_for_prompt should use the relative path from override
+    # format_skills_for_prompt should use the absolute path in <location>
     prompt = format_skills_for_prompt(manifests)
-    assert f'path="{manifest.relative_path}"' in prompt
+    assert f"<location>{manifest.path}</location>" in prompt
+    assert "<skill>" in prompt
+    assert "<name>external</name>" in prompt
 
 
 def test_skills_relative_dir_outside_cwd(tmp_path: Path) -> None:
-    """When skills dir is specified with relative path like ../skills, preserve that path."""
+    """When skills dir is specified with relative path like ../skills, absolute paths are still used."""
     # Create workspace and external skills directories as siblings
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -134,16 +208,107 @@ def test_skills_relative_dir_outside_cwd(tmp_path: Path) -> None:
     override_dir = Path("../skills")
 
     # Create registry with workspace as base_dir and relative override
-    registry = SkillRegistry(base_dir=workspace, override_directory=override_dir)
+    registry = SkillRegistry(base_dir=workspace, directories=[override_dir])
     manifests = registry.load_manifests()
 
     assert len(manifests) == 1
     manifest = manifests[0]
 
-    # relative_path should preserve the original relative path prefix
-    assert manifest.relative_path is not None
-    assert str(manifest.relative_path) == "../skills/my-skill/SKILL.md"
+    # Path is resolved to absolute per Agent Skills specification
+    assert manifest.path is not None
+    assert manifest.path.is_absolute()
 
-    # format_skills_for_prompt should use the relative path
+    # format_skills_for_prompt should use the absolute path
     prompt = format_skills_for_prompt(manifests)
-    assert 'path="../skills/my-skill/SKILL.md"' in prompt
+    assert f"<location>{manifest.path}</location>" in prompt
+
+
+def test_format_skills_for_prompt_standard_format(tmp_path: Path) -> None:
+    """Test that format_skills_for_prompt outputs Agent Skills standard format."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "test-skill", description="Test description")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    prompt = format_skills_for_prompt(manifests)
+
+    # Check standard XML structure
+    assert "<available_skills>" in prompt
+    assert "</available_skills>" in prompt
+    assert "<skill>" in prompt
+    assert "</skill>" in prompt
+    assert "<name>test-skill</name>" in prompt
+    assert "<description>Test description</description>" in prompt
+    assert "<location>" in prompt
+    assert "</location>" in prompt
+
+    # Check preamble mentions read_skill tool by default
+    assert "read_skill" in prompt
+
+
+def test_format_skills_for_prompt_custom_read_tool(tmp_path: Path) -> None:
+    """Test that format_skills_for_prompt can use custom read tool name."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "test-skill", description="Test description")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    prompt = format_skills_for_prompt(manifests, read_tool_name="read_text_file")
+
+    # Check preamble mentions the custom tool name
+    assert "read_text_file" in prompt
+    assert "read_skill" not in prompt
+
+
+def test_format_skills_for_prompt_no_preamble(tmp_path: Path) -> None:
+    """Test that format_skills_for_prompt can exclude preamble."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "test-skill", description="Test description")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    prompt = format_skills_for_prompt(manifests, include_preamble=False)
+
+    # Should start directly with available_skills
+    assert prompt.startswith("<available_skills>")
+    # Should not have preamble text
+    assert "Use a Skill" not in prompt
+
+
+def test_skill_manifest_optional_fields(tmp_path: Path) -> None:
+    """Test that optional fields from Agent Skills spec are parsed."""
+    skills_root = tmp_path / "skills"
+    create_skill(
+        skills_root,
+        "full-skill",
+        description="A fully specified skill",
+        license="MIT",
+        compatibility="Python 3.10+, network access required",
+        allowed_tools="bash python",
+    )
+
+    manifests = SkillRegistry.load_directory(skills_root)
+
+    assert len(manifests) == 1
+    manifest = manifests[0]
+
+    assert manifest.name == "full-skill"
+    assert manifest.description == "A fully specified skill"
+    assert manifest.license == "MIT"
+    assert manifest.compatibility == "Python 3.10+, network access required"
+    assert manifest.allowed_tools == ["bash", "python"]
+
+
+def test_skill_manifest_missing_optional_fields(tmp_path: Path) -> None:
+    """Test that missing optional fields are None."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "minimal-skill", description="Minimal skill")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+
+    assert len(manifests) == 1
+    manifest = manifests[0]
+
+    assert manifest.name == "minimal-skill"
+    assert manifest.description == "Minimal skill"
+    assert manifest.license is None
+    assert manifest.compatibility is None
+    assert manifest.allowed_tools is None
+    assert manifest.metadata is None
