@@ -48,7 +48,8 @@ from fast_agent.mcp.common import (
     is_namespaced_name,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool, ServerStatus
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills import SkillManifest
+from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
@@ -70,7 +71,6 @@ if TYPE_CHECKING:
 
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.skills import SkillManifest
 
 
 class McpAgent(ABC, ToolAgent):
@@ -116,11 +116,17 @@ class McpAgent(ABC, ToolAgent):
             except Exception:
                 manifests = []
 
-        self._skill_manifests = list(manifests)
-        self._skill_map: dict[str, SkillManifest] = {
-            manifest.name: manifest for manifest in manifests
-        }
-        self._agent_skills_warning_shown = False
+        self._skill_manifests: list[SkillManifest] = []
+        self._skill_map: dict[str, SkillManifest] = {}
+        self._skill_reader: SkillReader | None = None
+        self.set_skill_manifests(manifests)
+        self.skill_registry: SkillRegistry | None = None
+        if isinstance(self.config.skills, SkillRegistry):
+            self.skill_registry = self.config.skills
+        elif self.config.skills is None and context and getattr(context, "skill_registry", None):
+            self.skill_registry = context.skill_registry
+        self._warnings: list[str] = []
+        self._warning_messages_seen: set[str] = set()
         shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
@@ -185,12 +191,6 @@ class McpAgent(ABC, ToolAgent):
 
         # Allow filesystem runtime injection (e.g., for ACP filesystem support)
         self._filesystem_runtime = None
-
-        # Initialize skill reader for non-ACP contexts (provides read_skill tool)
-        # Only active when skills are configured; skipped if ACP filesystem provides read_text_file
-        self._skill_reader: SkillReader | None = None
-        if self._skill_manifests:
-            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
 
         # Store the default request params from config
         self._default_request_params = self.config.default_request_params
@@ -292,21 +292,12 @@ class McpAgent(ABC, ToolAgent):
         self.instruction = await self._instruction_builder.build()
 
         # Warn if skills configured but placeholder missing
-        if (
-            self._skill_manifests
-            and not self._agent_skills_warning_shown
-            and "{{agentSkills}}" not in self._instruction_builder.template
-        ):
+        if self._skill_manifests and "{{agentSkills}}" not in self._instruction_builder.template:
             warning_message = (
                 "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
                 "Skill descriptions will not be added to the system prompt."
             )
-            self.logger.warning(warning_message)
-            try:
-                console.console.print(f"[yellow]{warning_message}[/yellow]")
-            except Exception:  # pragma: no cover - console fallback
-                pass
-            self._agent_skills_warning_shown = True
+            self._record_warning(warning_message)
 
         # Update default request params to match
         if self._default_request_params:
@@ -329,7 +320,6 @@ class McpAgent(ABC, ToolAgent):
 
     async def _resolve_agent_skills(self) -> str:
         """Resolver for {{agentSkills}} placeholder."""
-        self._agent_skills_warning_shown = True
         # Determine which tool to reference in the preamble
         # ACP context provides read_text_file; otherwise use read_skill
         if self._filesystem_runtime and hasattr(self._filesystem_runtime, "tools"):
@@ -337,6 +327,29 @@ class McpAgent(ABC, ToolAgent):
         else:
             read_tool_name = "read_skill"
         return format_skills_for_prompt(self._skill_manifests, read_tool_name=read_tool_name)
+
+    def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
+        self._skill_manifests = list(manifests)
+        self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
+        if self._skill_manifests:
+            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+        else:
+            self._skill_reader = None
+
+    def _record_warning(self, message: str) -> None:
+        if message in self._warning_messages_seen:
+            return
+        self._warning_messages_seen.add(message)
+        self._warnings.append(message)
+        self.logger.warning(message)
+        try:
+            console.console.print(f"[yellow]{message}[/yellow]")
+        except Exception:  # pragma: no cover - console fallback
+            pass
+
+    @property
+    def warnings(self) -> list[str]:
+        return list(self._warnings)
 
     def set_instruction_context(self, context: dict[str, str]) -> None:
         """
@@ -927,9 +940,7 @@ class McpAgent(ABC, ToolAgent):
                 and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
             )
             is_skill_reader_tool = (
-                self._skill_reader
-                and self._skill_reader.enabled
-                and tool_name == "read_skill"
+                self._skill_reader and self._skill_reader.enabled and tool_name == "read_skill"
             )
 
             tool_available = (

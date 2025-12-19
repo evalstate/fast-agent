@@ -23,6 +23,7 @@ from typing import (
     Callable,
     Literal,
     ParamSpec,
+    Sequence,
     TypeVar,
 )
 
@@ -115,7 +116,7 @@ class FastAgent:
         ignore_unknown_args: bool = False,
         parse_cli_args: bool = True,
         quiet: bool = False,  # Add quiet parameter
-        skills_directory: str | pathlib.Path | None = None,
+        skills_directory: str | pathlib.Path | Sequence[str | pathlib.Path] | None = None,
         **kwargs,
     ) -> None:
         """
@@ -134,9 +135,7 @@ class FastAgent:
 
         self.args = argparse.Namespace()  # Initialize args always
         self._programmatic_quiet = quiet  # Store the programmatic quiet setting
-        self._skills_directory_override = (
-            Path(skills_directory).expanduser() if skills_directory else None
-        )
+        self._skills_directory_override = self._normalize_skill_directories(skills_directory)
         self._default_skill_manifests: list[SkillManifest] = []
         self._server_instance_factory = None
         self._server_instance_dispose = None
@@ -203,7 +202,7 @@ class FastAgent:
             )
             parser.add_argument(
                 "--skills",
-                help="Path to skills directory to use instead of default .claude/skills",
+                help="Path to skills directory to use instead of default skills directories",
             )
 
             if ignore_unknown_args:
@@ -267,7 +266,7 @@ class FastAgent:
             and hasattr(self.args, "skills")
             and self.args.skills
         ):
-            self._skills_directory_override = Path(self.args.skills).expanduser()
+            self._skills_directory_override = self._normalize_skill_directories(self.args.skills)
 
         self.name = name
         self.config_path = config_path
@@ -307,6 +306,18 @@ class FastAgent:
 
         # Dictionary to store agent configurations from decorators
         self.agents: dict[str, dict[str, Any]] = {}
+
+    @staticmethod
+    def _normalize_skill_directories(
+        value: str | Path | Sequence[str | Path] | None,
+    ) -> list[Path] | None:
+        if value is None:
+            return None
+        if isinstance(value, (str, Path)):
+            entries: list[str | Path] = [value]
+        else:
+            entries = list(value)
+        return [Path(entry).expanduser() for entry in entries]
 
     def _load_config(self) -> None:
         """Load configuration from YAML file including secrets using get_settings
@@ -552,7 +563,7 @@ class FastAgent:
                     if self._skills_directory_override is not None:
                         override_registry = SkillRegistry(
                             base_dir=Path.cwd(),
-                            override_directory=self._skills_directory_override,
+                            directories=self._skills_directory_override,
                         )
                         self.context.skill_registry = override_registry
                         registry = override_registry
@@ -613,11 +624,7 @@ class FastAgent:
                             client_info["title"] = cli_name
 
                         # Pass skills directory override if configured
-                        skills_override = (
-                            str(self._skills_directory_override)
-                            if self._skills_directory_override
-                            else None
-                        )
+                        skills_override = self._skills_directory_override
 
                         enrich_with_environment_context(
                             context_variables, str(Path.cwd()), client_info, skills_override
@@ -703,11 +710,7 @@ class FastAgent:
                                 )
 
                                 # Pass skills directory override if configured
-                                skills_override = (
-                                    str(self._skills_directory_override)
-                                    if self._skills_directory_override
-                                    else None
-                                )
+                                skills_override = self._skills_directory_override
 
                                 acp_server = AgentACPServer(
                                     primary_instance=primary_instance,
@@ -921,8 +924,11 @@ class FastAgent:
                 continue
 
             resolved = self._resolve_skills(config_obj.skills)
-            if not resolved:
-                resolved = list(default_skills)
+            if config_obj.skills is None:
+                if not resolved:
+                    resolved = list(default_skills)
+                else:
+                    resolved = self._deduplicate_skills(resolved)
             else:
                 resolved = self._deduplicate_skills(resolved)
 
@@ -940,6 +946,15 @@ class FastAgent:
         if entry is None:
             return []
         if isinstance(entry, list):
+            filtered = [item for item in entry if item is not None]
+            if not filtered:
+                return []
+            if all(isinstance(item, (Path, str)) for item in filtered):
+                directories = [
+                    Path(item) if isinstance(item, str) else item for item in filtered
+                ]
+                registry = SkillRegistry(base_dir=Path.cwd(), directories=directories)
+                return registry.load_manifests()
             manifests: list[SkillManifest] = []
             for item in entry:
                 manifests.extend(self._resolve_skills(item))
@@ -958,7 +973,7 @@ class FastAgent:
         if isinstance(entry, (Path, str)):
             # Use instance method to preserve original path for relative path computation
             path = Path(entry) if isinstance(entry, str) else entry
-            registry = SkillRegistry(base_dir=Path.cwd(), override_directory=path)
+            registry = SkillRegistry(base_dir=Path.cwd(), directories=[path])
             return registry.load_manifests()
 
         logger.debug(

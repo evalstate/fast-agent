@@ -169,7 +169,7 @@ def get_config_summary(config_path: Path | None) -> dict:
             "step_seconds": default_settings.mcp_timeline.step_seconds,
         },
         "mcp_servers": [],
-        "skills_directory": None,
+        "skills_directories": None,
     }
 
     if not config_path:
@@ -282,9 +282,11 @@ def get_config_summary(config_path: Path | None) -> dict:
         # Skills directory override
         skills_cfg = config.get("skills") if isinstance(config, dict) else None
         if isinstance(skills_cfg, dict):
-            directory_value = skills_cfg.get("directory")
-            if isinstance(directory_value, str) and directory_value.strip():
-                result["skills_directory"] = directory_value.strip()
+            directory_value = skills_cfg.get("directories")
+            if isinstance(directory_value, list):
+                cleaned = [str(value).strip() for value in directory_value if str(value).strip()]
+                if cleaned:
+                    result["skills_directories"] = cleaned
 
     except Exception as e:
         # File exists but has parse errors
@@ -402,10 +404,14 @@ def show_check_summary() -> None:
         except ValueError:
             return str(path)
 
-    skills_override = config_summary.get("skills_directory")
-    override_directory = Path(skills_override).expanduser() if skills_override else None
-    skills_registry = SkillRegistry(base_dir=cwd, override_directory=override_directory)
-    skills_dir = skills_registry.directory
+    skills_override = config_summary.get("skills_directories")
+    override_directories = (
+        [Path(entry).expanduser() for entry in skills_override]
+        if isinstance(skills_override, list)
+        else None
+    )
+    skills_registry = SkillRegistry(base_dir=cwd, directories=override_directories)
+    skills_dirs = skills_registry.directories
     skills_manifests, skill_errors = skills_registry.load_manifests_with_errors()
 
     # Logger Settings panel with two-column layout
@@ -634,8 +640,13 @@ def show_check_summary() -> None:
             console.print(servers_table)
 
     _print_section_header("Agent Skills", color="blue")
-    if skills_dir:
-        console.print(f"Directory: [green]{_relative_path(skills_dir)}[/green]")
+    if skills_dirs:
+        if len(skills_dirs) == 1:
+            console.print(f"Directory: [green]{_relative_path(skills_dirs[0])}[/green]")
+        else:
+            console.print("Directories:")
+            for directory in skills_dirs:
+                console.print(f"- [green]{_relative_path(directory)}[/green]")
 
         if skills_manifests or skill_errors:
             skills_table = Table(show_header=True, box=None)
@@ -650,11 +661,7 @@ def show_check_summary() -> None:
                 return text[: length - 3] + "..."
 
             for manifest in skills_manifests:
-                try:
-                    relative_source = manifest.path.parent.relative_to(skills_dir)
-                    source_display = str(relative_source) if relative_source != Path(".") else "."
-                except ValueError:
-                    source_display = _relative_path(manifest.path.parent)
+                source_display = _relative_path(manifest.path.parent)
 
                 skills_table.add_row(
                     manifest.name,
@@ -668,11 +675,7 @@ def show_check_summary() -> None:
                 source_display = "[dim]n/a[/dim]"
                 if error_path_str:
                     error_path = Path(error_path_str)
-                    try:
-                        relative_error = error_path.parent.relative_to(skills_dir)
-                        source_display = str(relative_error) if relative_error != Path(".") else "."
-                    except ValueError:
-                        source_display = _relative_path(error_path.parent)
+                    source_display = _relative_path(error_path.parent)
                 message = error.get("error", "Failed to parse skill manifest")
                 skills_table.add_row(
                     "[red]—[/red]",
@@ -683,19 +686,11 @@ def show_check_summary() -> None:
 
             console.print(skills_table)
         else:
-            console.print("[yellow]No skills found in the directory[/yellow]")
+            console.print("[yellow]No skills found in the configured directories[/yellow]")
     else:
-        if skills_registry.override_failed and override_directory:
-            console.print(
-                f"[red]Override directory not found:[/red] {_relative_path(override_directory)}"
-            )
-            console.print(
-                "[yellow]Default folders were not loaded because the override failed[/yellow]"
-            )
-        else:
-            console.print(
-                "[dim]Agent Skills not configured. Go to https://fast-agent.ai/agents/skills/[/dim]"
-            )
+        console.print(
+            "[dim]Agent Skills not configured. Go to https://fast-agent.ai/agents/skills/[/dim]"
+        )
 
     # Show help tips
     if config_status == "not_found" or secrets_status == "not_found":

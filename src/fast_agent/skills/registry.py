@@ -6,6 +6,7 @@ from typing import Sequence
 
 import frontmatter
 
+from fast_agent.constants import DEFAULT_SKILLS_PATHS
 from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,49 +28,54 @@ class SkillManifest:
 
 
 class SkillRegistry:
-    """Simple registry that resolves a single skills directory and parses manifests."""
-
-    DEFAULT_CANDIDATES = (Path(".fast-agent/skills"), Path(".claude/skills"))
+    """Simple registry that resolves skills directories and parses manifests."""
 
     def __init__(
-        self, *, base_dir: Path | None = None, override_directory: Path | None = None
+        self,
+        *,
+        base_dir: Path | None = None,
+        directories: Sequence[Path | str] | None = None,
     ) -> None:
         self._base_dir = base_dir or Path.cwd()
-        self._directory: Path | None = None
-        self._original_override_directory: Path | None = None  # Store original before resolution
-        self._override_failed: bool = False
+        self._directories: list[Path] = []
         self._errors: list[dict[str, str]] = []
-        if override_directory:
-            self._original_override_directory = override_directory
-            resolved = self._resolve_directory(override_directory)
-            if resolved and resolved.exists() and resolved.is_dir():
-                self._directory = resolved
-            else:
-                logger.warning(
-                    "Skills directory override not found",
-                    data={"directory": str(resolved)},
-                )
-                self._override_failed = True
-        if self._directory is None and not self._override_failed:
-            self._directory = self._find_default_directory()
+        self._warnings: list[str] = []
+        self._missing_directories: list[Path] = []
+
+        self._configure_directories(directories)
 
     @property
-    def directory(self) -> Path | None:
-        return self._directory
+    def directories(self) -> list[Path]:
+        return list(self._directories)
 
     @property
-    def override_failed(self) -> bool:
-        return self._override_failed
+    def warnings(self) -> list[str]:
+        return list(self._warnings)
 
     def load_manifests(self) -> list[SkillManifest]:
-        """Load all skill manifests from the configured directory.
+        """Load all skill manifests from the configured directories.
 
         Returns manifests with absolute paths per Agent Skills specification.
         """
         self._errors = []
-        if not self._directory:
+        self._warnings = [f"Skills directory not found: {path}" for path in self._missing_directories]
+        if not self._directories:
             return []
-        return self._load_directory(self._directory, self._errors)
+        manifests_by_name: dict[str, SkillManifest] = {}
+        for directory in self._directories:
+            for manifest in self._load_directory(directory, self._errors):
+                key = manifest.name.lower()
+                if key in manifests_by_name:
+                    prior = manifests_by_name[key]
+                    warning = (
+                        f"Duplicate skill '{manifest.name}' from {manifest.path} overrides "
+                        f"{prior.path}"
+                    )
+                    self._warnings.append(warning)
+                    logger.warning("Duplicate skill manifest", data={"warning": warning})
+                manifests_by_name.pop(key, None)
+                manifests_by_name[key] = manifest
+        return list(manifests_by_name.values())
 
     def load_manifests_with_errors(self) -> tuple[list[SkillManifest], list[dict[str, str]]]:
         manifests = self.load_manifests()
@@ -79,17 +85,28 @@ class SkillRegistry:
     def errors(self) -> list[dict[str, str]]:
         return list(self._errors)
 
-    def _find_default_directory(self) -> Path | None:
-        for candidate in self.DEFAULT_CANDIDATES:
-            resolved = self._resolve_directory(candidate)
-            if resolved and resolved.exists() and resolved.is_dir():
-                return resolved
-        return None
-
     def _resolve_directory(self, directory: Path) -> Path:
         if directory.is_absolute():
             return directory
         return (self._base_dir / directory).resolve()
+
+    def _configure_directories(self, directories: Sequence[Path | str] | None) -> None:
+        self._warnings = []
+        self._missing_directories = []
+        self._directories = []
+        entries = DEFAULT_SKILLS_PATHS if directories is None else list(directories)
+
+        for entry in entries:
+            raw_path = Path(entry) if isinstance(entry, str) else entry
+            resolved = self._resolve_directory(raw_path)
+            if resolved.exists() and resolved.is_dir():
+                self._directories.append(resolved)
+            elif directories is not None:
+                self._missing_directories.append(resolved)
+                logger.warning(
+                    "Skills directory not found",
+                    data={"directory": str(resolved)},
+                )
 
     @classmethod
     def load_directory(cls, directory: Path) -> list[SkillManifest]:

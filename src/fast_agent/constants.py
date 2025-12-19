@@ -38,4 +38,9 @@ DEFAULT_AGENT_INSTRUCTION = """You are a helpful AI Agent.
 
 The current date is {{currentDate}}."""
 
+DEFAULT_SKILLS_PATHS = [
+    ".fast-agent/skills",
+    ".claude/skills",
+]
+
 CONTROL_MESSAGE_SAVE_HISTORY = "***SAVE_HISTORY"

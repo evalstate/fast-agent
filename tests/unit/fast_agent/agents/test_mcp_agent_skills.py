@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
@@ -7,6 +8,7 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
+from fast_agent.tools.skill_reader import SkillReader
 
 
 def create_skill(
@@ -57,6 +59,55 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
     assert "read_skill" in tool_names
     # Path should be absolute
     assert manifests[0].path.is_absolute()
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_rejects_relative_path(tmp_path: Path) -> None:
+    """SkillReader must reject non-absolute paths to prevent traversal tricks."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    result = await reader.execute({"path": "skills/alpha/SKILL.md"})
+
+    assert result.isError is True
+    assert "Path must be absolute" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_blocks_outside_skill_directory(tmp_path: Path) -> None:
+    """SkillReader must deny access to files outside the registered skill directories."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("secret", encoding="utf-8")
+
+    result = await reader.execute({"path": str(outside_file)})
+
+    assert result.isError is True
+    assert "not within an allowed skill directory" in result.content[0].text
+
+
+@pytest.mark.asyncio
+async def test_skill_reader_reads_valid_skill_file(tmp_path: Path) -> None:
+    """SkillReader should read a valid skill file inside the allowed directory."""
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    manifests = SkillRegistry.load_directory(skills_root)
+    reader = SkillReader(manifests, logging.getLogger(__name__))
+
+    skill_file = skills_root / "alpha" / "SKILL.md"
+    result = await reader.execute({"path": str(skill_file)})
+
+    assert result.isError is False
+    assert any("Alpha body" in block.text for block in result.content)
 
 
 @pytest.mark.asyncio

@@ -206,12 +206,14 @@ async def initialize_context(
     context.server_registry = ServerRegistry(config=config)
 
     skills_settings = getattr(config, "skills", None)
-    override_directory = None
-    if skills_settings and getattr(skills_settings, "directory", None):
-        override_directory = Path(skills_settings.directory).expanduser()
+    override_directories = None
+    if skills_settings and getattr(skills_settings, "directories", None):
+        override_directories = [
+            Path(entry).expanduser() for entry in skills_settings.directories
+        ]
     context.skill_registry = SkillRegistry(
         base_dir=Path.cwd(),
-        override_directory=override_directory,
+        directories=override_directories,
     )
 
     # Configure logging and telemetry

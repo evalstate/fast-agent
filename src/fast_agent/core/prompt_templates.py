@@ -7,7 +7,7 @@ from __future__ import annotations
 import platform
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Mapping, MutableMapping
+from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
 
 if TYPE_CHECKING:
     from fast_agent.skills import SkillManifest
@@ -97,14 +97,15 @@ def apply_template_variables(
 
 
 def load_skills_for_context(
-    workspace_root: str | None, skills_directory_override: str | None = None
+    workspace_root: str | None,
+    skills_directory_override: str | Path | Sequence[str | Path] | None = None,
 ) -> list["SkillManifest"]:
     """
     Load skill manifests from the workspace root or override directory.
 
     Args:
         workspace_root: The workspace root directory
-        skills_directory_override: Optional override for skills directory (relative to workspace_root)
+        skills_directory_override: Optional override for skills directories (relative to workspace_root)
 
     Returns:
         List of SkillManifest objects
@@ -117,16 +118,22 @@ def load_skills_for_context(
     base_dir = Path(workspace_root)
 
     # If override is provided, treat it as relative to workspace_root
-    override_dir = None
-    if skills_directory_override:
-        override_path = Path(skills_directory_override)
-        # If it's absolute, use as-is; otherwise make relative to workspace_root
-        if override_path.is_absolute():
-            override_dir = override_path
-        else:
-            override_dir = base_dir / override_path
+    override_dirs = None
+    if skills_directory_override is not None:
+        entries = (
+            [skills_directory_override]
+            if isinstance(skills_directory_override, (str, Path))
+            else list(skills_directory_override)
+        )
+        override_dirs = []
+        for entry in entries:
+            override_path = Path(entry)
+            if override_path.is_absolute():
+                override_dirs.append(override_path)
+            else:
+                override_dirs.append(base_dir / override_path)
 
-    registry = SkillRegistry(base_dir=base_dir, override_directory=override_dir)
+    registry = SkillRegistry(base_dir=base_dir, directories=override_dirs)
     return registry.load_manifests()
 
 
@@ -134,7 +141,7 @@ def enrich_with_environment_context(
     context: MutableMapping[str, str],
     cwd: str | None,
     client_info: Mapping[str, str] | None,
-    skills_directory_override: str | None = None,
+    skills_directory_override: str | Path | Sequence[str | Path] | None = None,
 ) -> None:
     """
     Populate the provided context mapping with environment details used for template replacement.
@@ -143,7 +150,7 @@ def enrich_with_environment_context(
         context: The context mapping to populate
         cwd: The current working directory (workspace root)
         client_info: Client information mapping
-        skills_directory_override: Optional override for skills directory
+        skills_directory_override: Optional override for skills directories
     """
     if cwd:
         context["workspaceRoot"] = cwd

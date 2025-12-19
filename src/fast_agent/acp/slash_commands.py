@@ -482,6 +482,10 @@ class SlashCommandHandler:
         status_lines.extend(["", f"ACP Agent Uptime: {format_duration(uptime_seconds)}"])
         status_lines.extend(["", "## Error Handling"])
         status_lines.extend(self._get_error_handling_report(agent))
+        warning_report = self._get_warning_report(agent)
+        if warning_report:
+            status_lines.append("")
+            status_lines.extend(warning_report)
 
         return "\n".join(status_lines)
 
@@ -1000,6 +1004,40 @@ class SlashCommandHandler:
             return lines
 
         return ["_No errors recorded_"]
+
+    def _get_warning_report(self, agent, max_entries: int = 5) -> list[str]:
+        warnings: list[str] = []
+        if agent:
+            agent_warnings = getattr(agent, "warnings", None)
+            if agent_warnings:
+                warnings.extend(agent_warnings)
+            agent_registry = getattr(agent, "skill_registry", None)
+            registry_warnings = getattr(agent_registry, "warnings", None) if agent_registry else None
+            if registry_warnings:
+                warnings.extend(registry_warnings)
+            context = getattr(agent, "context", None)
+            registry = getattr(context, "skill_registry", None) if context else None
+            context_warnings = getattr(registry, "warnings", None) if registry else None
+            if context_warnings:
+                warnings.extend(context_warnings)
+
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for warning in warnings:
+            message = warning.strip()
+            if message and message not in seen:
+                cleaned.append(message)
+                seen.add(message)
+
+        if not cleaned:
+            return []
+
+        lines = ["Warnings:"]
+        for message in cleaned[:max_entries]:
+            lines.append(f"- {message}")
+        if len(cleaned) > max_entries:
+            lines.append(f"- ... ({len(cleaned) - max_entries} more)")
+        return lines
 
     def _context_usage_line(self, summary: ConversationSummary, agent) -> str:
         """Generate a context usage line with token estimation and fallbacks."""
