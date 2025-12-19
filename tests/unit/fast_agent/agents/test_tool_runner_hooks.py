@@ -115,3 +115,81 @@ async def test_tool_runner_hooks_fire_and_can_inject_messages():
         f"after_llm_call:{LlmStopReason.END_TURN}",
     ]
 
+
+# Track tool invocations globally for the regression test
+_tool_invocations: list[str] = []
+
+
+def tracked_tool_a() -> str:
+    _tool_invocations.append("tool_a")
+    return "result_a"
+
+
+def tracked_tool_b() -> str:
+    _tool_invocations.append("tool_b")
+    return "result_b"
+
+
+class TwoRoundToolUseLlm(PassthroughLLM):
+    """LLM that returns tool_use twice before completing."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._turn = 0
+
+    async def _apply_prompt_provider_specific(
+        self,
+        multipart_messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+        is_template: bool = False,
+    ) -> PromptMessageExtended:
+        self._turn += 1
+
+        if self._turn == 1:
+            # First round: call tool_a
+            return Prompt.assistant(
+                "calling tool_a",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "call_1": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="tracked_tool_a", arguments={}),
+                    ),
+                },
+            )
+
+        if self._turn == 2:
+            # Second round: call tool_b
+            return Prompt.assistant(
+                "calling tool_b",
+                stop_reason=LlmStopReason.TOOL_USE,
+                tool_calls={
+                    "call_2": CallToolRequest(
+                        method="tools/call",
+                        params=CallToolRequestParams(name="tracked_tool_b", arguments={}),
+                    ),
+                },
+            )
+
+        return Prompt.assistant("done", stop_reason=LlmStopReason.END_TURN)
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_two_tool_use_rounds_both_execute():
+    """Regression test: ensure second tool-use round executes new tools, not cached response."""
+    _tool_invocations.clear()
+
+    llm = TwoRoundToolUseLlm()
+    agent = ToolAgent(AgentConfig("test"), [tracked_tool_a, tracked_tool_b])
+    agent._llm = llm
+
+    result = await agent.generate("hi")
+    assert result.last_text() == "done"
+
+    # Both tools must have been called - if caching bug exists, only tool_a would be called
+    assert _tool_invocations == ["tool_a", "tool_b"], (
+        f"Expected both tools to execute, got: {_tool_invocations}"
+    )
+

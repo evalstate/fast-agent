@@ -110,6 +110,7 @@ class ToolRunner:
 
         if assistant_message.stop_reason == LlmStopReason.TOOL_USE:
             self._pending_tool_request = assistant_message
+            self._pending_tool_response = None  # Clear cache for new request
         else:
             self._done = True
 
