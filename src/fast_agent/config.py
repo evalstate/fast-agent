@@ -107,6 +107,7 @@ class SkillsSettings(BaseModel):
 
     directories: list[str] | None = None
     marketplace_url: str | None = None
+    marketplace_urls: list[str] | None = None
 
     model_config = ConfigDict(extra="ignore")
 

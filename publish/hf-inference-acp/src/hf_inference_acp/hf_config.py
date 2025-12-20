@@ -137,13 +137,21 @@ def load_system_prompt() -> str:
 """
 
 
-def load_config() -> dict[str, Any]:
+def load_config(*, ensure_skills: bool = True) -> dict[str, Any]:
     """Load configuration from the config file.
+
+    Args:
+        ensure_skills: If True, ensure skill registries are configured for
+            existing users (adds defaults if missing). Set to False to avoid
+            recursion when called from ensure_skill_registries().
 
     Returns:
         Configuration dictionary (as ruamel.yaml CommentedMap to preserve comments)
     """
     config_path = ensure_config_exists()
+
+    if ensure_skills:
+        ensure_skill_registries()
 
     if config_path.exists():
         with open(config_path) as f:
@@ -209,3 +217,47 @@ def update_mcp_server_load_on_start(server_name: str, load_on_start: bool) -> No
 
     with open(config_path, "w") as f:
         _yaml.dump(config, f)
+
+
+DEFAULT_SKILL_REGISTRIES = [
+    "https://github.com/huggingface/skills",
+    "https://github.com/anthropics/skills",
+]
+
+
+def ensure_skill_registries() -> None:
+    """Ensure skill registries are configured for existing users.
+
+    Handles config migration for users with existing config files:
+    - If skills.marketplace_urls key is missing: add default registries
+    - If skills.marketplace_urls exists (even if empty): user made an
+      intentional choice, don't override
+    """
+    config_path = ensure_config_exists()
+
+    if config_path.exists():
+        with open(config_path) as f:
+            config = _yaml.load(f) or {}
+    else:
+        return
+
+    modified = False
+
+    # Check if skills section exists
+    if "skills" not in config:
+        # Key missing entirely - add defaults
+        config["skills"] = {"marketplace_urls": list(DEFAULT_SKILL_REGISTRIES)}
+        modified = True
+    elif config["skills"] is None:
+        # skills: null - add defaults
+        config["skills"] = {"marketplace_urls": list(DEFAULT_SKILL_REGISTRIES)}
+        modified = True
+    elif "marketplace_urls" not in config["skills"]:
+        # skills section exists but marketplace_urls key is missing - add defaults
+        config["skills"]["marketplace_urls"] = list(DEFAULT_SKILL_REGISTRIES)
+        modified = True
+    # else: marketplace_urls key exists (empty or with values) - respect user's choice
+
+    if modified:
+        with open(config_path, "w") as f:
+            _yaml.dump(config, f)

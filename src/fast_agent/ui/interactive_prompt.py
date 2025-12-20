@@ -34,6 +34,7 @@ from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
+    parse_special_input,
     get_argument_input,
     get_enhanced_input,
     get_selection_input,
@@ -43,14 +44,18 @@ from fast_agent.ui.enhanced_prompt import (
 from fast_agent.ui.history_display import display_history_overview
 from fast_agent.ui.progress_display import progress_display
 from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills.manager import (
     fetch_marketplace_skills,
+    fetch_marketplace_skills_with_source,
+    format_marketplace_display_url,
     get_manager_directory,
     get_marketplace_url,
     install_marketplace_skill,
     list_local_skills,
     remove_local_skill,
     reload_skill_manifests,
+    resolve_skill_directories,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
@@ -126,6 +131,9 @@ class InteractivePrompt:
                     agent_types=self.agent_types,  # Pass agent types for display
                     agent_provider=prompt_provider,  # Pass agent provider for info display
                 )
+
+                if isinstance(user_input, str):
+                    user_input = parse_special_input(user_input)
 
                 # Handle special commands - pass "True" to enable agent switching
                 command_result = await handle_special_commands(user_input, True)
@@ -1061,11 +1069,41 @@ class InteractivePrompt:
         if action in {"add", "install"}:
             await self._add_skill(prompt_provider, agent_name, argument)
             return
+        if action in {"registry", "marketplace", "source"}:
+            await self._set_skills_registry(argument)
+            return
         if action in {"remove", "rm", "delete", "uninstall"}:
             await self._remove_skill(prompt_provider, agent_name, argument)
             return
 
         rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
+
+    async def _set_skills_registry(self, argument: str | None) -> None:
+        if not argument:
+            current = get_marketplace_url(get_settings())
+            rich_print(f"[dim]Current registry:[/dim] {current}")
+            rich_print("[dim]Usage: /skills registry <url>[/dim]")
+            return
+
+        url = str(argument).strip()
+        try:
+            marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to load registry: {exc}[/red]")
+            return
+
+        settings = get_settings()
+        skills_settings = getattr(settings, "skills", None)
+        if skills_settings is not None:
+            skills_settings.marketplace_urls = [resolved_url]
+            skills_settings.marketplace_url = resolved_url
+
+        if resolved_url != url:
+            rich_print(f"[dim]Resolved from:[/dim] {url}")
+            rich_print(
+                f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
+            )
+        rich_print(f"[dim]Skills discovered:[/dim] {len(marketplace)}")
 
     async def _add_skill(
         self, prompt_provider: "AgentApp", agent_name: str, argument: str | None
@@ -1092,7 +1130,9 @@ class InteractivePrompt:
                     repo_ref = getattr(marketplace[0], "repo_ref", None)
                     repo_hint = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
             if repo_hint:
-                rich_print(f"[dim]Repository: {repo_hint}[/dim]")
+                rich_print(
+                    f"[dim]Repository: {format_marketplace_display_url(repo_hint)}[/dim]"
+                )
             self._render_marketplace_skills(marketplace)
             selection = await get_selection_input(
                 "Install skill by number or name (empty to cancel): ",
@@ -1160,40 +1200,44 @@ class InteractivePrompt:
             "Interactive prompt expects an AgentApp with _agent()"
         )
         agent = prompt_provider._agent(agent_name)
-        settings = get_settings()
-        override_dirs = None
-        skills_settings = getattr(settings, "skills", None)
-        if skills_settings and getattr(skills_settings, "directories", None):
-            override_dirs = [
-                Path(entry).expanduser() for entry in skills_settings.directories
-            ]
-        manager_dir = get_manager_directory()
-        if override_dirs is None:
-            override_dirs = [manager_dir]
-        elif manager_dir not in override_dirs:
-            override_dirs.append(manager_dir)
+        override_dirs = resolve_skill_directories(get_settings())
         registry, manifests = reload_skill_manifests(
             base_dir=Path.cwd(), override_directories=override_dirs
         )
+        instruction_context = None
+        try:
+            skills_text = format_skills_for_prompt(
+                manifests, read_tool_name="read_skill"
+            )
+            instruction_context = {"agentSkills": skills_text}
+        except Exception:
+            instruction_context = None
 
-        if hasattr(agent, "set_skill_manifests"):
-            agent.set_skill_manifests(manifests)
-        if hasattr(agent, "set_instruction_context"):
-            try:
-                skills_text = format_skills_for_prompt(
-                    manifests, read_tool_name="read_skill"
-                )
-                agent.set_instruction_context({"agentSkills": skills_text})
-            except Exception:
-                pass
-        if registry is not None:
-            agent.skill_registry = registry
-        if hasattr(agent, "rebuild_instruction_templates"):
-            await agent.rebuild_instruction_templates()
+        await rebuild_agent_instruction(
+            agent,
+            skill_manifests=manifests,
+            instruction_context=instruction_context,
+            skill_registry=registry,
+        )
 
     def _render_marketplace_skills(self, marketplace: list[Any]) -> None:
+        current_bundle = None
         for index, entry in enumerate(marketplace, 1):
             from rich.text import Text
+
+            bundle_name = getattr(entry, "bundle_name", None)
+            bundle_description = getattr(entry, "bundle_description", None)
+            if bundle_name and bundle_name != current_bundle:
+                current_bundle = bundle_name
+                rich_print("")
+                rich_print(f"[bold]{bundle_name}[/bold]")
+                if bundle_description:
+                    wrapped_lines = textwrap.wrap(
+                        bundle_description.strip(), width=72
+                    )
+                    for line in wrapped_lines:
+                        rich_print(f"[white]{line.strip()}[/white]")
+                rich_print("")
 
             tool_line = Text()
             tool_line.append(f"[{index:2}] ", style="dim cyan")

@@ -15,7 +15,6 @@ class WizardStage(Enum):
     TOKEN_GUIDE = "token_guide"
     TOKEN_VERIFY = "token_verify"
     MODEL_SELECT = "model_select"
-    SKILLS_SELECT = "skills_select"
     MCP_CONNECT = "mcp_connect"
     CONFIRM = "confirm"
     COMPLETE = "complete"
@@ -30,7 +29,6 @@ class WizardState:
     hf_username: str | None = None
     selected_model: str | None = None
     selected_model_display: str | None = None
-    skills_selection: str | None = None
     mcp_load_on_start: bool = False
     error_message: str | None = None
     # Track if this is the first message (to show welcome)
@@ -44,7 +42,6 @@ class WizardState:
             "hf_username": self.hf_username,
             "selected_model": self.selected_model,
             "selected_model_display": self.selected_model_display,
-            "skills_selection": self.skills_selection,
             "mcp_load_on_start": self.mcp_load_on_start,
             "error_message": self.error_message,
         }

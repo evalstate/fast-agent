@@ -58,7 +58,9 @@ class SkillRegistry:
         Returns manifests with absolute paths per Agent Skills specification.
         """
         self._errors = []
-        self._warnings = [f"Skills directory not found: {path}" for path in self._missing_directories]
+        self._warnings = [
+            f"Skills directory not found: {path}" for path in self._missing_directories
+        ]
         if not self._directories:
             return []
         manifests_by_name: dict[str, SkillManifest] = {}
@@ -251,8 +253,7 @@ def format_skills_for_prompt(
     preamble = (
         "Skills provide specialized capabilities and domain knowledge. Use a Skill if it seems "
         "relevant to the user's task, intent, or would increase your effectiveness.\n"
-        f"To use a Skill, first read its SKILL.md file using the '{read_tool_name}' tool.\n"
-        "Paths in Skill documentation are relative to that Skill's directory.\n"
+        f"To use a Skill, read its SKILL.md file from the specified location using the '{read_tool_name}' tool.\n"
         "Only use Skills listed in <available_skills> below.\n\n"
     )
 

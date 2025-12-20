@@ -98,3 +98,103 @@ async def test_skills_add_remove_refreshes_system_prompt(tmp_path: Path) -> None
         assert "MAGIC_SKILL" not in status
     finally:
         get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_skills_registry_updates_marketplace_url(tmp_path: Path) -> None:
+    marketplace_path = tmp_path / "marketplace.json"
+    marketplace_path.write_text(
+        "{\n"
+        '  "plugins": [\n'
+        "    {\n"
+        '      "name": "test-skill",\n'
+        '      "description": "Skill Description",\n'
+        '      "repo_url": "https://github.com/example/repo",\n'
+        '      "repo_path": "skills/test-skill"\n'
+        "    }\n"
+        "  ]\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text(
+        "default_model: passthrough\n"
+        "skills:\n"
+        "  directories: ['.fast-agent/skills']\n"
+        "  marketplace_urls: ['https://example.com/marketplace.json']\n",
+        encoding="utf-8",
+    )
+
+    get_settings(config_path=str(config_path))
+    try:
+        agent = SkillAgent(name="test-agent")
+        instance = StubAgentInstance(agents={"test-agent": agent})
+        handler = _handler(instance, "test-agent")
+
+        response = await handler.execute_command(
+            "skills", f"registry {marketplace_path.as_posix()}"
+        )
+        assert "Registry set to" in response
+        assert marketplace_path.as_posix() in response
+        # Active registry is updated
+        assert get_settings().skills.marketplace_url == marketplace_path.as_posix()
+        # Configured list is preserved
+        assert get_settings().skills.marketplace_urls == ["https://example.com/marketplace.json"]
+    finally:
+        get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_skills_registry_numbered_selection(tmp_path: Path) -> None:
+    """Test selecting a registry by number from the configured list."""
+    marketplace1 = tmp_path / "marketplace1.json"
+    marketplace1.write_text(
+        '{"plugins": [{"name": "skill1", "description": "Skill 1", '
+        '"repo_url": "https://github.com/example/repo", "repo_path": "skills/skill1"}]}',
+        encoding="utf-8",
+    )
+    marketplace2 = tmp_path / "marketplace2.json"
+    marketplace2.write_text(
+        '{"plugins": [{"name": "skill2", "description": "Skill 2", '
+        '"repo_url": "https://github.com/example/repo", "repo_path": "skills/skill2"}]}',
+        encoding="utf-8",
+    )
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text(
+        "default_model: passthrough\n"
+        "skills:\n"
+        "  directories: ['.fast-agent/skills']\n"
+        f"  marketplace_urls:\n"
+        f"    - '{marketplace1.as_posix()}'\n"
+        f"    - '{marketplace2.as_posix()}'\n",
+        encoding="utf-8",
+    )
+
+    get_settings(config_path=str(config_path))
+    try:
+        agent = SkillAgent(name="test-agent")
+        instance = StubAgentInstance(agents={"test-agent": agent})
+        handler = _handler(instance, "test-agent")
+
+        # Show registry list
+        response = await handler.execute_command("skills", "registry")
+        assert "Available registries:" in response
+        assert "[1]" in response
+        assert "[2]" in response
+
+        # Select by number
+        response = await handler.execute_command("skills", "registry 2")
+        assert "Registry set to" in response
+        assert get_settings().skills.marketplace_url == marketplace2.as_posix()
+        # Configured list is preserved
+        assert len(get_settings().skills.marketplace_urls) == 2
+
+        # Invalid number
+        response = await handler.execute_command("skills", "registry 99")
+        assert "Invalid registry number" in response
+    finally:
+        get_settings(config_path=str(Path(__file__).parent / "fastagent.config.yaml"))

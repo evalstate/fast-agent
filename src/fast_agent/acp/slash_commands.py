@@ -35,16 +35,22 @@ from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills.manager import (
+    candidate_marketplace_urls,
     fetch_marketplace_skills,
+    fetch_marketplace_skills_with_source,
+    format_marketplace_display_url,
     get_manager_directory,
     get_marketplace_url,
     install_marketplace_skill,
     list_local_skills,
     reload_skill_manifests,
     remove_local_skill,
+    resolve_skill_directories,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
@@ -110,6 +116,7 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
+        self._logger = get_logger(__name__)
         # Track current agent (can change via setSessionMode). Ensure it exists.
         if primary_agent_name in instance.agents:
             self.current_agent_name = primary_agent_name
@@ -139,9 +146,9 @@ class SlashCommandHandler:
             ),
             "skills": AvailableCommand(
                 name="skills",
-                description="Manage local skills (list/add/remove)",
+                description="List or manage local skills (add/remove/registry)",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[add|remove] [name|number]")
+                    root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
                 ),
             ),
             "save": AvailableCommand(
@@ -222,9 +229,7 @@ class SlashCommandHandler:
         """
         self.current_agent_name = agent_name
 
-    def update_session_instruction(
-        self, agent_name: str, instruction: str | None
-    ) -> None:
+    def update_session_instruction(self, agent_name: str, instruction: str | None) -> None:
         """
         Update the cached session instruction for an agent.
 
@@ -553,9 +558,7 @@ class SlashCommandHandler:
             except Exception:
                 pass
 
-        system_prompt = (
-            agent.instruction if isinstance(agent, InstructionAwareAgent) else None
-        )
+        system_prompt = agent.instruction if isinstance(agent, InstructionAwareAgent) else None
         if not system_prompt:
             return "\n".join(
                 [
@@ -566,7 +569,9 @@ class SlashCommandHandler:
             )
 
         # Format the response
-        agent_name = agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
+        agent_name = (
+            agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
+        )
         lines = [
             heading,
             "",
@@ -711,10 +716,111 @@ class SlashCommandHandler:
             return self._handle_skills_list()
         if action in {"add", "install"}:
             return await self._handle_skills_add(remainder)
+        if action in {"registry", "marketplace", "source"}:
+            return await self._handle_skills_registry(remainder)
         if action in {"remove", "rm", "delete", "uninstall"}:
             return await self._handle_skills_remove(remainder)
 
         return "Unknown /skills action. Use `/skills`, `/skills add`, or `/skills remove`."
+
+    async def _handle_skills_registry(self, argument: str) -> str:
+        heading = "# skills registry"
+        argument = argument.strip()
+
+        # Get configured registries from settings
+        settings = get_settings()
+        skills_settings = getattr(settings, "skills", None)
+        configured_urls: list[str] = []
+        if skills_settings:
+            configured_urls = getattr(skills_settings, "marketplace_urls", None) or []
+
+        if not argument:
+            current = get_marketplace_url(settings)
+            display_current = format_marketplace_display_url(current)
+
+            lines = [heading, "", f"Registry: {display_current}", ""]
+
+            # Show numbered list if registries configured
+            if configured_urls:
+                lines.append("Available registries:")
+                for i, reg_url in enumerate(configured_urls, 1):
+                    display = format_marketplace_display_url(reg_url)
+                    lines.append(f"- [{i}] {display}")
+                lines.append("")
+
+            lines.append(
+                "Usage: `/skills registry [number|URL]`.\n\n URL should point to a repo with a valid `marketplace.json`"
+            )
+            return "\n".join(lines)
+
+        # Check if argument is a number (select from configured registries)
+        if argument.isdigit():
+            index = int(argument)
+            if not configured_urls:
+                return f"{heading}\n\nNo registries configured."
+            if 1 <= index <= len(configured_urls):
+                url = configured_urls[index - 1]
+            else:
+                return f"{heading}\n\nInvalid registry number. Use 1-{len(configured_urls)}."
+        else:
+            url = argument
+
+        candidates = candidate_marketplace_urls(url)
+        try:
+            marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
+        except Exception as exc:  # noqa: BLE001
+            display_url = format_marketplace_display_url(url)
+            self._logger.warning(
+                "Failed to load skills registry",
+                data={
+                    "registry": url,
+                    "candidates": candidates,
+                    "error": str(exc),
+                },
+            )
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Failed to load registry: {exc}",
+                    f"Registry: {display_url}",
+                ]
+            )
+
+        if not marketplace:
+            display_url = format_marketplace_display_url(url)
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No skills found in the registry; registry unchanged.",
+                    f"Registry: {display_url}",
+                ]
+            )
+
+        # Update only the active registry, preserve the configured list
+        if skills_settings is not None:
+            skills_settings.marketplace_url = resolved_url
+
+        display_url = format_marketplace_display_url(resolved_url)
+        if candidates:
+            self._logger.debug(
+                "Resolved skills registry",
+                data={
+                    "input": url,
+                    "resolved": resolved_url,
+                    "candidates": candidates,
+                },
+            )
+        response_lines = [
+            heading,
+            "",
+            f"Registry set to: `{display_url}`",
+            "",
+            f"Skills discovered: {len(marketplace)}",
+        ]
+
+        return "\n".join(response_lines)
 
     def _handle_skills_list(self) -> str:
         manager_dir = get_manager_directory()
@@ -746,7 +852,7 @@ class SlashCommandHandler:
             return (
                 "# skills add\n\n"
                 f"Failed to load marketplace: {exc}\n\n"
-                f"Marketplace: [source]({marketplace_url})"
+                f"Repository: `{format_marketplace_display_url(marketplace_url)}`"
             )
 
         if not marketplace:
@@ -756,15 +862,16 @@ class SlashCommandHandler:
             lines = [
                 "# skills add",
                 "",
-                f"Marketplace: [source]({marketplace_url})",
+                f"Repository: `{format_marketplace_display_url(marketplace_url)}`",
             ]
             repo_hint = self._get_marketplace_repo_hint(marketplace)
             if repo_hint:
                 lines.append(f"Repository: `{repo_hint}`")
-            lines.extend(["", "Available skills:"])
+            lines.extend(["", "Available skills:  ", ""])
             lines.extend(self._format_marketplace_list(marketplace))
             lines.append("")
-            lines.append("Install with `/skills add <number|name>` or `/skills add q` to cancel.")
+            lines.append("Install with `/skills add <number|name>`.")
+            lines.append("Change registry with `/skills registry`.")
             return "\n".join(lines)
 
         skill = select_skill_by_name_or_index(marketplace, argument)
@@ -785,9 +892,7 @@ class SlashCommandHandler:
             ),
         )
         try:
-            install_path = await install_marketplace_skill(
-                skill, destination_root=manager_dir
-            )
+            install_path = await install_marketplace_skill(skill, destination_root=manager_dir)
         except Exception as exc:  # noqa: BLE001
             await self._send_skills_update(
                 agent,
@@ -863,60 +968,37 @@ class SlashCommandHandler:
         )
 
     async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
-        settings = get_settings()
-        override_dirs = None
-        skills_settings = getattr(settings, "skills", None)
-        if skills_settings and getattr(skills_settings, "directories", None):
-            override_dirs = [
-                Path(entry).expanduser() for entry in skills_settings.directories
-            ]
-        manager_dir = get_manager_directory()
-        if override_dirs is None:
-            override_dirs = [manager_dir]
-        elif manager_dir not in override_dirs:
-            override_dirs.append(manager_dir)
+        override_dirs = resolve_skill_directories(get_settings())
         registry, manifests = reload_skill_manifests(
             base_dir=Path.cwd(), override_directories=override_dirs
         )
+        instruction_context = None
+        try:
+            skills_text = format_skills_for_prompt(manifests, read_tool_name="read_text_file")
+            instruction_context = {"agentSkills": skills_text}
+        except Exception:
+            instruction_context = None
 
-        if hasattr(agent, "set_skill_manifests"):
-            agent.set_skill_manifests(manifests)
-        if hasattr(agent, "set_instruction_context"):
-            try:
-                read_tool_name = "read_text_file"
-                skills_text = format_skills_for_prompt(
-                    manifests, read_tool_name=read_tool_name
-                )
-                agent.set_instruction_context({"agentSkills": skills_text})
-            except Exception:
-                pass
-        if registry is not None:
-            agent.skill_registry = registry
-        if hasattr(agent, "rebuild_instruction_templates"):
-            await agent.rebuild_instruction_templates()
-        context = getattr(agent, "context", None)
-        acp = getattr(context, "acp", None) if context else None
-        if acp:
-            try:
-                await acp.invalidate_instruction_cache(
-                    agent_name=getattr(agent, "name", self.current_agent_name),
-                    new_instruction=getattr(agent, "instruction", None),
-                )
-            except Exception:
-                pass
+        await rebuild_agent_instruction(
+            agent,
+            skill_manifests=manifests,
+            instruction_context=instruction_context,
+            skill_registry=registry,
+        )
 
     def _format_local_skills(self, manifests: list[Any], manager_dir: Path) -> str:
         lines = ["# skills", "", f"Directory: `{manager_dir}`", ""]
         if not manifests:
             lines.append("No skills available in the manager directory.")
             lines.append("")
-            lines.append("Use `/skills add` to install a skill.")
+            lines.append("Use `/skills add` to list available skills to install.")
             return "\n".join(lines)
         lines.append("Installed skills:")
         lines.extend(self._format_local_list(manifests))
         lines.append("")
-        lines.append("Use `/skills add` to install a skill.")
-        lines.append("Remove a skill with `/skills remove <number|name>`.")
+        lines.append("Use `/skills add` to list available skills to install\n")
+        lines.append("Remove a skill with `/skills remove <number|name>`.\n")
+        lines.append("Change skills registry with `/skills registry <url>`.\n")
         return "\n".join(lines)
 
     def _format_local_list(self, manifests: list[Any]) -> list[str]:
@@ -933,21 +1015,29 @@ class SlashCommandHandler:
 
             lines.append(f"- [{index}] {name}")
             if description:
-                wrapped = textwrap.fill(
-                    description, width=76, subsequent_indent="    "
-                )
+                wrapped = textwrap.fill(description, width=76, subsequent_indent="    ")
                 lines.append(f"  - {wrapped}")
             lines.append(f"  - source: `{display_path}`")
         return lines
 
     def _format_marketplace_list(self, marketplace: list[Any]) -> list[str]:
         lines: list[str] = []
+        current_bundle = None
         for index, entry in enumerate(marketplace, 1):
+            bundle_name = getattr(entry, "bundle_name", None)
+            bundle_description = getattr(entry, "bundle_description", None)
+            if bundle_name and bundle_name != current_bundle:
+                current_bundle = bundle_name
+                if lines:
+                    lines.append("")
+                lines.append(f"**{bundle_name}**  ")
+                if bundle_description:
+                    wrapped = textwrap.fill(bundle_description, width=76)
+                    lines.append(wrapped)
+                lines.append("")
             lines.append(f"- [{index}] **{entry.name}**")
             if entry.description:
-                wrapped = textwrap.fill(
-                    entry.description, width=76, subsequent_indent="    "
-                )
+                wrapped = textwrap.fill(entry.description, width=76, subsequent_indent="    ")
                 lines.append(f"  - {wrapped}")
             if entry.source_url:
                 lines.append(f"  - source: [link]({entry.source_url})")

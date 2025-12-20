@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import textwrap
 from typing import TYPE_CHECKING, Any, Callable
 
 from fast_agent.core.logging.logger import get_logger
@@ -18,13 +17,6 @@ from hf_inference_acp.hf_config import (
 )
 from hf_inference_acp.wizard.model_catalog import CURATED_MODELS
 from hf_inference_acp.wizard.stages import WizardStage, WizardState
-from fast_agent.skills.manager import (
-    fetch_marketplace_skills,
-    get_manager_directory,
-    get_marketplace_url,
-    install_marketplace_skill,
-    list_local_skills,
-)
 
 if TYPE_CHECKING:
     from mcp import Tool
@@ -54,7 +46,6 @@ class WizardSetupLLM(PassthroughLLM):
         self._on_complete_callback: Callable[["WizardState"], Any] | None = None
         self._completion_callback_fired = False
         self.logger = get_logger(__name__)
-        self._marketplace_skills = None
 
     def set_completion_callback(self, callback: Callable[["WizardState"], Any]) -> None:
         """Set callback to be called when wizard completes."""
@@ -159,7 +150,6 @@ class WizardSetupLLM(PassthroughLLM):
             WizardStage.TOKEN_GUIDE: self._handle_token_guide,
             WizardStage.TOKEN_VERIFY: self._handle_token_verify,
             WizardStage.MODEL_SELECT: self._handle_model_select,
-            WizardStage.SKILLS_SELECT: self._handle_skills_select,
             WizardStage.MCP_CONNECT: self._handle_mcp_connect,
             WizardStage.CONFIRM: self._handle_confirm,
             WizardStage.COMPLETE: self._handle_complete,
@@ -181,8 +171,7 @@ Welcome! This wizard will help you configure:
 
 1. Your Hugging Face token (required for API access)
 2. Your default inference model
-3. Optional skills to install from the marketplace
-4. Whether to connect to the Hugging Face MCP server on startup
+3. Whether to connect to the Hugging Face MCP server on startup
 
 Type `go` to begin, or `skip` to use slash commands instead.
 """
@@ -274,8 +263,10 @@ Type `check` after setting your token to continue.
 
             # Move to model selection
             self._state.stage = WizardStage.MODEL_SELECT
-            return f"""Token verified - connected as: `{username}`
-            
+            return f"""## Step 1 - Hugging Face Token Setup
+
+Token verified - connected as: `{username}`
+
 {self._render_model_selection()}"""
         except Exception as e:
             self._state.token_verified = False
@@ -345,96 +336,13 @@ Enter the full model ID (e.g., hf.organization/model-name):
         else:
             return f"Invalid selection: '{user_input}'\n\n{self._render_model_selection()}"
 
-        # Move to skills selection step
-        self._state.stage = WizardStage.SKILLS_SELECT
-        return await self._render_skills_select()
-
-    async def _render_skills_select(self) -> str:
-        """Render skills marketplace selection."""
-        if self._marketplace_skills is None:
-            try:
-                marketplace_url = get_marketplace_url()
-                self._marketplace_skills = await fetch_marketplace_skills(marketplace_url)
-            except Exception:
-                self._marketplace_skills = []
-
-        if not self._marketplace_skills:
-            return """## Step 3 - Skills (Optional)
-
-No skills are available from the marketplace right now.
-
-Type `none` to continue.
-"""
-
-        lines = [
-            "## Step 3 - Skills (Optional)",
-            "",
-            "Available skills:",
-        ]
-        for index, skill in enumerate(self._marketplace_skills, 1):
-            lines.append(f"- [{index}] {skill.name}")
-            if skill.description:
-                wrapped = textwrap.fill(
-                    skill.description, width=72, subsequent_indent="  "
-                )
-                lines.append(f"  {wrapped}")
-        lines.extend(
-            [
-                "",
-                "Choose `all` to install all skills now, or `none` to skip.",
-                "",
-                "Enter `all` or `none`:",
-            ]
-        )
-        return "\n".join(lines)
-
-    async def _handle_skills_select(self, user_input: str) -> str:
-        """Handle skills selection."""
-        cmd = user_input.lower().strip()
-        if cmd in ("none", "skip", "n", "no"):
-            self._state.skills_selection = "none"
-            self._state.stage = WizardStage.MCP_CONNECT
-            return self._render_mcp_connect()
-        if cmd in ("all", "a", "yes", "y"):
-            self._state.skills_selection = "all"
-            if self._marketplace_skills is None:
-                self._marketplace_skills = await fetch_marketplace_skills(
-                    get_marketplace_url()
-                )
-
-            manager_dir = get_manager_directory()
-            existing = {m.name.lower() for m in list_local_skills(manager_dir)}
-            installed = []
-            skipped = []
-            failed = []
-
-            for skill in self._marketplace_skills or []:
-                if skill.name.lower() in existing:
-                    skipped.append(skill.name)
-                    continue
-                try:
-                    await install_marketplace_skill(skill, destination_root=manager_dir)
-                    installed.append(skill.name)
-                except Exception:
-                    failed.append(skill.name)
-
-            summary_lines = [
-                "Skills installation summary:",
-                f"- Installed: {', '.join(installed) if installed else 'None'}",
-                f"- Skipped (already installed): {', '.join(skipped) if skipped else 'None'}",
-                f"- Failed: {', '.join(failed) if failed else 'None'}",
-                "",
-            ]
-            self._state.stage = WizardStage.MCP_CONNECT
-            return "\n".join(summary_lines) + self._render_mcp_connect()
-        if cmd in ("quit", "exit", "q"):
-            return "Setup cancelled. Your configuration was not changed."
-
-        return await self._render_skills_select()
+        # Skip skills selection step and move to MCP connection
+        self._state.stage = WizardStage.MCP_CONNECT
+        return self._render_mcp_connect()
 
     def _render_mcp_connect(self) -> str:
         """Render MCP server connection prompt."""
-        return """## Step 4 - Hugging Face MCP Server
+        return """## Step 3 - Hugging Face MCP Server
 
 The Hugging Face MCP server provides additional tools for working with
 models, datasets, and spaces on Hugging Face.
@@ -454,11 +362,27 @@ Enter y or n:
         if cmd in ("y", "yes"):
             self._state.mcp_load_on_start = True
             self._state.stage = WizardStage.CONFIRM
-            return self._render_confirmation()
+            return "\n".join(
+                [
+                    "## Skills (Optional)",
+                    "",
+                    "Skills are available. Use `/skills add` to install.",
+                    "",
+                    self._render_confirmation(),
+                ]
+            )
         elif cmd in ("n", "no"):
             self._state.mcp_load_on_start = False
             self._state.stage = WizardStage.CONFIRM
-            return self._render_confirmation()
+            return "\n".join(
+                [
+                    "## Skills (Optional)",
+                    "",
+                    "Skills are available. Use `/skills add` to install.",
+                    "",
+                    self._render_confirmation(),
+                ]
+            )
         elif cmd in ("quit", "exit", "q"):
             return "Setup cancelled. Your configuration was not changed."
         else:
@@ -467,12 +391,10 @@ Enter y or n:
     def _render_confirmation(self) -> str:
         """Render confirmation prompt."""
         mcp_status = "Yes" if self._state.mcp_load_on_start else "No"
-        skills_status = self._state.skills_selection or "none"
         return f"""## Confirm Settings
 
 - **Model**: {self._state.selected_model_display}
   `{self._state.selected_model}`
-- **Skills**: {skills_status}
 - **MCP server on startup**: {mcp_status}
 
 - [y] Confirm and save
