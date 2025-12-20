@@ -363,7 +363,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
             "tools": "List available MCP Tools",
-            "skills": "List available Agent Skills",
+            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
@@ -673,6 +673,93 @@ def create_keybindings(
                 pass
 
     return kb
+
+
+def parse_special_input(text: str) -> str | dict[str, Any]:
+    stripped = text.lstrip()
+    if stripped.startswith("/"):
+        cmd_line = stripped.splitlines()[0]
+    else:
+        cmd_line = text
+
+    # Command processing
+    if cmd_line and cmd_line.startswith("/"):
+        if cmd_line == "/":
+            return ""
+        cmd_parts = cmd_line[1:].strip().split(maxsplit=1)
+        cmd = cmd_parts[0].lower()
+
+        if cmd == "help":
+            return "HELP"
+        if cmd == "agents":
+            return "LIST_AGENTS"
+        if cmd == "system":
+            return "SHOW_SYSTEM"
+        if cmd == "usage":
+            return "SHOW_USAGE"
+        if cmd == "history":
+            target_agent = None
+            if len(cmd_parts) > 1:
+                candidate = cmd_parts[1].strip()
+                if candidate:
+                    target_agent = candidate
+            return {"show_history": {"agent": target_agent}}
+        if cmd == "clear":
+            target_agent = None
+            if len(cmd_parts) > 1:
+                remainder = cmd_parts[1].strip()
+                if remainder:
+                    tokens = remainder.split(maxsplit=1)
+                    if tokens and tokens[0].lower() == "last":
+                        if len(tokens) > 1:
+                            candidate = tokens[1].strip()
+                            if candidate:
+                                target_agent = candidate
+                        return {"clear_last": {"agent": target_agent}}
+                    target_agent = remainder
+            return {"clear_history": {"agent": target_agent}}
+        if cmd == "markdown":
+            return "MARKDOWN"
+        if cmd in ("save_history", "save"):
+            filename = (
+                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+            )
+            return {"save_history": True, "filename": filename}
+        if cmd in ("load_history", "load"):
+            filename = (
+                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+            )
+            if not filename:
+                return {"load_history": True, "error": "Filename required for load_history"}
+            return {"load_history": True, "filename": filename}
+        if cmd in ("mcpstatus", "mcp"):
+            return {"show_mcp_status": True}
+        if cmd == "prompt":
+            if len(cmd_parts) > 1:
+                prompt_arg = cmd_parts[1].strip()
+                if prompt_arg.isdigit():
+                    return {"select_prompt": True, "prompt_index": int(prompt_arg)}
+                return f"SELECT_PROMPT:{prompt_arg}"
+            return {"select_prompt": True, "prompt_name": None}
+        if cmd == "tools":
+            return {"list_tools": True}
+        if cmd == "skills":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return {"skills_command": {"action": "list", "argument": None}}
+            tokens = remainder.split(maxsplit=1)
+            action = tokens[0].lower()
+            argument = tokens[1].strip() if len(tokens) > 1 else None
+            return {"skills_command": {"action": action, "argument": argument}}
+        if cmd == "exit":
+            return "EXIT"
+        if cmd.lower() == "stop":
+            return "STOP"
+
+    if cmd_line and cmd_line.startswith("@"):
+        return f"SWITCH:{cmd_line[1:].strip()}"
+
+    return text
 
 
 async def get_enhanced_input(
@@ -1078,97 +1165,10 @@ async def get_enhanced_input(
 
     # Process special commands
 
-    def pre_process_input(text):
-        # Command processing
-        if text and text.startswith("/"):
-            if text == "/":
-                return ""
-            cmd_parts = text[1:].strip().split(maxsplit=1)
-            cmd = cmd_parts[0].lower()
-
-            if cmd == "help":
-                return "HELP"
-            elif cmd == "agents":
-                return "LIST_AGENTS"
-            elif cmd == "system":
-                return "SHOW_SYSTEM"
-            elif cmd == "usage":
-                return "SHOW_USAGE"
-            elif cmd == "history":
-                target_agent = None
-                if len(cmd_parts) > 1:
-                    candidate = cmd_parts[1].strip()
-                    if candidate:
-                        target_agent = candidate
-                return {"show_history": {"agent": target_agent}}
-            elif cmd == "clear":
-                target_agent = None
-                if len(cmd_parts) > 1:
-                    remainder = cmd_parts[1].strip()
-                    if remainder:
-                        tokens = remainder.split(maxsplit=1)
-                        if tokens and tokens[0].lower() == "last":
-                            if len(tokens) > 1:
-                                candidate = tokens[1].strip()
-                                if candidate:
-                                    target_agent = candidate
-                            return {"clear_last": {"agent": target_agent}}
-                        target_agent = remainder
-                return {"clear_history": {"agent": target_agent}}
-            elif cmd == "markdown":
-                return "MARKDOWN"
-            elif cmd in ("save_history", "save"):
-                # Return a structured action for the interactive loop to handle
-                # Prefer programmatic saving via HistoryExporter; fall back to magic-string there if needed
-                filename = (
-                    cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-                )
-                return {"save_history": True, "filename": filename}
-            elif cmd in ("load_history", "load"):
-                # Return a structured action for loading history from a file
-                filename = (
-                    cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-                )
-                if not filename:
-                    return {"load_history": True, "error": "Filename required for load_history"}
-                return {"load_history": True, "filename": filename}
-            elif cmd in ("mcpstatus", "mcp"):
-                return {"show_mcp_status": True}
-            elif cmd == "prompt":
-                # Handle /prompt with no arguments as interactive mode
-                if len(cmd_parts) > 1:
-                    # Direct prompt selection with name or number
-                    prompt_arg = cmd_parts[1].strip()
-                    # Check if it's a number (use as index) or a name (use directly)
-                    if prompt_arg.isdigit():
-                        return {"select_prompt": True, "prompt_index": int(prompt_arg)}
-                    else:
-                        return f"SELECT_PROMPT:{prompt_arg}"
-                else:
-                    # If /prompt is used without arguments, show interactive selection
-                    return {"select_prompt": True, "prompt_name": None}
-            elif cmd == "tools":
-                # Return a dictionary with list_tools action
-                return {"list_tools": True}
-            elif cmd == "skills":
-                return {"list_skills": True}
-            elif cmd == "exit":
-                return "EXIT"
-            elif cmd.lower() == "stop":
-                return "STOP"
-
-        # Agent switching
-        if text and text.startswith("@"):
-            return f"SWITCH:{text[1:].strip()}"
-
-        # Remove the # command handling completely
-
-        return text
-
     # Get the input - using async version
     try:
         result = await session.prompt_async(HTML(prompt_text), default=default)
-        return pre_process_input(result)
+        return parse_special_input(result)
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
         return "STOP"
@@ -1315,7 +1315,9 @@ async def handle_special_commands(
         rich_print("  /system        - Show the current system prompt")
         rich_print("  /prompt <name> - Apply a specific prompt by name")
         rich_print("  /usage         - Show current usage statistics")
-        rich_print("  /skills        - List local skills for the active agent")
+        rich_print("  /skills        - List local skills for the manager directory")
+        rich_print("  /skills add    - Install a skill from the marketplace")
+        rich_print("  /skills remove - Remove a skill from the manager directory")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")
         rich_print("  /clear last [agent_name] - Remove the most recent message from history")

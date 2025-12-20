@@ -13,23 +13,46 @@ from __future__ import annotations
 
 import textwrap
 import time
+import uuid
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
+from acp.helpers import text_block, tool_content
 from acp.schema import (
     AvailableCommand,
     AvailableCommandInput,
+    ToolCallProgress,
+    ToolCallStart,
     UnstructuredCommandInput,
 )
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+from fast_agent.skills.manager import (
+    candidate_marketplace_urls,
+    fetch_marketplace_skills,
+    fetch_marketplace_skills_with_source,
+    format_marketplace_display_url,
+    get_manager_directory,
+    get_marketplace_url,
+    install_marketplace_skill,
+    list_local_skills,
+    reload_skill_manifests,
+    remove_local_skill,
+    resolve_skill_directories,
+    select_manifest_by_name_or_index,
+    select_skill_by_name_or_index,
+)
+from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
 
@@ -47,6 +70,20 @@ class WarningAwareAgent(Protocol):
 
     @property
     def skill_registry(self) -> "SkillRegistry | None": ...
+
+
+@runtime_checkable
+class InstructionAwareAgent(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def instruction(self) -> str | None: ...
+
+
+@runtime_checkable
+class InstructionRefreshAgent(InstructionAwareAgent, Protocol):
+    async def rebuild_instruction_templates(self) -> None: ...
 
 
 class SlashCommandHandler:
@@ -79,6 +116,7 @@ class SlashCommandHandler:
         self.session_id = session_id
         self.instance = instance
         self.primary_agent_name = primary_agent_name
+        self._logger = get_logger(__name__)
         # Track current agent (can change via setSessionMode). Ensure it exists.
         if primary_agent_name in instance.agents:
             self.current_agent_name = primary_agent_name
@@ -105,6 +143,13 @@ class SlashCommandHandler:
                 name="tools",
                 description="List available tools",
                 input=None,
+            ),
+            "skills": AvailableCommand(
+                name="skills",
+                description="List or manage local skills (add/remove/registry)",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
+                ),
             ),
             "save": AvailableCommand(
                 name="save",
@@ -184,9 +229,7 @@ class SlashCommandHandler:
         """
         self.current_agent_name = agent_name
 
-    def update_session_instruction(
-        self, agent_name: str, instruction: str | None
-    ) -> None:
+    def update_session_instruction(self, agent_name: str, instruction: str | None) -> None:
         """
         Update the cached session instruction for an agent.
 
@@ -272,6 +315,8 @@ class SlashCommandHandler:
                 return await self._handle_status(arguments)
             if command_name == "tools":
                 return await self._handle_tools()
+            if command_name == "skills":
+                return await self._handle_skills(arguments)
             if command_name == "save":
                 return await self._handle_save(arguments)
             if command_name == "clear":
@@ -297,7 +342,7 @@ class SlashCommandHandler:
         # Check for subcommands
         normalized = (arguments or "").strip().lower()
         if normalized == "system":
-            return self._handle_status_system()
+            return await self._handle_status_system()
         if normalized == "auth":
             return self._handle_status_auth()
         if normalized == "authreset":
@@ -499,7 +544,7 @@ class SlashCommandHandler:
 
         return "\n".join(status_lines)
 
-    def _handle_status_system(self) -> str:
+    async def _handle_status_system(self) -> str:
         """Handle the /status system command to show the system prompt."""
         heading = "# system prompt"
 
@@ -507,10 +552,13 @@ class SlashCommandHandler:
         if error:
             return error
 
-        # Get the system prompt from the agent's instruction attribute
-        system_prompt = self._session_instructions.get(
-            getattr(agent, "name", self.current_agent_name), getattr(agent, "instruction", None)
-        )
+        if isinstance(agent, InstructionRefreshAgent):
+            try:
+                await agent.rebuild_instruction_templates()
+            except Exception:
+                pass
+
+        system_prompt = agent.instruction if isinstance(agent, InstructionAwareAgent) else None
         if not system_prompt:
             return "\n".join(
                 [
@@ -521,7 +569,9 @@ class SlashCommandHandler:
             )
 
         # Format the response
-        agent_name = getattr(agent, "name", self.current_agent_name)
+        agent_name = (
+            agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
+        )
         lines = [
             heading,
             "",
@@ -656,6 +706,397 @@ class SlashCommandHandler:
 
         return "\n".join(lines).strip()
 
+    async def _handle_skills(self, arguments: str | None = None) -> str:
+        """Manage local skills (list/add/remove)."""
+        tokens = (arguments or "").strip().split(maxsplit=1)
+        action = tokens[0].lower() if tokens else "list"
+        remainder = tokens[1] if len(tokens) > 1 else ""
+
+        if action in {"list", ""}:
+            return self._handle_skills_list()
+        if action in {"add", "install"}:
+            return await self._handle_skills_add(remainder)
+        if action in {"registry", "marketplace", "source"}:
+            return await self._handle_skills_registry(remainder)
+        if action in {"remove", "rm", "delete", "uninstall"}:
+            return await self._handle_skills_remove(remainder)
+
+        return "Unknown /skills action. Use `/skills`, `/skills add`, or `/skills remove`."
+
+    async def _handle_skills_registry(self, argument: str) -> str:
+        heading = "# skills registry"
+        argument = argument.strip()
+
+        # Get configured registries from settings
+        settings = get_settings()
+        skills_settings = getattr(settings, "skills", None)
+        configured_urls: list[str] = []
+        if skills_settings:
+            configured_urls = getattr(skills_settings, "marketplace_urls", None) or []
+
+        if not argument:
+            current = get_marketplace_url(settings)
+            display_current = format_marketplace_display_url(current)
+
+            lines = [heading, "", f"Registry: {display_current}", ""]
+
+            # Show numbered list if registries configured
+            if configured_urls:
+                lines.append("Available registries:")
+                for i, reg_url in enumerate(configured_urls, 1):
+                    display = format_marketplace_display_url(reg_url)
+                    lines.append(f"- [{i}] {display}")
+                lines.append("")
+
+            lines.append(
+                "Usage: `/skills registry [number|URL]`.\n\n URL should point to a repo with a valid `marketplace.json`"
+            )
+            return "\n".join(lines)
+
+        # Check if argument is a number (select from configured registries)
+        if argument.isdigit():
+            index = int(argument)
+            if not configured_urls:
+                return f"{heading}\n\nNo registries configured."
+            if 1 <= index <= len(configured_urls):
+                url = configured_urls[index - 1]
+            else:
+                return f"{heading}\n\nInvalid registry number. Use 1-{len(configured_urls)}."
+        else:
+            url = argument
+
+        candidates = candidate_marketplace_urls(url)
+        try:
+            marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
+        except Exception as exc:  # noqa: BLE001
+            display_url = format_marketplace_display_url(url)
+            self._logger.warning(
+                "Failed to load skills registry",
+                data={
+                    "registry": url,
+                    "candidates": candidates,
+                    "error": str(exc),
+                },
+            )
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    f"Failed to load registry: {exc}",
+                    f"Registry: {display_url}",
+                ]
+            )
+
+        if not marketplace:
+            display_url = format_marketplace_display_url(url)
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No skills found in the registry; registry unchanged.",
+                    f"Registry: {display_url}",
+                ]
+            )
+
+        # Update only the active registry, preserve the configured list
+        if skills_settings is not None:
+            skills_settings.marketplace_url = resolved_url
+
+        display_url = format_marketplace_display_url(resolved_url)
+        if candidates:
+            self._logger.debug(
+                "Resolved skills registry",
+                data={
+                    "input": url,
+                    "resolved": resolved_url,
+                    "candidates": candidates,
+                },
+            )
+        response_lines = [
+            heading,
+            "",
+            f"Registry set to: `{display_url}`",
+            "",
+            f"Skills discovered: {len(marketplace)}",
+        ]
+
+        return "\n".join(response_lines)
+
+    def _handle_skills_list(self) -> str:
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        return self._format_local_skills(manifests, manager_dir)
+
+    async def _handle_skills_add(self, argument: str) -> str:
+        if argument.strip().lower() in {"q", "quit", "exit"}:
+            return "Cancelled."
+
+        agent, error = self._get_current_agent_or_error("# skills add")
+        if error:
+            return error
+
+        tool_call_id = self._build_tool_call_id()
+        await self._send_skills_update(
+            agent,
+            tool_call_id,
+            title="Install skill",
+            status="in_progress",
+            message="Fetching marketplace…",
+            start=True,
+        )
+
+        marketplace_url = get_marketplace_url()
+        try:
+            marketplace = await fetch_marketplace_skills(marketplace_url)
+        except Exception as exc:  # noqa: BLE001
+            return (
+                "# skills add\n\n"
+                f"Failed to load marketplace: {exc}\n\n"
+                f"Repository: `{format_marketplace_display_url(marketplace_url)}`"
+            )
+
+        if not marketplace:
+            return "# skills add\n\nNo skills found in the marketplace."
+
+        if not argument:
+            lines = [
+                "# skills add",
+                "",
+                f"Repository: `{format_marketplace_display_url(marketplace_url)}`",
+            ]
+            repo_hint = self._get_marketplace_repo_hint(marketplace)
+            if repo_hint:
+                lines.append(f"Repository: `{repo_hint}`")
+            lines.extend(["", "Available skills:  ", ""])
+            lines.extend(self._format_marketplace_list(marketplace))
+            lines.append("")
+            lines.append("Install with `/skills add <number|name>`.")
+            lines.append("Change registry with `/skills registry`.")
+            return "\n".join(lines)
+
+        skill = select_skill_by_name_or_index(marketplace, argument)
+        if not skill:
+            return "Skill not found. Use `/skills add` to list available skills."
+
+        manager_dir = get_manager_directory()
+        repo_label = self._format_repo_label(skill)
+        await self._send_skills_update(
+            agent,
+            tool_call_id,
+            title="Installing skill",
+            status="in_progress",
+            message=(
+                f"Cloning {repo_label} ({skill.repo_subdir})"
+                if repo_label
+                else f"Cloning skill source ({skill.repo_subdir})"
+            ),
+        )
+        try:
+            install_path = await install_marketplace_skill(skill, destination_root=manager_dir)
+        except Exception as exc:  # noqa: BLE001
+            await self._send_skills_update(
+                agent,
+                tool_call_id,
+                title="Install failed",
+                status="completed",
+                message=f"Failed to install skill: {exc}",
+            )
+            return f"# skills add\n\nFailed to install skill: {exc}"
+
+        await self._refresh_agent_skills(agent)
+        await self._send_skills_update(
+            agent,
+            tool_call_id,
+            title="Install complete",
+            status="completed",
+            message=f"Installed {skill.name}",
+        )
+
+        return "\n".join(
+            [
+                "# skills add",
+                "",
+                f"Installed: {skill.name}",
+                f"Location: `{install_path}`",
+            ]
+        )
+
+    async def _handle_skills_remove(self, argument: str) -> str:
+        if argument.strip().lower() in {"q", "quit", "exit"}:
+            return "Cancelled."
+
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        if not manifests:
+            return "# skills remove\n\nNo local skills to remove."
+
+        if not argument:
+            lines = [
+                "# skills remove",
+                "",
+                "Installed skills:",
+            ]
+            lines.extend(self._format_local_list(manifests))
+            lines.append("")
+            lines.append(
+                "Remove with `/skills remove <number|name>` or `/skills remove q` to cancel."
+            )
+            return "\n".join(lines)
+
+        manifest = select_manifest_by_name_or_index(manifests, argument)
+        if not manifest:
+            return "Skill not found. Use `/skills remove` to list installed skills."
+
+        try:
+            skill_dir = Path(manifest.path).parent
+            remove_local_skill(skill_dir, destination_root=manager_dir)
+        except Exception as exc:  # noqa: BLE001
+            return f"# skills remove\n\nFailed to remove skill: {exc}"
+
+        agent, error = self._get_current_agent_or_error("# skills remove")
+        if error:
+            return error
+
+        await self._refresh_agent_skills(agent)
+
+        return "\n".join(
+            [
+                "# skills remove",
+                "",
+                f"Removed: {manifest.name}",
+            ]
+        )
+
+    async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
+        override_dirs = resolve_skill_directories(get_settings())
+        registry, manifests = reload_skill_manifests(
+            base_dir=Path.cwd(), override_directories=override_dirs
+        )
+        instruction_context = None
+        try:
+            skills_text = format_skills_for_prompt(manifests, read_tool_name="read_text_file")
+            instruction_context = {"agentSkills": skills_text}
+        except Exception:
+            instruction_context = None
+
+        await rebuild_agent_instruction(
+            agent,
+            skill_manifests=manifests,
+            instruction_context=instruction_context,
+            skill_registry=registry,
+        )
+
+    def _format_local_skills(self, manifests: list[Any], manager_dir: Path) -> str:
+        lines = ["# skills", "", f"Directory: `{manager_dir}`", ""]
+        if not manifests:
+            lines.append("No skills available in the manager directory.")
+            lines.append("")
+            lines.append("Use `/skills add` to list available skills to install.")
+            return "\n".join(lines)
+        lines.append("Installed skills:")
+        lines.extend(self._format_local_list(manifests))
+        lines.append("")
+        lines.append("Use `/skills add` to list available skills to install\n")
+        lines.append("Remove a skill with `/skills remove <number|name>`.\n")
+        lines.append("Change skills registry with `/skills registry <url>`.\n")
+        return "\n".join(lines)
+
+    def _format_local_list(self, manifests: list[Any]) -> list[str]:
+        lines: list[str] = []
+        for index, manifest in enumerate(manifests, 1):
+            name = getattr(manifest, "name", "")
+            description = getattr(manifest, "description", "")
+            path = Path(getattr(manifest, "path", Path()))
+            source_path = path.parent if path.is_file() else path
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+
+            lines.append(f"- [{index}] {name}")
+            if description:
+                wrapped = textwrap.fill(description, width=76, subsequent_indent="    ")
+                lines.append(f"  - {wrapped}")
+            lines.append(f"  - source: `{display_path}`")
+        return lines
+
+    def _format_marketplace_list(self, marketplace: list[Any]) -> list[str]:
+        lines: list[str] = []
+        current_bundle = None
+        for index, entry in enumerate(marketplace, 1):
+            bundle_name = getattr(entry, "bundle_name", None)
+            bundle_description = getattr(entry, "bundle_description", None)
+            if bundle_name and bundle_name != current_bundle:
+                current_bundle = bundle_name
+                if lines:
+                    lines.append("")
+                lines.append(f"**{bundle_name}**  ")
+                if bundle_description:
+                    wrapped = textwrap.fill(bundle_description, width=76)
+                    lines.append(wrapped)
+                lines.append("")
+            lines.append(f"- [{index}] **{entry.name}**")
+            if entry.description:
+                wrapped = textwrap.fill(entry.description, width=76, subsequent_indent="    ")
+                lines.append(f"  - {wrapped}")
+            if entry.source_url:
+                lines.append(f"  - source: [link]({entry.source_url})")
+        return lines
+
+    def _format_repo_label(self, entry: Any) -> str | None:
+        repo_url = getattr(entry, "repo_url", None)
+        if not repo_url:
+            return None
+        repo_ref = getattr(entry, "repo_ref", None)
+        if repo_ref:
+            return f"{repo_url}@{repo_ref}"
+        return repo_url
+
+    def _get_marketplace_repo_hint(self, marketplace: list[Any]) -> str | None:
+        if not marketplace:
+            return None
+        return self._format_repo_label(marketplace[0])
+
+    def _build_tool_call_id(self) -> str:
+        return str(uuid.uuid4())
+
+    async def _send_skills_update(
+        self,
+        agent: AgentProtocol,
+        tool_call_id: str,
+        *,
+        title: str,
+        status: str,
+        message: str | None = None,
+        start: bool = False,
+    ) -> None:
+        acp = getattr(agent, "acp", None)
+        if not acp:
+            return
+        try:
+            if start:
+                await acp.send_session_update(
+                    ToolCallStart(
+                        tool_call_id=tool_call_id,
+                        title=title,
+                        kind="fetch",
+                        status="in_progress",
+                        session_update="tool_call",
+                    )
+                )
+            content = [tool_content(text_block(message))] if message else None
+            await acp.send_session_update(
+                ToolCallProgress(
+                    tool_call_id=tool_call_id,
+                    title=title,
+                    status=status,  # type: ignore[arg-type]
+                    content=content,
+                    session_update="tool_call_update",
+                )
+            )
+        except Exception:
+            return
+
     def _format_tool_lines(self, tool: "Tool", index: int) -> list[str]:
         """
         Convert a Tool into markdown-friendly lines.
@@ -783,6 +1224,8 @@ class SlashCommandHandler:
             )
 
         try:
+            if hasattr(agent, "rebuild_instruction_templates"):
+                await agent.rebuild_instruction_templates()
             load_history_into_agent(agent, file_path)
         except Exception as exc:
             return "\n".join(
@@ -795,6 +1238,8 @@ class SlashCommandHandler:
             )
 
         message_count = len(agent.message_history) if hasattr(agent, "message_history") else 0
+        if hasattr(agent, "rebuild_instruction_templates"):
+            await agent.rebuild_instruction_templates()
 
         return "\n".join(
             [

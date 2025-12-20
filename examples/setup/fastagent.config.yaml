@@ -63,3 +63,9 @@ mcp:
       url: "https://huggingface.co/mcp?login"
       # headers:
       # "Authorization": "Bearer ${ENV_VAR}"
+
+# Skills configuration
+skills:
+  marketplace_urls:
+    - "https://github.com/huggingface/skills"
+    - "https://github.com/anthropics/skills"

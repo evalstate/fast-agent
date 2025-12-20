@@ -106,6 +106,8 @@ class SkillsSettings(BaseModel):
     """Configuration for the skills directory override."""
 
     directories: list[str] | None = None
+    marketplace_url: str | None = None
+    marketplace_urls: list[str] | None = None
 
     model_config = ConfigDict(extra="ignore")
 

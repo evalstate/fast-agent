@@ -186,6 +186,7 @@ Wizard mode skipped. You can use these commands:
   /login     - Get instructions for setting up your token
   /set-model - Set the default model
   /check     - Verify your configuration
+  /skills add - Install skills from the marketplace
 
 Type any command to continue.
 """
@@ -262,8 +263,10 @@ Type `check` after setting your token to continue.
 
             # Move to model selection
             self._state.stage = WizardStage.MODEL_SELECT
-            return f"""Token verified - connected as: `{username}`
-            
+            return f"""## Step 1 - Hugging Face Token Setup
+
+Token verified - connected as: `{username}`
+
 {self._render_model_selection()}"""
         except Exception as e:
             self._state.token_verified = False
@@ -333,7 +336,7 @@ Enter the full model ID (e.g., hf.organization/model-name):
         else:
             return f"Invalid selection: '{user_input}'\n\n{self._render_model_selection()}"
 
-        # Move to MCP connect step
+        # Skip skills selection step and move to MCP connection
         self._state.stage = WizardStage.MCP_CONNECT
         return self._render_mcp_connect()
 
@@ -359,11 +362,27 @@ Enter y or n:
         if cmd in ("y", "yes"):
             self._state.mcp_load_on_start = True
             self._state.stage = WizardStage.CONFIRM
-            return self._render_confirmation()
+            return "\n".join(
+                [
+                    "## Skills (Optional)",
+                    "",
+                    "Skills are available. Use `/skills add` to install.",
+                    "",
+                    self._render_confirmation(),
+                ]
+            )
         elif cmd in ("n", "no"):
             self._state.mcp_load_on_start = False
             self._state.stage = WizardStage.CONFIRM
-            return self._render_confirmation()
+            return "\n".join(
+                [
+                    "## Skills (Optional)",
+                    "",
+                    "Skills are available. Use `/skills add` to install.",
+                    "",
+                    self._render_confirmation(),
+                ]
+            )
         elif cmd in ("quit", "exit", "q"):
             return "Setup cancelled. Your configuration was not changed."
         else:
