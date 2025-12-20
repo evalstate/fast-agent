@@ -16,6 +16,12 @@ mcp:
       url: "https://huggingface.co/mcp"
       load_on_start: false
 
+skills:
+  marketplace_urls:
+    - "https://github.com/huggingface/skills"
+    - "https://github.com/anthropics/skills"
+
 hf:
 #  api_key: hf_xxxxxx - you can set your API key here (takes priority)
 #  default_provider: [together|cerberas|groq|etc.]
+
