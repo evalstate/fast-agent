@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.config import get_settings
 from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
+
+if TYPE_CHECKING:
+    from fast_agent.core.fastagent import AgentInstance
 
 
 @dataclass

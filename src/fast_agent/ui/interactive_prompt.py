@@ -14,8 +14,8 @@ Usage:
     )
 """
 
-from pathlib import Path
 import textwrap
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
 from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
@@ -28,23 +28,10 @@ from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
-from fast_agent.types import PromptMessageExtended
-from fast_agent.ui.enhanced_prompt import (
-    _display_agent_info_helper,
-    parse_special_input,
-    get_argument_input,
-    get_enhanced_input,
-    get_selection_input,
-    handle_special_commands,
-    show_mcp_status,
-)
-from fast_agent.ui.history_display import display_history_overview
-from fast_agent.ui.progress_display import progress_display
-from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
-from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills.manager import (
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
@@ -53,13 +40,26 @@ from fast_agent.skills.manager import (
     get_marketplace_url,
     install_marketplace_skill,
     list_local_skills,
-    remove_local_skill,
     reload_skill_manifests,
+    remove_local_skill,
     resolve_skill_directories,
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
 from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.types import PromptMessageExtended
+from fast_agent.ui.enhanced_prompt import (
+    _display_agent_info_helper,
+    get_argument_input,
+    get_enhanced_input,
+    get_selection_input,
+    handle_special_commands,
+    parse_special_input,
+    show_mcp_status,
+)
+from fast_agent.ui.history_display import display_history_overview
+from fast_agent.ui.progress_display import progress_display
+from fast_agent.ui.usage_display import collect_agents_from_provider, display_usage_report
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]

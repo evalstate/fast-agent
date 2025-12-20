@@ -30,15 +30,13 @@ from acp.schema import (
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
-from fast_agent.core.logging.logger import get_logger
-from fast_agent.types.conversation_summary import ConversationSummary
-from fast_agent.utils.time import format_duration
-from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.skills.manager import (
     candidate_marketplace_urls,
     fetch_marketplace_skills,
@@ -55,6 +53,8 @@ from fast_agent.skills.manager import (
     select_skill_by_name_or_index,
 )
 from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.types.conversation_summary import ConversationSummary
+from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
