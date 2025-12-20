@@ -45,6 +45,7 @@ def get_test_models():
         return [test_model]
     else:
         return [
+            "gemini3flash",
             "gpt-4.1-mini",
             #            "sonnet",
             "haiku",
@@ -59,8 +60,8 @@ def get_test_models():
             "glm",
             "qwen3:together",
             "deepseek31",
-            #            "responses.gpt-5-mini",
-            #     "generic.qwen3:8b",
+            # "responses.gpt-5-mini",
+            "generic.qwen3:8b",
         ]
 
         # "minimax": "hf.MiniMaxAI/MiniMax-M2",

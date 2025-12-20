@@ -319,6 +319,7 @@ class ModelDatabase:
         "gemini-2.5-flash-preview-09-2025": GEMINI_STANDARD,
         "gemini-2.5-flash": GEMINI_STANDARD,
         "gemini-3-pro-preview": GEMINI_STANDARD,
+        "gemini-3-flash-preview": GEMINI_STANDARD,
         # xAI Grok Models
         "grok-4-fast-reasoning": GROK_4_VLM,
         "grok-4-fast-non-reasoning": GROK_4_VLM,
