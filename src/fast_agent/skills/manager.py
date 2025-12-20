@@ -71,7 +71,15 @@ class MarketplaceEntryModel(BaseModel):
 
         repo_url = _first_str(data, "repo", "repository", "git", "repo_url")
         repo_ref = _first_str(data, "ref", "branch", "tag", "revision", "commit")
-        repo_path = _first_str(data, "path", "skill_path", "directory", "dir", "location")
+        repo_path = _first_str(
+            data,
+            "path",
+            "skill_path",
+            "directory",
+            "dir",
+            "location",
+            "repo_path",
+        )
         source_value = _first_str(data, "url", "skill_url", "source", "skill_source")
         source_url = source_value if _is_probable_url(source_value) else None
 
@@ -175,10 +183,14 @@ def list_local_skills(directory: Path) -> list[SkillManifest]:
 
 async def fetch_marketplace_skills(url: str) -> list[MarketplaceSkill]:
     normalized = _normalize_marketplace_url(url)
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.get(normalized)
-        response.raise_for_status()
-        data = response.json()
+    local_payload = _load_local_marketplace_payload(normalized)
+    if local_payload is not None:
+        data = local_payload
+    else:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(normalized)
+            response.raise_for_status()
+            data = response.json()
     return _parse_marketplace_payload(data, source_url=normalized)
 
 
@@ -408,6 +420,16 @@ def _install_marketplace_skill_sync(skill: MarketplaceSkill, destination_root: P
     if install_dir.exists():
         raise FileExistsError(f"Skill already exists: {install_dir}")
 
+    local_repo = _resolve_local_repo(skill.repo_url)
+    if local_repo is not None:
+        source_dir = local_repo / skill.repo_subdir
+        if not source_dir.exists():
+            raise FileNotFoundError(
+                f"Skill path not found in repository: {skill.repo_subdir}"
+            )
+        _copy_skill_source(source_dir, install_dir)
+        return install_dir
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_path = Path(tmp_dir)
         clone_args = [
@@ -432,13 +454,7 @@ def _install_marketplace_skill_sync(skill: MarketplaceSkill, destination_root: P
                 f"Skill path not found in repository: {skill.repo_subdir}"
             )
 
-        if (source_dir / "SKILL.md").exists():
-            shutil.copytree(source_dir, install_dir)
-        elif source_dir.name.lower() == "skill.md" and source_dir.is_file():
-            install_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(source_dir, install_dir / "SKILL.md")
-        else:
-            raise FileNotFoundError("SKILL.md not found in the selected repository path.")
+        _copy_skill_source(source_dir, install_dir)
 
     return install_dir
 
@@ -448,3 +464,48 @@ def _run_git(args: list[str]) -> None:
     if result.returncode != 0:
         stderr = result.stderr.strip() or result.stdout.strip()
         raise RuntimeError(f"Git command failed: {' '.join(args)}\n{stderr}")
+
+
+def _load_local_marketplace_payload(url: str) -> Any | None:
+    parsed = urlparse(url)
+    if parsed.scheme == "file":
+        path = Path(parsed.path)
+        return _read_json_file(path)
+    if parsed.scheme in {"http", "https"}:
+        return None
+    candidate = Path(url).expanduser()
+    if candidate.exists():
+        return _read_json_file(candidate)
+    return None
+
+
+def _read_json_file(path: Path) -> Any:
+    content = path.read_text(encoding="utf-8")
+    return json.loads(content)
+
+
+def _resolve_local_repo(repo_url: str) -> Path | None:
+    parsed = urlparse(repo_url)
+    if parsed.scheme == "file":
+        repo_path = Path(parsed.path)
+    elif parsed.scheme in {"http", "https", "ssh"}:
+        return None
+    else:
+        repo_path = Path(repo_url)
+
+    repo_path = repo_path.expanduser()
+    if not repo_path.is_absolute():
+        repo_path = repo_path.resolve()
+    if repo_path.exists():
+        return repo_path
+    return None
+
+
+def _copy_skill_source(source_dir: Path, install_dir: Path) -> None:
+    if (source_dir / "SKILL.md").exists():
+        shutil.copytree(source_dir, install_dir)
+    elif source_dir.name.lower() == "skill.md" and source_dir.is_file():
+        install_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_dir, install_dir / "SKILL.md")
+    else:
+        raise FileNotFoundError("SKILL.md not found in the selected repository path.")

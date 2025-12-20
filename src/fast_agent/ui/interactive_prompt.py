@@ -54,6 +54,7 @@ from fast_agent.skills.manager import (
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
+from fast_agent.skills.registry import format_skills_for_prompt
 
 # Type alias for the send function
 SendFunc = Callable[[Union[str, PromptMessage, PromptMessageExtended], str], Awaitable[str]]
@@ -1177,6 +1178,14 @@ class InteractivePrompt:
 
         if hasattr(agent, "set_skill_manifests"):
             agent.set_skill_manifests(manifests)
+        if hasattr(agent, "set_instruction_context"):
+            try:
+                skills_text = format_skills_for_prompt(
+                    manifests, read_tool_name="read_skill"
+                )
+                agent.set_instruction_context({"agentSkills": skills_text})
+            except Exception:
+                pass
         if registry is not None:
             agent.skill_registry = registry
         if hasattr(agent, "rebuild_instruction_templates"):

@@ -48,6 +48,7 @@ from fast_agent.skills.manager import (
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
+from fast_agent.skills.registry import format_skills_for_prompt
 
 if TYPE_CHECKING:
     from mcp.types import ListToolsResult, Tool
@@ -63,6 +64,20 @@ class WarningAwareAgent(Protocol):
 
     @property
     def skill_registry(self) -> "SkillRegistry | None": ...
+
+
+@runtime_checkable
+class InstructionAwareAgent(Protocol):
+    @property
+    def name(self) -> str: ...
+
+    @property
+    def instruction(self) -> str | None: ...
+
+
+@runtime_checkable
+class InstructionRefreshAgent(InstructionAwareAgent, Protocol):
+    async def rebuild_instruction_templates(self) -> None: ...
 
 
 class SlashCommandHandler:
@@ -322,7 +337,7 @@ class SlashCommandHandler:
         # Check for subcommands
         normalized = (arguments or "").strip().lower()
         if normalized == "system":
-            return self._handle_status_system()
+            return await self._handle_status_system()
         if normalized == "auth":
             return self._handle_status_auth()
         if normalized == "authreset":
@@ -524,7 +539,7 @@ class SlashCommandHandler:
 
         return "\n".join(status_lines)
 
-    def _handle_status_system(self) -> str:
+    async def _handle_status_system(self) -> str:
         """Handle the /status system command to show the system prompt."""
         heading = "# system prompt"
 
@@ -532,9 +547,14 @@ class SlashCommandHandler:
         if error:
             return error
 
-        # Get the system prompt from the agent's instruction attribute
-        system_prompt = self._session_instructions.get(
-            getattr(agent, "name", self.current_agent_name), getattr(agent, "instruction", None)
+        if isinstance(agent, InstructionRefreshAgent):
+            try:
+                await agent.rebuild_instruction_templates()
+            except Exception:
+                pass
+
+        system_prompt = (
+            agent.instruction if isinstance(agent, InstructionAwareAgent) else None
         )
         if not system_prompt:
             return "\n".join(
@@ -546,7 +566,7 @@ class SlashCommandHandler:
             )
 
         # Format the response
-        agent_name = getattr(agent, "name", self.current_agent_name)
+        agent_name = agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
         lines = [
             heading,
             "",
@@ -861,6 +881,15 @@ class SlashCommandHandler:
 
         if hasattr(agent, "set_skill_manifests"):
             agent.set_skill_manifests(manifests)
+        if hasattr(agent, "set_instruction_context"):
+            try:
+                read_tool_name = "read_text_file"
+                skills_text = format_skills_for_prompt(
+                    manifests, read_tool_name=read_tool_name
+                )
+                agent.set_instruction_context({"agentSkills": skills_text})
+            except Exception:
+                pass
         if registry is not None:
             agent.skill_registry = registry
         if hasattr(agent, "rebuild_instruction_templates"):
@@ -914,7 +943,7 @@ class SlashCommandHandler:
     def _format_marketplace_list(self, marketplace: list[Any]) -> list[str]:
         lines: list[str] = []
         for index, entry in enumerate(marketplace, 1):
-            lines.append(f"- [{index}] {entry.name}")
+            lines.append(f"- [{index}] **{entry.name}**")
             if entry.description:
                 wrapped = textwrap.fill(
                     entry.description, width=76, subsequent_indent="    "
