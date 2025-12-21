@@ -864,9 +864,9 @@ class SlashCommandHandler:
                 "",
                 f"Repository: `{format_marketplace_display_url(marketplace_url)}`",
             ]
-            repo_hint = self._get_marketplace_repo_hint(marketplace)
-            if repo_hint:
-                lines.append(f"Repository: `{repo_hint}`")
+            # repo_hint = self._get_marketplace_repo_hint(marketplace)
+            # if repo_hint:
+            #     lines.append(f"Repository: `{repo_hint}`")
             lines.extend(["", "Available skills:  ", ""])
             lines.extend(self._format_marketplace_list(marketplace))
             lines.append("")

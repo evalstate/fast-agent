@@ -11,7 +11,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.interfaces import AgentProtocol
-from fast_agent.llm.usage_tracking import aggregate_turn_usage
+from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
@@ -452,7 +452,7 @@ class AgentApp:
             return None
 
         last_turn = turns[-1]
-        totals = aggregate_turn_usage(agent.usage_accumulator, turn_start_index)
+        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
         if totals:
             input_tokens = totals["input_tokens"]
             output_tokens = totals["output_tokens"]

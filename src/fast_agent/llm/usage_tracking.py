@@ -462,3 +462,25 @@ def aggregate_turn_usage(
         "output_tokens": sum(turn.output_tokens for turn in turn_slice),
         "tool_calls": sum(turn.tool_calls for turn in turn_slice),
     }
+
+
+def last_turn_usage(
+    usage_accumulator: UsageAccumulator | None, start_index: int | None
+) -> dict[str, int] | None:
+    """Return usage for the last turn since the provided start index."""
+    if not usage_accumulator:
+        return None
+
+    turns = usage_accumulator.turns
+    if not turns:
+        return None
+
+    if start_index is not None and start_index >= len(turns):
+        return None
+
+    turn = turns[-1]
+    return {
+        "input_tokens": turn.display_input_tokens,
+        "output_tokens": turn.output_tokens,
+        "tool_calls": turn.tool_calls,
+    }

@@ -70,7 +70,7 @@ from fast_agent.core.prompt_templates import (
 from fast_agent.interfaces import ACPAwareProtocol, StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
-from fast_agent.llm.usage_tracking import aggregate_turn_usage
+from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
@@ -536,7 +536,7 @@ class AgentACPServer(ACPAgent):
         if not agent or not getattr(agent, "usage_accumulator", None):
             return None
 
-        totals = aggregate_turn_usage(agent.usage_accumulator, turn_start_index)
+        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
         if not totals:
             return None
 
