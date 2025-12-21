@@ -443,3 +443,44 @@ def create_turn_usage_from_messages(
         delay_seconds=delay_seconds,
     )
     return TurnUsage.from_fast_agent(usage, model)
+
+
+def aggregate_turn_usage(
+    usage_accumulator: UsageAccumulator | None, start_index: int | None
+) -> dict[str, int] | None:
+    """Aggregate usage totals from the provided start index in the accumulator."""
+    if not usage_accumulator or start_index is None:
+        return None
+
+    turns = usage_accumulator.turns
+    if start_index >= len(turns):
+        return None
+
+    turn_slice = turns[start_index:]
+    return {
+        "input_tokens": sum(turn.display_input_tokens for turn in turn_slice),
+        "output_tokens": sum(turn.output_tokens for turn in turn_slice),
+        "tool_calls": sum(turn.tool_calls for turn in turn_slice),
+    }
+
+
+def last_turn_usage(
+    usage_accumulator: UsageAccumulator | None, start_index: int | None
+) -> dict[str, int] | None:
+    """Return usage for the last turn since the provided start index."""
+    if not usage_accumulator:
+        return None
+
+    turns = usage_accumulator.turns
+    if not turns:
+        return None
+
+    if start_index is not None and start_index >= len(turns):
+        return None
+
+    turn = turns[-1]
+    return {
+        "input_tokens": turn.display_input_tokens,
+        "output_tokens": turn.output_tokens,
+        "tool_calls": turn.tool_calls,
+    }

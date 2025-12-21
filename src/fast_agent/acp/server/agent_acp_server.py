@@ -70,6 +70,7 @@ from fast_agent.core.prompt_templates import (
 from fast_agent.interfaces import ACPAwareProtocol, StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
@@ -527,6 +528,27 @@ class AgentACPServer(ACPAgent):
             if resolved == template:
                 return None
         return RequestParams(systemPrompt=resolved)
+
+    def _build_status_line_meta(
+        self, agent: Any, turn_start_index: int | None
+    ) -> dict[str, Any] | None:
+        """Build ACP _meta payload for status line usage display."""
+        if not agent or not getattr(agent, "usage_accumulator", None):
+            return None
+
+        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
+        if not totals:
+            return None
+
+        input_tokens = totals["input_tokens"]
+        output_tokens = totals["output_tokens"]
+        tool_calls = totals["tool_calls"]
+        tool_info = f", {tool_calls} tools" if tool_calls > 0 else ""
+        context_pct = agent.usage_accumulator.context_usage_percentage
+        context_info = f" ({context_pct:.1f}%)" if context_pct is not None else ""
+        status_line = f"{input_tokens:,} in, {output_tokens:,} out{tool_info}{context_info}"
+
+        return {"field_meta": {"openhands.dev/metrics": {"status_line": status_line}}}
 
     async def new_session(
         self,
@@ -1105,6 +1127,7 @@ class AgentACPServer(ACPAgent):
             # Send to the fast-agent agent with streaming support
             # Track the stop reason to return in PromptResponse
             acp_stop_reason: StopReason = END_TURN
+            status_line_meta: dict[str, Any] | None = None
             try:
                 if current_agent_name:
                     agent = instance.agents[current_agent_name]
@@ -1162,11 +1185,15 @@ class AgentACPServer(ACPAgent):
                         session_request_params = self._build_session_request_params(
                             agent, session_state
                         )
+                        turn_start_index = None
+                        if getattr(agent, "usage_accumulator", None) is not None:
+                            turn_start_index = len(agent.usage_accumulator.turns)
                         result = await agent.generate(
                             prompt_message,
                             request_params=session_request_params,
                         )
                         response_text = result.last_text() or "No content generated"
+                        status_line_meta = self._build_status_line_meta(agent, turn_start_index)
 
                         # Map the LLM stop reason to ACP stop reason
                         try:
@@ -1213,9 +1240,16 @@ class AgentACPServer(ACPAgent):
                         if not streaming_tasks and self._connection and response_text:
                             try:
                                 message_chunk = update_agent_message_text(response_text)
-                                await self._connection.session_update(
-                                    session_id=session_id, update=message_chunk
-                                )
+                                if status_line_meta:
+                                    await self._connection.session_update(
+                                        session_id=session_id,
+                                        update=message_chunk,
+                                        **status_line_meta,
+                                    )
+                                else:
+                                    await self._connection.session_update(
+                                        session_id=session_id, update=message_chunk
+                                    )
                                 logger.info(
                                     "Sent final sessionUpdate with complete response (no streaming)",
                                     name="acp_final_update",
@@ -1225,6 +1259,25 @@ class AgentACPServer(ACPAgent):
                                 logger.error(
                                     f"Error sending final update: {e}",
                                     name="acp_final_update_error",
+                                    exc_info=True,
+                                )
+                        elif streaming_tasks and self._connection and status_line_meta:
+                            try:
+                                message_chunk = update_agent_message_text("")
+                                await self._connection.session_update(
+                                    session_id=session_id,
+                                    update=message_chunk,
+                                    **status_line_meta,
+                                )
+                                logger.debug(
+                                    "Sent status line metadata update after streaming",
+                                    name="acp_status_line_update",
+                                    session_id=session_id,
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Error sending status line update: {e}",
+                                    name="acp_status_line_update_error",
                                     exc_info=True,
                                 )
 
@@ -1275,6 +1328,7 @@ class AgentACPServer(ACPAgent):
             # Return response with appropriate stop reason
             return PromptResponse(
                 stop_reason=acp_stop_reason,
+                _meta=status_line_meta,
             )
         except asyncio.CancelledError:
             # Task was cancelled - return appropriate response
