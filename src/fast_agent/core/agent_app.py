@@ -11,6 +11,7 @@ from rich import print as rich_print
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.llm.usage_tracking import aggregate_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 from fast_agent.ui.progress_display import progress_display
@@ -317,13 +318,17 @@ class AgentApp:
         async def send_wrapper(message, agent_name):
             try:
                 # The LLM layer will handle the 10s/20s/30s retries internally.
-                return await self.send(message, agent_name, request_params)
-            
+                turn_start_indices = self._capture_turn_start_indices(agent_name)
+                result = await self.send(message, agent_name, request_params)
+                # Show usage info after each turn
+                self._show_turn_usage(agent_name, turn_start_indices)
+                return result
+
             except Exception as e:
                 # If we catch an exception here, it means all retries FAILED.
                 if isinstance(e, (KeyboardInterrupt, AgentConfigError, ServerConfigError)):
                     raise e
-                
+
                 # Return pretty text for API failures (keeps session alive)
                 return _format_final_error(e)
 
@@ -335,7 +340,9 @@ class AgentApp:
             default=default_prompt,
         )
 
-    def _show_turn_usage(self, agent_name: str) -> None:
+    def _show_turn_usage(
+        self, agent_name: str, turn_start_indices: dict[str, int] | None = None
+    ) -> None:
         """Show subtle usage information after each turn."""
         agent = self._agents.get(agent_name)
         if not agent:
@@ -343,20 +350,48 @@ class AgentApp:
 
         # Check if this is a parallel agent
         if agent.agent_type == AgentType.PARALLEL:
-            self._show_parallel_agent_usage(agent)
+            self._show_parallel_agent_usage(agent, turn_start_indices or {})
         else:
-            self._show_regular_agent_usage(agent)
+            self._show_regular_agent_usage(
+                agent, (turn_start_indices or {}).get(agent.name)
+            )
 
-    def _show_regular_agent_usage(self, agent) -> None:
+    def _capture_turn_start_indices(self, agent_name: str) -> dict[str, int]:
+        """Capture usage accumulator turn indices for a user-initiated turn."""
+        agent = self._agents.get(agent_name)
+        if not agent:
+            return {}
+
+        indices: dict[str, int] = {}
+
+        def record(target: AgentProtocol) -> None:
+            accumulator = getattr(target, "usage_accumulator", None)
+            if accumulator is not None:
+                indices[target.name] = len(accumulator.turns)
+
+        if agent.agent_type == AgentType.PARALLEL:
+            if getattr(agent, "fan_out_agents", None):
+                for child_agent in agent.fan_out_agents:
+                    record(child_agent)
+            if getattr(agent, "fan_in_agent", None):
+                record(agent.fan_in_agent)
+        else:
+            record(agent)
+
+        return indices
+
+    def _show_regular_agent_usage(self, agent, turn_start_index: int | None) -> None:
         """Show usage for a regular (non-parallel) agent."""
-        usage_info = self._format_agent_usage(agent)
+        usage_info = self._format_agent_usage(agent, turn_start_index)
         if usage_info:
             with progress_display.paused():
                 rich_print(
                     f"[dim]Last turn: {usage_info['display_text']}[/dim]{usage_info['cache_suffix']}"
                 )
 
-    def _show_parallel_agent_usage(self, parallel_agent) -> None:
+    def _show_parallel_agent_usage(
+        self, parallel_agent, turn_start_indices: dict[str, int]
+    ) -> None:
         """Show usage for a parallel agent and its children."""
         # Collect usage from all child agents
         child_usage_data = []
@@ -367,7 +402,9 @@ class AgentApp:
         # Get usage from fan-out agents
         if hasattr(parallel_agent, "fan_out_agents") and parallel_agent.fan_out_agents:
             for child_agent in parallel_agent.fan_out_agents:
-                usage_info = self._format_agent_usage(child_agent)
+                usage_info = self._format_agent_usage(
+                    child_agent, turn_start_indices.get(child_agent.name)
+                )
                 if usage_info:
                     child_usage_data.append({**usage_info, "name": child_agent.name})
                     total_input += usage_info["input_tokens"]
@@ -376,7 +413,10 @@ class AgentApp:
 
         # Get usage from fan-in agent
         if hasattr(parallel_agent, "fan_in_agent") and parallel_agent.fan_in_agent:
-            usage_info = self._format_agent_usage(parallel_agent.fan_in_agent)
+            usage_info = self._format_agent_usage(
+                parallel_agent.fan_in_agent,
+                turn_start_indices.get(parallel_agent.fan_in_agent.name),
+            )
             if usage_info:
                 child_usage_data.append({**usage_info, "name": parallel_agent.fan_in_agent.name})
                 total_input += usage_info["input_tokens"]
@@ -401,7 +441,7 @@ class AgentApp:
                     f"[dim]  {prefix} {usage_data['name']}: {usage_data['display_text']}[/dim]{usage_data['cache_suffix']}"
                 )
 
-    def _format_agent_usage(self, agent) -> dict | None:
+    def _format_agent_usage(self, agent, turn_start_index: int | None) -> dict | None:
         """Format usage information for a single agent."""
         if not agent or not agent.usage_accumulator:
             return None
@@ -412,16 +452,25 @@ class AgentApp:
             return None
 
         last_turn = turns[-1]
-        input_tokens = last_turn.display_input_tokens
-        output_tokens = last_turn.output_tokens
+        totals = aggregate_turn_usage(agent.usage_accumulator, turn_start_index)
+        if totals:
+            input_tokens = totals["input_tokens"]
+            output_tokens = totals["output_tokens"]
+            tool_calls = totals["tool_calls"]
+            turn_slice = turns[turn_start_index:] if turn_start_index is not None else [last_turn]
+        else:
+            input_tokens = last_turn.display_input_tokens
+            output_tokens = last_turn.output_tokens
+            tool_calls = last_turn.tool_calls
+            turn_slice = [last_turn]
 
         # Build cache indicators with bright colors
         cache_indicators = ""
-        if last_turn.cache_usage.cache_write_tokens > 0:
+        if any(turn.cache_usage.cache_write_tokens > 0 for turn in turn_slice):
             cache_indicators += "[bright_yellow]^[/bright_yellow]"
-        if (
-            last_turn.cache_usage.cache_read_tokens > 0
-            or last_turn.cache_usage.cache_hit_tokens > 0
+        if any(
+            turn.cache_usage.cache_read_tokens > 0 or turn.cache_usage.cache_hit_tokens > 0
+            for turn in turn_slice
         ):
             cache_indicators += "[bright_green]*[/bright_green]"
 
@@ -432,7 +481,7 @@ class AgentApp:
             context_info = f" ({context_percentage:.1f}%)"
 
         # Build tool call info
-        tool_info = f", {last_turn.tool_calls} tool calls" if last_turn.tool_calls > 0 else ""
+        tool_info = f", {tool_calls} tool calls" if tool_calls > 0 else ""
 
         # Build display text
         display_text = f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"
@@ -441,7 +490,7 @@ class AgentApp:
         return {
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
-            "tool_calls": last_turn.tool_calls,
+            "tool_calls": tool_calls,
             "context_percentage": context_percentage,
             "display_text": display_text,
             "cache_suffix": cache_suffix,

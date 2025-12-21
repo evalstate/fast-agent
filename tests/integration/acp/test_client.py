@@ -96,10 +96,14 @@ class TestClient(Client):
         **kwargs: Any,
     ) -> None:
         """Capture session updates for assertions."""
+        meta = kwargs.get("_meta")
+        if meta is None and "field_meta" in kwargs:
+            meta = kwargs.get("field_meta")
         self.notifications.append(
             {
                 "session_id": session_id,
                 "update": update,
+                "meta": meta,
             }
         )
 
