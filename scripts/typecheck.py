@@ -1,11 +1,3 @@
-# /// script
-# requires-python = ">=3.10"
-# dependencies = [
-#     "typer",
-#     "ty",
-# ]
-# ///
-
 import subprocess
 import sys
 
