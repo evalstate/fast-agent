@@ -32,6 +32,8 @@ class GroqLLM(OpenAICompatibleLLM):
         llm_model = (
             self.default_request_params.model if self.default_request_params else DEFAULT_GROQ_MODEL
         )
+        if not llm_model:
+            return False
         json_mode: str | None = ModelDatabase.get_json_mode(llm_model)
         return json_mode == "object"
 

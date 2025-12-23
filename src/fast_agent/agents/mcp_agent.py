@@ -1315,7 +1315,7 @@ class McpAgent(ABC, ToolAgent):
         runtime_name = runtime_info.get("name")
         return runtime_name or "shell"
 
-    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
+    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str | None, str]:
         """Delegate resource name parsing to the aggregator."""
         return await self._aggregator._parse_resource_name(name, resource_type)
 

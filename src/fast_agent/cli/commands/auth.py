@@ -333,9 +333,12 @@ def login(
             typer.echo("--transport must be 'http' or 'sse'")
             raise typer.Exit(1)
         endpoint = base + ("/mcp" if resolved_transport == "http" else "/sse")
+        # Cast transport after validation
+        from typing import Literal, cast
+        transport_type = cast("Literal['stdio', 'sse', 'http']", resolved_transport)
         cfg = MCPServerSettings(
             name=base,
-            transport=resolved_transport,
+            transport=transport_type,
             url=endpoint,
             auth=MCPServerAuthSettings(),
         )

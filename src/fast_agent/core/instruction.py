@@ -39,8 +39,9 @@ from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Type alias for async resolvers
-Resolver = Callable[[], Awaitable[str]]
+# Type aliases
+Resolver = Callable[[], Awaitable[str]]  # Type alias for async resolvers
+Set = set  # Preserve built-in set type before method shadowing
 
 
 def _get_current_date() -> str:
@@ -287,7 +288,7 @@ class InstructionBuilder:
     # Utilities
     # ─────────────────────────────────────────────────────────────────────────
 
-    def get_placeholders(self) -> set[str]:
+    def get_placeholders(self) -> Set[str]:
         """
         Extract all placeholder names from the template.
 
@@ -298,7 +299,7 @@ class InstructionBuilder:
         pattern = re.compile(r"\{\{(?!url:|file:|file_silent:)([^}]+)\}\}")
         return set(pattern.findall(self._template))
 
-    def get_unresolved_placeholders(self) -> set[str]:
+    def get_unresolved_placeholders(self) -> Set[str]:
         """
         Get placeholders that don't have a source registered.
 

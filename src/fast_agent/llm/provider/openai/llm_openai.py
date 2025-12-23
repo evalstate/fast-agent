@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mcp import Tool
 from mcp.types import (
@@ -21,7 +21,9 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
     ChatCompletionToolParam,
+    ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, REASONING
@@ -31,7 +33,7 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
+from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -121,7 +123,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Determine reasoning mode for the selected model
         chosen_model = self.default_request_params.model if self.default_request_params else None
-        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model)
+        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
         self._reasoning = self._reasoning_mode == "openai"
         if self._reasoning_mode:
             self.logger.info(
@@ -140,8 +142,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         return base_params
 
-    def _base_url(self) -> str:
-        return self.context.config.openai.base_url if self.context.config.openai else None
+    def _base_url(self) -> str | None:
+        if self.context.config and self.context.config.openai:
+            return self.context.config.openai.base_url
+        return None
 
     def _default_headers(self) -> dict[str, str] | None:
         """
@@ -761,10 +765,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         ChatCompletionMessageToolCall(
                             id=tool_call_data["id"],
                             type=tool_call_data["type"],
-                            function={
-                                "name": tool_call_data["function"]["name"],
-                                "arguments": tool_call_data["function"]["arguments"],
-                            },
+                            function=Function(
+                                name=tool_call_data["function"]["name"],
+                                arguments=tool_call_data["function"]["arguments"],
+                            ),
                         )
                     )
 
@@ -819,7 +823,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     async def _openai_completion(
         self,
-        message: list[OpenAIMessage] | None,
+        message: list[ChatCompletionMessageParam] | None,
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
@@ -842,19 +846,22 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # The caller supplies the full history; convert it directly
         if message:
-            messages.extend(message)
+            messages.extend(cast("list[ChatCompletionMessageParam]", message))
 
-        available_tools: list[ChatCompletionToolParam] | None = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description if tool.description else "",
-                    "parameters": self.adjust_schema(tool.inputSchema),
-                },
-            }
-            for tool in tools or []
-        ]
+        available_tools: list[ChatCompletionToolParam] | None = cast(
+            "list[ChatCompletionToolParam]",
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description if tool.description else "",
+                        "parameters": self.adjust_schema(tool.inputSchema),
+                    },
+                }
+                for tool in tools or []
+            ],
+        )
 
         if not available_tools:
             if self.provider in [Provider.DEEPSEEK, Provider.ALIYUN]:
@@ -954,7 +961,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         message_dict["role"] = normalized_role or message_dict.get("role", "assistant")
 
-        messages.append(message_dict)
+        messages.append(cast("ChatCompletionMessageParam", message_dict))
         stop_reason = LlmStopReason.END_TURN
         requested_tool_calls: dict[str, CallToolRequest] | None = None
         if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
@@ -1078,13 +1085,13 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Convert the supplied history/messages directly
         converted_messages = self._convert_to_provider_format(multipart_messages)
         if not converted_messages:
-            converted_messages = [{"role": "user", "content": ""}]
+            converted_messages = [ChatCompletionUserMessageParam(role="user", content="")]
 
         return await self._openai_completion(converted_messages, req_params, tools)
 
     def _prepare_api_request(
-        self, messages, tools: list[ChatCompletionToolParam] | None, request_params: RequestParams
-    ) -> dict[str, str]:
+        self, messages: list[ChatCompletionMessageParam], tools: list[ChatCompletionToolParam] | None, request_params: RequestParams
+    ) -> dict[str, Any]:
         # Create base arguments dictionary
 
         # overriding model via request params not supported (intentional)
@@ -1170,7 +1177,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             List of OpenAI ChatCompletionMessageParam objects
         """
         converted: list[ChatCompletionMessageParam] = []
-        reasoning_mode = ModelDatabase.get_reasoning(self.default_request_params.model)
+        model = self.default_request_params.model
+        reasoning_mode = ModelDatabase.get_reasoning(model) if model else None
 
         for msg in messages:
             # convert_to_openai returns a list of messages
@@ -1184,7 +1192,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     if reasoning_texts:
                         reasoning_content = "\n\n".join(reasoning_texts)
                         for oai_msg in openai_msgs:
-                            oai_msg["reasoning_content"] = reasoning_content
+                            # reasoning_content is an OpenAI extension not in the TypedDict
+                            cast("dict[str, Any]", oai_msg)["reasoning_content"] = reasoning_content
 
             # gpt-oss: per docs, reasoning should be dropped on subsequent sampling
             # UNLESS tool calling is involved. For tool calls, prefix the assistant
@@ -1197,8 +1206,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     if reasoning_texts:
                         reasoning_text = "\n\n".join(reasoning_texts)
                         for oai_msg in openai_msgs:
-                            existing_content = oai_msg.get("content", "") or ""
-                            oai_msg["content"] = reasoning_text + existing_content
+                            # Cast to dict to allow string concatenation with content
+                            oai_dict = cast("dict[str, Any]", oai_msg)
+                            existing_content = oai_dict.get("content", "") or ""
+                            if isinstance(existing_content, str):
+                                oai_dict["content"] = reasoning_text + existing_content
 
             converted.extend(openai_msgs)
 

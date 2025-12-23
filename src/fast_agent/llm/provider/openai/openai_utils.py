@@ -5,7 +5,7 @@ This file provides backward compatibility with the existing API while
 delegating to the proper implementations in the providers/ directory.
 """
 
-from typing import Any, Union
+from typing import Any, Union, cast
 
 from openai.types.chat import (
     ChatCompletionMessage,
@@ -32,7 +32,11 @@ def openai_message_to_prompt_message_multipart(
     Returns:
         A PromptMessageExtended representation
     """
-    return openai_to_extended(message)
+    result = openai_to_extended(message)
+    # Single message input always returns single message
+    if isinstance(result, list):
+        return result[0] if result else PromptMessageExtended(role="assistant", content=[])
+    return result
 
 
 def openai_message_param_to_prompt_message_multipart(
@@ -47,7 +51,11 @@ def openai_message_param_to_prompt_message_multipart(
     Returns:
         A PromptMessageExtended representation
     """
-    return openai_to_extended(message_param)
+    result = openai_to_extended(message_param)
+    # Single message input always returns single message
+    if isinstance(result, list):
+        return result[0] if result else PromptMessageExtended(role="assistant", content=[])
+    return result
 
 
 def prompt_message_multipart_to_openai_message_param(
@@ -64,4 +72,7 @@ def prompt_message_multipart_to_openai_message_param(
     """
     # convert_to_openai now returns a list, return the first element for backward compatibility
     messages = OpenAIConverter.convert_to_openai(multipart)
-    return messages[0] if messages else {"role": multipart.role, "content": ""}
+    if messages:
+        return cast("ChatCompletionMessageParam", messages[0])
+    # Fallback for empty conversion
+    return cast("ChatCompletionMessageParam", {"role": multipart.role, "content": ""})

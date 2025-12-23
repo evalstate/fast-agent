@@ -276,7 +276,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         if last_event_id is not None:  # pragma: no branch
             await self._handle_reconnection(ctx, "post-sse", last_event_id, retry_interval_ms)
 
-    async def _handle_reconnection(
+    async def _handle_reconnection(  # type: ignore[override]
         self,
         ctx: RequestContext,
         channel: ChannelName,

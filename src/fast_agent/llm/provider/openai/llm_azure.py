@@ -5,7 +5,7 @@ from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 
 try:
-    from azure.identity import DefaultAzureCredential
+    from azure.identity import DefaultAzureCredential  # ty: ignore[unresolved-import]
 except ImportError:
     DefaultAzureCredential = None
 

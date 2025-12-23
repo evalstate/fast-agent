@@ -10,9 +10,9 @@ from typing import (
     AsyncIterator,
     Callable,
     Coroutine,
-    Type,
     TypeVar,
     Union,
+    cast,
 )
 
 from pydantic import BaseModel, ConfigDict
@@ -88,7 +88,7 @@ class Executor(ABC, ContextDependent):
     @abstractmethod
     async def execute_streaming(
         self,
-        *tasks: list[Callable[..., R] | Coroutine[Any, Any, R]],
+        *tasks: Callable[..., R] | Coroutine[Any, Any, R],
         **kwargs: Any,
     ) -> AsyncIterator[R | BaseException]:
         """Execute tasks and yield results as they complete"""
@@ -102,7 +102,7 @@ class Executor(ABC, ContextDependent):
         """
         Run `func(item)` for each item in `inputs` with concurrency limit.
         """
-        results: list[R, BaseException] = []
+        results: list[R | BaseException] = []
 
         async def run(item):
             if self.config.max_concurrent_activities:
@@ -134,16 +134,18 @@ class Executor(ABC, ContextDependent):
     async def signal(
         self,
         signal_name: str,
-        payload: SignalValueT = None,
+        payload: SignalValueT | None = None,
         signal_description: str | None = None,
     ) -> None:
         """
         Emit a signal.
         """
-        signal = Signal[SignalValueT](
+        if self.signal_bus is None:
+            raise RuntimeError("No signal bus configured")
+        sig: Signal[SignalValueT] = Signal(
             name=signal_name, payload=payload, description=signal_description
         )
-        await self.signal_bus.signal(signal)
+        await self.signal_bus.signal(sig)
 
     async def wait_for_signal(
         self,
@@ -152,12 +154,14 @@ class Executor(ABC, ContextDependent):
         workflow_id: str | None = None,
         signal_description: str | None = None,
         timeout_seconds: int | None = None,
-        signal_type: Type[SignalValueT] = str,
-    ) -> SignalValueT:
+        signal_type: type[Any] | None = None,
+    ) -> Any:
         """
         Wait until a signal with signal_name is emitted (or timeout).
         Return the signal's payload when triggered, or raise on timeout.
         """
+        if self.signal_bus is None:
+            raise RuntimeError("No signal bus configured")
 
         # Notify any callbacks that the workflow is about to be paused waiting for a signal
         if self.context.signal_notification:
@@ -168,14 +172,14 @@ class Executor(ABC, ContextDependent):
                 metadata={
                     "description": signal_description,
                     "timeout_seconds": timeout_seconds,
-                    "signal_type": signal_type,
+                    "signal_type": signal_type or str,
                 },
             )
 
-        signal = Signal[signal_type](
+        sig: Signal[Any] = Signal(
             name=signal_name, description=signal_description, workflow_id=workflow_id
         )
-        return await self.signal_bus.wait_for_signal(signal)
+        return await self.signal_bus.wait_for_signal(sig)
 
 
 class AsyncioExecutor(Executor):
@@ -196,10 +200,13 @@ class AsyncioExecutor(Executor):
     async def _execute_task(
         self, task: Callable[..., R] | Coroutine[Any, Any, R], **kwargs: Any
     ) -> R | BaseException:
-        async def run_task(task: Callable[..., R] | Coroutine[Any, Any, R]) -> R:
+        async def run_task(
+            task: Callable[..., R] | Coroutine[Any, Any, R],
+        ) -> R | BaseException:
             try:
                 if asyncio.iscoroutine(task):
-                    return await task
+                    # iscoroutine doesn't narrow types, so cast the result
+                    return cast("R", await task)
                 elif asyncio.iscoroutinefunction(task):
                     return await task(**kwargs)
                 else:
@@ -237,9 +244,9 @@ class AsyncioExecutor(Executor):
             return_exceptions=True,
         )
 
-    async def execute_streaming(
+    async def execute_streaming(  # ty: ignore[invalid-method-override]
         self,
-        *tasks: list[Callable[..., R] | Coroutine[Any, Any, R]],
+        *tasks: Callable[..., R] | Coroutine[Any, Any, R],
         **kwargs: Any,
     ) -> AsyncIterator[R | BaseException]:
         # TODO: saqadri - validate if async with self.execution_context() is needed here
@@ -256,7 +263,7 @@ class AsyncioExecutor(Executor):
     async def signal(
         self,
         signal_name: str,
-        payload: SignalValueT = None,
+        payload: SignalValueT | None = None,
         signal_description: str | None = None,
     ) -> None:
         await super().signal(signal_name, payload, signal_description)
@@ -268,8 +275,8 @@ class AsyncioExecutor(Executor):
         workflow_id: str | None = None,
         signal_description: str | None = None,
         timeout_seconds: int | None = None,
-        signal_type: Type[SignalValueT] = str,
-    ) -> SignalValueT:
+        signal_type: type[Any] | None = None,
+    ) -> Any:
         return await super().wait_for_signal(
             signal_name,
             request_id,

@@ -3,10 +3,14 @@ Simplified converter between MCP sampling types and PromptMessageExtended.
 This replaces the more complex provider-specific converters with direct conversions.
 """
 
-
 from mcp.types import (
+    AudioContent,
+    ContentBlock,
     CreateMessageRequestParams,
     CreateMessageResult,
+    EmbeddedResource,
+    ImageContent,
+    ResourceLink,
     SamplingMessage,
     TextContent,
 )
@@ -38,7 +42,14 @@ class SamplingConverter:
         Returns:
             PromptMessageExtended suitable for use with LLMs
         """
-        return PromptMessageExtended(role=message.role, content=[message.content])
+        # Filter content to only include supported types
+        supported_content: list[ContentBlock] = []
+        content = message.content
+        if isinstance(
+            content, (TextContent, ImageContent, AudioContent, ResourceLink, EmbeddedResource)
+        ):
+            supported_content.append(content)
+        return PromptMessageExtended(role=message.role, content=supported_content)
 
     @staticmethod
     def extract_request_params(params: CreateMessageRequestParams) -> RequestParams:

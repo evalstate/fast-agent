@@ -190,8 +190,9 @@ class SkillRegistry:
             allowed_tools = allowed_tools_raw.split()
 
         # Validate metadata is a dict if present
-        if custom_metadata is not None and not isinstance(custom_metadata, dict):
-            custom_metadata = None
+        typed_metadata: dict[str, str] | None = None
+        if isinstance(custom_metadata, dict):
+            typed_metadata = {str(k): str(v) for k, v in custom_metadata.items()}
 
         return SkillManifest(
             name=name.strip(),
@@ -200,7 +201,7 @@ class SkillRegistry:
             path=manifest_path,
             license=license_field.strip() if isinstance(license_field, str) else None,
             compatibility=compatibility.strip() if isinstance(compatibility, str) else None,
-            metadata=custom_metadata,
+            metadata=typed_metadata,
             allowed_tools=allowed_tools,
         ), None
 

@@ -43,10 +43,10 @@ try:
         NoCredentialsError,
     )
 except ImportError:
-    boto3 = None
-    BotoCoreError = Exception
-    ClientError = Exception
-    NoCredentialsError = Exception
+    boto3 = None  # type: ignore[assignment]
+    BotoCoreError = Exception  # type: ignore[assignment, misc]
+    ClientError = Exception  # type: ignore[assignment, misc]
+    NoCredentialsError = Exception  # type: ignore[assignment, misc]
 
 
 DEFAULT_BEDROCK_MODEL = "amazon.nova-lite-v1:0"

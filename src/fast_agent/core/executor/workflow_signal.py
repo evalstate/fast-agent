@@ -234,15 +234,17 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
                     if not self._pending_signals[signal.name]:
                         del self._pending_signals[signal.name]
 
-    def on_signal(self, signal_name):
-        def decorator(func):
+    def on_signal(self, signal_name: str) -> Callable:
+        def decorator(func: Callable) -> Callable:
+            unique_name = f"{signal_name}_{uuid.uuid4()}"
+
             async def wrapped(value: SignalValueT) -> None:
                 if asyncio.iscoroutinefunction(func):
                     await func(value)
                 else:
                     func(value)
 
-            self._handlers.setdefault(signal_name, []).append(wrapped)
+            self._handlers.setdefault(signal_name, []).append((unique_name, wrapped))
             return wrapped
 
         return decorator
