@@ -52,7 +52,7 @@ class Executor(ABC, ContextDependent):
         self,
         engine: str,
         config: ExecutorConfig | None = None,
-        signal_bus: SignalHandler = None,
+        signal_bus: SignalHandler | None = None,
         context: Union["Context", None] = None,
         **kwargs,
     ) -> None:

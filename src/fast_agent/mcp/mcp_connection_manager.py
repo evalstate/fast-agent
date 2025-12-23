@@ -5,6 +5,7 @@ Manages the lifecycle of multiple MCP server connections.
 import asyncio
 import traceback
 from datetime import timedelta
+from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, AsyncGenerator, Callable, Union
 
 import httpx
@@ -112,19 +113,15 @@ class ServerConnection:
         server_config: MCPServerSettings,
         transport_context_factory: Callable[
             [],
-            AsyncGenerator[
+            AbstractAsyncContextManager[
                 tuple[
                     MemoryObjectReceiveStream[JSONRPCMessage | Exception],
                     MemoryObjectSendStream[JSONRPCMessage],
                     GetSessionIdCallback | None,
-                ],
-                None,
+                ]
             ],
         ],
-        client_session_factory: Callable[
-            [MemoryObjectReceiveStream, MemoryObjectSendStream, timedelta | None],
-            ClientSession,
-        ],
+        client_session_factory: Callable[..., ClientSession],
     ) -> None:
         self.server_name = server_name
         self.server_config = server_config
@@ -274,6 +271,7 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                     server_conn.session_id = "local"
 
                 server_conn.create_session(read_stream, write_stream)
+                assert server_conn.session is not None
 
                 try:
                     async with server_conn.session:
@@ -405,6 +403,7 @@ class MCPConnectionManager(ContextDependent):
 
             # Then close the task group if it's active
             if self._task_group_active:
+                assert self._task_group is not None
                 await self._task_group.__aexit__(exc_type, exc_val, exc_tb)
                 self._task_group_active = False
                 self._task_group = None
@@ -596,6 +595,7 @@ class MCPConnectionManager(ContextDependent):
                 return self.running_servers[server_name]
 
             self.running_servers[server_name] = server_conn
+            assert self._tg is not None
             self._tg.start_soon(_server_lifecycle_task, server_conn)
 
         logger.info(f"{server_name}: Up and running with a persistent connection!")
