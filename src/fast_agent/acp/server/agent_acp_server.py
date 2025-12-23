@@ -68,13 +68,14 @@ from fast_agent.constants import (
     TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO,
     TERMINAL_OUTPUT_TOKEN_RATIO,
 )
+from fast_agent.context import Context
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import (
     apply_template_variables,
     enrich_with_environment_context,
 )
-from fast_agent.interfaces import ACPAwareProtocol, StreamingAgentProtocol
+from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import last_turn_usage
@@ -826,27 +827,15 @@ class AgentACPServer(ACPAgent):
 
             # Set ACPContext on each agent's Context object (if they have one)
             for agent_name, agent in instance.agents.items():
-                if hasattr(agent, "_context") and agent._context is not None:
-                    agent._context.acp = acp_context
+                context = getattr(agent, "context", None)
+                if isinstance(context, Context):
+                    context.acp = acp_context
                     logger.debug(
                         "ACPContext set on agent",
                         name="acp_context_set",
                         session_id=session_id,
                         agent_name=agent_name,
                     )
-                elif hasattr(agent, "context"):
-                    # Try via context property
-                    try:
-                        agent.context.acp = acp_context
-                        logger.debug(
-                            "ACPContext set on agent via context property",
-                            name="acp_context_set",
-                            session_id=session_id,
-                            agent_name=agent_name,
-                        )
-                    except Exception:
-                        # Agent may not have a context available
-                        pass
 
             logger.info(
                 "ACPContext created for session",
@@ -1186,7 +1175,7 @@ class AgentACPServer(ACPAgent):
                             agent, session_state
                         )
                         turn_start_index = None
-                        if getattr(agent, "usage_accumulator", None) is not None:
+                        if isinstance(agent, AgentProtocol) and agent.usage_accumulator is not None:
                             turn_start_index = len(agent.usage_accumulator.turns)
                         result = await agent.generate(
                             prompt_message,
@@ -1328,7 +1317,7 @@ class AgentACPServer(ACPAgent):
             # Return response with appropriate stop reason
             return PromptResponse(
                 stop_reason=acp_stop_reason,
-                _meta=status_line_meta,
+                field_meta=status_line_meta,
             )
         except asyncio.CancelledError:
             # Task was cancelled - return appropriate response

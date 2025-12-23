@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, TypeGuard
 
 
 class CommandBase:
@@ -102,3 +102,7 @@ CommandPayload = (
     | SaveHistoryCommand
     | LoadHistoryCommand
 )
+
+
+def is_command_payload(value: object) -> TypeGuard[CommandPayload]:
+    return isinstance(value, CommandBase)

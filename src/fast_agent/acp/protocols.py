@@ -12,12 +12,15 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
     from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
+    from fast_agent.tools.shell_runtime import ShellRuntime
     from fast_agent.workflow_telemetry import PlanTelemetryProvider, WorkflowTelemetryProvider
 
 
 @runtime_checkable
 class ShellRuntimeCapable(Protocol):
     """Agent that supports external shell runtime injection."""
+
+    _shell_runtime: "ShellRuntime"
 
     @property
     def _shell_runtime_enabled(self) -> bool: ...

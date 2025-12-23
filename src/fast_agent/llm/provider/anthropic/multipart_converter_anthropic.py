@@ -369,7 +369,7 @@ class AnthropicConverter:
 
     @staticmethod
     def _create_fallback_text(
-        message: str, resource: Union[TextContent, ImageContent, EmbeddedResource]
+        message: str, resource: ContentBlock
     ) -> TextBlockParam:
         """
         Create a fallback text block for unsupported resource types.

@@ -185,12 +185,9 @@ class ServerConnection:
 
         self.server_capabilities = result.capabilities
         # InitializeResult exposes server info via `serverInfo`; keep fallback for older fields
-        implementation = getattr(result, "serverInfo", None)
-        if implementation is None:
-            implementation = getattr(result, "implementation", None)
-        self.server_implementation = implementation
+        self.server_implementation = result.serverInfo
 
-        raw_instructions = getattr(result, "instructions", None)
+        raw_instructions = result.instructions
         self.server_instructions_available = bool(raw_instructions)
 
         # Store instructions if provided by the server and enabled in config

@@ -5,7 +5,7 @@ import logging
 import shlex
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal, cast
 
 import typer
 
@@ -112,8 +112,8 @@ async def _run_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
-    url_servers: dict[str, dict[str, str]] | None = None,
-    stdio_servers: dict[str, dict[str, str]] | None = None,
+    url_servers: dict[str, dict[str, Any]] | None = None,
+    stdio_servers: dict[str, dict[str, Any]] | None = None,
     agent_name: str | None = "agent",
     skills_directory: Path | None = None,
     shell_runtime: bool = False,
@@ -130,18 +130,14 @@ async def _run_agent(
 
     # Create the FastAgent instance
 
-    fast_kwargs = {
-        "name": name,
-        "config_path": config_path,
-        "ignore_unknown_args": True,
-        "parse_cli_args": False,  # Don't parse CLI args, we're handling it ourselves
-    }
-    if mode == "serve":
-        fast_kwargs["quiet"] = True
-    if skills_directory is not None:
-        fast_kwargs["skills_directory"] = skills_directory
-
-    fast = FastAgent(**fast_kwargs)
+    fast = FastAgent(
+        name=name,
+        config_path=config_path,
+        ignore_unknown_args=True,
+        parse_cli_args=False,  # Don't parse CLI args, we're handling it ourselves
+        quiet=mode == "serve",
+        skills_directory=skills_directory,
+    )
 
     # Set model on args so model source detection works correctly
     if model:
@@ -152,8 +148,10 @@ async def _run_agent(
         setattr(fast.app.context, "shell_runtime", True)
 
     # Add all dynamic servers to the configuration
-    await add_servers_to_config(fast, url_servers)
-    await add_servers_to_config(fast, stdio_servers)
+    if url_servers:
+        await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", url_servers))
+    if stdio_servers:
+        await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
     # Check if we have multiple models (comma-delimited)
     if model and "," in model:
@@ -166,12 +164,12 @@ async def _run_agent(
             agent_name = f"{model_name}"
 
             # Define the agent with specified parameters
-            agent_kwargs = {"instruction": instruction, "name": agent_name}
-            if server_list:
-                agent_kwargs["servers"] = server_list
-            agent_kwargs["model"] = model_name
-
-            @fast.agent(**agent_kwargs)
+            @fast.agent(
+                name=agent_name,
+                instruction=instruction,
+                servers=server_list or [],
+                model=model_name,
+            )
             async def model_agent():
                 pass
 
@@ -218,15 +216,12 @@ async def _run_agent(
     else:
         # Single model - use original behavior
         # Define the agent with specified parameters
-        agent_kwargs = {"instruction": instruction}
-        if agent_name:
-            agent_kwargs["name"] = agent_name
-        if server_list:
-            agent_kwargs["servers"] = server_list
-        if model:
-            agent_kwargs["model"] = model
-
-        @fast.agent(**agent_kwargs)
+        @fast.agent(
+            name=agent_name or "agent",
+            instruction=instruction,
+            servers=server_list or [],
+            model=model,
+        )
         async def cli_agent():
             async with fast.run() as agent:
                 if message:

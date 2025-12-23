@@ -11,7 +11,7 @@ import tempfile
 from collections.abc import Callable, Iterable
 from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, WordCompleter
@@ -31,7 +31,6 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     ClearCommand,
-    CommandBase,
     CommandPayload,
     ListToolsCommand,
     LoadHistoryCommand,
@@ -44,6 +43,7 @@ from fast_agent.ui.command_payloads import (
     ShowUsageCommand,
     SkillsCommand,
     SwitchAgentCommand,
+    is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
 
@@ -1385,8 +1385,8 @@ async def handle_special_commands(
         return False
 
     # If command is already a command payload, it has been pre-processed.
-    if isinstance(command, CommandBase):
-        return command
+    if is_command_payload(command):
+        return cast("CommandPayload", command)
 
     global agent_histories
 

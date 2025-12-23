@@ -9,8 +9,12 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Mapping, MutableMapping, Sequence
 
+from fast_agent.core.logging.logger import get_logger
+
 if TYPE_CHECKING:
     from fast_agent.skills import SkillManifest
+
+logger = get_logger(__name__)
 
 
 def apply_template_variables(
@@ -134,7 +138,11 @@ def load_skills_for_context(
                 override_dirs.append(base_dir / override_path)
 
     registry = SkillRegistry(base_dir=base_dir, directories=override_dirs)
-    return registry.load_manifests()
+    try:
+        return registry.load_manifests()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to load skills; continuing without them", data={"error": str(exc)})
+        return []
 
 
 def enrich_with_environment_context(

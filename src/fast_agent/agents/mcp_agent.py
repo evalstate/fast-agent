@@ -55,7 +55,12 @@ from fast_agent.tools.elicitation import (
 )
 from fast_agent.tools.shell_runtime import ShellRuntime
 from fast_agent.tools.skill_reader import SkillReader
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import (
+    PromptMessageExtended,
+    RequestParams,
+    ToolTimingInfo,
+    ToolTimings,
+)
 from fast_agent.ui import console
 
 # Define a TypeVar for models
@@ -570,7 +575,7 @@ class McpAgent(ABC, ToolAgent):
         """
         try:
             # Run via shared tool runner
-            resp_text = await run_elicitation_form(arguments, agent_name=self._name)
+            resp_text = await run_elicitation_form(arguments or {}, agent_name=self._name)
             if resp_text == "__DECLINED__":
                 return CallToolResult(
                     isError=False,
@@ -806,7 +811,7 @@ class McpAgent(ABC, ToolAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        tool_timings: dict[str, float] = {}  # Track timing for each tool call
+        tool_timings: ToolTimings = {}  # Track timing for each tool call
         tool_loop_error: str | None = None
 
         # Cache available tool names exactly as advertised to the LLM for display/highlighting
@@ -848,11 +853,11 @@ class McpAgent(ABC, ToolAgent):
                 )
 
             # Select display/highlight names
-            display_tool_name = (
-                (namespaced_tool or candidate_namespaced_tool).namespaced_tool_name
-                if (namespaced_tool or candidate_namespaced_tool) is not None
-                else tool_name
-            )
+            active_namespaced = namespaced_tool or candidate_namespaced_tool
+            if active_namespaced is not None:
+                display_tool_name = active_namespaced.namespaced_tool_name
+            else:
+                display_tool_name = tool_name
 
             # Check if tool is available from various sources
             is_external_runtime_tool = (
@@ -930,10 +935,10 @@ class McpAgent(ABC, ToolAgent):
 
                 tool_results[correlation_id] = result
                 # Store timing and transport channel info
-                tool_timings[correlation_id] = {
-                    "timing_ms": duration_ms,
-                    "transport_channel": getattr(result, "transport_channel", None),
-                }
+                tool_timings[correlation_id] = ToolTimingInfo(
+                    timing_ms=duration_ms,
+                    transport_channel=getattr(result, "transport_channel", None),
+                )
 
                 # Show tool result (like ToolAgent does)
                 skybridge_config = None

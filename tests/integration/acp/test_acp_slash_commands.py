@@ -13,6 +13,7 @@ import pytest
 from mcp.types import TextContent
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
+from fast_agent.agents.agent_types import AgentType
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
@@ -36,6 +37,8 @@ class StubAgent:
     llm: Any = None
     cleared: bool = False
     popped: bool = False
+    agent_type: AgentType = AgentType.BASIC
+    name: str = "test-agent"
 
     def clear(self, clear_prompts: bool = False) -> None:
         self.cleared = True

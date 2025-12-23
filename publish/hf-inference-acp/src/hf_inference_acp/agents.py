@@ -220,6 +220,7 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model command."""
+        from fast_agent.llm.hf_inference_lookup import validate_hf_model
         from fast_agent.llm.model_factory import ModelFactory
 
         model = arguments.strip()
@@ -229,20 +230,24 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         # Normalize the model string (auto-add hf. prefix if needed)
         model = _normalize_hf_model(model)
 
-        # Validate the model string before saving to config
+        # Validate the model string format
         try:
             ModelFactory.parse_model_string(model)
         except Exception as e:
             return f"Error: Invalid model `{model}` - {e}"
 
-        # Look up inference providers for this model
-        provider_info = await _lookup_and_format_providers(model)
+        # Validate model exists on HuggingFace and has providers
+        validation = await validate_hf_model(model, aliases=ModelFactory.MODEL_ALIASES)
+        if not validation.valid:
+            return validation.error or "Error: Model validation failed"
 
         try:
             update_model_in_config(model)
             applied = await self._apply_model_to_running_hf_agent(model)
             applied_note = "\n\nApplied to the running Hugging Face agent." if applied else ""
-            provider_prefix = f"{provider_info}\n\n" if provider_info else ""
+            provider_prefix = (
+                f"{validation.display_message}\n\n" if validation.display_message else ""
+            )
             return (
                 f"{provider_prefix}"
                 f"Default model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
@@ -498,9 +503,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             await _send_connect_update(title="Connected", status="in_progress")
 
             # Rebuild system prompt to include fresh server instructions
-            await _send_connect_update(
-                title="Rebuilding system prompt…", status="in_progress"
-            )
+            await _send_connect_update(title="Rebuilding system prompt…", status="in_progress")
             await self.rebuild_instruction_templates()
 
             # Get available tools
@@ -543,6 +546,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
 
     async def _handle_set_model(self, arguments: str) -> str:
         """Handler for /set-model in Hugging Face mode."""
+        from fast_agent.llm.hf_inference_lookup import validate_hf_model
         from fast_agent.llm.model_factory import ModelFactory
 
         model = arguments.strip()
@@ -552,20 +556,24 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         # Normalize the model string (auto-add hf. prefix if needed)
         model = _normalize_hf_model(model)
 
-        # Validate the model string before applying
+        # Validate the model string format
         try:
             ModelFactory.parse_model_string(model)
         except Exception as e:
             return f"Error: Invalid model `{model}` - {e}"
 
-        # Look up inference providers for this model
-        provider_info = await _lookup_and_format_providers(model)
+        # Validate model exists on HuggingFace and has providers
+        validation = await validate_hf_model(model, aliases=ModelFactory.MODEL_ALIASES)
+        if not validation.valid:
+            return validation.error or "Error: Model validation failed"
 
         try:
             # Apply model first - if this fails, don't update config
             await self.apply_model(model)
             update_model_in_config(model)
-            provider_prefix = f"{provider_info}\n\n" if provider_info else ""
+            provider_prefix = (
+                f"{validation.display_message}\n\n" if validation.display_message else ""
+            )
             return f"{provider_prefix}Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
         except Exception as e:
             return f"Error setting model: {e}"

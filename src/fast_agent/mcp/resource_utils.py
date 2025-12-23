@@ -7,7 +7,7 @@ from mcp.types import (
     ImageContent,
     TextResourceContents,
 )
-from pydantic import AnyUrl
+from pydantic import AnyUrl, TypeAdapter
 
 import fast_agent.mcp.mime_utils as mime_utils
 
@@ -65,12 +65,20 @@ def load_resource_content(resource_path: str, prompt_files: list[Path]) -> Resou
 
 
 # Create a safe way to generate resource URIs that Pydantic accepts
-def create_resource_uri(path: str) -> str:
+_ANY_URL_ADAPTER = TypeAdapter(AnyUrl)
+
+
+def to_any_url(value: str | AnyUrl) -> AnyUrl:
+    """Normalize a URI string to AnyUrl (validates via pydantic)."""
+    return _ANY_URL_ADAPTER.validate_python(value)
+
+
+def create_resource_uri(path: str) -> AnyUrl:
     """Create a resource URI from a path"""
-    return f"resource://fast-agent/{Path(path).name}"
+    return to_any_url(f"resource://fast-agent/{Path(path).name}")
 
 
-def create_resource_reference(uri: str, mime_type: str) -> "EmbeddedResource":
+def create_resource_reference(uri: AnyUrl | str, mime_type: str) -> "EmbeddedResource":
     """
     Create a reference to a resource without embedding its content directly.
 
@@ -89,7 +97,7 @@ def create_resource_reference(uri: str, mime_type: str) -> "EmbeddedResource":
 
     # Create a resource reference
     resource_contents = TextResourceContents(
-        uri=uri,
+        uri=to_any_url(uri),
         mimeType=mime_type,
         text="",  # Empty text as we're just referencing
     )
@@ -104,17 +112,12 @@ def create_embedded_resource(
     # Format a valid resource URI string
     resource_uri_str = create_resource_uri(resource_path)
 
-    # Create common resource args dict to reduce duplication
-    resource_args = {
-        "uri": resource_uri_str,  # type: ignore
-        "mimeType": mime_type,
-    }
-
     if is_binary:
         return EmbeddedResource(
             type="resource",
             resource=BlobResourceContents(
-                **resource_args,
+                uri=resource_uri_str,
+                mimeType=mime_type,
                 blob=content,
             ),
         )
@@ -122,7 +125,8 @@ def create_embedded_resource(
         return EmbeddedResource(
             type="resource",
             resource=TextResourceContents(
-                **resource_args,
+                uri=resource_uri_str,
+                mimeType=mime_type,
                 text=content,
             ),
         )
@@ -137,24 +141,28 @@ def create_image_content(data: str, mime_type: str) -> ImageContent:
     )
 
 
-def create_blob_resource(resource_path: str, content: str, mime_type: str) -> EmbeddedResource:
+def create_blob_resource(
+    resource_path: str | AnyUrl, content: str, mime_type: str
+) -> EmbeddedResource:
     """Create an embedded resource for binary data"""
     return EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri=resource_path,
+            uri=to_any_url(resource_path),
             mimeType=mime_type,
             blob=content,  # Content should already be base64 encoded
         ),
     )
 
 
-def create_text_resource(resource_path: str, content: str, mime_type: str) -> EmbeddedResource:
+def create_text_resource(
+    resource_path: str | AnyUrl, content: str, mime_type: str
+) -> EmbeddedResource:
     """Create an embedded resource for text data"""
     return EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri=resource_path,
+            uri=to_any_url(resource_path),
             mimeType=mime_type,
             text=content,
         ),
@@ -193,12 +201,13 @@ def normalize_uri(uri_or_filename: str) -> str:
 def extract_title_from_uri(uri: AnyUrl) -> str:
     """Extract a readable title from a URI."""
     # Simple attempt to get filename from path
-    uri_str = uri._url
+    uri_str = str(uri)
     try:
         # For HTTP(S) URLs
         if uri.scheme in ("http", "https"):
             # Get the last part of the path
-            path_parts = uri.path.split("/")
+            path = uri.path or ""
+            path_parts = path.split("/") if path else []
             filename = next((p for p in reversed(path_parts) if p), "")
             return filename if filename else uri_str
 

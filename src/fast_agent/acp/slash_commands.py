@@ -980,7 +980,7 @@ class SlashCommandHandler:
         await rebuild_agent_instruction(
             agent,
             skill_manifests=manifests,
-            instruction_context=instruction_context,
+            context=instruction_context,
             skill_registry=registry,
         )
 

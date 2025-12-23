@@ -11,7 +11,7 @@ import base64
 import logging
 import sys
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Union
+from typing import Any, Awaitable, Callable, Sequence, Union
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.prompts.base import (
@@ -48,7 +48,9 @@ logger = logging.getLogger("prompt_server")
 mcp = FastMCP("Prompt Server")
 
 
-def convert_to_fastmcp_messages(prompt_messages: list[Union[PromptMessage, PromptMessageExtended]]) -> list[Message]:
+def convert_to_fastmcp_messages(
+    prompt_messages: Sequence[Union[PromptMessage, PromptMessageExtended]],
+) -> list[Message]:
     """
     Convert PromptMessage or PromptMessageExtended objects to FastMCP Message objects.
     This adapter prevents double-wrapping of messages and handles both types.
@@ -63,26 +65,19 @@ def convert_to_fastmcp_messages(prompt_messages: list[Union[PromptMessage, Promp
 
     for msg in prompt_messages:
         # Handle both PromptMessage and PromptMessageExtended
-        if hasattr(msg, 'from_multipart'):
-            # PromptMessageExtended - convert to regular PromptMessage format
+        if isinstance(msg, PromptMessageExtended):
             flat_messages = msg.from_multipart()
-            for flat_msg in flat_messages:
-                if flat_msg.role == "user":
-                    result.append(UserMessage(content=flat_msg.content))
-                elif flat_msg.role == "assistant":
-                    result.append(AssistantMessage(content=flat_msg.content))
-                else:
-                    logger.warning(f"Unknown message role: {flat_msg.role}, defaulting to user")
-                    result.append(UserMessage(content=flat_msg.content))
         else:
-            # Regular PromptMessage - use directly
-            if msg.role == "user":
-                result.append(UserMessage(content=msg.content))
-            elif msg.role == "assistant":
-                result.append(AssistantMessage(content=msg.content))
+            flat_messages = [msg]
+
+        for flat_msg in flat_messages:
+            if flat_msg.role == "user":
+                result.append(UserMessage(content=flat_msg.content))
+            elif flat_msg.role == "assistant":
+                result.append(AssistantMessage(content=flat_msg.content))
             else:
-                logger.warning(f"Unknown message role: {msg.role}, defaulting to user")
-                result.append(UserMessage(content=msg.content))
+                logger.warning(f"Unknown message role: {flat_msg.role}, defaulting to user")
+                result.append(UserMessage(content=flat_msg.content))
 
     return result
 

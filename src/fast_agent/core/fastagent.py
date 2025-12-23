@@ -601,7 +601,13 @@ class FastAgent:
 
                     default_skills: list[SkillManifest] = []
                     if registry:
-                        default_skills = registry.load_manifests()
+                        try:
+                            default_skills = registry.load_manifests()
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning(
+                                "Failed to load skills; continuing without them",
+                                data={"error": str(exc)},
+                            )
 
                     self._apply_skills_to_agent_configs(default_skills)
 

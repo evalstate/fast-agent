@@ -100,12 +100,18 @@ class RouterAgent(LlmAgent):
         self.agent_map = {agent.name: agent for agent in agents}
 
         # Set up base router request parameters with just the base instruction for now
-        base_params = {"systemPrompt": ROUTING_SYSTEM_INSTRUCTION, "use_history": False}
-
         if default_request_params:
-            merged_params = default_request_params.model_copy(update=base_params)
+            merged_params = default_request_params.model_copy(
+                update={
+                    "systemPrompt": ROUTING_SYSTEM_INSTRUCTION,
+                    "use_history": False,
+                }
+            )
         else:
-            merged_params = RequestParams(**base_params)
+            merged_params = RequestParams(
+                systemPrompt=ROUTING_SYSTEM_INSTRUCTION,
+                use_history=False,
+            )
 
         self._default_request_params = merged_params
 
