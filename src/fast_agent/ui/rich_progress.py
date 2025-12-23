@@ -49,7 +49,6 @@ class RichProgressDisplay:
         """Pause the progress display."""
         if not self._paused:
             self._paused = True
-
             for task in self._progress.tasks:
                 task.visible = False
             self._progress.stop()

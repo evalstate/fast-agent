@@ -820,19 +820,13 @@ class StreamingMessageHandle:
 
             if event_type == "start":
                 self._begin_tool_mode()
-                if not streams_arguments:
-                    self._pause_progress_display()
                 self.update(f"→ Calling {tool_name}\n")
                 return
             if event_type == "delta":
                 if streams_arguments and info and "chunk" in info:
                     self.update(info["chunk"])
-            elif event_type == "text":
-                self._pause_progress_display()
             elif event_type == "stop":
                 self._end_tool_mode()
-                if not streams_arguments:
-                    self._resume_progress_display()
         except Exception as exc:
             logger.warning(
                 "Error handling tool event",

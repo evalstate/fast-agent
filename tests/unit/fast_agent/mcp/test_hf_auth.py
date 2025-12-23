@@ -14,6 +14,11 @@ from fast_agent.mcp.hf_auth import (
 )
 
 
+def _no_hub_token() -> None:
+    """Token provider that always returns None (no huggingface_hub token)."""
+    return None
+
+
 def _set_hf_token(value: str | None) -> str | None:
     """Set HF_TOKEN environment variable and return the original value."""
     original = os.getenv("HF_TOKEN")
@@ -105,14 +110,14 @@ class TestGetHfTokenFromEnv:
     def test_token_absent(self):
         original = _set_hf_token(None)
         try:
-            assert get_hf_token_from_env() is None
+            assert get_hf_token_from_env(hub_token_provider=_no_hub_token) is None
         finally:
             _restore_hf_token(original)
 
     def test_token_empty_string(self):
         original = _set_hf_token("")
         try:
-            assert None is get_hf_token_from_env()
+            assert get_hf_token_from_env(hub_token_provider=_no_hub_token) is None
         finally:
             _restore_hf_token(original)
 
@@ -130,7 +135,7 @@ class TestShouldAddHfAuth:
     def test_hf_url_no_existing_auth_no_token(self):
         original = _set_hf_token(None)
         try:
-            assert should_add_hf_auth("https://hf.co/models", None) is False
+            assert should_add_hf_auth("https://hf.co/models", None, _no_hub_token) is False
         finally:
             _restore_hf_token(original)
 
@@ -277,7 +282,7 @@ class TestAddHfAuthHeader:
     def test_returns_none_when_no_token_available(self):
         original = _set_hf_token(None)
         try:
-            result = add_hf_auth_header("https://hf.co/models", None)
+            result = add_hf_auth_header("https://hf.co/models", None, _no_hub_token)
             assert result is None
         finally:
             _restore_hf_token(original)

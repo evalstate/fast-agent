@@ -95,7 +95,7 @@ async def test_acp_image_content_processing() -> None:
             ImageContentBlock(
                 type="image",
                 data=fake_image_data,
-                mimeType="image/png",
+                mime_type="image/png",
             ),
         ]
 
@@ -160,7 +160,7 @@ async def test_acp_embedded_text_resource_processing() -> None:
                 type="resource",
                 resource=TextResourceContents(
                     uri="file:///example.py",
-                    mimeType="text/x-python",
+                    mime_type="text/x-python",
                     text="def hello():\n    return 'Hello, world!'",
                 ),
             ),
@@ -219,7 +219,7 @@ async def test_acp_embedded_blob_resource_processing() -> None:
                 type="resource",
                 resource=BlobResourceContents(
                     uri="file:///document.pdf",
-                    mimeType="application/pdf",
+                    mime_type="application/pdf",
                     blob=fake_blob_data,
                 ),
             ),
@@ -271,7 +271,7 @@ async def test_acp_mixed_content_blocks() -> None:
                 type="resource",
                 resource=TextResourceContents(
                     uri="file:///app.py",
-                    mimeType="text/x-python",
+                    mime_type="text/x-python",
                     text="import sys\nprint(sys.version)",
                 ),
             ),
@@ -279,7 +279,7 @@ async def test_acp_mixed_content_blocks() -> None:
             ImageContentBlock(
                 type="image",
                 data=image_data,
-                mimeType="image/png",
+                mime_type="image/png",
             ),
             text_block("What's wrong?"),
         ]
@@ -336,7 +336,7 @@ async def test_acp_resource_only_prompt_not_slash_command() -> None:
                 type="resource",
                 resource=TextResourceContents(
                     uri="file:///C:/Users/shaun/AppData/Roaming/Zed/settings.json",
-                    mimeType="application/json",
+                    mime_type="application/json",
                     text="//hello, world!",
                 ),
             ),

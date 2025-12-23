@@ -54,7 +54,7 @@ def discover_hf_token(*, ignore_env: bool = False) -> tuple[str | None, str | No
         from huggingface_hub import get_token
 
         token = get_token()
-        return token, "huggingface_hub" if token else (None, None)
+        return (token, "huggingface_hub") if token else (None, None)
     except ImportError:
         pass
 

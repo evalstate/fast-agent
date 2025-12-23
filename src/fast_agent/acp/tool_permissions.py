@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
 
 from acp.schema import (
+    FileEditToolCallContent,
     PermissionOption,
     ToolCallProgress,
     ToolCallUpdate,
@@ -161,6 +162,10 @@ class ACPToolPermissionManager:
         server_name: str,
         arguments: dict[str, Any] | None = None,
         tool_call_id: str | None = None,
+        *,
+        diff_old_text: str | None = None,
+        diff_new_text: str | None = None,
+        diff_path: str | None = None,
     ) -> PermissionResult:
         """
         Check if tool execution is permitted.
@@ -175,6 +180,9 @@ class ACPToolPermissionManager:
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
             tool_call_id: Optional tool call ID for tracking
+            diff_old_text: Original file content for diff display (optional)
+            diff_new_text: New file content for diff display (optional)
+            diff_path: File path for diff display (optional)
 
         Returns:
             PermissionResult indicating whether execution is allowed
@@ -212,6 +220,9 @@ class ACPToolPermissionManager:
                 arguments=arguments,
                 tool_call_id=tool_call_id,
                 permission_key=permission_key,
+                diff_old_text=diff_old_text,
+                diff_new_text=diff_new_text,
+                diff_path=diff_path,
             )
 
         except Exception as e:
@@ -230,6 +241,9 @@ class ACPToolPermissionManager:
         arguments: dict[str, Any] | None,
         tool_call_id: str | None,
         permission_key: str,
+        diff_old_text: str | None = None,
+        diff_new_text: str | None = None,
+        diff_path: str | None = None,
     ) -> PermissionResult:
         """
         Request permission from the ACP client.
@@ -273,12 +287,26 @@ class ACPToolPermissionManager:
 
         # Create ToolCallUpdate object per ACP spec with raw_input for full argument visibility
         tool_kind = _infer_tool_kind(tool_name, arguments)
+
+        # Build diff content if provided (for file edit operations)
+        content = None
+        if diff_new_text is not None and diff_path is not None:
+            content = [
+                FileEditToolCallContent(
+                    type="diff",
+                    new_text=diff_new_text,
+                    old_text=diff_old_text,
+                    path=diff_path,
+                )
+            ]
+
         tool_call = ToolCallUpdate(
             tool_call_id=tool_call_id or "pending",
             title=title,
             kind=tool_kind,
             status="pending",
             raw_input=arguments,  # Include full arguments so client can display them
+            content=content,
         )
 
         # Create permission request with options

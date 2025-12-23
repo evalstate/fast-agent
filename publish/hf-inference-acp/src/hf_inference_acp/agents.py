@@ -131,8 +131,9 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         llm = await super().attach_llm(llm_factory, model, request_params, **kwargs)
 
         # Set up wizard callback if LLM supports it
-        if hasattr(llm, "set_completion_callback"):
-            llm.set_completion_callback(self._on_wizard_complete)
+        callback_setter = getattr(llm, "set_completion_callback", None)
+        if callback_setter is not None:
+            callback_setter(self._on_wizard_complete)
 
         return llm
 
