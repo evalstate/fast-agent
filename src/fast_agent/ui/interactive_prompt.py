@@ -22,7 +22,7 @@ from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
-
+    from fast_agent.ui.command_payloads import CommandPayload
 from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
 
@@ -48,6 +48,7 @@ from fast_agent.skills.manager import (
 )
 from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
+from fast_agent.ui.command_payloads import CommandBase
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_argument_input,
@@ -139,10 +140,11 @@ class InteractivePrompt:
                 command_result = await handle_special_commands(user_input, True)
 
                 # Check if we should switch agents
-                if isinstance(command_result, dict):
-                    command_dict: dict[str, Any] = command_result
-                    if "switch_agent" in command_dict:
-                        new_agent = command_dict["switch_agent"]
+                if isinstance(command_result, CommandBase):
+                    command_payload: CommandPayload = command_result
+                    kind = command_payload.kind
+                    if kind == "switch_agent":
+                        new_agent = command_payload.agent_name
                         if new_agent in available_agents_set:
                             agent = new_agent
                             # Display new agent info immediately when switching
@@ -153,14 +155,14 @@ class InteractivePrompt:
                             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
                             continue
                     # Keep the existing list_prompts handler for backward compatibility
-                    elif "list_prompts" in command_dict:
+                    elif kind == "list_prompts":
                         # Use the prompt_provider directly
                         await self._list_prompts(prompt_provider, agent)
                         continue
-                    elif "select_prompt" in command_dict:
+                    elif kind == "select_prompt":
                         # Handle prompt selection, using both list_prompts and apply_prompt
-                        prompt_name = command_dict.get("prompt_name")
-                        prompt_index = command_dict.get("prompt_index")
+                        prompt_name = command_payload.prompt_name
+                        prompt_index = command_payload.prompt_index
 
                         # If a specific index was provided (from /prompt <number>)
                         if prompt_index is not None:
@@ -190,28 +192,26 @@ class InteractivePrompt:
                             # Use the name-based selection
                             await self._select_prompt(prompt_provider, agent, prompt_name)
                         continue
-                    elif "list_tools" in command_dict:
+                    elif kind == "list_tools":
                         # Handle tools list display
                         await self._list_tools(prompt_provider, agent)
                         continue
-                    elif "list_skills" in command_dict:
+                    elif kind == "list_skills":
                         await self._list_skills(prompt_provider, agent)
                         continue
-                    elif "skills_command" in command_dict:
-                        await self._handle_skills_command(
-                            prompt_provider, agent, command_dict["skills_command"]
-                        )
+                    elif kind == "skills_command":
+                        payload = {
+                            "action": command_payload.action,
+                            "argument": command_payload.argument,
+                        }
+                        await self._handle_skills_command(prompt_provider, agent, payload)
                         continue
-                    elif "show_usage" in command_dict:
+                    elif kind == "show_usage":
                         # Handle usage display
                         await self._show_usage(prompt_provider, agent)
                         continue
-                    elif "show_history" in command_dict:
-                        history_info = command_dict.get("show_history")
-                        history_agent = (
-                            history_info.get("agent") if isinstance(history_info, dict) else None
-                        )
-                        target_agent = history_agent or agent
+                    elif kind == "show_history":
+                        target_agent = command_payload.agent or agent
                         try:
                             agent_obj = prompt_provider._agent(target_agent)
                         except Exception:
@@ -222,12 +222,8 @@ class InteractivePrompt:
                         usage = getattr(agent_obj, "usage_accumulator", None)
                         display_history_overview(target_agent, history, usage)
                         continue
-                    elif "clear_last" in command_dict:
-                        clear_info = command_dict.get("clear_last")
-                        clear_agent = (
-                            clear_info.get("agent") if isinstance(clear_info, dict) else None
-                        )
-                        target_agent = clear_agent or agent
+                    elif kind == "clear_last":
+                        target_agent = command_payload.agent or agent
                         try:
                             agent_obj = prompt_provider._agent(target_agent)
                         except Exception:
@@ -257,12 +253,8 @@ class InteractivePrompt:
                                 f"[yellow]No messages to remove for agent '{target_agent}'.[/yellow]"
                             )
                         continue
-                    elif "clear_history" in command_dict:
-                        clear_info = command_dict.get("clear_history")
-                        clear_agent = (
-                            clear_info.get("agent") if isinstance(clear_info, dict) else None
-                        )
-                        target_agent = clear_agent or agent
+                    elif kind == "clear_history":
+                        target_agent = command_payload.agent or agent
                         try:
                             agent_obj = prompt_provider._agent(target_agent)
                         except Exception:
@@ -284,21 +276,21 @@ class InteractivePrompt:
                                 f"[yellow]Agent '{target_agent}' does not support clearing history.[/yellow]"
                             )
                         continue
-                    elif "show_system" in command_dict:
+                    elif kind == "show_system":
                         # Handle system prompt display
                         await self._show_system(prompt_provider, agent)
                         continue
-                    elif "show_markdown" in command_dict:
+                    elif kind == "show_markdown":
                         # Handle markdown display
                         await self._show_markdown(prompt_provider, agent)
                         continue
-                    elif "show_mcp_status" in command_dict:
+                    elif kind == "show_mcp_status":
                         rich_print()
                         await show_mcp_status(agent, prompt_provider)
                         continue
-                    elif "save_history" in command_dict:
+                    elif kind == "save_history":
                         # Save history for the current agent
-                        filename = command_dict.get("filename")
+                        filename = command_payload.filename
                         try:
                             agent_obj = prompt_provider._agent(agent)
 
@@ -314,13 +306,13 @@ class InteractivePrompt:
                             if result:
                                 rich_print(f"[green]{result}[/green]")
                         continue
-                    elif "load_history" in command_dict:
+                    elif kind == "load_history":
                         # Load history for the current agent
-                        if command_dict.get("error"):
-                            rich_print(f"[red]{command_dict['error']}[/red]")
+                        if command_payload.error:
+                            rich_print(f"[red]{command_payload.error}[/red]")
                             continue
 
-                        filename = command_dict.get("filename")
+                        filename = command_payload.filename
                         try:
                             from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 
@@ -328,16 +320,12 @@ class InteractivePrompt:
                             agent_obj = prompt_provider._agent(agent)
 
                             # Load history directly without triggering LLM call
-                            if hasattr(agent_obj, "rebuild_instruction_templates"):
-                                await agent_obj.rebuild_instruction_templates()
                             load_history_into_agent(agent_obj, Path(filename))
 
                             msg_count = len(agent_obj.message_history)
                             rich_print(
                                 f"[green]Loaded {msg_count} messages from {filename}[/green]"
                             )
-                            if hasattr(agent_obj, "rebuild_instruction_templates"):
-                                await agent_obj.rebuild_instruction_templates()
                         except FileNotFoundError:
                             rich_print(f"[red]File not found: {filename}[/red]")
                         except Exception as e:
@@ -346,14 +334,17 @@ class InteractivePrompt:
 
                 # Skip further processing if:
                 # 1. The command was handled (command_result is truthy)
-                # 2. The original input was a dictionary (special command like /prompt)
-                # 3. The command result itself is a dictionary (special command handling result)
+                # 2. The original input was a command payload (special command like /prompt)
+                # 3. The command result itself is a command payload (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
                 if (
                     command_result
-                    or isinstance(user_input, dict)
-                    or isinstance(command_result, dict)
+                    or isinstance(user_input, CommandBase)
+                    or isinstance(command_result, CommandBase)
                 ):
+                    continue
+
+                if not isinstance(user_input, str):
                     continue
 
                 if user_input.upper() == "STOP":
@@ -1130,9 +1121,7 @@ class InteractivePrompt:
                     repo_ref = getattr(marketplace[0], "repo_ref", None)
                     repo_hint = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
             if repo_hint:
-                rich_print(
-                    f"[dim]Repository: {format_marketplace_display_url(repo_hint)}[/dim]"
-                )
+                rich_print(f"[dim]Repository: {format_marketplace_display_url(repo_hint)}[/dim]")
             self._render_marketplace_skills(marketplace)
             selection = await get_selection_input(
                 "Install skill by number or name (empty to cancel): ",
@@ -1148,9 +1137,7 @@ class InteractivePrompt:
             return
 
         try:
-            install_path = await install_marketplace_skill(
-                skill, destination_root=manager_dir
-            )
+            install_path = await install_marketplace_skill(skill, destination_root=manager_dir)
         except Exception as exc:  # noqa: BLE001
             rich_print(f"[red]Failed to install skill: {exc}[/red]")
             return
@@ -1193,9 +1180,7 @@ class InteractivePrompt:
         rich_print(f"[green]Removed skill:[/green] {manifest.name}")
         await self._refresh_agent_skills(prompt_provider, agent_name)
 
-    async def _refresh_agent_skills(
-        self, prompt_provider: "AgentApp", agent_name: str
-    ) -> None:
+    async def _refresh_agent_skills(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         assert hasattr(prompt_provider, "_agent"), (
             "Interactive prompt expects an AgentApp with _agent()"
         )
@@ -1206,9 +1191,7 @@ class InteractivePrompt:
         )
         instruction_context = None
         try:
-            skills_text = format_skills_for_prompt(
-                manifests, read_tool_name="read_skill"
-            )
+            skills_text = format_skills_for_prompt(manifests, read_tool_name="read_skill")
             instruction_context = {"agentSkills": skills_text}
         except Exception:
             instruction_context = None
@@ -1232,9 +1215,7 @@ class InteractivePrompt:
                 rich_print("")
                 rich_print(f"[bold]{bundle_name}[/bold]")
                 if bundle_description:
-                    wrapped_lines = textwrap.wrap(
-                        bundle_description.strip(), width=72
-                    )
+                    wrapped_lines = textwrap.wrap(bundle_description.strip(), width=72)
                     for line in wrapped_lines:
                         rich_print(f"[white]{line.strip()}[/white]")
                 rich_print("")

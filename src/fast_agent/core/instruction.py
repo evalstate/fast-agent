@@ -5,20 +5,33 @@ This module provides a clean abstraction for constructing agent instructions
 from templates with placeholder substitution. Sources can be static values
 or dynamic resolvers that are called at build time.
 
+Built-in placeholders (automatically resolved):
+    {{currentDate}} - Current date in "17 December 2025" format
+    {{hostPlatform}} - Platform info (e.g., "Linux-6.6.0-x86_64")
+    {{pythonVer}} - Python version (e.g., "3.12.0")
+    {{url:https://...}} - Fetches content from URL
+    {{file:path}} - Reads file content (requires workspaceRoot)
+    {{file_silent:path}} - Reads file, empty string if missing
+
+Context placeholders (set by caller):
+    {{workspaceRoot}} - Working directory
+    {{env}} - Environment description
+    {{serverInstructions}} - MCP server instructions
+    {{agentSkills}} - Agent skill descriptions
+
 Usage:
-    builder = InstructionBuilder(template="You are helpful. {{serverInstructions}}")
-    builder.set("currentDate", "17 Dec 2025")
+    builder = InstructionBuilder(template="You are helpful. {{currentDate}}")
+    builder.set("workspaceRoot", "/path/to/workspace")
     builder.set_resolver("serverInstructions", fetch_server_instructions)
 
     instruction = await builder.build()
-
-    # When sources change, rebuild:
-    new_instruction = await builder.build()
 """
 
 from __future__ import annotations
 
+import platform
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -28,6 +41,21 @@ logger = get_logger(__name__)
 
 # Type alias for async resolvers
 Resolver = Callable[[], Awaitable[str]]
+
+
+def _get_current_date() -> str:
+    """Return current date in human-readable format."""
+    return datetime.now().strftime("%d %B %Y")
+
+
+def _get_host_platform() -> str:
+    """Return platform information."""
+    return platform.platform()
+
+
+def _get_python_version() -> str:
+    """Return Python version."""
+    return platform.python_version()
 
 
 def _fetch_url_content(url: str) -> str:
@@ -55,15 +83,26 @@ class InstructionBuilder:
     Builds instruction strings from templates with placeholder substitution.
 
     The builder supports two types of sources:
-    - Static: String values set once (e.g., currentDate)
+    - Static: String values set once (e.g., workspaceRoot)
     - Dynamic: Async resolvers called each time build() is invoked (e.g., serverInstructions)
 
-    Placeholder syntax: {{name}} for simple placeholders
+    Built-in placeholders are automatically resolved unless overridden:
+    - {{currentDate}} - Current date
+    - {{hostPlatform}} - Platform info
+    - {{pythonVer}} - Python version
+
     Special patterns:
     - {{url:https://...}} - Fetches content from URL (resolved at build time)
     - {{file:path}} - Reads file content relative to workspace (requires workspaceRoot)
     - {{file_silent:path}} - Like file: but returns empty string if missing
     """
+
+    # Built-in values that are automatically available
+    _BUILTINS: dict[str, Callable[[], str]] = {
+        "currentDate": _get_current_date,
+        "hostPlatform": _get_host_platform,
+        "pythonVer": _get_python_version,
+    }
 
     def __init__(self, template: str):
         """
@@ -141,8 +180,9 @@ class InstructionBuilder:
         1. {{url:...}} patterns (fetch from URL)
         2. {{file:...}} patterns (read from file, requires workspaceRoot set)
         3. {{file_silent:...}} patterns (read from file, empty if missing)
-        4. Static values
-        5. Dynamic resolvers
+        4. Built-in values (currentDate, hostPlatform, pythonVer)
+        5. Static values (override built-ins if set)
+        6. Dynamic resolvers
 
         Returns:
             The fully resolved instruction string
@@ -158,13 +198,20 @@ class InstructionBuilder:
         # 3. Resolve {{file_silent:...}} patterns (returns empty if missing)
         result = self._resolve_file_patterns(result, silent=True)
 
-        # 4. Apply static values
+        # 4. Apply built-in values (can be overridden by static values)
+        for placeholder, value_fn in self._BUILTINS.items():
+            if placeholder not in self._static:  # Allow override
+                pattern = f"{{{{{placeholder}}}}}"
+                if pattern in result:
+                    result = result.replace(pattern, value_fn())
+
+        # 5. Apply static values
         for placeholder, value in self._static.items():
             pattern = f"{{{{{placeholder}}}}}"
             if pattern in result:
                 result = result.replace(pattern, value)
 
-        # 5. Resolve dynamic values
+        # 6. Resolve dynamic values
         for placeholder, resolver in self._resolvers.items():
             pattern = f"{{{{{placeholder}}}}}"
             if pattern in result:
@@ -259,7 +306,7 @@ class InstructionBuilder:
             Set of placeholder names without sources
         """
         all_placeholders = self.get_placeholders()
-        registered = set(self._static.keys()) | set(self._resolvers.keys())
+        registered = set(self._static.keys()) | set(self._resolvers.keys()) | set(self._BUILTINS.keys())
         return all_placeholders - registered
 
     def copy(self) -> "InstructionBuilder":

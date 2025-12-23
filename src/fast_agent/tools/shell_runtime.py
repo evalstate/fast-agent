@@ -167,7 +167,9 @@ class ShellRuntime:
 
                 if is_windows:
                     # Windows: CREATE_NEW_PROCESS_GROUP allows killing process tree
-                    process_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+                    creation_flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                    if creation_flags:
+                        process_kwargs["creationflags"] = creation_flags
                 else:
                     # Unix: start_new_session creates new process group
                     process_kwargs["start_new_session"] = True
@@ -256,7 +258,9 @@ class ShellRuntime:
                                 if is_windows:
                                     # Windows: try to signal the entire process group before terminating
                                     try:
-                                        process.send_signal(signal.CTRL_BREAK_EVENT)
+                                        ctrl_break = getattr(signal, "CTRL_BREAK_EVENT", None)
+                                        if ctrl_break is not None:
+                                            process.send_signal(ctrl_break)
                                         await asyncio.sleep(2)
                                     except AttributeError:
                                         # Older Python/asyncio may not support send_signal on Windows

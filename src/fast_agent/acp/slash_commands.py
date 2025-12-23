@@ -38,6 +38,7 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.skills.manager import (
+    MarketplaceSkill,
     candidate_marketplace_urls,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
@@ -52,7 +53,7 @@ from fast_agent.skills.manager import (
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
 
@@ -82,8 +83,23 @@ class InstructionAwareAgent(Protocol):
 
 
 @runtime_checkable
-class InstructionRefreshAgent(InstructionAwareAgent, Protocol):
-    async def rebuild_instruction_templates(self) -> None: ...
+class ACPCommandAllowlistProvider(Protocol):
+    @property
+    def acp_session_commands_allowlist(self) -> set[str] | None: ...
+
+
+@runtime_checkable
+class ParallelAgentProtocol(Protocol):
+    @property
+    def fan_out_agents(self) -> list[AgentProtocol] | None: ...
+
+    @property
+    def fan_in_agent(self) -> AgentProtocol | None: ...
+
+
+@runtime_checkable
+class HfDisplayInfoProvider(Protocol):
+    def get_hf_display_info(self) -> dict[str, Any]: ...
 
 
 class SlashCommandHandler:
@@ -193,20 +209,16 @@ class SlashCommandHandler:
         Return session-level commands filtered by the current agent's policy.
 
         By default, all session commands are available. ACP-aware agents can restrict
-        session commands (e.g. Setup/wizard flows) by defining either:
-        - `acp_session_commands_allowlist: set[str] | None` attribute, or
-        - `acp_session_commands_allowlist() -> set[str] | None` method
+        session commands (e.g. Setup/wizard flows) by defining a
+        `acp_session_commands_allowlist: set[str] | None` attribute.
         """
         agent = self._get_current_agent()
         if not isinstance(agent, ACPAwareProtocol):
             return self._session_commands
 
-        allowlist = getattr(agent, "acp_session_commands_allowlist", None)
-        if callable(allowlist):
-            try:
-                allowlist = allowlist()
-            except Exception:
-                allowlist = None
+        allowlist = None
+        if isinstance(agent, ACPCommandAllowlistProvider):
+            allowlist = agent.acp_session_commands_allowlist
 
         if allowlist is None:
             return self._session_commands
@@ -358,9 +370,7 @@ class SlashCommandHandler:
         agent = self._get_current_agent()
 
         # Check if this is a PARALLEL agent
-        is_parallel_agent = (
-            agent and hasattr(agent, "agent_type") and agent.agent_type == AgentType.PARALLEL
-        )
+        is_parallel_agent = agent is not None and agent.agent_type == AgentType.PARALLEL
 
         # For non-parallel agents, extract standard model info
         model_name = "unknown"
@@ -374,9 +384,7 @@ class SlashCommandHandler:
             if model_info:
                 model_name = model_info.name
                 model_provider = str(model_info.provider.value)
-                model_provider_display = getattr(
-                    model_info.provider, "display_name", model_provider
-                )
+                model_provider_display = model_info.provider.display_name
                 if model_info.context_window:
                     context_window = f"{model_info.context_window} tokens"
                 capability_parts = []
@@ -448,19 +456,20 @@ class SlashCommandHandler:
             status_lines.append("")
 
             # Display fan-out agents
-            if hasattr(agent, "fan_out_agents") and agent.fan_out_agents:
-                status_lines.append(f"### Fan-Out Agents ({len(agent.fan_out_agents)})")
-                for idx, fan_out_agent in enumerate(agent.fan_out_agents, 1):
-                    agent_name = getattr(fan_out_agent, "name", f"agent-{idx}")
+            fan_out_agents = (
+                agent.fan_out_agents if isinstance(agent, ParallelAgentProtocol) else None
+            )
+            if fan_out_agents:
+                status_lines.append(f"### Fan-Out Agents ({len(fan_out_agents)})")
+                for idx, fan_out_agent in enumerate(fan_out_agents, 1):
+                    agent_name = fan_out_agent.name
                     status_lines.append(f"**{idx}. {agent_name}**")
 
                     # Get model info for this fan-out agent
                     if fan_out_agent.llm:
                         model_info = ModelInfo.from_llm(fan_out_agent.llm)
                         if model_info:
-                            provider_display = getattr(
-                                model_info.provider, "display_name", str(model_info.provider.value)
-                            )
+                            provider_display = model_info.provider.display_name
                             status_lines.append(f"  - Provider: {provider_display}")
                             status_lines.append(f"  - Model: {model_info.name}")
                             if model_info.context_window:
@@ -476,18 +485,16 @@ class SlashCommandHandler:
                 status_lines.append("")
 
             # Display fan-in agent
-            if hasattr(agent, "fan_in_agent") and agent.fan_in_agent:
-                fan_in_agent = agent.fan_in_agent
-                fan_in_name = getattr(fan_in_agent, "name", "aggregator")
+            fan_in_agent = agent.fan_in_agent if isinstance(agent, ParallelAgentProtocol) else None
+            if fan_in_agent:
+                fan_in_name = fan_in_agent.name
                 status_lines.append(f"### Fan-In Agent: {fan_in_name}")
 
                 # Get model info for fan-in agent
                 if fan_in_agent.llm:
                     model_info = ModelInfo.from_llm(fan_in_agent.llm)
                     if model_info:
-                        provider_display = getattr(
-                            model_info.provider, "display_name", str(model_info.provider.value)
-                        )
+                        provider_display = model_info.provider.display_name
                         status_lines.append(f"  - Provider: {provider_display}")
                         status_lines.append(f"  - Model: {model_info.name}")
                         if model_info.context_window:
@@ -509,10 +516,9 @@ class SlashCommandHandler:
                 provider_line = f"{model_provider_display} ({model_provider})"
 
             # For HuggingFace, add the routing provider info
-            if agent and agent.llm:
-                get_hf_info = getattr(agent.llm, "get_hf_display_info", None)
-                if callable(get_hf_info):
-                    hf_info = get_hf_info()
+            if agent and agent.llm and isinstance(agent.llm, HfDisplayInfoProvider):
+                hf_info = agent.llm.get_hf_display_info()
+                if hf_info:
                     hf_provider = hf_info.get("provider", "auto-routing")
                     provider_line = f"{model_provider_display} ({model_provider}) / {hf_provider}"
 
@@ -529,7 +535,7 @@ class SlashCommandHandler:
 
         # Add conversation statistics
         status_lines.append(
-            f"## Conversation Statistics ({getattr(agent, 'name', self.current_agent_name) if agent else 'Unknown'})"
+            f"## Conversation Statistics ({agent.name if agent else 'Unknown'})"
         )
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
@@ -551,12 +557,6 @@ class SlashCommandHandler:
         agent, error = self._get_current_agent_or_error(heading)
         if error:
             return error
-
-        if isinstance(agent, InstructionRefreshAgent):
-            try:
-                await agent.rebuild_instruction_templates()
-            except Exception:
-                pass
 
         system_prompt = agent.instruction if isinstance(agent, InstructionAwareAgent) else None
         if not system_prompt:
@@ -729,10 +729,7 @@ class SlashCommandHandler:
 
         # Get configured registries from settings
         settings = get_settings()
-        skills_settings = getattr(settings, "skills", None)
-        configured_urls: list[str] = []
-        if skills_settings:
-            configured_urls = getattr(skills_settings, "marketplace_urls", None) or []
+        configured_urls = settings.skills.marketplace_urls or []
 
         if not argument:
             current = get_marketplace_url(settings)
@@ -799,8 +796,7 @@ class SlashCommandHandler:
             )
 
         # Update only the active registry, preserve the configured list
-        if skills_settings is not None:
-            skills_settings.marketplace_url = resolved_url
+        settings.skills.marketplace_url = resolved_url
 
         display_url = format_marketplace_display_url(resolved_url)
         if candidates:
@@ -834,6 +830,7 @@ class SlashCommandHandler:
         agent, error = self._get_current_agent_or_error("# skills add")
         if error:
             return error
+        assert agent is not None
 
         tool_call_id = self._build_tool_call_id()
         await self._send_skills_update(
@@ -956,6 +953,7 @@ class SlashCommandHandler:
         agent, error = self._get_current_agent_or_error("# skills remove")
         if error:
             return error
+        assert agent is not None
 
         await self._refresh_agent_skills(agent)
 
@@ -986,7 +984,7 @@ class SlashCommandHandler:
             skill_registry=registry,
         )
 
-    def _format_local_skills(self, manifests: list[Any], manager_dir: Path) -> str:
+    def _format_local_skills(self, manifests: list[SkillManifest], manager_dir: Path) -> str:
         lines = ["# skills", "", f"Directory: `{manager_dir}`", ""]
         if not manifests:
             lines.append("No skills available in the manager directory.")
@@ -1001,12 +999,12 @@ class SlashCommandHandler:
         lines.append("Change skills registry with `/skills registry <url>`.\n")
         return "\n".join(lines)
 
-    def _format_local_list(self, manifests: list[Any]) -> list[str]:
+    def _format_local_list(self, manifests: list[SkillManifest]) -> list[str]:
         lines: list[str] = []
         for index, manifest in enumerate(manifests, 1):
-            name = getattr(manifest, "name", "")
-            description = getattr(manifest, "description", "")
-            path = Path(getattr(manifest, "path", Path()))
+            name = manifest.name
+            description = manifest.description
+            path = manifest.path
             source_path = path.parent if path.is_file() else path
             try:
                 display_path = source_path.relative_to(Path.cwd())
@@ -1020,12 +1018,12 @@ class SlashCommandHandler:
             lines.append(f"  - source: `{display_path}`")
         return lines
 
-    def _format_marketplace_list(self, marketplace: list[Any]) -> list[str]:
+    def _format_marketplace_list(self, marketplace: list[MarketplaceSkill]) -> list[str]:
         lines: list[str] = []
-        current_bundle = None
+        current_bundle: str | None = None
         for index, entry in enumerate(marketplace, 1):
-            bundle_name = getattr(entry, "bundle_name", None)
-            bundle_description = getattr(entry, "bundle_description", None)
+            bundle_name = entry.bundle_name
+            bundle_description = entry.bundle_description
             if bundle_name and bundle_name != current_bundle:
                 current_bundle = bundle_name
                 if lines:
@@ -1043,16 +1041,16 @@ class SlashCommandHandler:
                 lines.append(f"  - source: [link]({entry.source_url})")
         return lines
 
-    def _format_repo_label(self, entry: Any) -> str | None:
-        repo_url = getattr(entry, "repo_url", None)
+    def _format_repo_label(self, entry: MarketplaceSkill) -> str | None:
+        repo_url = entry.repo_url
         if not repo_url:
             return None
-        repo_ref = getattr(entry, "repo_ref", None)
+        repo_ref = entry.repo_ref
         if repo_ref:
             return f"{repo_url}@{repo_ref}"
         return repo_url
 
-    def _get_marketplace_repo_hint(self, marketplace: list[Any]) -> str | None:
+    def _get_marketplace_repo_hint(self, marketplace: list[MarketplaceSkill]) -> str | None:
         if not marketplace:
             return None
         return self._format_repo_label(marketplace[0])
@@ -1070,7 +1068,9 @@ class SlashCommandHandler:
         message: str | None = None,
         start: bool = False,
     ) -> None:
-        acp = getattr(agent, "acp", None)
+        if not isinstance(agent, ACPAwareProtocol):
+            return
+        acp = agent.acp
         if not acp:
             return
         try:
@@ -1166,6 +1166,7 @@ class SlashCommandHandler:
         )
         if error:
             return error
+        assert agent is not None
 
         filename = arguments.strip() if arguments and arguments.strip() else None
 
@@ -1200,6 +1201,7 @@ class SlashCommandHandler:
         )
         if error:
             return error
+        assert agent is not None
 
         filename = arguments.strip() if arguments and arguments.strip() else None
 
@@ -1221,11 +1223,9 @@ class SlashCommandHandler:
                     "",
                     f"File not found: `{filename}`",
                 ]
-            )
+        )
 
         try:
-            if hasattr(agent, "rebuild_instruction_templates"):
-                await agent.rebuild_instruction_templates()
             load_history_into_agent(agent, file_path)
         except Exception as exc:
             return "\n".join(
@@ -1237,9 +1237,7 @@ class SlashCommandHandler:
                 ]
             )
 
-        message_count = len(agent.message_history) if hasattr(agent, "message_history") else 0
-        if hasattr(agent, "rebuild_instruction_templates"):
-            await agent.rebuild_instruction_templates()
+        message_count = len(agent.message_history)
 
         return "\n".join(
             [
@@ -1267,19 +1265,12 @@ class SlashCommandHandler:
         )
         if error:
             return error
+        assert agent is not None
 
         try:
-            history = getattr(agent, "message_history", None)
-            original_count = len(history) if isinstance(history, list) else None
-
-            cleared = False
-            clear_method = getattr(agent, "clear", None)
-            if callable(clear_method):
-                clear_method()
-                cleared = True
-            elif isinstance(history, list):
-                history.clear()
-                cleared = True
+            original_count = len(agent.message_history)
+            agent.clear()
+            cleared = True
         except Exception as exc:
             return "\n".join(
                 [
@@ -1323,16 +1314,12 @@ class SlashCommandHandler:
         )
         if error:
             return error
+        assert agent is not None
 
         try:
-            removed = None
-            pop_method = getattr(agent, "pop_last_message", None)
-            if callable(pop_method):
-                removed = pop_method()
-            else:
-                history = getattr(agent, "message_history", None)
-                if isinstance(history, list) and history:
-                    removed = history.pop()
+            removed = agent.pop_last_message()
+            if removed is None and agent.message_history:
+                removed = agent.message_history.pop()
         except Exception as exc:
             return "\n".join(
                 [
@@ -1352,7 +1339,7 @@ class SlashCommandHandler:
                 ]
             )
 
-        role = getattr(removed, "role", "message")
+        role = removed.role if removed else "message"
         return "\n".join(
             [
                 heading,
@@ -1361,9 +1348,9 @@ class SlashCommandHandler:
             ]
         )
 
-    def _get_conversation_stats(self, agent) -> list[str]:
+    def _get_conversation_stats(self, agent: AgentProtocol | None) -> list[str]:
         """Get conversation statistics from the agent's message history."""
-        if not agent or not hasattr(agent, "message_history"):
+        if not agent:
             return [
                 "- Turns: 0",
                 "- Tool Calls: 0",
@@ -1420,17 +1407,19 @@ class SlashCommandHandler:
                 f"- Context Used: error ({e})",
             ]
 
-    def _get_error_handling_report(self, agent, max_entries: int = 3) -> list[str]:
+    def _get_error_handling_report(
+        self, agent: AgentProtocol | None, max_entries: int = 3
+    ) -> list[str]:
         """Summarize error channel availability and recent entries."""
         channel_label = f"Error Channel: {FAST_AGENT_ERROR_CHANNEL}"
-        if not agent or not hasattr(agent, "message_history"):
+        if not agent:
             return ["_No errors recorded_"]
 
         recent_entries: list[str] = []
-        history = getattr(agent, "message_history", []) or []
+        history = agent.message_history
 
         for message in reversed(history):
-            channels = getattr(message, "channels", None) or {}
+            channels = message.channels or {}
             channel_blocks = channels.get(FAST_AGENT_ERROR_CHANNEL)
             if not channel_blocks:
                 continue
@@ -1460,7 +1449,7 @@ class SlashCommandHandler:
 
         return ["_No errors recorded_"]
 
-    def _get_warning_report(self, agent, max_entries: int = 5) -> list[str]:
+    def _get_warning_report(self, agent: AgentProtocol | None, max_entries: int = 5) -> list[str]:
         warnings: list[str] = []
         if isinstance(agent, WarningAwareAgent):
             warnings.extend(agent.warnings)
@@ -1485,10 +1474,10 @@ class SlashCommandHandler:
             lines.append(f"- ... ({len(cleaned) - max_entries} more)")
         return lines
 
-    def _context_usage_line(self, summary: ConversationSummary, agent) -> str:
+    def _context_usage_line(self, summary: ConversationSummary, agent: AgentProtocol) -> str:
         """Generate a context usage line with token estimation and fallbacks."""
         # Prefer usage accumulator when available (matches enhanced/interactive prompt display)
-        usage = getattr(agent, "usage_accumulator", None)
+        usage = agent.usage_accumulator
         if usage:
             window = usage.context_window_size
             tokens = usage.current_context_tokens
@@ -1501,7 +1490,7 @@ class SlashCommandHandler:
         # Fallback to tokenizing the actual conversation text
         token_count, char_count = self._estimate_tokens(summary, agent)
 
-        model_info = ModelInfo.from_llm(agent.llm) if getattr(agent, "llm", None) else None
+        model_info = ModelInfo.from_llm(agent.llm) if agent.llm else None
         if model_info and model_info.context_window:
             percentage = (
                 (token_count / model_info.context_window) * 100
@@ -1514,11 +1503,13 @@ class SlashCommandHandler:
         token_text = f"~{token_count:,} tokens" if token_count else "~0 tokens"
         return f"- Context Used: {char_count:,} chars ({token_text} est.)"
 
-    def _estimate_tokens(self, summary: ConversationSummary, agent) -> tuple[int, int]:
+    def _estimate_tokens(
+        self, summary: ConversationSummary, agent: AgentProtocol
+    ) -> tuple[int, int]:
         """Estimate tokens and return (tokens, characters) for the conversation history."""
         text_parts: list[str] = []
         for message in summary.messages:
-            for content in getattr(message, "content", []) or []:
+            for content in message.content:
                 text = get_text(content)
                 if text:
                     text_parts.append(text)
@@ -1529,9 +1520,9 @@ class SlashCommandHandler:
             return 0, 0
 
         model_name = None
-        llm = getattr(agent, "llm", None)
+        llm = agent.llm
         if llm:
-            model_name = getattr(llm, "model_name", None)
+            model_name = llm.model_name
 
         token_count = self._count_tokens_with_tiktoken(combined, model_name)
         return token_count, char_count

@@ -127,8 +127,7 @@ class RouterAgent(LlmAgent):
             combined_system_prompt = (
                 ROUTING_SYSTEM_INSTRUCTION + "\n\n" + complete_routing_instruction
             )
-            self._default_request_params.systemPrompt = combined_system_prompt
-            self.instruction = combined_system_prompt
+            self.set_instruction(combined_system_prompt)
 
     async def shutdown(self) -> None:
         """Shutdown the router and all agents."""

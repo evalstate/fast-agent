@@ -249,21 +249,23 @@ class StreamBuffer:
         tables = []
 
         for i, token in enumerate(tokens):
-            if token.type == "table_open" and token.map:
+            token_map = token.map
+            if token.type == "table_open" and token_map is not None:
                 # Find tbody within this table to extract header
                 tbody_start_line = None
 
                 # Look ahead for tbody
                 for j in range(i + 1, len(tokens)):
-                    if tokens[j].type == "tbody_open" and tokens[j].map:
-                        tbody_start_line = tokens[j].map[0]
+                    tbody_map = tokens[j].map
+                    if tokens[j].type == "tbody_open" and tbody_map is not None:
+                        tbody_start_line = tbody_map[0]
                         break
                     elif tokens[j].type == "table_close":
                         break
 
                 if tbody_start_line is not None:
-                    table_start_line = token.map[0]
-                    table_end_line = token.map[1]
+                    table_start_line = token_map[0]
+                    table_end_line = token_map[1]
 
                     # Calculate positions
                     start_pos = sum(len(line) + 1 for line in lines[:table_start_line])

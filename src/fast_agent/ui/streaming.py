@@ -81,7 +81,9 @@ class StreamingMessageHandle:
         self._convert_literal_newlines = False
         self._pending_literal_backslashes = ""
         initial_renderable = (
-            Text("", style=self._plain_text_style) if self._use_plain_text else Markdown("")
+            Text("", style=self._plain_text_style or "")
+            if self._use_plain_text
+            else Markdown("")
         )
         refresh_rate = (
             PLAIN_STREAM_REFRESH_PER_SECOND

@@ -179,7 +179,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._context = context
         self._name = self.config.name
         self._tracer = trace.get_tracer(__name__)
-        self.instruction = self.config.instruction
+        self._instruction = self.config.instruction
 
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: list[PromptMessageExtended] = []
@@ -213,6 +213,17 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def shutdown(self) -> None:
         self.initialized = False
+
+    @property
+    def instruction(self) -> str:
+        """Return the agent's instruction/system prompt."""
+        return self._instruction
+
+    def set_instruction(self, instruction: str) -> None:
+        """Set the agent's instruction/system prompt."""
+        self._instruction = instruction
+        if self._default_request_params:
+            self._default_request_params.systemPrompt = instruction
 
     @property
     def agent_type(self) -> AgentType:
@@ -1001,9 +1012,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
-        if self.llm:
-            return self.llm.pop_last_message()
-        return None
+        if not self._message_history:
+            return None
+        return self._message_history.pop()
 
     @property
     def usage_accumulator(self) -> UsageAccumulator | None:

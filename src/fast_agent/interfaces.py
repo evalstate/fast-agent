@@ -32,7 +32,8 @@ from fast_agent.types import PromptMessageExtended, RequestParams
 if TYPE_CHECKING:
     from fast_agent.acp.acp_aware_mixin import ACPCommand, ACPModeInfo
     from fast_agent.acp.acp_context import ACPContext
-    from fast_agent.agents.agent_types import AgentType
+    from fast_agent.agents.agent_types import AgentConfig, AgentType
+    from fast_agent.context import Context
     from fast_agent.llm.model_info import ModelInfo
 
 __all__ = [
@@ -254,6 +255,12 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 
     @property
     def initialized(self) -> bool: ...
+
+    instruction: str
+    config: "AgentConfig"
+    context: "Context | None"
+
+    def set_instruction(self, instruction: str) -> None: ...
 
 
 @runtime_checkable
