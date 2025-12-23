@@ -64,16 +64,6 @@ all-providers = [
     "boto3>=1.35.0",
     "tensorzero>=2025.7.5"
 ]
-dev = [
-    "pre-commit>=4.0.1",
-    "pydantic>=2.10.4",
-    "pyyaml>=6.0.2",
-    "ruff>=0.8.4",
-    "pytest>=7.4.0",
-    "pytest-asyncio>=0.21.1",
-    "pytest-cov",
-    "ruamel.yaml>=0.18.0",
-]
 
 [build-system]
 requires = ["hatchling"]
@@ -117,6 +107,7 @@ testpaths = ["tests"]
 
 [dependency-groups]
 dev = [
+    "boto3>=1.35.0",
     "pre-commit>=4.0.1",
     "pydantic>=2.10.4",
     "ruamel.yaml>=0.18.0",
