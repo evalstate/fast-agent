@@ -50,6 +50,13 @@ from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilitie
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
+from fast_agent.acp.protocols import (
+    FilesystemRuntimeCapable,
+    InstructionContextCapable,
+    PlanTelemetryCapable,
+    ShellRuntimeCapable,
+    WorkflowTelemetryCapable,
+)
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
@@ -72,6 +79,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
+from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
@@ -448,15 +456,8 @@ class AgentACPServer(ACPAgent):
 
         # Create a SessionMode for each agent
         for agent_name, agent in instance.agents.items():
-            # Get instruction from agent's config
-            instruction = ""
-            resolved_instruction = resolved_cache.get(agent_name)
-            if resolved_instruction:
-                instruction = resolved_instruction
-            elif hasattr(agent, "_config") and hasattr(agent._config, "instruction"):
-                instruction = agent._config.instruction
-            elif hasattr(agent, "instruction"):
-                instruction = agent.instruction
+            # Get instruction from resolved cache (if available) or agent's instruction
+            instruction = resolved_cache.get(agent_name) or agent.instruction
 
             # Format description (first line, truncated to 200 chars)
             description = truncate_description(instruction) if instruction else None
@@ -606,8 +607,8 @@ class AgentACPServer(ACPAgent):
 
                 # Register tool handler with agents' aggregators
                 for agent_name, agent in instance.agents.items():
-                    if hasattr(agent, "_aggregator"):
-                        aggregator = agent._aggregator
+                    if isinstance(agent, McpAgentProtocol):
+                        aggregator = agent.aggregator
                         aggregator._tool_handler = tool_handler
 
                         logger.info(
@@ -617,11 +618,11 @@ class AgentACPServer(ACPAgent):
                             agent_name=agent_name,
                         )
 
-                    if hasattr(agent, "workflow_telemetry"):
+                    if isinstance(agent, WorkflowTelemetryCapable):
                         agent.workflow_telemetry = workflow_telemetry
 
                     # Set up plan telemetry for agents that support it (e.g., IterativePlanner)
-                    if hasattr(agent, "plan_telemetry"):
+                    if isinstance(agent, PlanTelemetryCapable):
                         plan_telemetry = ACPPlanTelemetryProvider(self._connection, session_id)
                         agent.plan_telemetry = plan_telemetry
                         logger.info(
@@ -667,8 +668,8 @@ class AgentACPServer(ACPAgent):
 
                     # Register permission handler with all agents' aggregators
                     for agent_name, agent in instance.agents.items():
-                        if hasattr(agent, "_aggregator"):
-                            aggregator = agent._aggregator
+                        if isinstance(agent, McpAgentProtocol):
+                            aggregator = agent.aggregator
                             aggregator._permission_handler = permission_handler
 
                             logger.info(
@@ -691,7 +692,7 @@ class AgentACPServer(ACPAgent):
                     # Check if any agent has shell runtime enabled
                     for agent_name, agent in instance.agents.items():
                         if (
-                            hasattr(agent, "_shell_runtime_enabled")
+                            isinstance(agent, ShellRuntimeCapable)
                             and agent._shell_runtime_enabled
                         ):
                             # Create ACPTerminalRuntime for this session
@@ -703,7 +704,7 @@ class AgentACPServer(ACPAgent):
                                 session_id=session_id,
                                 activation_reason="via ACP terminal support",
                                 timeout_seconds=getattr(
-                                    agent._shell_runtime, "timeout_seconds", 90
+                                    agent._shell_runtime, "timeout_seconds", 90  # ty: ignore[unresolved-attribute]
                                 ),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
@@ -711,17 +712,16 @@ class AgentACPServer(ACPAgent):
                             )
 
                             # Inject into agent
-                            if hasattr(agent, "set_external_runtime"):
-                                agent.set_external_runtime(terminal_runtime)
-                                session_state.terminal_runtime = terminal_runtime
+                            agent.set_external_runtime(terminal_runtime)
+                            session_state.terminal_runtime = terminal_runtime
 
-                                logger.info(
-                                    "ACP terminal runtime injected",
-                                    name="acp_terminal_injected",
-                                    session_id=session_id,
-                                    agent_name=agent_name,
-                                    default_output_limit=default_limit,
-                                )
+                            logger.info(
+                                "ACP terminal runtime injected",
+                                name="acp_terminal_injected",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                                default_output_limit=default_limit,
+                            )
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
                 if self._client_supports_fs_read or self._client_supports_fs_write:
@@ -741,7 +741,7 @@ class AgentACPServer(ACPAgent):
 
                     # Inject filesystem runtime into each agent
                     for agent_name, agent in instance.agents.items():
-                        if hasattr(agent, "set_filesystem_runtime"):
+                        if isinstance(agent, FilesystemRuntimeCapable):
                             agent.set_filesystem_runtime(filesystem_runtime)
                             logger.info(
                                 "ACP filesystem runtime injected",
@@ -774,7 +774,7 @@ class AgentACPServer(ACPAgent):
         # Set session context on agents that have InstructionBuilder
         # This ensures {{env}}, {{workspaceRoot}}, etc. are available when rebuilding
         for agent_name, agent in instance.agents.items():
-            if hasattr(agent, "set_instruction_context"):
+            if isinstance(agent, InstructionContextCapable):
                 try:
                     agent.set_instruction_context(session_context)
                 except Exception as e:
