@@ -1,6 +1,6 @@
 from fast_agent.config import Settings
-from fast_agent.ui import console
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
 
 

@@ -4,9 +4,9 @@ Manages the lifecycle of multiple MCP server connections.
 
 import asyncio
 import traceback
-from datetime import timedelta
 from contextlib import AbstractAsyncContextManager
-from typing import TYPE_CHECKING, AsyncGenerator, Callable, Union
+from datetime import timedelta
+from typing import TYPE_CHECKING, Callable, Union
 
 import httpx
 from anyio import Event, Lock, create_task_group
