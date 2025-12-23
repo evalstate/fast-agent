@@ -275,7 +275,12 @@ def agent(
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
-    skills: SkillManifest | SkillRegistry | Path | str | None = None,
+    skills: SkillManifest
+    | SkillRegistry
+    | Path
+    | str
+    | list[SkillManifest | SkillRegistry | Path | str | None]
+    | None = None,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -353,7 +358,12 @@ def custom(
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
-    skills: SkillManifest | SkillRegistry | Path | str | None = None,
+    skills: SkillManifest
+    | SkillRegistry
+    | Path
+    | str
+    | list[SkillManifest | SkillRegistry | Path | str | None]
+    | None = None,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,

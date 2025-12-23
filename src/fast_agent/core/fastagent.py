@@ -19,15 +19,16 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
-    Awaitable,
     Callable,
     Literal,
     ParamSpec,
     Sequence,
+    TypeAlias,
     TypeVar,
 )
 
 import yaml
+import yaml.parser
 from opentelemetry import trace
 
 from fast_agent import config
@@ -101,6 +102,7 @@ if TYPE_CHECKING:
 
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
+SkillEntry: TypeAlias = SkillManifest | SkillRegistry | Path | str
 
 
 class FastAgent:
@@ -368,7 +370,12 @@ class FastAgent:
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
             prompts: dict[str, list[str]] | None = None,
-            skills: list[SkillManifest | SkillRegistry | Path | str | None] | None = None,
+            skills: SkillManifest
+            | SkillRegistry
+            | Path
+            | str
+            | list[SkillManifest | SkillRegistry | Path | str | None]
+            | None = None,
             model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -390,11 +397,17 @@ class FastAgent:
             name: str = "default",
             instruction_or_kwarg: str | Path | AnyUrl | None = None,
             *,
-            instruction: str | Path | AnyUrl = DEFAULT_AGENT_INSTRUCTION,
+            instruction: str | Path | AnyUrl = "You are a helpful agent.",
             servers: list[str] = [],
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
             prompts: dict[str, list[str]] | None = None,
+            skills: SkillManifest
+            | SkillRegistry
+            | Path
+            | str
+            | list[SkillManifest | SkillRegistry | Path | str | None]
+            | None = None,
             model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -402,7 +415,9 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def orchestrator(
             self,
@@ -420,7 +435,9 @@ class FastAgent:
             plan_iterations: int = 5,
             default: bool = False,
             api_key: str | None = None,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def iterative_planner(
             self,
@@ -433,7 +450,9 @@ class FastAgent:
             plan_iterations: int = -1,
             default: bool = False,
             api_key: str | None = None,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def router(
             self,
@@ -452,7 +471,9 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def chain(
             self,
@@ -462,7 +483,9 @@ class FastAgent:
             instruction: str | Path | AnyUrl | None = None,
             cumulative: bool = False,
             default: bool = False,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def parallel(
             self,
@@ -473,7 +496,9 @@ class FastAgent:
             instruction: str | Path | AnyUrl | None = None,
             include_request: bool = True,
             default: bool = False,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def evaluator_optimizer(
             self,
@@ -486,7 +511,9 @@ class FastAgent:
             max_refinements: int = 3,
             refinement_instruction: str | None = None,
             default: bool = False,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
         def maker(
             self,
@@ -499,18 +526,21 @@ class FastAgent:
             red_flag_max_length: int | None = None,
             instruction: str | Path | AnyUrl | None = None,
             default: bool = False,
-        ) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]: ...
+        ) -> Callable[
+            [Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]
+        ]: ...
 
     # Runtime bindings (actual implementations)
-    agent = agent_decorator
-    custom = custom_decorator
-    orchestrator = orchestrator_decorator
-    iterative_planner = orchestrator2_decorator
-    router = router_decorator
-    chain = chain_decorator
-    parallel = parallel_decorator
-    evaluator_optimizer = evaluator_optimizer_decorator
-    maker = maker_decorator
+    if not TYPE_CHECKING:
+        agent = agent_decorator
+        custom = custom_decorator
+        orchestrator = orchestrator_decorator
+        iterative_planner = orchestrator2_decorator
+        router = router_decorator
+        chain = chain_decorator
+        parallel = parallel_decorator
+        evaluator_optimizer = evaluator_optimizer_decorator
+        maker = maker_decorator
 
     def _get_acp_server_class(self):
         """Import and return the ACP server class with helpful error handling."""
@@ -548,12 +578,13 @@ class FastAgent:
         cli_model_override = getattr(self.args, "model", None)
 
         # Store the model source for UI display
+        config = self.context.config
         model_source = get_default_model_source(
-            config_default_model=self.context.config.default_model,
+            config_default_model=config.default_model if config else None,
             cli_model=cli_model_override,
         )
-        if self.context.config:
-            self.context.config.model_source = model_source  # type: ignore[attr-defined]
+        if config:
+            config.model_source = model_source  # type: ignore[attr-defined]
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):
@@ -892,7 +923,7 @@ class FastAgent:
                 continue
 
             resolved = apply_template_variables(template, context_vars)
-            if resolved == template:
+            if resolved is None or resolved == template:
                 continue
 
             # Use set_instruction() which handles syncing request_params and LLM
@@ -919,27 +950,33 @@ class FastAgent:
 
     def _resolve_skills(
         self,
-        entry: SkillManifest
-        | SkillRegistry
-        | Path
-        | str
-        | list[SkillManifest | SkillRegistry | Path | str | None]
-        | None,
+        entry: SkillEntry | list[SkillEntry | None] | None,
     ) -> list[SkillManifest]:
         if entry is None:
             return []
         if isinstance(entry, list):
-            filtered = [item for item in entry if item is not None]
+            filtered: list[SkillEntry] = []
+            for item in entry:
+                if isinstance(item, (SkillManifest, SkillRegistry, Path, str)):
+                    filtered.append(item)
+                elif item is not None:
+                    logger.debug(
+                        "Unsupported skill entry type",
+                        data={"type": type(item).__name__},
+                    )
             if not filtered:
                 return []
-            if all(isinstance(item, (Path, str)) for item in filtered):
-                directories = [
-                    Path(item) if isinstance(item, str) else item for item in filtered
-                ]
+            directory_entries = [
+                item for item in filtered if isinstance(item, (Path, str))
+            ]
+            if len(directory_entries) == len(filtered):
+                directories: list[Path | str] = []
+                for item in directory_entries:
+                    directories.append(Path(item) if isinstance(item, str) else item)
                 registry = SkillRegistry(base_dir=Path.cwd(), directories=directories)
                 return registry.load_manifests()
             manifests: list[SkillManifest] = []
-            for item in entry:
+            for item in filtered:
                 manifests.extend(self._resolve_skills(item))
             return manifests
         if isinstance(entry, SkillManifest):
