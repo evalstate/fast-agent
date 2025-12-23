@@ -4,19 +4,20 @@ It adds logging and supports sampling requests.
 """
 
 from datetime import timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession, ServerNotification
+from mcp.shared.context import RequestContext
 from mcp.shared.message import MessageMetadata
 from mcp.shared.session import (
     ProgressFnT,
     ReceiveResultT,
-    SendRequestT,
 )
 from mcp.types import (
     CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
+    ClientRequest,
     GetPromptRequest,
     GetPromptRequestParams,
     GetPromptResult,
@@ -28,7 +29,7 @@ from mcp.types import (
     Root,
     ToolListChangedNotification,
 )
-from pydantic import FileUrl
+from pydantic import AnyUrl, FileUrl
 
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.logging.logger import get_logger
@@ -42,10 +43,10 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
-async def list_roots(ctx: ClientSession) -> ListRootsResult:
+async def list_roots(context: RequestContext[ClientSession, None]) -> ListRootsResult:
     """List roots callback that will be called by the MCP library."""
 
-    if server_config := get_server_config(ctx):
+    if server_config := get_server_config(context.session):
         if server_config.roots:
             roots = [
                 Root(
@@ -99,8 +100,8 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Track the effective elicitation mode for diagnostics
         self.effective_elicitation_mode: str | None = "none"
 
-        version = version("fast-agent-mcp") or "dev"
-        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=version)
+        fast_agent_version = version("fast-agent-mcp") or "dev"
+        fast_agent: Implementation = Implementation(name="fast-agent-mcp", version=fast_agent_version)
         if self.server_config and self.server_config.implementation:
             fast_agent = self.server_config.implementation
 
@@ -202,7 +203,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
     async def send_request(
         self,
-        request: SendRequestT,
+        request: ClientRequest,
         result_type: type[ReceiveResultT],
         request_read_timeout_seconds: timedelta | None = None,
         metadata: MessageMetadata | None = None,
@@ -318,14 +319,14 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         except Exception as e:
             logger.error(f"Error in tool list changed callback: {e}")
 
-    # TODO -- decide whether to make this override type safe or not (modify SDK)
     async def call_tool(
         self,
         name: str,
-        arguments: dict | None = None,
-        _meta: dict | None = None,
+        arguments: dict[str, Any] | None = None,
+        read_timeout_seconds: timedelta | None = None,
         progress_callback: ProgressFnT | None = None,
-        **kwargs,
+        *,
+        meta: dict[str, Any] | None = None,
     ) -> CallToolResult:
         """Call a tool with optional metadata and progress callback support.
 
@@ -336,31 +337,23 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
         # Always create request ourselves to ensure we go through our send_request override
         # This is critical for session terminated detection to work
-        params = CallToolRequestParams(name=name, arguments=arguments)
+        _meta: RequestParams.Meta | None = None
+        if meta is not None:
+            _meta = RequestParams.Meta(**meta)
 
-        if _meta:
-            # Safe merge - preserve existing meta fields like progressToken
-            existing_meta = kwargs.get("meta")
-            if existing_meta:
-                meta_dict = (
-                    existing_meta.model_dump() if hasattr(existing_meta, "model_dump") else {}
-                )
-                meta_dict.update(_meta)
-                meta_obj = RequestParams.Meta(**meta_dict)
-            else:
-                meta_obj = RequestParams.Meta(**_meta)
-
-            params_dict = params.model_dump(by_alias=True)
-            params_dict["_meta"] = meta_obj.model_dump()
-            params = CallToolRequestParams.model_validate(params_dict)
+        # ty doesn't recognize _meta from pydantic alias - this matches SDK pattern
+        params = CallToolRequestParams(name=name, arguments=arguments, _meta=_meta)  # ty: ignore[unknown-argument]
 
         request = CallToolRequest(method="tools/call", params=params)
         return await self.send_request(
-            request, CallToolResult, progress_callback=progress_callback
+            ClientRequest(request),
+            CallToolResult,
+            request_read_timeout_seconds=read_timeout_seconds,
+            progress_callback=progress_callback,
         )
 
     async def read_resource(
-        self, uri: str, _meta: dict | None = None, **kwargs
+        self, uri: AnyUrl | str, _meta: dict | None = None, **kwargs
     ) -> ReadResourceResult:
         """Read a resource with optional metadata support.
 
@@ -369,8 +362,11 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         """
         from mcp.types import RequestParams
 
+        # Convert str to AnyUrl if needed
+        uri_obj: AnyUrl = uri if isinstance(uri, AnyUrl) else AnyUrl(uri)
+
         # Always create request ourselves to ensure we go through our send_request override
-        params = ReadResourceRequestParams(uri=uri)
+        params = ReadResourceRequestParams(uri=uri_obj)
 
         if _meta:
             # Safe merge - preserve existing meta fields like progressToken
@@ -383,10 +379,10 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 meta_obj = RequestParams.Meta(**meta_dict)
             else:
                 meta_obj = RequestParams.Meta(**_meta)
-            params = ReadResourceRequestParams(uri=uri, meta=meta_obj)
+            params = ReadResourceRequestParams(uri=uri_obj, meta=meta_obj)
 
         request = ReadResourceRequest(method="resources/read", params=params)
-        return await self.send_request(request, ReadResourceResult)
+        return await self.send_request(ClientRequest(request), ReadResourceResult)
 
     async def get_prompt(
         self, name: str, arguments: dict | None = None, _meta: dict | None = None, **kwargs
@@ -415,4 +411,4 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             params = GetPromptRequestParams(name=name, arguments=arguments, meta=meta_obj)
 
         request = GetPromptRequest(method="prompts/get", params=params)
-        return await self.send_request(request, GetPromptResult)
+        return await self.send_request(ClientRequest(request), GetPromptResult)
