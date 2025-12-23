@@ -1,5 +1,5 @@
 import re
-from typing import Sequence, Union
+from typing import Literal, Sequence, Union, cast
 from urllib.parse import urlparse
 
 from anthropic.types import (
@@ -174,36 +174,44 @@ class AnthropicConverter:
             if is_text_content(content_item):
                 # Handle text content
                 text = get_text(content_item)
-                anthropic_blocks.append(TextBlockParam(type="text", text=text))
+                if text:
+                    anthropic_blocks.append(TextBlockParam(type="text", text=text))
 
             elif is_image_content(content_item):
-                # Handle image content
-                image_content = content_item  # type: ImageContent
+                # Handle image content - cast needed for ty type narrowing
+                image_content = cast("ImageContent", content_item)
+                mime_type = image_content.mimeType or ""
                 # Check if image MIME type is supported
-                if not AnthropicConverter._is_supported_image_type(image_content.mimeType):
+                if not AnthropicConverter._is_supported_image_type(mime_type):
                     data_size = len(image_content.data) if image_content.data else 0
                     anthropic_blocks.append(
                         TextBlockParam(
                             type="text",
-                            text=f"Image with unsupported format '{image_content.mimeType}' ({data_size} bytes)",
+                            text=f"Image with unsupported format '{mime_type}' ({data_size} bytes)",
                         )
                     )
                 else:
                     image_data = get_image_data(image_content)
-                    anthropic_blocks.append(
-                        ImageBlockParam(
-                            type="image",
-                            source=Base64ImageSourceParam(
-                                type="base64",
-                                media_type=image_content.mimeType,
-                                data=image_data,
-                            ),
+                    if image_data and mime_type in SUPPORTED_IMAGE_MIME_TYPES:
+                        anthropic_blocks.append(
+                            ImageBlockParam(
+                                type="image",
+                                source=Base64ImageSourceParam(
+                                    type="base64",
+                                    media_type=cast(
+                                        "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
+                                        mime_type,
+                                    ),
+                                    data=image_data,
+                                ),
+                            )
                         )
-                    )
 
             elif is_resource_content(content_item):
-                # Handle embedded resource
-                block = AnthropicConverter._convert_embedded_resource(content_item, document_mode)
+                # Handle embedded resource - cast needed for ty type narrowing
+                block = AnthropicConverter._convert_embedded_resource(
+                    cast("EmbeddedResource", content_item), document_mode
+                )
                 anthropic_blocks.append(block)
 
         return anthropic_blocks
@@ -258,7 +266,12 @@ class AnthropicConverter:
                 return ImageBlockParam(
                     type="image",
                     source=Base64ImageSourceParam(
-                        type="base64", media_type=mime_type, data=image_data
+                        type="base64",
+                        media_type=cast(
+                            "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
+                            mime_type,
+                        ),
+                        data=image_data,
                     ),
                 )
 
@@ -343,7 +356,7 @@ class AnthropicConverter:
             return resource.mimeType
 
         if resource.uri:
-            return guess_mime_type(resource.uri.serialize_url)
+            return guess_mime_type(str(resource.uri))
 
         if hasattr(resource, "blob"):
             return "application/octet-stream"

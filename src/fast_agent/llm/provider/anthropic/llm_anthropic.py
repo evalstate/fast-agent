@@ -1,14 +1,23 @@
 import asyncio
 import json
+import os
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Type, Union, cast
 
 from anthropic import APIError, AsyncAnthropic, AuthenticationError
 from anthropic.lib.streaming import AsyncMessageStream
 from anthropic.types import (
+    InputJSONDelta,
     Message,
     MessageParam,
+    RawContentBlockDeltaEvent,
+    RawContentBlockStartEvent,
+    RawContentBlockStopEvent,
+    RawMessageDeltaEvent,
     TextBlock,
     TextBlockParam,
+    TextDelta,
     ToolParam,
     ToolUseBlock,
     ToolUseBlockParam,
@@ -38,6 +47,7 @@ from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
 from fast_agent.llm.provider_types import Provider
+from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.types import PromptMessageExtended
@@ -46,10 +56,40 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-0"
 STRUCTURED_OUTPUT_TOOL_NAME = "return_structured_output"
 
+# Stream capture mode - when enabled, saves all streaming chunks to files for debugging
+# Set FAST_AGENT_LLM_TRACE=1 (or any non-empty value) to enable
+STREAM_CAPTURE_ENABLED = bool(os.environ.get("FAST_AGENT_LLM_TRACE"))
+STREAM_CAPTURE_DIR = Path("stream-debug")
+
 # Type alias for system field - can be string or list of text blocks with cache control
 SystemParam = Union[str, list[TextBlockParam]]
 
 logger = get_logger(__name__)
+
+
+def _stream_capture_filename(turn: int) -> Path | None:
+    """Generate filename for stream capture. Returns None if capture is disabled."""
+    if not STREAM_CAPTURE_ENABLED:
+        return None
+    STREAM_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return STREAM_CAPTURE_DIR / f"anthropic_{timestamp}_turn{turn}"
+
+
+def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
+    """Save a streaming chunk to file when capture mode is enabled."""
+    if not filename_base:
+        return
+    try:
+        chunk_file = filename_base.with_name(f"{filename_base.name}.jsonl")
+        try:
+            payload: Any = chunk.model_dump()
+        except Exception:
+            payload = {"type": type(chunk).__name__, "str": str(chunk)}
+        with open(chunk_file, "a") as f:
+            f.write(json.dumps(payload) + "\n")
+    except Exception as e:
+        logger.debug(f"Failed to save stream chunk: {e}")
 
 
 class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
@@ -239,6 +279,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         self,
         stream: AsyncMessageStream,
         model: str,
+        capture_filename: Path | None = None,
     ) -> Message:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
@@ -249,70 +290,68 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # Process the raw event stream to get token counts
             # Cancellation is handled via asyncio.Task.cancel() which raises CancelledError
             async for event in stream:
-                if (
-                    event.type == "content_block_start"
-                    and hasattr(event, "content_block")
-                    and getattr(event.content_block, "type", None) == "tool_use"
-                ):
+                # Save chunk if stream capture is enabled
+                _save_stream_chunk(capture_filename, event)
+
+                if isinstance(event, RawContentBlockStartEvent):
                     content_block = event.content_block
-                    tool_streams[event.index] = {
-                        "name": content_block.name,
-                        "id": content_block.id,
-                        "buffer": [],
-                    }
-                    self._notify_tool_stream_listeners(
-                        "start",
-                        {
-                            "tool_name": content_block.name,
-                            "tool_use_id": content_block.id,
-                            "index": event.index,
-                            "streams_arguments": False,  # Anthropic doesn't stream arguments
-                        },
-                    )
-                    self.logger.info(
-                        "Model started streaming tool input",
-                        data={
-                            "progress_action": ProgressAction.CALLING_TOOL,
-                            "agent_name": self.name,
-                            "model": model,
-                            "tool_name": content_block.name,
-                            "tool_use_id": content_block.id,
-                            "tool_event": "start",
-                        },
-                    )
-                    continue
-
-                if (
-                    event.type == "content_block_delta"
-                    and hasattr(event, "delta")
-                    and event.delta.type == "input_json_delta"
-                ):
-                    info = tool_streams.get(event.index)
-                    if info is not None:
-                        chunk = event.delta.partial_json or ""
-                        info["buffer"].append(chunk)
-                        preview = chunk if len(chunk) <= 80 else chunk[:77] + "..."
+                    if isinstance(content_block, ToolUseBlock):
+                        tool_streams[event.index] = {
+                            "name": content_block.name,
+                            "id": content_block.id,
+                            "buffer": [],
+                        }
                         self._notify_tool_stream_listeners(
-                            "delta",
+                            "start",
                             {
-                                "tool_name": info.get("name"),
-                                "tool_use_id": info.get("id"),
+                                "tool_name": content_block.name,
+                                "tool_use_id": content_block.id,
                                 "index": event.index,
-                                "chunk": chunk,
-                                "streams_arguments": False,
+                                "streams_arguments": False,  # Anthropic doesn't stream arguments
                             },
                         )
-                        self.logger.debug(
-                            "Streaming tool input delta",
+                        self.logger.info(
+                            "Model started streaming tool input",
                             data={
-                                "tool_name": info.get("name"),
-                                "tool_use_id": info.get("id"),
-                                "chunk": preview,
+                                "progress_action": ProgressAction.CALLING_TOOL,
+                                "agent_name": self.name,
+                                "model": model,
+                                "tool_name": content_block.name,
+                                "tool_use_id": content_block.id,
+                                "tool_event": "start",
                             },
                         )
-                    continue
+                        continue
 
-                if event.type == "content_block_stop" and event.index in tool_streams:
+                if isinstance(event, RawContentBlockDeltaEvent):
+                    delta = event.delta
+                    if isinstance(delta, InputJSONDelta):
+                        info = tool_streams.get(event.index)
+                        if info is not None:
+                            chunk = delta.partial_json or ""
+                            info["buffer"].append(chunk)
+                            preview = chunk if len(chunk) <= 80 else chunk[:77] + "..."
+                            self._notify_tool_stream_listeners(
+                                "delta",
+                                {
+                                    "tool_name": info.get("name"),
+                                    "tool_use_id": info.get("id"),
+                                    "index": event.index,
+                                    "chunk": chunk,
+                                    "streams_arguments": False,
+                                },
+                            )
+                            self.logger.debug(
+                                "Streaming tool input delta",
+                                data={
+                                    "tool_name": info.get("name"),
+                                    "tool_use_id": info.get("id"),
+                                    "chunk": preview,
+                                },
+                            )
+                        continue
+
+                if isinstance(event, RawContentBlockStopEvent) and event.index in tool_streams:
                     info = tool_streams.pop(event.index)
                     preview_raw = "".join(info.get("buffer", []))
                     if preview_raw:
@@ -350,30 +389,28 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     continue
 
                 # Count tokens in real-time from content_block_delta events
-                if (
-                    event.type == "content_block_delta"
-                    and hasattr(event, "delta")
-                    and event.delta.type == "text_delta"
-                ):
-                    # Use base class method for token estimation and progress emission
-                    estimated_tokens = self._update_streaming_progress(
-                        event.delta.text, model, estimated_tokens
-                    )
-                    self._notify_tool_stream_listeners(
-                        "text",
-                        {
-                            "chunk": event.delta.text,
-                            "index": event.index,
-                            "streams_arguments": False,
-                        },
-                    )
+                if isinstance(event, RawContentBlockDeltaEvent):
+                    delta = event.delta
+                    if isinstance(delta, TextDelta):
+                        # Notify stream listeners for UI streaming
+                        self._notify_stream_listeners(
+                            StreamChunk(text=delta.text, is_reasoning=False)
+                        )
+                        # Use base class method for token estimation and progress emission
+                        estimated_tokens = self._update_streaming_progress(
+                            delta.text, model, estimated_tokens
+                        )
+                        self._notify_tool_stream_listeners(
+                            "text",
+                            {
+                                "chunk": delta.text,
+                                "index": event.index,
+                                "streams_arguments": False,
+                            },
+                        )
 
                 # Also check for final message_delta events with actual usage info
-                elif (
-                    event.type == "message_delta"
-                    and hasattr(event, "usage")
-                    and event.usage.output_tokens
-                ):
+                elif isinstance(event, RawMessageDeltaEvent) and event.usage.output_tokens:
                     actual_tokens = event.usage.output_tokens
                     # Emit final progress with actual token count
                     token_str = str(actual_tokens).rjust(5)
@@ -401,10 +438,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             raise  # Re-raise to be handled by _anthropic_completion
         except Exception as error:
             logger.error("Unexpected error during Anthropic stream processing", exc_info=error)
-            # Convert to APIError for consistent handling
-            raise APIError(f"Stream processing error: {str(error)}") from error
+            # Re-raise for consistent handling - caller handles the error
+            raise
 
-    def _stream_failure_response(self, error: APIError, model_name: str) -> PromptMessageExtended:
+    def _stream_failure_response(self, error: Exception, model_name: str) -> PromptMessageExtended:
         """Convert streaming API errors into a graceful assistant reply."""
 
         provider_label = (
@@ -572,11 +609,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                 self._apply_cache_control_to_message(messages[idx])
 
         logger.debug(f"{arguments}")
+
+        # Generate stream capture filename once (before streaming starts)
+        capture_filename = _stream_capture_filename(self.chat_turn())
+
         # Use streaming API with helper
         try:
             async with anthropic.messages.stream(**arguments) as stream:
                 # Process the stream
-                response = await self._process_stream(stream, model)
+                response = await self._process_stream(stream, model, capture_filename)
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             logger.info(f"Anthropic completion cancelled: {reason}")
@@ -612,9 +653,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             # This path shouldn't be reached anymore since we handle APIError above,
             # but keeping for backward compatibility
             logger.error(f"Unexpected error type: {type(response).__name__}", exc_info=response)
-            return self._stream_failure_response(
-                APIError(f"Unexpected error: {str(response)}"), model
-            )
+            return self._stream_failure_response(response, model)
 
         logger.debug(
             f"{model} response:",
@@ -640,7 +679,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             case "tool_use":
                 stop_reason = LlmStopReason.TOOL_USE
                 tool_uses: list[ToolUseBlock] = [
-                    c for c in response.content if c.type == "tool_use"
+                    c for c in response.content if isinstance(c, ToolUseBlock)
                 ]
                 if structured_model and self._is_structured_output_request(tool_uses):
                     stop_reason, structured_blocks = await self._handle_structured_output_response(
@@ -722,7 +761,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             )
 
             for content in result.content:
-                if content.type == "text":
+                if isinstance(content, TextContent):
                     try:
                         data = json.loads(content.text)
                         parsed_model = model(**data)
@@ -759,9 +798,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         content = []
 
         for content_block in message.content:
-            if content_block.type == "text":
+            if isinstance(content_block, TextBlock):
                 content.append(TextBlock(type="text", text=content_block.text))
-            elif content_block.type == "tool_use":
+            elif isinstance(content_block, ToolUseBlock):
                 content.append(
                     ToolUseBlockParam(
                         type="tool_use",

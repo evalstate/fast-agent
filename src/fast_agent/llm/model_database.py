@@ -31,6 +31,9 @@ class ModelParameters(BaseModel):
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
 
+    system_role: None | str = "system"
+    """Role to use for the System Prompt"""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -167,6 +170,15 @@ class ModelDatabase:
 
     DEEPSEEK_REASONER = ModelParameters(
         context_window=65536, max_output_tokens=32768, tokenizes=TEXT_ONLY
+    )
+
+    DEEPSEEK_V_32 = ModelParameters(
+        context_window=65536,
+        max_output_tokens=32768,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="gpt-oss",
+        system_role="developer",
     )
 
     DEEPSEEK_DISTILL = ModelParameters(

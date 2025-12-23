@@ -778,10 +778,15 @@ class ConsoleDisplay:
             header_right=right_info,
             progress_display=progress_display,
         )
+        # Pause progress display BEFORE yielding to prevent race condition with Anthropic
+        # (Anthropic's stream context manager may start events during __aenter__)
+        progress_display.pause()
         try:
             yield handle
         finally:
             handle.close()
+            # Resume progress display - must be explicit since we paused externally
+            progress_display.resume()
 
     def _display_mermaid_diagrams(self, diagrams: list[MermaidDiagram]) -> None:
         """Display mermaid diagram links."""
