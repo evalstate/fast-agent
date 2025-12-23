@@ -504,26 +504,24 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
 
             # Rebuild system prompt to include fresh server instructions
             await _send_connect_update(title="Rebuilding system prompt…", status="in_progress")
-            await self.rebuild_instruction_templates()
+            await self._apply_instruction_templates()
 
             # Get available tools
             await _send_connect_update(title="Fetching available tools…", status="in_progress")
             tools_result = await self._aggregator.list_tools()
             tool_names = [t.name for t in tools_result.tools] if tools_result.tools else []
 
+            # Send final progress update (but don't mark as completed yet -
+            # the return value serves as the completion signal)
             if tool_names:
-                preview = ", ".join(tool_names[:10])
-                suffix = f" (+{len(tool_names) - 10} more)" if len(tool_names) > 10 else ""
                 await _send_connect_update(
-                    title="Connected (tools available)",
+                    title=f"Connected ({len(tool_names)} tools)",
                     status="completed",
-                    message=f"Available tools: {preview}{suffix}",
                 )
             else:
                 await _send_connect_update(
-                    title="Connected (no tools found)",
+                    title="Connected (no tools)",
                     status="completed",
-                    message="No tools available from the server.",
                 )
 
             if tool_names:

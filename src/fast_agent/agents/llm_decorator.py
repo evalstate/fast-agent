@@ -11,6 +11,7 @@ from typing import (
     Any,
     Callable,
     Mapping,
+    Self,
     Sequence,
     Type,
     TypeVar,
@@ -285,7 +286,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
         return {}
 
-    async def spawn_detached_instance(self, *, name: str | None = None) -> "LlmAgent":
+    async def spawn_detached_instance(self, *, name: str | None = None) -> Self:
         """Create a fresh agent instance with its own MCP/LLM stack."""
 
         new_config = deepcopy(self.config)
@@ -610,7 +611,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     ) -> _CallContext:
         """Normalize template/history handling for both generate and structured."""
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        final_request_params = self._llm.get_request_params(request_params)
+        final_request_params = self._require_llm().get_request_params(request_params)
 
         use_history = final_request_params.use_history if final_request_params else True
         call_params = final_request_params.model_copy() if final_request_params else None
@@ -1032,6 +1033,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     def llm(self) -> FastAgentLLMProtocol | None:
         return self._llm
 
+    def _require_llm(self) -> FastAgentLLMProtocol:
+        """Return the attached LLM, raising if not yet attached."""
+        if self._llm is None:
+            raise RuntimeError(f"Agent '{self._name}' has no LLM attached")
+        return self._llm
+
     # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---
 
     async def list_prompts(self, namespace: str | None = None) -> Mapping[str, list[Prompt]]:
@@ -1076,7 +1083,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     @property
     def provider(self) -> Provider:
-        return self.llm.provider
+        return self._require_llm().provider
 
     def _merge_request_params(
         self,

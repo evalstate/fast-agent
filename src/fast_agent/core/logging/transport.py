@@ -182,7 +182,7 @@ class HTTPTransport(FilteredEventTransport):
     def __init__(
         self,
         endpoint: str,
-        headers: dict[str, str] = None,
+        headers: dict[str, str] | None = None,
         batch_size: int = 100,
         timeout: float = 5.0,
         event_filter: EventFilter | None = None,
@@ -227,6 +227,7 @@ class HTTPTransport(FilteredEventTransport):
 
         if not self._session:
             await self.start()
+        assert self._session is not None
 
         try:
             # Convert events to JSON-serializable dicts
@@ -240,7 +241,7 @@ class HTTPTransport(FilteredEventTransport):
                     "data": self._serializer(event.data),
                     "trace_id": event.trace_id,
                     "span_id": event.span_id,
-                    "context": event.context.dict() if event.context else None,
+                    "context": event.context.model_dump() if event.context else None,
                 }
                 for event in self.batch
             ]
@@ -328,7 +329,7 @@ class AsyncEventBus:
         self._running = False
 
         # Try to process remaining items with a timeout
-        if not self._queue.empty():
+        if self._queue is not None and not self._queue.empty():
             try:
                 # Give some time for remaining items to be processed
                 await asyncio.wait_for(self._queue.join(), timeout=5.0)
@@ -385,7 +386,8 @@ class AsyncEventBus:
             print(f"Error in transport.send_event: {e}")
 
         # Then queue for listeners
-        await self._queue.put(event)
+        if self._queue is not None:
+            await self._queue.put(event)
 
     def add_listener(self, name: str, listener: EventListener) -> None:
         """Add a listener to the event bus."""
@@ -401,6 +403,8 @@ class AsyncEventBus:
             event = None
             try:
                 # Use wait_for with a timeout to allow checking running state
+                if self._queue is None:
+                    continue
                 try:
                     event = await asyncio.wait_for(self._queue.get(), timeout=0.1)
                 except asyncio.TimeoutError:

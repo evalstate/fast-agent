@@ -41,8 +41,9 @@ class ResponsesLLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessag
 
     # OpenAI-specific parameter exclusions
 
-    def __init__(self, provider=Provider.RESPONSES, *args, **kwargs):
-        super().__init__(*args, provider=provider, **kwargs)
+    def __init__(self, provider=Provider.RESPONSES, **kwargs):
+        kwargs.pop("provider", None)
+        super().__init__(provider=provider, **kwargs)
 
     async def _responses_client(self) -> AsyncOpenAI:
         return AsyncOpenAI(api_key=self._api_key())

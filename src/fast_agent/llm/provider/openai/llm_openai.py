@@ -104,8 +104,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         FastAgentLLM.PARAM_STOP_SEQUENCES,
     }
 
-    def __init__(self, provider: Provider = Provider.OPENAI, *args, **kwargs) -> None:
-        super().__init__(*args, provider=provider, **kwargs)
+    def __init__(self, provider: Provider = Provider.OPENAI, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=provider, **kwargs)
 
         # Initialize logger with name if available
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
@@ -447,6 +448,15 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         """Return reasoning state; kept for symmetry."""
         return False if reasoning_active else reasoning_active
 
+    @staticmethod
+    def _extract_incremental_delta(delta: str, cumulative: str) -> tuple[str, str]:
+        """Return the incremental portion of a possibly cumulative stream delta."""
+        if not delta:
+            return "", cumulative
+        if cumulative and delta.startswith(cumulative):
+            return delta[len(cumulative) :], delta
+        return delta, cumulative + delta
+
     async def _process_stream(
         self,
         stream,
@@ -472,6 +482,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
         state = ChatCompletionStreamState()
+        cumulative_content = ""
 
         # Track tool call state for stream events
         tool_call_started: dict[int, dict[str, Any]] = {}
@@ -512,8 +523,13 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
                 # Handle text content streaming
                 if delta.content:
+                    incremental, cumulative_content = self._extract_incremental_delta(
+                        delta.content, cumulative_content
+                    )
+                    if not incremental:
+                        continue
                     estimated_tokens, reasoning_active = self._emit_text_delta(
-                        content=delta.content,
+                        content=incremental,
                         model=model,
                         estimated_tokens=estimated_tokens,
                         streams_arguments=streams_arguments,
@@ -621,6 +637,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Manual accumulation of response data
         accumulated_content = ""
+        cumulative_content = ""
         role = "assistant"
         tool_calls_map = {}  # Use a map to accumulate tool calls by index
         function_call = None
@@ -665,14 +682,19 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
                 # Handle text content streaming
                 if delta.content:
+                    incremental, cumulative_content = self._extract_incremental_delta(
+                        delta.content, cumulative_content
+                    )
+                    if not incremental:
+                        continue
                     estimated_tokens, reasoning_active = self._emit_text_delta(
-                        content=delta.content,
+                        content=incremental,
                         model=model,
                         estimated_tokens=estimated_tokens,
                         streams_arguments=streams_arguments,
                         reasoning_active=reasoning_active,
                     )
-                    accumulated_content += delta.content
+                    accumulated_content += incremental
 
                 # Fire "stop" event when tool calls complete
                 if choice.finish_reason == "tool_calls":

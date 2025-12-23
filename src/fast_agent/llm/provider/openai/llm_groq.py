@@ -12,8 +12,9 @@ DEFAULT_GROQ_MODEL = "moonshotai/kimi-k2-instruct"
 
 
 class GroqLLM(OpenAICompatibleLLM):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.GROQ, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.GROQ, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Groq default parameters"""

@@ -14,18 +14,17 @@ class TensorZeroOpenAILLM(OpenAILLM):
     features, such as system template variables and custom parameters.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         """
         Initializes the TensorZeroOpenAIAugmentedLLM.
 
         Args:
-            *args: Variable length argument list.
             **kwargs: Arbitrary keyword arguments.
         """
         self._t0_episode_id = kwargs.pop("episode_id", None)
         self._t0_function_name = kwargs.get("model", "")
-
-        super().__init__(*args, provider=Provider.TENSORZERO, **kwargs)
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.TENSORZERO, **kwargs)
         self.logger.info("TensorZeroOpenAILLM initialized.")
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:

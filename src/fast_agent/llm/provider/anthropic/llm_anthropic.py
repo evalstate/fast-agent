@@ -70,9 +70,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         FastAgentLLM.PARAM_MCP_METADATA,
     }
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         # Initialize logger - keep it simple without name reference
-        super().__init__(*args, provider=Provider.ANTHROPIC, **kwargs)
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.ANTHROPIC, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Anthropic-specific default parameters"""

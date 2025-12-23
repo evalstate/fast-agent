@@ -72,6 +72,8 @@ class StreamingMessageHandle:
         self._highlight_index = highlight_index
         self._max_item_length = max_item_length
         self._use_plain_text = use_plain_text
+        self._preferred_plain_text = use_plain_text
+        self._plain_text_override_count = 0
         self._header_left = header_left
         self._header_right = header_right
         self._progress_display = progress_display
@@ -122,6 +124,8 @@ class StreamingMessageHandle:
         self._reasoning_parser = ReasoningStreamParser()
         self._styled_buffer: list[tuple[str, bool]] = []
         self._has_reasoning = False
+        self._reasoning_active = False
+        self._tool_active = False
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
@@ -242,6 +246,129 @@ class StreamingMessageHandle:
             )
         self._plain_text_style = style
         self._convert_literal_newlines = True
+
+    def _switch_to_markdown(self) -> None:
+        self._use_plain_text = False
+        self._plain_text_style = None
+        self._convert_literal_newlines = False
+        self._pending_literal_backslashes = ""
+
+    def _insert_mode_switch_newline(self) -> None:
+        if self._pending_table_row:
+            return
+        if not self._buffer:
+            return
+        if self._buffer[-1].endswith("\n"):
+            return
+        self._buffer.append("\n")
+        if self._has_reasoning:
+            self._styled_buffer.append(("\n", False))
+
+    def _set_use_plain_text(self, use_plain_text: bool, *, insert_newline: bool) -> None:
+        if use_plain_text == self._use_plain_text:
+            return
+        if insert_newline:
+            self._insert_mode_switch_newline()
+        if use_plain_text:
+            self._switch_to_plain_text(style=None)
+        else:
+            self._switch_to_markdown()
+
+    def _begin_plain_text_override(self) -> None:
+        self._plain_text_override_count += 1
+        if self._plain_text_override_count == 1:
+            self._set_use_plain_text(True, insert_newline=True)
+
+    def _end_plain_text_override(self) -> None:
+        if self._plain_text_override_count == 0:
+            return
+        self._plain_text_override_count -= 1
+        if self._plain_text_override_count == 0:
+            self._set_use_plain_text(self._preferred_plain_text, insert_newline=True)
+
+    def _begin_reasoning_mode(self) -> None:
+        if self._reasoning_active:
+            return
+        self._reasoning_active = True
+        if self._buffer and not self._styled_buffer:
+            self._styled_buffer.append(("".join(self._buffer), False))
+        self._has_reasoning = True
+        self._begin_plain_text_override()
+
+    def _end_reasoning_mode(self) -> None:
+        if not self._reasoning_active:
+            return
+        self._reasoning_active = False
+        self._end_plain_text_override()
+
+    def _begin_tool_mode(self) -> None:
+        if self._tool_active:
+            return
+        self._tool_active = True
+        self._begin_plain_text_override()
+
+    def _end_tool_mode(self) -> None:
+        if not self._tool_active:
+            return
+        self._tool_active = False
+        self._end_plain_text_override()
+
+    def _append_plain_text(self, text: str, *, is_reasoning: bool | None = None) -> bool:
+        processed = text
+        if self._convert_literal_newlines:
+            processed = self._decode_literal_newlines(processed)
+            if not processed:
+                return False
+        processed = self._wrap_plain_chunk(processed)
+        if self._pending_table_row:
+            self._buffer.append(self._pending_table_row)
+            self._pending_table_row = ""
+        self._buffer.append(processed)
+        if self._has_reasoning:
+            self._styled_buffer.append((processed, bool(is_reasoning)))
+        return True
+
+    def _append_text_in_current_mode(self, text: str) -> bool:
+        if not text:
+            return False
+        if self._use_plain_text:
+            return self._append_plain_text(text)
+
+        text_so_far = "".join(self._buffer)
+        ends_with_newline = text_so_far.endswith("\n")
+        lines = text_so_far.split("\n") if text_so_far else []
+        last_line = "" if ends_with_newline else (lines[-1] if lines else "")
+        currently_in_table = last_line.strip().startswith("|")
+        if self._pending_table_row:
+            if "\n" not in text:
+                self._pending_table_row += text
+                return False
+            text = self._pending_table_row + text
+            self._pending_table_row = ""
+
+        starts_table_row = text.lstrip().startswith("|")
+        if "\n" not in text and (currently_in_table or starts_table_row):
+            pending_seed = ""
+            if currently_in_table:
+                split_index = text_so_far.rfind("\n")
+                if split_index == -1:
+                    pending_seed = text_so_far
+                    self._buffer = []
+                else:
+                    pending_seed = text_so_far[split_index + 1 :]
+                    prefix = text_so_far[: split_index + 1]
+                    self._buffer = [prefix] if prefix else []
+            self._pending_table_row = pending_seed + text
+            return False
+
+        if self._pending_table_row:
+            self._buffer.append(self._pending_table_row)
+            self._pending_table_row = ""
+
+        self._buffer.append(text)
+        if self._has_reasoning:
+            self._styled_buffer.append((text, False))
+        return True
 
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
@@ -443,8 +570,7 @@ class StreamingMessageHandle:
         )
         if not should_process and not self._has_reasoning:
             return False
-
-        self._switch_to_plain_text(style=None)
+        previous_in_think = self._reasoning_parser.in_think
         segments: list[ReasoningSegment] = []
         if chunk:
             segments = self._reasoning_parser.feed(chunk)
@@ -453,45 +579,46 @@ class StreamingMessageHandle:
 
         if not segments:
             return False
-
-        self._has_reasoning = True
+        handled = False
+        emitted_non_thinking = False
 
         for segment in segments:
-            processed = segment.text
-            if self._convert_literal_newlines:
-                processed = self._decode_literal_newlines(processed)
-                if not processed:
-                    continue
-            processed = self._wrap_plain_chunk(processed)
-            if self._pending_table_row:
-                self._buffer.append(self._pending_table_row)
-                self._pending_table_row = ""
-            self._buffer.append(processed)
-            self._styled_buffer.append((processed, segment.is_thinking))
+            if segment.is_thinking:
+                self._begin_reasoning_mode()
+                self._append_plain_text(segment.text, is_reasoning=True)
+                handled = True
+            else:
+                if self._reasoning_active:
+                    self._end_reasoning_mode()
+                emitted_non_thinking = True
+                self._append_text_in_current_mode(segment.text)
+                handled = True
 
-        return True
+        if (
+            previous_in_think
+            and not self._reasoning_parser.in_think
+            and self._reasoning_active
+            and not emitted_non_thinking
+        ):
+            self._end_reasoning_mode()
+
+        return handled
 
     def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
         """Process a typed stream chunk with explicit reasoning flag."""
         if not chunk.text:
             return False
+        if not chunk.is_reasoning and self._process_reasoning_chunk(chunk.text):
+            return True
 
-        self._switch_to_plain_text(style=None)
-
-        processed = chunk.text
-        if self._convert_literal_newlines:
-            processed = self._decode_literal_newlines(processed)
-            if not processed:
-                return False
-        processed = self._wrap_plain_chunk(processed)
-        if self._pending_table_row:
-            self._buffer.append(self._pending_table_row)
-            self._pending_table_row = ""
-        self._buffer.append(processed)
-        self._styled_buffer.append((processed, chunk.is_reasoning))
         if chunk.is_reasoning:
-            self._has_reasoning = True
-        return True
+            self._begin_reasoning_mode()
+            return self._append_plain_text(chunk.text, is_reasoning=True)
+
+        if self._reasoning_active:
+            self._end_reasoning_mode()
+
+        return self._append_text_in_current_mode(chunk.text)
 
     def _handle_chunk(self, chunk: str) -> bool:
         if not chunk:
@@ -499,35 +626,7 @@ class StreamingMessageHandle:
 
         if self._process_reasoning_chunk(chunk):
             return True
-
-        if self._use_plain_text:
-            if self._convert_literal_newlines:
-                chunk = self._decode_literal_newlines(chunk)
-                if not chunk:
-                    if self._pending_table_row:
-                        self._buffer.append(self._pending_table_row)
-                        self._pending_table_row = ""
-                    return False
-            chunk = self._wrap_plain_chunk(chunk)
-            if self._pending_table_row:
-                self._buffer.append(self._pending_table_row)
-                self._pending_table_row = ""
-        else:
-            text_so_far = "".join(self._buffer)
-            lines = text_so_far.strip().split("\n")
-            last_line = lines[-1] if lines else ""
-            currently_in_table = last_line.strip().startswith("|")
-
-            if currently_in_table and "\n" not in chunk:
-                self._pending_table_row += chunk
-                return False
-
-            if self._pending_table_row:
-                self._buffer.append(self._pending_table_row)
-                self._pending_table_row = ""
-
-        self._buffer.append(chunk)
-        return True
+        return self._append_text_in_current_mode(chunk)
 
     def _slice_styled_segments(self, target_text: str) -> list[tuple[str, bool]]:
         """Trim styled buffer to the tail matching the provided text length."""
@@ -720,13 +819,10 @@ class StreamingMessageHandle:
             tool_name = info.get("tool_name", "unknown") if info else "unknown"
 
             if event_type == "start":
-                if streams_arguments:
-                    self._switch_to_plain_text()
-                    self.update(f"\n→ Calling {tool_name}\n")
-                else:
+                self._begin_tool_mode()
+                if not streams_arguments:
                     self._pause_progress_display()
-                    self._switch_to_plain_text()
-                    self.update(f"\n→ Calling {tool_name}\n")
+                self.update(f"→ Calling {tool_name}\n")
                 return
             if event_type == "delta":
                 if streams_arguments and info and "chunk" in info:
@@ -734,12 +830,9 @@ class StreamingMessageHandle:
             elif event_type == "text":
                 self._pause_progress_display()
             elif event_type == "stop":
-                if streams_arguments:
-                    self.update("\n")
-                    self.close()
-                else:
-                    self.update("\n")
-                    self.close()
+                self._end_tool_mode()
+                if not streams_arguments:
+                    self._resume_progress_display()
         except Exception as exc:
             logger.warning(
                 "Error handling tool event",

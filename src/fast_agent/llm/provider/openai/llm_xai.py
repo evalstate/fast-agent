@@ -9,10 +9,9 @@ DEFAULT_XAI_MODEL = "grok-3"
 
 
 class XAILLM(OpenAILLM):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(
-            *args, provider=Provider.XAI, **kwargs
-        )  # Properly pass args and kwargs to parent
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.XAI, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize xAI parameters"""

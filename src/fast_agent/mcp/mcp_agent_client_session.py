@@ -72,7 +72,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     Developers can extend this class to add more custom functionality as needed
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, read_stream, write_stream, read_timeout=None, **kwargs) -> None:
         # Extract server_name if provided in kwargs
         from importlib.metadata import version
 
@@ -172,8 +172,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         else:
             self.effective_elicitation_mode = "none"
 
+        # Pop parameters we're explicitly setting to avoid duplicates
+        kwargs.pop("list_roots_callback", None)
+        kwargs.pop("sampling_callback", None)
+        kwargs.pop("client_info", None)
+        kwargs.pop("elicitation_callback", None)
         super().__init__(
-            *args,
+            read_stream,
+            write_stream,
+            read_timeout,
             **kwargs,
             list_roots_callback=list_roots_cb,
             sampling_callback=sampling_cb,

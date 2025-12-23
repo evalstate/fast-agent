@@ -12,8 +12,9 @@ DEFAULT_OPENROUTER_MODEL = None
 class OpenRouterLLM(OpenAILLM):
     """Augmented LLM provider for OpenRouter, using an OpenAI-compatible API."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.OPENROUTER, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.OPENROUTER, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize OpenRouter-specific default parameters."""

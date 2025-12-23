@@ -49,8 +49,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     Google LLM provider using the native google.genai library.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.GOOGLE, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.GOOGLE, **kwargs)
         # Initialize the converter
         self._converter = GoogleConverter()
 

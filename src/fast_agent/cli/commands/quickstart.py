@@ -189,6 +189,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
         if use_as_file:
             source_path = stack.enter_context(as_file(source_dir))  # type: ignore
         else:
+            assert isinstance(source_dir, Path)
             source_path = source_dir
 
         if not source_path.exists():
@@ -502,7 +503,8 @@ def tensorzero(
         if use_as_file:
             source_path = stack.enter_context(as_file(source_dir))  # type: ignore
         else:
-            source_path = source_dir  # type: ignore[assignment]
+            assert isinstance(source_dir, Path)
+            source_path = source_dir
 
         if not source_path.exists() or not source_path.is_dir():
             console.print(f"[red]Error: Source project directory not found at '{source_path}'[/red]")

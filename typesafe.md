@@ -110,6 +110,39 @@ Python 3.13+ and current typing guidance.
 7. **Enforce**: add `ty check` to CI once warnings are near-zero; tighten rules to `error` as
    we converge.
 
+## **IMPORTANT: Refactoring `*args, **kwargs` Signatures**
+
+When replacing `def func(*args, **kwargs)` with explicit parameters to satisfy the type checker,
+**always verify all call sites first**. The `*args` pattern accepts any number of positional
+arguments, and removing it can silently break callers that pass positional args you didn't capture.
+
+**Before:**
+```python
+def __init__(self, *args, **kwargs) -> None:
+    super().__init__(*args, **kwargs)
+```
+
+**After (WRONG - missed `read_timeout`):**
+```python
+def __init__(self, read_stream, write_stream, **kwargs) -> None:
+    super().__init__(read_stream, write_stream, **kwargs)
+```
+
+**After (CORRECT):**
+```python
+def __init__(self, read_stream, write_stream, read_timeout=None, **kwargs) -> None:
+    super().__init__(read_stream, write_stream, read_timeout, **kwargs)
+```
+
+**Checklist before removing `*args`:**
+1. Grep for all call sites of the function/class
+2. Check if any caller passes positional arguments beyond what you're capturing
+3. Check type hints or protocols that define expected signatures (e.g., `Callable[[A, B, C], R]`)
+4. When in doubt, keep `*args` and pop known params from it, or add explicit params for all
+   positional args callers use
+
+This error is insidious because it causes runtime `TypeError` failures, not type-check failures.
+
 ## Decision Log (initial)
 
 - We will use `ty: ignore[rule]` over bare `ty: ignore` and avoid `type: ignore` unless an external
