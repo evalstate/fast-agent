@@ -125,6 +125,79 @@ class ACPToolProgressManager:
                         return tool_call_id
         return None
 
+    async def ensure_tool_call_exists(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Ensure a tool call notification exists for the given tool_use_id.
+
+        If a notification was already created via streaming events, returns that toolCallId.
+        Otherwise creates a new pending notification with the provided info.
+
+        This handles the non-streaming case where tool calls arrive in one chunk
+        and we need to ensure the notification exists before sending diffs.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+            tool_name: Name of the tool being called
+            server_name: Name of the server providing the tool
+            arguments: Tool arguments (for display)
+
+        Returns:
+            The ACP toolCallId (existing or newly created)
+        """
+        # First check if a notification already exists (streaming case)
+        existing = await self.get_tool_call_id_for_tool_use(tool_use_id)
+        if existing:
+            return existing
+
+        # No streaming notification exists - create one now (non-streaming case)
+        external_id = str(uuid.uuid4())
+        self._stream_tool_use_ids[tool_use_id] = external_id
+
+        kind = self._infer_tool_kind(tool_name, arguments)
+        title = f"{server_name}/{tool_name}"
+
+        async with self._lock:
+            tool_call_start = self._tracker.start(
+                external_id=external_id,
+                title=title,
+                kind=kind,
+                status="pending",
+                raw_input=arguments,
+            )
+            self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+            # Store titles for later updates
+            self._simple_titles[tool_call_start.toolCallId] = title
+            self._full_titles[tool_call_start.toolCallId] = title
+
+        # Send the notification
+        try:
+            await self._connection.session_update(
+                session_id=self._session_id, update=tool_call_start
+            )
+            logger.debug(
+                f"Created tool call notification (non-streaming): {tool_call_start.toolCallId}",
+                name="acp_tool_call_ensure",
+                tool_call_id=tool_call_start.toolCallId,
+                external_id=external_id,
+                tool_name=tool_name,
+                server_name=server_name,
+                tool_use_id=tool_use_id,
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending tool_call notification: {e}",
+                name="acp_tool_call_ensure_error",
+                exc_info=True,
+            )
+
+        return tool_call_start.toolCallId
+
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
         Handle tool stream events from the LLM during streaming.
