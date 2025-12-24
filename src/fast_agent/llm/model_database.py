@@ -158,10 +158,23 @@ class ModelDatabase:
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
-        context_window=200000, max_output_tokens=32000, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=32000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
-        context_window=200000, max_output_tokens=64000, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=64000,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
+    )
+    # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
+    ANTHROPIC_37_SERIES_THINKING = ModelParameters(
+        context_window=200000,
+        max_output_tokens=16384,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        reasoning="anthropic_thinking",
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -315,9 +328,9 @@ class ModelDatabase:
         "claude-3-5-sonnet-20240620": ANTHROPIC_35_SERIES,
         "claude-3-5-sonnet-20241022": ANTHROPIC_35_SERIES,
         "claude-3-5-sonnet-latest": ANTHROPIC_35_SERIES,
-        "claude-3-7-sonnet": ANTHROPIC_37_SERIES,
-        "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES,
-        "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES,
+        "claude-3-7-sonnet": ANTHROPIC_37_SERIES_THINKING,
+        "claude-3-7-sonnet-20250219": ANTHROPIC_37_SERIES_THINKING,
+        "claude-3-7-sonnet-latest": ANTHROPIC_37_SERIES_THINKING,
         "claude-sonnet-4-0": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-20250514": ANTHROPIC_SONNET_4_VERSIONED,
         "claude-sonnet-4-5": ANTHROPIC_SONNET_4_VERSIONED,
