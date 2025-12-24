@@ -55,10 +55,13 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # Send start event
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__read_file",
-            "tool_use_id": "use-123",
-        })
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
 
         # Wait for async task to complete
         await asyncio.sleep(0.1)
@@ -103,17 +106,23 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # Send start
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__read_file",
-            "tool_use_id": "use-123",
-        })
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
 
         # Send 24 deltas - should NOT trigger notifications
         for i in range(24):
-            manager.handle_tool_stream_event("delta", {
-                "tool_use_id": "use-123",
-                "chunk": f"chunk{i}",
-            })
+            manager.handle_tool_stream_event(
+                "delta",
+                {
+                    "tool_use_id": "use-123",
+                    "chunk": f"chunk{i}",
+                },
+            )
 
         await asyncio.sleep(0.1)
 
@@ -121,10 +130,13 @@ class TestACPToolProgressManager:
         assert len(connection.notifications) == 1
 
         # Send 25th chunk - should trigger notification
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": "chunk24",
-        })
+        manager.handle_tool_stream_event(
+            "delta",
+            {
+                "tool_use_id": "use-123",
+                "chunk": "chunk24",
+            },
+        )
 
         await asyncio.sleep(0.1)
 
@@ -133,7 +145,7 @@ class TestACPToolProgressManager:
 
         delta_notification = connection.notifications[1]
         assert delta_notification.sessionUpdate == "tool_call_update"
-        assert "(streaming: 25 chunks)" in delta_notification.title
+        assert "(streaming: 25)" in delta_notification.title
 
         # rawInput should NOT be set during streaming
         assert delta_notification.rawInput is None
@@ -145,17 +157,23 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # Send start then multiple deltas (need 25+ to trigger notifications)
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__read_file",
-            "tool_use_id": "use-123",
-        })
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
 
         # Send 25 chunks to reach notification threshold
         for i in range(25):
-            manager.handle_tool_stream_event("delta", {
-                "tool_use_id": "use-123",
-                "chunk": f"chunk{i}_",
-            })
+            manager.handle_tool_stream_event(
+                "delta",
+                {
+                    "tool_use_id": "use-123",
+                    "chunk": f"chunk{i}_",
+                },
+            )
 
         # Wait for async tasks to complete
         await asyncio.sleep(0.1)
@@ -169,7 +187,7 @@ class TestACPToolProgressManager:
         assert delta_notification.content[0].content.text == expected_content
 
         # Title should show 25 chunks
-        assert "(streaming: 25 chunks)" in delta_notification.title
+        assert "(streaming: 25)" in delta_notification.title
 
     @pytest.mark.asyncio
     async def test_delta_before_start_is_dropped(self) -> None:
@@ -178,10 +196,13 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # Send delta without start
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-123",
-            "chunk": '{"path": "/tmp',
-        })
+        manager.handle_tool_stream_event(
+            "delta",
+            {
+                "tool_use_id": "use-123",
+                "chunk": '{"path": "/tmp',
+            },
+        )
 
         # Wait for async task
         await asyncio.sleep(0.1)
@@ -199,20 +220,26 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # Send start
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__read_file",
-            "tool_use_id": "use-123",
-        })
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__read_file",
+                "tool_use_id": "use-123",
+            },
+        )
 
         # external_id should be set IMMEDIATELY (synchronously)
         assert "use-123" in manager._stream_tool_use_ids
 
         # Send deltas immediately (no await between) - chunks are tracked even if not notified
         for i in range(5):
-            manager.handle_tool_stream_event("delta", {
-                "tool_use_id": "use-123",
-                "chunk": f"chunk{i}",
-            })
+            manager.handle_tool_stream_event(
+                "delta",
+                {
+                    "tool_use_id": "use-123",
+                    "chunk": f"chunk{i}",
+                },
+            )
 
         # Wait for all async tasks
         await asyncio.sleep(0.1)
@@ -230,24 +257,36 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # Start two tools
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__tool_a",
-            "tool_use_id": "use-a",
-        })
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__tool_b",
-            "tool_use_id": "use-b",
-        })
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_a",
+                "tool_use_id": "use-a",
+            },
+        )
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_b",
+                "tool_use_id": "use-b",
+            },
+        )
 
         # Send deltas to both (below threshold, so no notifications)
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-a",
-            "chunk": "chunk-a",
-        })
-        manager.handle_tool_stream_event("delta", {
-            "tool_use_id": "use-b",
-            "chunk": "chunk-b",
-        })
+        manager.handle_tool_stream_event(
+            "delta",
+            {
+                "tool_use_id": "use-a",
+                "chunk": "chunk-a",
+            },
+        )
+        manager.handle_tool_stream_event(
+            "delta",
+            {
+                "tool_use_id": "use-b",
+                "chunk": "chunk-b",
+            },
+        )
 
         # Wait for async tasks
         await asyncio.sleep(0.1)
@@ -277,14 +316,20 @@ class TestACPToolProgressManager:
         manager = ACPToolProgressManager(connection, "test-session")
 
         # 1. Stream start for both tools (simulating parallel tool calls from LLM)
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__tool_a",
-            "tool_use_id": "use-a",
-        })
-        manager.handle_tool_stream_event("start", {
-            "tool_name": "server__tool_b",
-            "tool_use_id": "use-b",
-        })
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_a",
+                "tool_use_id": "use-a",
+            },
+        )
+        manager.handle_tool_stream_event(
+            "start",
+            {
+                "tool_name": "server__tool_b",
+                "tool_use_id": "use-b",
+            },
+        )
 
         # Wait for stream start notifications
         await asyncio.sleep(0.1)
@@ -330,8 +375,7 @@ class TestACPToolProgressManager:
 
         # Verify both completion notifications were sent
         completion_notifications = [
-            n for n in connection.notifications
-            if hasattr(n, 'status') and n.status == "completed"
+            n for n in connection.notifications if hasattr(n, "status") and n.status == "completed"
         ]
         assert len(completion_notifications) == 2
 
