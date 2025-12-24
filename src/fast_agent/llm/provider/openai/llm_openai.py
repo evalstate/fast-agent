@@ -330,15 +330,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             # Get current chunk values
             chunk_id = tool_call.id
             chunk_name = (
-                tool_call.function.name
-                if tool_call.function and tool_call.function.name
-                else None
+                tool_call.function.name if tool_call.function and tool_call.function.name else None
             )
 
             # Accumulate values: prefer new, fall back to existing
-            tool_use_id = chunk_id or (
-                existing_info.get("tool_use_id") if existing_info else None
-            )
+            tool_use_id = chunk_id or (existing_info.get("tool_use_id") if existing_info else None)
             function_name = chunk_name or (
                 existing_info.get("tool_name") if existing_info else None
             )
@@ -1132,7 +1128,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         return await self._openai_completion(converted_messages, req_params, tools)
 
     def _prepare_api_request(
-        self, messages: list[ChatCompletionMessageParam], tools: list[ChatCompletionToolParam] | None, request_params: RequestParams
+        self,
+        messages: list[ChatCompletionMessageParam],
+        tools: list[ChatCompletionToolParam] | None,
+        request_params: RequestParams,
     ) -> dict[str, Any]:
         # Create base arguments dictionary
 

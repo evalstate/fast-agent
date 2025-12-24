@@ -600,9 +600,12 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         # Update agent config so future attachments use the new model spec.
         # Do not set `RequestParams.model`: that field is a provider-level override and can
         # accidentally force the full spec (or even None) into the outgoing request body.
+        # Also exclude `maxTokens` so the new model can determine its own value from ModelDatabase.
         self.config.model = new_model
         if self.config.default_request_params is not None:
-            params_without_model = self.config.default_request_params.model_dump(exclude={"model"})
+            params_without_model = self.config.default_request_params.model_dump(
+                exclude={"model", "maxTokens"}
+            )
             self.config.default_request_params = RequestParams(**params_without_model)
 
         llm_factory = get_model_factory(
