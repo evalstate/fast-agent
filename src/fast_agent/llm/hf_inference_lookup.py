@@ -7,6 +7,7 @@ has inference providers available through the HuggingFace Inference API.
 from __future__ import annotations
 
 import asyncio
+import random
 from enum import Enum
 from typing import TYPE_CHECKING
 
@@ -87,6 +88,46 @@ class ModelValidationResult(BaseModel):
 HF_API_BASE = "https://huggingface.co/api/models"
 
 
+def normalize_hf_model_id(model: str) -> str | None:
+    """Normalize an HF model spec to a bare model_id, or return None if not HF."""
+    model_id = model
+
+    if model_id.startswith("hf."):
+        model_id = model_id[3:]
+
+    if ":" in model_id:
+        model_id = model_id.rsplit(":", 1)[0]
+
+    if "/" not in model_id:
+        return None
+
+    return model_id
+
+
+def format_provider_help_message(result: InferenceProviderLookupResult) -> str | None:
+    """Format the provider help message for /set-model when providers exist."""
+    if result.has_providers:
+        providers = result.format_provider_list()
+        example = random.choice(result.format_model_strings())
+        return (
+            f"**Available providers:** {providers}\n\n"
+            f"**Autoroutes if no provider specified. Example use:** `/set-model {example}`"
+        )
+    if result.exists:
+        return "No inference providers currently available for this model."
+    return None
+
+
+def format_provider_summary(result: InferenceProviderLookupResult) -> str | None:
+    """Format a brief provider summary for status output."""
+    if result.has_providers:
+        providers = result.format_provider_list()
+        return f"Available providers: {providers}"
+    if result.exists:
+        return "No inference providers available"
+    return None
+
+
 async def lookup_inference_providers(
     model_id: str,
     timeout: float = 10.0,
@@ -144,8 +185,7 @@ async def lookup_inference_providers(
             # Parse inference provider mapping
             provider_mapping = data.get("inferenceProviderMapping", {})
             providers = [
-                InferenceProvider.from_dict(name, info)
-                for name, info in provider_mapping.items()
+                InferenceProvider.from_dict(name, info) for name, info in provider_mapping.items()
             ]
 
             return InferenceProviderLookupResult(
@@ -223,15 +263,17 @@ def format_inference_lookup_message(result: InferenceProviderLookupResult) -> st
     for provider in providers:
         lines.append(f"- **{provider.name}**")
 
-    lines.extend([
-        "",
-        "**Usage:**",
-        "```",
-        f"/set-model hf.{result.model_id}:<provider>",
-        "```",
-        "",
-        "**Examples:**",
-    ])
+    lines.extend(
+        [
+            "",
+            "**Usage:**",
+            "```",
+            f"/set-model hf.{result.model_id}:<provider>",
+            "```",
+            "",
+            "**Examples:**",
+        ]
+    )
 
     for model_str in result.format_model_strings()[:3]:  # Show up to 3 examples
         lines.append(f"- `hf.{model_str}`")
@@ -257,25 +299,12 @@ async def validate_hf_model(
     Returns:
         ModelValidationResult with validation status and messages
     """
-    import random
-
     # Resolve aliases first (e.g., "kimi" -> "hf.moonshotai/Kimi-K2-Instruct-0905:groq")
     if aliases:
         model = aliases.get(model, model)
 
-    # Extract the HF model ID from various formats
-    model_id = model
-
-    # Strip hf. prefix if present
-    if model_id.startswith("hf."):
-        model_id = model_id[3:]
-
-    # Strip :provider suffix if present
-    if ":" in model_id:
-        model_id = model_id.rsplit(":", 1)[0]
-
-    # Must have org/model format to be an HF model
-    if "/" not in model_id:
+    model_id = normalize_hf_model_id(model)
+    if model_id is None:
         # Not an HF model - skip validation (let ModelFactory handle it)
         return ModelValidationResult(valid=True)
 
@@ -294,14 +323,7 @@ async def validate_hf_model(
                 error=f"Error: Model `{model_id}` exists but has no inference providers available",
             )
 
-        # Valid model with providers
-        providers = result.format_provider_list()
-        model_strings = result.format_model_strings()
-        example = random.choice(model_strings)
-        display_message = (
-            f"**Available providers:** {providers}\n\n"
-            f"**Autoroutes if no provider specified. Example use:** `/set-model {example}`"
-        )
+        display_message = format_provider_help_message(result) or ""
         return ModelValidationResult(valid=True, display_message=display_message)
 
     except Exception as e:

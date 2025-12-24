@@ -326,48 +326,66 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 continue
 
             existing_info = tool_call_started.get(index)
-            tool_use_id = tool_call.id or (
-                existing_info.get("tool_use_id") if existing_info else None
-            )
-            function_name = (
+
+            # Get current chunk values
+            chunk_id = tool_call.id
+            chunk_name = (
                 tool_call.function.name
                 if tool_call.function and tool_call.function.name
-                else (existing_info.get("tool_name") if existing_info else None)
+                else None
             )
 
-            if existing_info is None and tool_use_id and function_name:
-                tool_call_started[index] = {
-                    "tool_name": function_name,
-                    "tool_use_id": tool_use_id,
-                    "streams_arguments": streams_arguments,
-                }
-                self._notify_tool_stream_listeners(
-                    "start",
-                    {
+            # Accumulate values: prefer new, fall back to existing
+            tool_use_id = chunk_id or (
+                existing_info.get("tool_use_id") if existing_info else None
+            )
+            function_name = chunk_name or (
+                existing_info.get("tool_name") if existing_info else None
+            )
+
+            # Always create/update tracking entry when we have any new info
+            # This ensures we accumulate metadata across chunks
+            if chunk_id or chunk_name:
+                if existing_info is None:
+                    tool_call_started[index] = {
                         "tool_name": function_name,
                         "tool_use_id": tool_use_id,
-                        "index": index,
                         "streams_arguments": streams_arguments,
-                    },
-                )
-                self.logger.info(
-                    "Model started streaming tool call",
-                    data={
-                        "progress_action": ProgressAction.CALLING_TOOL,
-                        "agent_name": self.name,
-                        "model": model,
-                        "tool_name": function_name,
-                        "tool_use_id": tool_use_id,
-                        "tool_event": "start",
-                        "streams_arguments": streams_arguments,
-                    },
-                )
-                notified_tool_indices.add(index)
-            elif existing_info:
-                if tool_use_id:
-                    existing_info["tool_use_id"] = tool_use_id
-                if function_name:
-                    existing_info["tool_name"] = function_name
+                        "notified": False,
+                    }
+                    existing_info = tool_call_started[index]
+                else:
+                    if tool_use_id:
+                        existing_info["tool_use_id"] = tool_use_id
+                    if function_name:
+                        existing_info["tool_name"] = function_name
+
+            # Fire "start" notification once we have BOTH values
+            if existing_info and not existing_info.get("notified"):
+                if existing_info.get("tool_use_id") and existing_info.get("tool_name"):
+                    self._notify_tool_stream_listeners(
+                        "start",
+                        {
+                            "tool_name": existing_info["tool_name"],
+                            "tool_use_id": existing_info["tool_use_id"],
+                            "index": index,
+                            "streams_arguments": streams_arguments,
+                        },
+                    )
+                    self.logger.info(
+                        "Model started streaming tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": existing_info["tool_name"],
+                            "tool_use_id": existing_info["tool_use_id"],
+                            "tool_event": "start",
+                            "streams_arguments": streams_arguments,
+                        },
+                    )
+                    existing_info["notified"] = True
+                    notified_tool_indices.add(index)
 
             if tool_call.function and tool_call.function.arguments:
                 info = tool_call_started.setdefault(
@@ -376,6 +394,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         "tool_name": function_name,
                         "tool_use_id": tool_use_id,
                         "streams_arguments": streams_arguments,
+                        "notified": False,
                     },
                 )
                 self._notify_tool_stream_listeners(
@@ -461,6 +480,34 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             return delta[len(cumulative) :], delta
         return delta, cumulative + delta
 
+    def _apply_content_delta(
+        self,
+        *,
+        delta_content: str | None,
+        cumulative_content: str,
+        model: str,
+        estimated_tokens: int,
+        streams_arguments: bool,
+        reasoning_active: bool,
+    ) -> tuple[str, int, bool, str]:
+        """Apply a content delta, returning updated state and any incremental text."""
+        if not delta_content:
+            return cumulative_content, estimated_tokens, reasoning_active, ""
+
+        incremental, cumulative_content = self._extract_incremental_delta(
+            delta_content, cumulative_content
+        )
+        if incremental:
+            estimated_tokens, reasoning_active = self._emit_text_delta(
+                content=incremental,
+                model=model,
+                estimated_tokens=estimated_tokens,
+                streams_arguments=streams_arguments,
+                reasoning_active=reasoning_active,
+            )
+
+        return cumulative_content, estimated_tokens, reasoning_active, incremental
+
     async def _process_stream(
         self,
         stream,
@@ -526,19 +573,16 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     )
 
                 # Handle text content streaming
-                if delta.content:
-                    incremental, cumulative_content = self._extract_incremental_delta(
-                        delta.content, cumulative_content
-                    )
-                    if not incremental:
-                        continue
-                    estimated_tokens, reasoning_active = self._emit_text_delta(
-                        content=incremental,
+                cumulative_content, estimated_tokens, reasoning_active, _ = (
+                    self._apply_content_delta(
+                        delta_content=delta.content,
+                        cumulative_content=cumulative_content,
                         model=model,
                         estimated_tokens=estimated_tokens,
                         streams_arguments=streams_arguments,
                         reasoning_active=reasoning_active,
                     )
+                )
 
                 # Fire "stop" event when tool calls complete
                 if choice.finish_reason == "tool_calls":
@@ -685,19 +729,17 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     )
 
                 # Handle text content streaming
-                if delta.content:
-                    incremental, cumulative_content = self._extract_incremental_delta(
-                        delta.content, cumulative_content
-                    )
-                    if not incremental:
-                        continue
-                    estimated_tokens, reasoning_active = self._emit_text_delta(
-                        content=incremental,
+                cumulative_content, estimated_tokens, reasoning_active, incremental = (
+                    self._apply_content_delta(
+                        delta_content=delta.content,
+                        cumulative_content=cumulative_content,
                         model=model,
                         estimated_tokens=estimated_tokens,
                         streams_arguments=streams_arguments,
                         reasoning_active=reasoning_active,
                     )
+                )
+                if incremental:
                     accumulated_content += incremental
 
                 # Fire "stop" event when tool calls complete

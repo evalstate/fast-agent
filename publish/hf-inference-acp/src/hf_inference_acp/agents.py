@@ -64,44 +64,49 @@ def _normalize_hf_model(model: str) -> str:
     return model
 
 
+def _resolve_alias_display(model: str) -> tuple[str, str] | None:
+    """Resolve alias to full model string for display, preserving suffix overrides."""
+    from fast_agent.llm.model_factory import ModelFactory
+
+    if not model:
+        return None
+
+    alias_key = model
+    alias_suffix: str | None = None
+    if ":" in model:
+        alias_key, alias_suffix = model.rsplit(":", 1)
+
+    alias_target = ModelFactory.MODEL_ALIASES.get(alias_key)
+    if not alias_target:
+        return None
+
+    resolved = alias_target
+    if alias_suffix:
+        if ":" in resolved:
+            resolved = resolved.rsplit(":", 1)[0]
+        resolved = f"{resolved}:{alias_suffix}"
+
+    return model, resolved
+
+
 async def _lookup_and_format_providers(model: str) -> str | None:
     """Look up inference providers for a model and return a formatted message.
 
     Returns None if the model is not a HuggingFace model (no '/').
     """
-    import random
+    from fast_agent.llm.hf_inference_lookup import (
+        format_provider_help_message,
+        lookup_inference_providers,
+        normalize_hf_model_id,
+    )
 
-    # Extract the HF model ID from various formats
-    model_id = model
-
-    # Strip hf. prefix if present
-    if model_id.startswith("hf."):
-        model_id = model_id[3:]
-
-    # Strip :provider suffix if present
-    if ":" in model_id:
-        model_id = model_id.rsplit(":", 1)[0]
-
-    # Must have org/model format
-    if "/" not in model_id:
+    model_id = normalize_hf_model_id(model)
+    if model_id is None:
         return None
-
-    from fast_agent.llm.hf_inference_lookup import lookup_inference_providers
 
     try:
         result = await lookup_inference_providers(model_id)
-        if result.has_providers:
-            providers = result.format_provider_list()
-            model_strings = result.format_model_strings()
-            example = random.choice(model_strings)
-            return (
-                f"**Available providers:** {providers}\n\n"
-                f"**Autoroutes if no provider specified. Example use:** `/set-model {example}`"
-            )
-        elif result.exists:
-            return "No inference providers currently available for this model."
-        else:
-            return None
+        return format_provider_help_message(result)
     except Exception:
         return None
 
@@ -224,9 +229,12 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         from fast_agent.llm.hf_inference_lookup import validate_hf_model
         from fast_agent.llm.model_factory import ModelFactory
 
-        model = arguments.strip()
+        raw_model = arguments.strip()
+        model = raw_model
         if not model:
             return format_model_list_help()
+
+        alias_info = _resolve_alias_display(raw_model)
 
         # Normalize the model string (auto-add hf. prefix if needed)
         model = _normalize_hf_model(model)
@@ -249,9 +257,14 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             provider_prefix = (
                 f"{validation.display_message}\n\n" if validation.display_message else ""
             )
+            if alias_info:
+                alias_display, resolved_alias = alias_info
+                model_status = f"Active model set to: `{alias_display}` (`{resolved_alias}`)"
+            else:
+                model_status = f"Default model set to: `{model}`"
             return (
                 f"{provider_prefix}"
-                f"Default model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+                f"{model_status}\n\nConfig file updated: `{CONFIG_FILE}`"
                 f"{applied_note}"
             )
         except Exception as e:
@@ -317,32 +330,19 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
         Returns None if providers cannot be looked up or model is not a HF model.
         """
-        from fast_agent.llm.hf_inference_lookup import lookup_inference_providers
+        from fast_agent.llm.hf_inference_lookup import (
+            format_provider_summary,
+            lookup_inference_providers,
+            normalize_hf_model_id,
+        )
 
-        # Extract the HF model ID from various formats
-        model_id = model
-
-        # Strip hf. prefix if present
-        if model_id.startswith("hf."):
-            model_id = model_id[3:]
-
-        # Strip :provider suffix if present
-        if ":" in model_id:
-            model_id = model_id.rsplit(":", 1)[0]
-
-        # Must have org/model format
-        if "/" not in model_id:
+        model_id = normalize_hf_model_id(model)
+        if model_id is None:
             return None
 
         try:
             result = await lookup_inference_providers(model_id)
-            if result.has_providers:
-                providers = result.format_provider_list()
-                return f"Available providers: {providers}"
-            elif result.exists:
-                return "No inference providers available"
-            else:
-                return None
+            return format_provider_summary(result)
         except Exception:
             return None
 
@@ -548,9 +548,12 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         from fast_agent.llm.hf_inference_lookup import validate_hf_model
         from fast_agent.llm.model_factory import ModelFactory
 
-        model = arguments.strip()
+        raw_model = arguments.strip()
+        model = raw_model
         if not model:
             return format_model_list_help()
+
+        alias_info = _resolve_alias_display(raw_model)
 
         # Normalize the model string (auto-add hf. prefix if needed)
         model = _normalize_hf_model(model)
@@ -573,7 +576,12 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
             provider_prefix = (
                 f"{validation.display_message}\n\n" if validation.display_message else ""
             )
-            return f"{provider_prefix}Active model set to: `{model}`\n\nConfig file updated: `{CONFIG_FILE}`"
+            if alias_info:
+                alias_display, resolved_alias = alias_info
+                model_status = f"Active model set to: `{alias_display}` (`{resolved_alias}`)"
+            else:
+                model_status = f"Active model set to: `{model}`"
+            return f"{provider_prefix}{model_status}\n\nConfig file updated: `{CONFIG_FILE}`"
         except Exception as e:
             return f"Error setting model: {e}"
 

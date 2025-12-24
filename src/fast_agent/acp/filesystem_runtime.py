@@ -390,16 +390,7 @@ class ACPFilesystemRuntime:
                 isError=False,
             )
 
-            # Notify tool handler of completion
-            if self._tool_handler and tool_call_id:
-                try:
-                    await self._tool_handler.on_tool_complete(
-                        tool_call_id, True, result.content, None
-                    )
-                except Exception as e:
-                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
-
-            # Send diff content update for UI display
+            # Send diff content update for UI display (before completion)
             if tool_call_id:
                 try:
                     diff_content = tool_diff_content(
@@ -417,6 +408,16 @@ class ACPFilesystemRuntime:
                     )
                 except Exception as e:
                     self.logger.error(f"Error sending diff content update: {e}", exc_info=True)
+
+            # Notify tool handler of completion (should be last notification)
+            # Pass None for content to preserve the diff content we already sent
+            if self._tool_handler and tool_call_id:
+                try:
+                    await self._tool_handler.on_tool_complete(
+                        tool_call_id, True, None, None
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)
 
             return result
 

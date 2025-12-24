@@ -300,6 +300,24 @@ class ACPToolPermissionManager:
                 )
             ]
 
+            # Send a tool_call_update with diff content BEFORE permission request
+            # This updates Toad's cache so the permission screen sees the diff
+            # Only send if we have a valid tool_call_id (32-char hex UUID)
+            if tool_call_id and len(tool_call_id) == 32:
+                lowered = tool_call_id.lower()
+                if all(ch in "0123456789abcdef" for ch in lowered):
+                    try:
+                        await self._connection.session_update(
+                            session_id=self._session_id,
+                            update=ToolCallProgress(
+                                session_update="tool_call_update",
+                                tool_call_id=tool_call_id,
+                                content=content,
+                            ),
+                        )
+                    except Exception:
+                        pass
+
         tool_call = ToolCallUpdate(
             tool_call_id=tool_call_id or "pending",
             title=title,

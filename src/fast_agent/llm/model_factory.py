@@ -142,7 +142,7 @@ class ModelFactory:
         "kimigroq": "groq.moonshotai/kimi-k2-instruct-0905",
         "minimax": "hf.MiniMaxAI/MiniMax-M2",
         "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
-        "gpt-oss": "hf.openai/gpt-oss-120b",
+        "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
         "glm": "hf.zai-org/GLM-4.7:zai-org",
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
