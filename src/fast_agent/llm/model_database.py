@@ -359,7 +359,7 @@ class ModelDatabase:
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
-        "zai-org/glm-4.7:novita": GLM_47,
+        "zai-org/glm-4.7": GLM_47,
         "minimaxai/minimax-m2": GLM_46,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
