@@ -326,6 +326,29 @@ class ACPFilesystemRuntime:
             # File doesn't exist or can't be read - that's fine, old_text stays None
             pass
 
+        # Send diff content update before permission check (so permission screen shows diff)
+        if tool_use_id and self._tool_handler:
+            try:
+                existing_tool_call_id = await self._tool_handler.get_tool_call_id_for_tool_use(
+                    tool_use_id
+                )
+                if existing_tool_call_id:
+                    diff_content = tool_diff_content(
+                        path=path,
+                        new_text=content,
+                        old_text=old_text,
+                    )
+                    await self.connection.session_update(
+                        session_id=self.session_id,
+                        update=ToolCallProgress(
+                            session_update="tool_call_update",
+                            tool_call_id=existing_tool_call_id,
+                            content=[diff_content],
+                        ),
+                    )
+            except Exception as e:
+                self.logger.error(f"Error sending pre-permission diff update: {e}", exc_info=True)
+
         # Check permission before execution
         if self._permission_handler:
             try:
@@ -334,9 +357,6 @@ class ACPFilesystemRuntime:
                     server_name="acp_filesystem",
                     arguments=arguments,
                     tool_use_id=tool_use_id,
-                    diff_old_text=old_text,
-                    diff_new_text=content,
-                    diff_path=path,
                 )
                 if not permission_result.allowed:
                     error_msg = permission_result.error_message or (
@@ -390,26 +410,7 @@ class ACPFilesystemRuntime:
                 isError=False,
             )
 
-            # Send diff content update for UI display (before completion)
-            if tool_call_id:
-                try:
-                    diff_content = tool_diff_content(
-                        path=path,
-                        new_text=content,
-                        old_text=old_text,
-                    )
-                    await self.connection.session_update(
-                        session_id=self.session_id,
-                        update=ToolCallProgress(
-                            session_update="tool_call_update",
-                            tool_call_id=tool_call_id,
-                            content=[diff_content],
-                        ),
-                    )
-                except Exception as e:
-                    self.logger.error(f"Error sending diff content update: {e}", exc_info=True)
-
-            # Notify tool handler of completion (should be last notification)
+            # Notify tool handler of completion
             # Pass None for content to preserve the diff content we already sent
             if self._tool_handler and tool_call_id:
                 try:

@@ -64,10 +64,6 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
         server_name: str,
         arguments: dict[str, Any] | None = None,
         tool_use_id: str | None = None,
-        *,
-        diff_old_text: str | None = None,
-        diff_new_text: str | None = None,
-        diff_path: str | None = None,
     ) -> ToolPermissionResult:
         """
         Check if tool execution is permitted.
@@ -80,9 +76,6 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
             server_name: Name of the MCP server providing the tool
             arguments: Tool arguments
             tool_use_id: LLM's tool use ID
-            diff_old_text: Original file content for diff display (optional)
-            diff_new_text: New file content for diff display (optional)
-            diff_path: File path for diff display (optional)
 
         Returns:
             ToolPermissionResult indicating whether execution is allowed
@@ -100,9 +93,6 @@ class ACPToolPermissionAdapter(ToolPermissionHandler):
             server_name=server_name,
             arguments=arguments,
             tool_call_id=tool_call_id,
-            diff_old_text=diff_old_text,
-            diff_new_text=diff_new_text,
-            diff_path=diff_path,
         )
 
         namespaced_tool_name = create_namespaced_name(server_name, tool_name)

@@ -91,6 +91,21 @@ class ToolExecutionHandler(Protocol):
         """
         ...
 
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """
+        Get the ACP toolCallId for a given LLM tool_use_id.
+
+        This allows callers to look up an existing tool_call_id (e.g., from
+        streaming notifications) before on_tool_start is called.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+
+        Returns:
+            The toolCallId if one exists for this tool_use_id, None otherwise
+        """
+        ...
+
 
 class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
@@ -135,3 +150,7 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> None:
         """No-op - does nothing."""
         pass
+
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """No-op - always returns None."""
+        return None
