@@ -16,6 +16,11 @@ class Provider(Enum):
         obj.display_name = display_name or config_name.title()
         return obj
 
+    @property
+    def config_name(self) -> str:
+        """Return the provider's config name (typed accessor for _value_)."""
+        return self._value_  # type: ignore[return-value]
+
     ANTHROPIC = ("anthropic", "Anthropic")
     DEEPSEEK = ("deepseek", "Deepseek")
     FAST_AGENT = ("fast-agent", "fast-agent-internal")

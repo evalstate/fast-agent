@@ -82,7 +82,7 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     import os
 
     results = {
-        provider.value: {"env": "", "config": ""}
+        provider.config_name: {"env": "", "config": ""}
         for provider in Provider
         if provider != Provider.FAST_AGENT
     }
@@ -97,18 +97,18 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
     if config and "azure" in config.get("config", {}):
         config_azure = config["config"]["azure"]
 
-    for provider in results:
+    for provider_name in results:
         # Always check environment variables first
-        env_key_name = ProviderKeyManager.get_env_key_name(provider)
+        env_key_name = ProviderKeyManager.get_env_key_name(provider_name)
         env_key_value = os.environ.get(env_key_name)
         if env_key_value:
             if len(env_key_value) > 5:
-                results[provider]["env"] = f"...{env_key_value[-5:]}"
+                results[provider_name]["env"] = f"...{env_key_value[-5:]}"
             else:
-                results[provider]["env"] = "...***"
+                results[provider_name]["env"] = "...***"
 
         # Special handling for Azure: support api_key and DefaultAzureCredential
-        if provider == "azure":
+        if provider_name == "azure":
             # Prefer secrets if present, else fallback to config
             azure_cfg = {}
             if secrets_status == "parsed" and "azure" in secrets:
@@ -119,17 +119,17 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
             use_default_cred = azure_cfg.get("use_default_azure_credential", False)
             base_url = azure_cfg.get("base_url")
             if use_default_cred and base_url:
-                results[provider]["config"] = "DefaultAzureCredential"
+                results[provider_name]["config"] = "DefaultAzureCredential"
                 continue
 
         # Check secrets file if it was parsed successfully
         if secrets_status == "parsed":
-            config_key = ProviderKeyManager.get_config_file_key(provider, secrets)
+            config_key = ProviderKeyManager.get_config_file_key(provider_name, secrets)
             if config_key and config_key != API_KEY_HINT_TEXT:
                 if len(config_key) > 5:
-                    results[provider]["config"] = f"...{config_key[-5:]}"
+                    results[provider_name]["config"] = f"...{config_key[-5:]}"
                 else:
-                    results[provider]["config"] = "...***"
+                    results[provider_name]["config"] = "...***"
 
     return results
 
@@ -277,7 +277,9 @@ def get_config_summary(config_path: Path | None) -> dict:
                 if server_info["url"] and len(server_info["url"]) > 60:
                     server_info["url"] = server_info["url"][:57] + "..."
 
-                result["mcp_servers"].append(server_info)
+                mcp_servers = result["mcp_servers"]
+                assert isinstance(mcp_servers, list)
+                mcp_servers.append(server_info)
 
         # Skills directory override
         skills_cfg = config.get("skills") if isinstance(config, dict) else None
@@ -711,7 +713,7 @@ def show_check_summary() -> None:
         console.print("1. Add keys to fastagent.secrets.yaml")
         env_vars = ", ".join(
             [
-                ProviderKeyManager.get_env_key_name(p.value)
+                ProviderKeyManager.get_env_key_name(p.config_name)
                 for p in Provider
                 if p != Provider.FAST_AGENT
             ]

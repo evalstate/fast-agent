@@ -24,7 +24,8 @@ class BedrockConverter:
             A Bedrock API message parameter dictionary
         """
         # Simple conversion without needing BedrockLLM instance
-        bedrock_msg = {"role": multipart_msg.role, "content": []}
+        content_list: list[dict[str, Any]] = []
+        bedrock_msg: BedrockMessageParam = {"role": multipart_msg.role, "content": content_list}
 
         # Handle tool results first (if present)
         if multipart_msg.tool_results:
@@ -53,7 +54,7 @@ class BedrockConverter:
 
                 if tool_result_parts:
                     full_result_text = f"Tool Results:\n{', '.join(tool_result_parts)}"
-                    bedrock_msg["content"].append({"type": "text", "text": full_result_text})
+                    content_list.append({"type": "text", "text": full_result_text})
             else:
                 # For Nova/Anthropic models: use structured tool_result format
                 for tool_id, tool_result in multipart_msg.tool_results.items():
@@ -66,7 +67,7 @@ class BedrockConverter:
                     if not result_content_blocks:
                         result_content_blocks.append({"text": "[No content in tool result]"})
 
-                    bedrock_msg["content"].append(
+                    content_list.append(
                         {
                             "type": "tool_result",
                             "tool_use_id": tool_id,
@@ -79,6 +80,6 @@ class BedrockConverter:
         from mcp.types import TextContent
         for content_item in multipart_msg.content:
             if isinstance(content_item, TextContent):
-                bedrock_msg["content"].append({"type": "text", "text": content_item.text})
+                content_list.append({"type": "text", "text": content_item.text})
 
         return bedrock_msg

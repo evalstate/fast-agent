@@ -9,6 +9,7 @@ from mcp.types import GetPromptResult, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.interfaces import AgentProtocol
 from fast_agent.llm.usage_tracking import last_turn_usage
@@ -369,12 +370,10 @@ class AgentApp:
             if accumulator is not None:
                 indices[target.name] = len(accumulator.turns)
 
-        if agent.agent_type == AgentType.PARALLEL:
-            if getattr(agent, "fan_out_agents", None):
-                for child_agent in agent.fan_out_agents:
-                    record(child_agent)
-            if getattr(agent, "fan_in_agent", None):
-                record(agent.fan_in_agent)
+        if isinstance(agent, ParallelAgent):
+            for child_agent in agent.fan_out_agents:
+                record(child_agent)
+            record(agent.fan_in_agent)
         else:
             record(agent)
 

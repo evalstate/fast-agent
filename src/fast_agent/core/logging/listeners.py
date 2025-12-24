@@ -280,6 +280,8 @@ class BatchingListener(FilteredListener):
         await self.flush()
 
     async def _periodic_flush(self) -> None:
+        if self._stop_event is None:
+            return
         try:
             while not self._stop_event.is_set():
                 try:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import Any
 
 import pytest
 from acp.helpers import text_block
@@ -34,11 +35,13 @@ def _get_stop_reason(response: object) -> str | None:
     return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
 
 
-def _get_session_update_type(update: object) -> str | None:
-    if hasattr(update, "sessionUpdate"):
-        return update.sessionUpdate
+def _get_session_update_type(update: Any) -> str | None:
+    session_update = getattr(update, "sessionUpdate", None)
+    if session_update is not None:
+        return str(session_update)
     if isinstance(update, dict):
-        return update.get("sessionUpdate")
+        result = update.get("sessionUpdate")
+        return str(result) if result is not None else None
     return None
 
 

@@ -7,9 +7,10 @@ import base64
 import logging
 import sys
 from pathlib import Path
+from typing import cast
 
 from mcp.server.fastmcp import Context, FastMCP, Image
-from mcp.types import BlobResourceContents, EmbeddedResource, ImageContent, TextContent
+from mcp.types import AnyUrl, BlobResourceContents, EmbeddedResource, ImageContent, TextContent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -28,7 +29,7 @@ image_path = "image.png"
     structured_output=False,
 )
 async def get_image(
-    image_name: str = "default", ctx: Context = None
+    image_name: str = "default", ctx: Context | None = None
 ) -> list[TextContent | ImageContent]:
     try:
         # Use the global image path
@@ -66,7 +67,7 @@ async def get_pdf() -> list[TextContent | EmbeddedResource]:
             EmbeddedResource(
                 type="resource",
                 resource=BlobResourceContents(
-                    uri=f"file://{Path(pdf_path).absolute()}",
+                    uri=cast("AnyUrl", f"file://{Path(pdf_path).absolute()}"),
                     blob=b64_data,
                     mimeType="application/pdf",
                 ),

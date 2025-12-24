@@ -294,7 +294,7 @@ def multipart_messages_to_delimited_format(
 
             # First, add all text content
             for content in message.content:
-                if content.type == "text":
+                if isinstance(content, TextContent):
                     # Collect text content to combine
                     text_contents.append(content.text)
 
@@ -304,7 +304,7 @@ def multipart_messages_to_delimited_format(
 
             # Then add resources and images
             for content in message.content:
-                if content.type != "text":
+                if not isinstance(content, TextContent):
                     # Resource or image - add delimiter and JSON
                     delimited_content.append(resource_delimiter)
 
@@ -316,7 +316,7 @@ def multipart_messages_to_delimited_format(
         else:
             # Don't combine text contents - preserve each content part in sequence
             for content in message.content:
-                if content.type == "text":
+                if isinstance(content, TextContent):
                     # Add each text content separately
                     delimited_content.append(content.text)
                 else:

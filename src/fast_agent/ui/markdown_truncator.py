@@ -725,6 +725,12 @@ class MarkdownTruncator:
                 if truncation_pos >= table.thead_end_pos:
                     # Header completely scrolled off - prepend it
                     header_text = "\n".join(table.header_lines) + "\n"
+                    truncated_lines = truncated_text.splitlines()
+                    header_lines = [line.rstrip() for line in table.header_lines]
+                    if len(truncated_lines) >= len(header_lines):
+                        candidate = [line.rstrip() for line in truncated_lines[: len(header_lines)]]
+                        if candidate == header_lines:
+                            return truncated_text
                     return header_text + truncated_text
                 else:
                     # Header still on screen

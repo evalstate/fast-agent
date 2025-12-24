@@ -235,8 +235,8 @@ class IterativePlanner(LlmAgent):
         # Replace {{agents}} placeholder in the system prompt template
         system_prompt = self.config.instruction.replace("{{agents}}", agents_str)
 
-        # Update the config instruction with the formatted system prompt
-        self.instruction = system_prompt
+        # Update the instruction with the formatted system prompt
+        self.set_instruction(system_prompt)
         # Initialize the base agent with the updated system prompt
         await super().initialize()
 

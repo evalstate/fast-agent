@@ -5,7 +5,7 @@ Implements type-safe factories with improved error handling.
 
 import os
 from functools import partial
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypeVar, cast
 
 from fast_agent.agents import McpAgent
 from fast_agent.agents.agent_types import AgentConfig, AgentType
@@ -230,7 +230,7 @@ async def create_agents_by_type(
                     agent = AgentsAsToolsAgent(
                         config=config,
                         context=app_instance.context,
-                        agents=child_agents,  # expose children as tools
+                        agents=cast("list[LlmAgent]", child_agents),  # expose children as tools
                         options=options,
                     )
 

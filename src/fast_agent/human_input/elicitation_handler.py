@@ -39,9 +39,10 @@ async def elicitation_input_callback(
 
     try:
         # Check if elicitation is disabled for this server
+        request_id = request.request_id or ""
         if elicitation_state.is_disabled(effective_server_name):
             return HumanInputResponse(
-                request_id=request.request_id,
+                request_id=request_id,
                 response="__CANCELLED__",
                 metadata={"auto_cancelled": True, "reason": "Server elicitation disabled by user"},
             )
@@ -92,7 +93,7 @@ async def elicitation_input_callback(
                 response = "__CANCELLED__"
 
         return HumanInputResponse(
-            request_id=request.request_id,
+            request_id=request_id,
             response=response.strip() if isinstance(response, str) else response,
             metadata={"has_schema": schema is not None},
         )

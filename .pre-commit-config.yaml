@@ -8,3 +8,10 @@ repos:
         args: [--fix]
       # Run the formatter.
       - id: ruff-format
+  - repo: local
+    hooks:
+      - id: ty
+        name: ty check
+        entry: uv run scripts/typecheck.py
+        language: system
+        pass_filenames: false

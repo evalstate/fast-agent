@@ -28,7 +28,7 @@ class LoggerTextIO(TextIO):
         # Keep track of complete and partial lines
         self._line_buffer = ""
 
-    def write(self, s: str) -> int:
+    def write(self, s: str) -> int:  # type: ignore[override]
         """
         Write data to our buffer and log any complete lines.
         """

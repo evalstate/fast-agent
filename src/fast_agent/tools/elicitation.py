@@ -198,8 +198,9 @@ async def run_elicitation_form(arguments: dict | str, agent_name: str | None = N
     title: str | None = None
     description: str | None = None
 
-    if isinstance(arguments.get("fields"), list):
-        fields = arguments.get("fields")
+    fields_value = arguments.get("fields")
+    if isinstance(fields_value, list):
+        fields = fields_value
         if len(fields) > 7:
             raise ValueError(
                 f"Error: form requests {len(fields)} fields; the maximum allowed is 7."
@@ -289,17 +290,20 @@ async def run_elicitation_form(arguments: dict | str, agent_name: str | None = N
                 schema = parsed
             else:
                 raise ValueError("Missing or invalid schema. Provide a JSON Schema object.")
+        if not isinstance(schema, dict):
+            raise ValueError("Missing or invalid schema. Provide a JSON Schema object.")
+        schema_dict: dict[str, Any] = schema
         msg = arguments.get("message")
         if isinstance(msg, str):
             message = msg
-        if isinstance(arguments.get("title"), str) and "title" not in schema:
-            schema["title"] = arguments.get("title")
-        if isinstance(arguments.get("description"), str) and "description" not in schema:
-            schema["description"] = arguments.get("description")
-        if isinstance(arguments.get("required"), list) and "required" not in schema:
-            schema["required"] = arguments.get("required")
-        if isinstance(arguments.get("properties"), dict) and "properties" not in schema:
-            schema["properties"] = arguments.get("properties")
+        if isinstance(arguments.get("title"), str) and "title" not in schema_dict:
+            schema_dict["title"] = arguments.get("title")
+        if isinstance(arguments.get("description"), str) and "description" not in schema_dict:
+            schema_dict["description"] = arguments.get("description")
+        if isinstance(arguments.get("required"), list) and "required" not in schema_dict:
+            schema_dict["required"] = arguments.get("required")
+        if isinstance(arguments.get("properties"), dict) and "properties" not in schema_dict:
+            schema_dict["properties"] = arguments.get("properties")
 
     elif ("type" in arguments and "properties" in arguments) or (
         "$schema" in arguments and "properties" in arguments
@@ -309,17 +313,25 @@ async def run_elicitation_form(arguments: dict | str, agent_name: str | None = N
     else:
         raise ValueError("Missing or invalid schema or fields in arguments.")
 
-    props = schema.get("properties", {}) if isinstance(schema.get("properties"), dict) else {}
+    if not isinstance(schema, dict):
+        raise ValueError("Missing or invalid schema or fields in arguments.")
+
+    schema_dict: dict[str, Any] = schema
+    props = (
+        schema_dict.get("properties", {})
+        if isinstance(schema_dict.get("properties"), dict)
+        else {}
+    )
     if len(props) > 7:
         raise ValueError(f"Error: schema requests {len(props)} fields; the maximum allowed is 7.")
 
     request_payload: dict[str, Any] = {
-        "prompt": message or schema.get("title") or "Please complete this form:",
-        "description": schema.get("description"),
+        "prompt": message or schema_dict.get("title") or "Please complete this form:",
+        "description": schema_dict.get("description"),
         "request_id": f"__human_input__{uuid.uuid4()}",
         "metadata": {
             "agent_name": agent_name or "Unknown Agent",
-            "requested_schema": schema,
+            "requested_schema": schema_dict,
         },
     }
 

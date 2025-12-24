@@ -4,31 +4,80 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
 import pytest
 
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.config import get_settings
-from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 
 if TYPE_CHECKING:
     from fast_agent.core.fastagent import AgentInstance
+    from fast_agent.skills.registry import SkillManifest, SkillRegistry
+
+
+@dataclass
+class StubAggregator:
+    """Stub aggregator for testing."""
+
+    async def get_server_instructions(self) -> dict[str, tuple[str | None, list[str]]]:
+        return {}
 
 
 @dataclass
 class SkillAgent:
+    """Skill agent that implements McpInstructionCapable protocol for testing."""
+
     name: str
-    instruction: str = ""
+    _instruction: str = ""
+    _instruction_template: str = "{{agentSkills}}"
+    _instruction_context: dict[str, str] = field(default_factory=dict)
+    _skill_manifests: list[SkillManifest] = field(default_factory=list)
+    _skill_registry: SkillRegistry | None = None
+    _aggregator: StubAggregator = field(default_factory=StubAggregator)
     message_history: list[Any] = field(default_factory=list)
     llm: Any = None
-    _skill_manifests: list[SkillManifest] = field(default_factory=list)
 
-    def set_skill_manifests(self, manifests: list[SkillManifest]) -> None:
+    @property
+    def instruction(self) -> str:
+        return self._instruction
+
+    def set_instruction(self, instruction: str) -> None:
+        self._instruction = instruction
+
+    @property
+    def instruction_template(self) -> str:
+        return self._instruction_template
+
+    @property
+    def instruction_context(self) -> dict[str, str]:
+        return self._instruction_context
+
+    def set_instruction_context(self, context: dict[str, str]) -> None:
+        self._instruction_context = context
+
+    @property
+    def aggregator(self) -> StubAggregator:
+        return self._aggregator
+
+    @property
+    def skill_manifests(self) -> Sequence[SkillManifest]:
+        return self._skill_manifests
+
+    @property
+    def skill_registry(self) -> SkillRegistry | None:
+        return self._skill_registry
+
+    @skill_registry.setter
+    def skill_registry(self, value: SkillRegistry | None) -> None:
+        self._skill_registry = value
+
+    def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
         self._skill_manifests = list(manifests)
 
-    async def rebuild_instruction_templates(self) -> None:
-        self.instruction = format_skills_for_prompt(self._skill_manifests)
+    @property
+    def has_filesystem_runtime(self) -> bool:
+        return False
 
 
 @dataclass

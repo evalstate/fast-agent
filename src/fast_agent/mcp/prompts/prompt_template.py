@@ -7,7 +7,7 @@ Provides clean, testable classes for managing template substitution.
 
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from mcp.types import (
     EmbeddedResource,
@@ -16,15 +16,14 @@ from mcp.types import (
 )
 from pydantic import BaseModel, field_validator
 
-from fast_agent.mcp.prompt_serialization import (
-    multipart_messages_to_delimited_format,
-)
+from fast_agent.mcp.prompt_serialization import multipart_messages_to_delimited_format
 from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
     DEFAULT_DELIMITER_MAP,
     RESOURCE_DELIMITER,
     USER_DELIMITER,
 )
+from fast_agent.mcp.resource_utils import to_any_url
 from fast_agent.types import PromptMessageExtended
 
 
@@ -46,16 +45,16 @@ class PromptContent(BaseModel):
     """Content of a prompt, which may include template variables"""
 
     text: str
-    role: str = "user"
+    role: MessageRole = "user"
     resources: list[str] = []
 
     @field_validator("role")
     @classmethod
-    def validate_role(cls, role: str) -> str:
+    def validate_role(cls, role: str) -> MessageRole:
         """Validate that the role is a known value"""
         if role not in ("user", "assistant"):
             raise ValueError(f"Invalid role: {role}. Must be one of: user, assistant")
-        return role
+        return cast("MessageRole", role)
 
     def apply_substitutions(self, context: dict[str, Any]) -> "PromptContent":
         """Apply variable substitutions to the text and resources"""
@@ -194,7 +193,7 @@ class PromptTemplate:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=f"resource://fast-agent/{resource_path}",
+                            uri=to_any_url(f"resource://fast-agent/{resource_path}"),
                             mimeType="text/plain",
                             text=f"Content of {resource_path}",
                         ),
@@ -232,7 +231,7 @@ class PromptTemplate:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri=f"resource://{resource_path}",
+                            uri=to_any_url(f"resource://{resource_path}"),
                             mimeType="text/plain",
                             text=f"Content of {resource_path}",
                         ),

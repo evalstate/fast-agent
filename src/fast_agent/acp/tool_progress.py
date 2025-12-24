@@ -171,6 +171,10 @@ class ACPToolProgressManager:
             tool_use_id: LLM's tool use ID
             external_id: Pre-generated external ID for SDK tracker
         """
+        logger.debug(
+            f"_send_stream_start_notification called: tool={tool_name}, tool_use_id={tool_use_id}",
+            name="acp_tool_stream_start_entry",
+        )
         try:
             # Parse the tool name if it's namespaced (e.g., "acp_filesystem__write_text_file")
             if is_namespaced_name(tool_name):
@@ -252,7 +256,7 @@ class ACPToolProgressManager:
                 )
                 chunk_count = self._stream_chunk_counts[tool_use_id]
                 base_title = self._stream_base_titles.get(tool_use_id, "Tool")
-                title_with_count = f"{base_title} (streaming: {chunk_count} chunks)"
+                title_with_count = f"{base_title} (streaming: {chunk_count})"
 
                 # Use SDK's append_stream_text to accumulate chunks into content
                 update = self._tracker.append_stream_text(
@@ -452,13 +456,6 @@ class ACPToolProgressManager:
         # Use SDK tracker to create or update the tool call notification
         async with self._lock:
             if existing_external_id:
-                # Get final chunk count before clearing
-                final_chunk_count = self._stream_chunk_counts.get(tool_use_id or "", 0)
-
-                # Update title with streamed count only if we showed streaming progress
-                if final_chunk_count >= 25:
-                    title = f"{title} (streamed {final_chunk_count} chunks)"
-
                 # Update the existing stream notification with full details
                 # Clear streaming content by setting content=[] since we now have full rawInput
                 tool_call_update = self._tracker.progress(

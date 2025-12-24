@@ -286,8 +286,9 @@ class LlmAgent(LlmDecorator):
         summary_text: Text | None = None
 
         if self._should_stream():
+            llm = self._require_llm()
             display_name = self.name
-            display_model = self.llm.model_name if self.llm else None
+            display_model = llm.model_name
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None
@@ -297,8 +298,8 @@ class LlmAgent(LlmDecorator):
                 model=display_model,
             ) as stream_handle:
                 try:
-                    remove_listener = self.llm.add_stream_listener(stream_handle.update_chunk)
-                    remove_tool_listener = self.llm.add_tool_stream_listener(
+                    remove_listener = llm.add_stream_listener(stream_handle.update_chunk)
+                    remove_tool_listener = llm.add_tool_stream_listener(
                         stream_handle.handle_tool_event
                     )
                 except Exception:

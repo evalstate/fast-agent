@@ -273,6 +273,7 @@ class ACPToolPermissionManager:
 
         # Create ToolCallUpdate object per ACP spec with raw_input for full argument visibility
         tool_kind = _infer_tool_kind(tool_name, arguments)
+
         tool_call = ToolCallUpdate(
             tool_call_id=tool_call_id or "pending",
             title=title,

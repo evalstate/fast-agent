@@ -303,10 +303,7 @@ def _build_capability_text(tokens: list[tuple[str, str]]) -> Text:
 def _format_relative_time(dt: datetime | None) -> str:
     if dt is None:
         return "never"
-    try:
-        now = datetime.now(timezone.utc)
-    except Exception:
-        now = datetime.utcnow().replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
     seconds = max(0, (now - dt).total_seconds())
     return _format_compact_duration(seconds) or "<1s"
 

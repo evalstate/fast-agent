@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from mcp.types import BlobResourceContents, EmbeddedResource, TextResourceContents
+from mcp.types import BlobResourceContents, ContentBlock, EmbeddedResource, TextResourceContents
 
 """
 Utilities for handling MCP-UI resources carried in PromptMessageExtended.channels.
@@ -126,7 +126,7 @@ def _write_html_file(name_hint: str, html: str) -> str:
     return str(out_path.resolve())
 
 
-def ui_links_from_channel(resources: Iterable[EmbeddedResource]) -> list[UILink]:
+def ui_links_from_channel(resources: Iterable[ContentBlock]) -> list[UILink]:
     """
     Build local HTML files for a list of MCP-UI EmbeddedResources and return clickable links.
 
@@ -136,7 +136,10 @@ def ui_links_from_channel(resources: Iterable[EmbeddedResource]) -> list[UILink]
     - application/vnd.mcp-ui.remote-dom* : currently unsupported; generate a placeholder page
     """
     links: list[UILink] = []
-    for emb in resources:
+    for item in resources:
+        if not isinstance(item, EmbeddedResource):
+            continue
+        emb = item
         res = emb.resource
         uri = str(getattr(res, "uri", "")) if getattr(res, "uri", None) else None
         mime = getattr(res, "mimeType", "") or ""

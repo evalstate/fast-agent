@@ -2,9 +2,10 @@
 This simplified implementation directly converts between MCP types and PromptMessageExtended.
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession
+from mcp.shared.context import RequestContext
 from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -60,7 +61,9 @@ def create_sampling_llm(
     return llm
 
 
-async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> CreateMessageResult:
+async def sample(
+    context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
+) -> CreateMessageResult:
     """
     Handle sampling requests from the MCP protocol using SamplingConverter.
 
@@ -71,16 +74,14 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
     4. Returns the result as a CreateMessageResult
 
     Args:
-        mcp_ctx: The MCP ClientSession
+        context: The MCP RequestContext containing the ClientSession
         params: The sampling request parameters
 
     Returns:
         A CreateMessageResult containing the LLM's response
     """
     # Get server name for notification tracking
-    server_name = "unknown"
-    if hasattr(mcp_ctx, "session") and hasattr(mcp_ctx.session, "session_server_name"):
-        server_name = mcp_ctx.session.session_server_name or "unknown"
+    server_name: str = getattr(context.session, "session_server_name", None) or "unknown"
 
     # Start tracking sampling operation
     try:
@@ -94,7 +95,7 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
     api_key: str | None = None
     try:
         # Extract model from server config using type-safe helper
-        server_config = get_server_config(mcp_ctx)
+        server_config = get_server_config(context)
 
         # First priority: explicitly configured sampling model
         if server_config and server_config.sampling:
@@ -119,14 +120,12 @@ async def sample(mcp_ctx: ClientSession, params: CreateMessageRequestParams) -> 
                 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 
                 # Try agent's model first (from the session)
-                if hasattr(mcp_ctx, "session") and isinstance(
-                    mcp_ctx.session, MCPAgentClientSession
-                ):
-                    if mcp_ctx.session.agent_model:
-                        model = mcp_ctx.session.agent_model
+                if isinstance(context.session, MCPAgentClientSession):
+                    if context.session.agent_model:
+                        model = context.session.agent_model
                         logger.debug(f"Using agent's model for sampling: {model}")
-                    if mcp_ctx.session.api_key:
-                        api_key = mcp_ctx.session.api_key
+                    if context.session.api_key:
+                        api_key = context.session.api_key
                         logger.debug(f"Using agent's API KEY for sampling: {api_key}")
 
                 # Fall back to system default model

@@ -113,6 +113,23 @@ class Logger:
         """Log an error message."""
         self.event("error", name, message, context, data)
 
+    def exception(
+        self,
+        message: str,
+        name: str | None = None,
+        context: EventContext | None = None,
+        **data,
+    ) -> None:
+        """Log an error message with exception info."""
+        import sys
+        import traceback
+
+        exc_info = sys.exc_info()
+        if exc_info[0] is not None:
+            tb_str = "".join(traceback.format_exception(*exc_info))
+            data["exception"] = tb_str
+        self.event("error", name, message, context, data)
+
     def progress(
         self,
         message: str,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, AsyncGenerator, Callable
+from typing import TYPE_CHECKING, AsyncGenerator, Callable, TextIO
 
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
@@ -22,7 +22,7 @@ async def tracking_stdio_client(
     server_params: StdioServerParameters,
     *,
     channel_hook: ChannelHook | None = None,
-    errlog: Callable[[str], None] | None = None,
+    errlog: TextIO | None = None,
 ) -> AsyncGenerator[
     tuple[ObjectReceiveStream[SessionMessage | Exception], ObjectSendStream[SessionMessage]], None
 ]:

@@ -14,7 +14,7 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo, ToolTimings
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
 logger = get_logger(__name__)
@@ -140,7 +140,7 @@ class ToolAgent(LlmAgent):
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        tool_timings: dict[str, float] = {}  # Track timing for each tool call
+        tool_timings: ToolTimings = {}  # Track timing for each tool call
         tool_loop_error: str | None = None
         # TODO -- use gather() for parallel results, update display
         tool_schemas = (await self.list_tools()).tools
@@ -184,10 +184,10 @@ class ToolAgent(LlmAgent):
 
             tool_results[correlation_id] = result
             # Store timing info (transport_channel not available for local tools)
-            tool_timings[correlation_id] = {
-                "timing_ms": duration_ms,
-                "transport_channel": None
-            }
+            tool_timings[correlation_id] = ToolTimingInfo(
+                timing_ms=duration_ms,
+                transport_channel=None,
+            )
             self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms)
 
         return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
@@ -211,7 +211,7 @@ class ToolAgent(LlmAgent):
         self,
         tool_results: dict[str, CallToolResult],
         *,
-        tool_timings: dict[str, dict[str, float | str | None]] | None = None,
+        tool_timings: ToolTimings | None = None,
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
         import json

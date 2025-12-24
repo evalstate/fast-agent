@@ -10,10 +10,9 @@ DEFAULT_OLLAMA_API_KEY = "ollama"
 
 
 class GenericLLM(OpenAILLM):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(
-            *args, provider=Provider.GENERIC, **kwargs
-        )  # Properly pass args and kwargs to parent
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.GENERIC, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Generic  parameters"""
@@ -27,8 +26,8 @@ class GenericLLM(OpenAILLM):
             use_history=True,
         )
 
-    def _base_url(self) -> str:
-        base_url = os.getenv("GENERIC_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
+    def _base_url(self) -> str | None:
+        base_url: str | None = os.getenv("GENERIC_BASE_URL", DEFAULT_OLLAMA_BASE_URL)
         if self.context.config and self.context.config.generic:
             base_url = self.context.config.generic.base_url
 

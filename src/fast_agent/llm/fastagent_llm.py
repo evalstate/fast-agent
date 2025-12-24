@@ -117,7 +117,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         context: Union["Context", None] = None,
         model: str | None = None,
         api_key: str | None = None,
-        **kwargs: dict[str, Any],
+        **kwargs: Any,
     ) -> None:
         """
 
@@ -172,12 +172,12 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.retry_count = self._resolve_retry_count()
         self.retry_backoff_seconds: float = 10.0
 
-    def _initialize_default_params(self, kwargs: dict) -> RequestParams:
+    def _initialize_default_params(self, kwargs: dict[str, Any]) -> RequestParams:
         """Initialize default parameters for the LLM.
         Should be overridden by provider implementations to set provider-specific defaults."""
         # Get model-aware default max tokens
         model = kwargs.get("model")
-        max_tokens = ModelDatabase.get_default_max_tokens(model)
+        max_tokens = ModelDatabase.get_default_max_tokens(model) if model else 16384
 
         return RequestParams(
             model=model,
@@ -511,7 +511,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             text = self._prepare_structured_text(text)
             json_data = from_json(text, allow_partial=True)
             validated_model = model.model_validate(json_data)
-            return cast("ModelT", validated_model), message
+            return validated_model, message
         except ValueError as e:
             logger = get_logger(__name__)
             logger.warning(f"Failed to parse structured response: {str(e)}")
@@ -891,6 +891,10 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     @property
     def usage_accumulator(self):
         return self._usage_accumulator
+
+    @usage_accumulator.setter
+    def usage_accumulator(self, value):
+        self._usage_accumulator = value
 
     def get_usage_summary(self) -> dict:
         """

@@ -39,6 +39,7 @@ async def test_tensorzero_image_demo_smoke(project_root, chdir_to_tensorzero_exa
             pytest.fail(f"'main' async function not found in {image_demo_script_path}")
 
         print("Executing image_demo.main()...")
+        assert main_func is not None  # Type narrowing after pytest.fail
         await main_func()
         print("image_demo.main() executed successfully.")
 

@@ -414,6 +414,8 @@ Enter y or n:
         elif cmd in ("y", "yes", "confirm", "ok", "save"):
             # Save configuration
             try:
+                if self._state.selected_model is None:
+                    return "No model selected. Please select a model first."
                 update_model_in_config(self._state.selected_model)
                 update_mcp_server_load_on_start("huggingface", self._state.mcp_load_on_start)
                 self._state.stage = WizardStage.COMPLETE

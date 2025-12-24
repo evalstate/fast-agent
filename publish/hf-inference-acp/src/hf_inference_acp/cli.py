@@ -11,6 +11,7 @@ import os
 import shlex
 import sys
 from pathlib import Path  # noqa: TC003 - typer needs runtime access
+from typing import Any, cast
 
 import typer
 
@@ -220,7 +221,7 @@ async def run_agents(
     if skills_directory is not None:
         fast_kwargs["skills_directory"] = skills_directory
 
-    fast = FastAgent(**fast_kwargs)
+    fast = FastAgent(**cast("Any", fast_kwargs))
 
     if shell_runtime:
         await fast.app.initialize()

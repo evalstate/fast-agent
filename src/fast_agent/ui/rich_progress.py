@@ -38,17 +38,17 @@ class RichProgressDisplay:
 
     def stop(self) -> None:
         """Stop and clear the progress display."""
+        # Set paused first to prevent race with incoming updates
+        self._paused = True
         # Hide all tasks before stopping (like pause does)
         for task in self._progress.tasks:
             task.visible = False
         self._progress.stop()
-        self._paused = True
 
     def pause(self) -> None:
         """Pause the progress display."""
         if not self._paused:
             self._paused = True
-
             for task in self._progress.tasks:
                 task.visible = False
             self._progress.stop()
@@ -102,6 +102,10 @@ class RichProgressDisplay:
 
     def update(self, event: ProgressEvent) -> None:
         """Update the progress display with a new event."""
+        # Skip updates when display is paused (e.g., during streaming)
+        if self._paused:
+            return
+
         task_name = event.agent_name or "default"
 
         # Create new task if needed
