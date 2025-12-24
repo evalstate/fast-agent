@@ -327,25 +327,28 @@ class ACPFilesystemRuntime:
             pass
 
         # Send diff content update before permission check (so permission screen shows diff)
+        # Use ensure_tool_call_exists to handle both streaming and non-streaming cases
         if tool_use_id and self._tool_handler:
             try:
-                existing_tool_call_id = await self._tool_handler.get_tool_call_id_for_tool_use(
-                    tool_use_id
+                tool_call_id = await self._tool_handler.ensure_tool_call_exists(
+                    tool_use_id=tool_use_id,
+                    tool_name="write_text_file",
+                    server_name="acp_filesystem",
+                    arguments=arguments,
                 )
-                if existing_tool_call_id:
-                    diff_content = tool_diff_content(
-                        path=path,
-                        new_text=content,
-                        old_text=old_text,
-                    )
-                    await self.connection.session_update(
-                        session_id=self.session_id,
-                        update=ToolCallProgress(
-                            session_update="tool_call_update",
-                            tool_call_id=existing_tool_call_id,
-                            content=[diff_content],
-                        ),
-                    )
+                diff_content = tool_diff_content(
+                    path=path,
+                    new_text=content,
+                    old_text=old_text,
+                )
+                await self.connection.session_update(
+                    session_id=self.session_id,
+                    update=ToolCallProgress(
+                        session_update="tool_call_update",
+                        tool_call_id=tool_call_id,
+                        content=[diff_content],
+                    ),
+                )
             except Exception as e:
                 self.logger.error(f"Error sending pre-permission diff update: {e}", exc_info=True)
 
