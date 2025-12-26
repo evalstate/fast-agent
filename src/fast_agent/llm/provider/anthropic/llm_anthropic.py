@@ -21,7 +21,6 @@ from anthropic.types import (
     TextBlockParam,
     TextDelta,
     ThinkingBlock,
-    ThinkingBlockParam,
     ThinkingDelta,
     ToolParam,
     ToolUseBlock,
