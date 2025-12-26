@@ -142,33 +142,21 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return cache_mode
 
     def _is_thinking_enabled(self, model: str) -> bool:
-        """Check if extended thinking should be enabled for this request.
-
-        Extended thinking is enabled when:
-        1. The model supports it (has reasoning="anthropic_thinking" in database)
-        2. thinking_enabled is True in config
-        """
+        """Check if extended thinking should be enabled for this request."""
         from fast_agent.llm.model_database import ModelDatabase
 
-        # Check if model supports extended thinking
-        reasoning_mode = ModelDatabase.get_reasoning(model)
-        if reasoning_mode != "anthropic_thinking":
+        if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
             return False
-
-        # Check config setting
         if self.context.config and self.context.config.anthropic:
             return self.context.config.anthropic.thinking_enabled
         return False
 
     def _get_thinking_budget(self) -> int:
-        """Get the thinking budget tokens (minimum 1024).
-
-        Returns the configured budget or default of 10000.
-        """
+        """Get the thinking budget tokens (minimum 1024)."""
         if self.context.config and self.context.config.anthropic:
             budget = getattr(self.context.config.anthropic, "thinking_budget_tokens", 10000)
-            return max(1024, budget)  # Enforce minimum
-        return 10000  # Default
+            return max(1024, budget)
+        return 10000
 
     async def _prepare_tools(
         self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
@@ -314,17 +302,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         model: str,
         capture_filename: Path | None = None,
     ) -> tuple[Message, list[str]]:
-        """Process the streaming response and display real-time token usage.
-
-        Returns:
-            Tuple of (Message, list of thinking text segments)
-        """
+        """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
         tool_streams: dict[int, dict[str, Any]] = {}
-        # Track thinking content for extended thinking
         thinking_segments: list[str] = []
-        thinking_indices: set[int] = set()  # Track which indices are thinking blocks
+        thinking_indices: set[int] = set()
 
         try:
             # Process the raw event stream to get token counts
@@ -335,25 +318,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
                 if isinstance(event, RawContentBlockStartEvent):
                     content_block = event.content_block
-
-                    # Handle ThinkingBlock start (extended thinking)
-                    if isinstance(content_block, ThinkingBlock):
+                    if isinstance(content_block, (ThinkingBlock, RedactedThinkingBlock)):
                         thinking_indices.add(event.index)
-                        self.logger.debug(
-                            "Started thinking block",
-                            data={"index": event.index},
-                        )
                         continue
-
-                    # Handle RedactedThinkingBlock (encrypted thinking)
-                    if isinstance(content_block, RedactedThinkingBlock):
-                        thinking_indices.add(event.index)
-                        self.logger.debug(
-                            "Received redacted thinking block",
-                            data={"index": event.index},
-                        )
-                        continue
-
                     if isinstance(content_block, ToolUseBlock):
                         tool_streams[event.index] = {
                             "name": content_block.name,
@@ -366,7 +333,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 "tool_name": content_block.name,
                                 "tool_use_id": content_block.id,
                                 "index": event.index,
-                                "streams_arguments": False,  # Anthropic doesn't stream arguments
                             },
                         )
                         self.logger.info(
@@ -384,28 +350,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
                 if isinstance(event, RawContentBlockDeltaEvent):
                     delta = event.delta
-
-                    # Handle ThinkingDelta - stream reasoning content
                     if isinstance(delta, ThinkingDelta):
-                        thinking_text = delta.thinking
-                        if thinking_text:
-                            # Emit as reasoning chunk for UI streaming
+                        if delta.thinking:
                             self._notify_stream_listeners(
-                                StreamChunk(text=thinking_text, is_reasoning=True)
+                                StreamChunk(text=delta.thinking, is_reasoning=True)
                             )
-                            thinking_segments.append(thinking_text)
+                            thinking_segments.append(delta.thinking)
                         continue
-
-                    # Handle SignatureDelta (end of thinking block verification)
                     if isinstance(delta, SignatureDelta):
-                        # Signature marks the end of a thinking block
-                        # The signature is used for verification when passing blocks back
-                        self.logger.debug(
-                            "Received thinking signature",
-                            data={"index": event.index},
-                        )
                         continue
-
                     if isinstance(delta, InputJSONDelta):
                         info = tool_streams.get(event.index)
                         if info is not None:
@@ -419,7 +372,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                     "tool_use_id": info.get("id"),
                                     "index": event.index,
                                     "chunk": chunk,
-                                    "streams_arguments": False,
                                 },
                             )
                             self.logger.debug(
@@ -432,52 +384,45 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             )
                         continue
 
-                if isinstance(event, RawContentBlockStopEvent):
-                    # Handle thinking block stop
-                    if event.index in thinking_indices:
-                        thinking_indices.discard(event.index)
-                        self.logger.debug(
-                            "Completed thinking block",
-                            data={"index": event.index},
-                        )
-                        continue
+                if isinstance(event, RawContentBlockStopEvent) and event.index in thinking_indices:
+                    thinking_indices.discard(event.index)
+                    continue
 
-                    if event.index in tool_streams:
-                        info = tool_streams.pop(event.index)
-                        preview_raw = "".join(info.get("buffer", []))
-                        if preview_raw:
-                            preview = (
-                                preview_raw if len(preview_raw) <= 120 else preview_raw[:117] + "..."
-                            )
-                            self.logger.debug(
-                                "Completed tool input stream",
-                                data={
-                                    "tool_name": info.get("name"),
-                                    "tool_use_id": info.get("id"),
-                                    "input_preview": preview,
-                                },
-                            )
-                        self._notify_tool_stream_listeners(
-                            "stop",
-                            {
-                                "tool_name": info.get("name"),
-                                "tool_use_id": info.get("id"),
-                                "index": event.index,
-                                "streams_arguments": False,
-                            },
+                if isinstance(event, RawContentBlockStopEvent) and event.index in tool_streams:
+                    info = tool_streams.pop(event.index)
+                    preview_raw = "".join(info.get("buffer", []))
+                    if preview_raw:
+                        preview = (
+                            preview_raw if len(preview_raw) <= 120 else preview_raw[:117] + "..."
                         )
-                        self.logger.info(
-                            "Model finished streaming tool input",
+                        self.logger.debug(
+                            "Completed tool input stream",
                             data={
-                                "progress_action": ProgressAction.CALLING_TOOL,
-                                "agent_name": self.name,
-                                "model": model,
                                 "tool_name": info.get("name"),
                                 "tool_use_id": info.get("id"),
-                                "tool_event": "stop",
+                                "input_preview": preview,
                             },
                         )
-                        continue
+                    self._notify_tool_stream_listeners(
+                        "stop",
+                        {
+                            "tool_name": info.get("name"),
+                            "tool_use_id": info.get("id"),
+                            "index": event.index,
+                        },
+                    )
+                    self.logger.info(
+                        "Model finished streaming tool input",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": info.get("name"),
+                            "tool_use_id": info.get("id"),
+                            "tool_event": "stop",
+                        },
+                    )
+                    continue
 
                 # Count tokens in real-time from content_block_delta events
                 if isinstance(event, RawContentBlockDeltaEvent):
@@ -496,7 +441,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                             {
                                 "chunk": delta.text,
                                 "index": event.index,
-                                "streams_arguments": False,
                             },
                         )
 
@@ -655,7 +599,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         model = self.default_request_params.model or DEFAULT_ANTHROPIC_MODEL
 
         # Create base arguments dictionary
-        base_args: dict[str, Any] = {
+        base_args = {
             "model": model,
             "messages": messages,
             "stop_sequences": params.stopSequences,
@@ -665,40 +609,32 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if self.instruction or params.systemPrompt:
             base_args["system"] = self.instruction or params.systemPrompt
 
-        # Check if extended thinking should be enabled
-        # Note: Extended thinking is incompatible with forced tool choice (structured output)
-        thinking_enabled = self._is_thinking_enabled(model)
-
         if structured_model:
-            if thinking_enabled:
-                # Cannot use extended thinking with structured output
+            if self._is_thinking_enabled(model):
                 logger.warning(
                     "Extended thinking is incompatible with structured output. "
                     "Disabling thinking for this request."
                 )
-                thinking_enabled = False
             base_args["tool_choice"] = {"type": "tool", "name": STRUCTURED_OUTPUT_TOOL_NAME}
 
-        # Add thinking configuration if enabled
+        thinking_enabled = self._is_thinking_enabled(model)
+        if thinking_enabled and structured_model:
+            thinking_enabled = False
+
         if thinking_enabled:
             thinking_budget = self._get_thinking_budget()
             base_args["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": thinking_budget,
             }
-            # Ensure max_tokens is set and greater than budget
-            # The budget must be less than max_tokens
             current_max = params.maxTokens or 16000
             if current_max <= thinking_budget:
-                # Increase max_tokens to accommodate thinking budget + response
                 base_args["max_tokens"] = thinking_budget + 8192
             else:
                 base_args["max_tokens"] = current_max
         elif params.maxTokens is not None:
             base_args["max_tokens"] = params.maxTokens
 
-        # Add interleaved thinking beta header when using tools with thinking
-        # This enables thinking between tool calls for more sophisticated reasoning
         if thinking_enabled and available_tools:
             base_args["extra_headers"] = {"anthropic-beta": "interleaved-thinking-2025-05-14"}
 
@@ -736,7 +672,6 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         capture_filename = _stream_capture_filename(self.chat_turn())
 
         # Use streaming API with helper
-        thinking_segments: list[str] = []
         try:
             async with anthropic.messages.stream(**arguments) as stream:
                 # Process the stream
@@ -787,8 +722,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         response_as_message = self.convert_message_to_message_param(response)
         messages.append(response_as_message)
-        if response.content and response.content[0].type == "text":
-            response_content_blocks.append(TextContent(type="text", text=response.content[0].text))
+        if response.content:
+            for content_block in response.content:
+                if isinstance(content_block, TextBlock):
+                    response_content_blocks.append(
+                        TextContent(type="text", text=content_block.text)
+                    )
 
         stop_reason: LlmStopReason = LlmStopReason.END_TURN
 
@@ -820,23 +759,28 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         self._log_chat_finished(model=model)
 
-        # Build channels dict with thinking content if available
-        channels: dict[str, list[ContentBlock] | list[Any]] | None = None
+        channels: dict[str, list[Any]] | None = None
         if thinking_segments:
-            # Store thinking segments in the REASONING channel for display
             channels = {REASONING: [TextContent(type="text", text="".join(thinking_segments))]}
+        elif response.content:
+            thinking_texts = [
+                block.thinking
+                for block in response.content
+                if isinstance(block, ThinkingBlock) and block.thinking
+            ]
+            if thinking_texts:
+                channels = {REASONING: [TextContent(type="text", text="".join(thinking_texts))]}
 
-        # Extract raw thinking blocks from response for tool use passback
-        # These need to be preserved with their signatures for API verification
-        raw_thinking_blocks: list[Any] = []
-        for content_block in response.content:
-            if isinstance(content_block, (ThinkingBlock, RedactedThinkingBlock)):
-                raw_thinking_blocks.append(content_block)
-
+        raw_thinking_blocks = []
+        if response.content:
+            raw_thinking_blocks = [
+                block
+                for block in response.content
+                if isinstance(block, (ThinkingBlock, RedactedThinkingBlock))
+            ]
         if raw_thinking_blocks:
             if channels is None:
                 channels = {}
-            # Store raw blocks for passback in tool use scenarios
             channels[ANTHROPIC_THINKING_BLOCKS] = raw_thinking_blocks
 
         return PromptMessageExtended(

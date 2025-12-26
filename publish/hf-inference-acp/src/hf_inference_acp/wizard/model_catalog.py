@@ -34,19 +34,19 @@ CURATED_MODELS: list[CuratedModel] = [
         description="Advanced reasoning model with extended thinking",
     ),
     CuratedModel(
-        id="gpt-oss",
-        display_name="OpenAI gpt-oss-120b",
-        description="OpenAI's open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
-    ),
-    CuratedModel(
         id="glm",
-        display_name="GLM 4.7",
+        display_name="ZAI GLM 4.7",
         description="ZAI GLM-4.7: Superior Agentic, Reasoning and Coding Capabilities",
     ),
     CuratedModel(
         id="minimax",
-        display_name="MiniMax M2",
-        description="MiniMax-M2, a Mini model built for Max coding & agentic workflows",
+        display_name="MiniMax M2.1",
+        description="MiniMax-M2.1, Optimized specifically for robustness in coding, tool use, instruction following, and long-horizon planning.",
+    ),
+    CuratedModel(
+        id="gpt-oss",
+        display_name="OpenAI gpt-oss-120b",
+        description="OpenAI's open-weight models designed for powerful reasoning, agentic tasks, and versatile developer use cases.",
     ),
 ]
 

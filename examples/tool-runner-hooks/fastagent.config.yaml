@@ -1,0 +1,6 @@
+default_model: haiku
+
+logger:
+  type: file
+  level: error
+  truncate_tools: true

@@ -25,6 +25,7 @@ from fast_agent.core.executor.workflow_signal import (
     SignalValueT,
 )
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -114,7 +115,7 @@ class Executor(ABC, ContextDependent):
 
         coros = [run(x) for x in inputs]
         # gather all, each returns a single-element list
-        list_of_lists = await asyncio.gather(*coros, return_exceptions=True)
+        list_of_lists = await gather_with_cancel(coros)
 
         # Flatten results
         for entry in list_of_lists:
@@ -239,9 +240,8 @@ class AsyncioExecutor(Executor):
         *tasks: Callable[..., R] | Coroutine[Any, Any, R],
         **kwargs: Any,
     ) -> list[R | BaseException]:
-        return await asyncio.gather(
-            *(self._execute_task(task, **kwargs) for task in tasks),
-            return_exceptions=True,
+        return await gather_with_cancel(
+            self._execute_task(task, **kwargs) for task in tasks
         )
 
     async def execute_streaming(  # ty: ignore[invalid-method-override]

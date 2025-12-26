@@ -191,17 +191,18 @@ from contextlib import contextmanager, nullcontext
 from copy import copy
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
 
 from fast_agent.agents.mcp_agent import McpAgent
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FORCE_SEQUENTIAL_TOOL_CALLS
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
 from fast_agent.types import PromptMessageExtended
+from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
     from fast_agent.agents.agent_types import AgentConfig
@@ -638,7 +639,6 @@ class AgentsAsToolsAgent(McpAgent):
 
         call_descriptors: list[dict[str, Any]] = []
         descriptor_by_id: dict[str, dict[str, Any]] = {}
-        tasks: list[asyncio.Task[CallToolResult]] = []
         id_list: list[str] = []
 
         for correlation_id, tool_request in (request.tool_calls or {}).items():
@@ -796,18 +796,31 @@ class AgentsAsToolsAgent(McpAgent):
                         )
                     )
 
-        for i, cid in enumerate(id_list, 1):
-            tool_name = descriptor_by_id[cid]["tool"]
-            tool_args = descriptor_by_id[cid]["args"]
-            tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i, cid)))
-
         self._show_parallel_tool_calls(call_descriptors)
 
-        if tasks:
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+        results: list[CallToolResult | BaseException] = []
+        if id_list:
+            if FORCE_SEQUENTIAL_TOOL_CALLS:
+                for i, cid in enumerate(id_list, 1):
+                    tool_name = descriptor_by_id[cid]["tool"]
+                    tool_args = descriptor_by_id[cid]["args"]
+                    try:
+                        results.append(await call_with_instance_name(tool_name, tool_args, i, cid))
+                    except Exception as exc:
+                        results.append(exc)
+            else:
+                results = await gather_with_cancel(
+                    call_with_instance_name(
+                        descriptor_by_id[cid]["tool"],
+                        descriptor_by_id[cid]["args"],
+                        i,
+                        cid,
+                    )
+                    for i, cid in enumerate(id_list, 1)
+                )
             for i, result in enumerate(results):
                 correlation_id = id_list[i]
-                if isinstance(result, Exception):
+                if isinstance(result, BaseException):
                     msg = f"Tool execution failed: {result}"
                     tool_results[correlation_id] = CallToolResult(
                         content=[text_content(msg)], isError=True
@@ -816,11 +829,9 @@ class AgentsAsToolsAgent(McpAgent):
                     descriptor_by_id[correlation_id]["status"] = "error"
                     descriptor_by_id[correlation_id]["error_message"] = msg
                 else:
-                    # After exception check, result is CallToolResult
-                    tool_result = cast("CallToolResult", result)
-                    tool_results[correlation_id] = tool_result
+                    tool_results[correlation_id] = result
                     descriptor_by_id[correlation_id]["status"] = (
-                        "error" if tool_result.isError else "done"
+                        "error" if result.isError else "done"
                     )
 
         ordered_records: list[dict[str, Any]] = []

@@ -7,6 +7,7 @@ and delegates operations to an attached FastAgentLLMProtocol instance.
 
 import asyncio
 import fnmatch
+import time
 from abc import ABC
 from typing import (
     TYPE_CHECKING,
@@ -36,7 +37,7 @@ from pydantic import BaseModel
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
 from fast_agent.agents.tool_agent import ToolAgent
-from fast_agent.constants import HUMAN_INPUT_TOOL_NAME
+from fast_agent.constants import FORCE_SEQUENTIAL_TOOL_CALLS, HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
@@ -59,9 +60,9 @@ from fast_agent.types import (
     PromptMessageExtended,
     RequestParams,
     ToolTimingInfo,
-    ToolTimings,
 )
 from fast_agent.ui import console
+from fast_agent.utils.async_utils import gather_with_cancel
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -804,14 +805,12 @@ class McpAgent(ABC, ToolAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Override ToolAgent's run_tools to use MCP tools via aggregator."""
-        import time
-
         if not request.tool_calls:
             self.logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        tool_timings: ToolTimings = {}  # Track timing for each tool call
+        tool_timings: dict[str, ToolTimingInfo] = {}
         tool_loop_error: str | None = None
 
         # Cache available tool names exactly as advertised to the LLM for display/highlighting
@@ -832,8 +831,13 @@ class McpAgent(ABC, ToolAgent):
         # Cache namespaced tools for routing/metadata
         namespaced_tools = self._aggregator._namespaced_tool_map
 
-        # Process each tool call using our aggregator
-        for correlation_id, tool_request in request.tool_calls.items():
+        tool_call_items = list(request.tool_calls.items())
+        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+
+        planned_calls: list[dict[str, Any]] = []
+
+        # Plan each tool call using our aggregator
+        for correlation_id, tool_request in tool_call_items:
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
             # correlation_id is the tool_use_id from the LLM
@@ -926,21 +930,95 @@ class McpAgent(ABC, ToolAgent):
                 metadata=metadata,
             )
 
+            planned_calls.append(
+                {
+                    "correlation_id": correlation_id,
+                    "tool_name": tool_name,
+                    "tool_args": tool_args,
+                    "display_tool_name": display_tool_name,
+                    "namespaced_tool": namespaced_tool,
+                    "candidate_namespaced_tool": candidate_namespaced_tool,
+                }
+            )
+
+        if should_parallel and planned_calls:
+
+            async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
+                start_time = time.perf_counter()
+                result = await self.call_tool(
+                    call["tool_name"], call["tool_args"], call["correlation_id"]
+                )
+                end_time = time.perf_counter()
+                return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
+
+            results = await gather_with_cancel(run_one(call) for call in planned_calls)
+
+            for i, item in enumerate(results):
+                call = planned_calls[i]
+                correlation_id = call["correlation_id"]
+                display_tool_name = call["display_tool_name"]
+                namespaced_tool = call["namespaced_tool"]
+                candidate_namespaced_tool = call["candidate_namespaced_tool"]
+
+                if isinstance(item, BaseException):
+                    self.logger.error(f"MCP tool {display_tool_name} failed: {item}")
+                    result = CallToolResult(
+                        content=[TextContent(type="text", text=f"Error: {str(item)}")],
+                        isError=True,
+                    )
+                    duration_ms = 0.0
+                else:
+                    _, result, duration_ms = item
+
+                tool_results[correlation_id] = result
+                tool_timings[correlation_id] = ToolTimingInfo(
+                    timing_ms=duration_ms,
+                    transport_channel=getattr(result, "transport_channel", None),
+                )
+
+                skybridge_config = None
+                skybridge_tool = namespaced_tool or candidate_namespaced_tool
+                if skybridge_tool:
+                    try:
+                        skybridge_config = await self._aggregator.get_skybridge_config(
+                            skybridge_tool.server_name
+                        )
+                    except Exception:
+                        skybridge_config = None
+
+                if not getattr(result, "_suppress_display", False):
+                    self.display.show_tool_result(
+                        name=self._name,
+                        result=result,
+                        tool_name=display_tool_name,
+                        skybridge_config=skybridge_config,
+                        timing_ms=duration_ms,
+                    )
+
+            return self._finalize_tool_results(
+                tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+            )
+
+        for call in planned_calls:
+            correlation_id = call["correlation_id"]
+            tool_name = call["tool_name"]
+            tool_args = call["tool_args"]
+            display_tool_name = call["display_tool_name"]
+            namespaced_tool = call["namespaced_tool"]
+            candidate_namespaced_tool = call["candidate_namespaced_tool"]
+
             try:
-                # Track timing for tool execution
                 start_time = time.perf_counter()
                 result = await self.call_tool(tool_name, tool_args, correlation_id)
                 end_time = time.perf_counter()
                 duration_ms = round((end_time - start_time) * 1000, 2)
 
                 tool_results[correlation_id] = result
-                # Store timing and transport channel info
                 tool_timings[correlation_id] = ToolTimingInfo(
                     timing_ms=duration_ms,
                     transport_channel=getattr(result, "transport_channel", None),
                 )
 
-                # Show tool result (like ToolAgent does)
                 skybridge_config = None
                 skybridge_tool = namespaced_tool or candidate_namespaced_tool
                 if skybridge_tool:
@@ -954,7 +1032,7 @@ class McpAgent(ABC, ToolAgent):
                         result=result,
                         tool_name=display_tool_name,
                         skybridge_config=skybridge_config,
-                        timing_ms=duration_ms,  # Use local duration_ms variable for display
+                        timing_ms=duration_ms,
                     )
 
                 self.logger.debug(f"MCP tool {display_tool_name} executed successfully")
@@ -965,8 +1043,6 @@ class McpAgent(ABC, ToolAgent):
                     isError=True,
                 )
                 tool_results[correlation_id] = error_result
-
-                # Show error result too (no need for skybridge config on errors)
                 self.display.show_tool_result(name=self._name, result=error_result)
 
         return self._finalize_tool_results(
