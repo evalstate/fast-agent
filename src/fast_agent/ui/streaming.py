@@ -124,6 +124,7 @@ class StreamingMessageHandle:
         self._has_reasoning = False
         self._reasoning_active = False
         self._tool_active = False
+        self._render_reasoning_stream = True
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
@@ -320,6 +321,8 @@ class StreamingMessageHandle:
         processed = self._wrap_plain_chunk(processed)
         if self._pending_table_row:
             self._buffer.append(self._pending_table_row)
+            if self._has_reasoning:
+                self._styled_buffer.append((self._pending_table_row, False))
             self._pending_table_row = ""
         self._buffer.append(processed)
         if self._has_reasoning:
@@ -582,12 +585,15 @@ class StreamingMessageHandle:
 
         for segment in segments:
             if segment.is_thinking:
-                self._begin_reasoning_mode()
-                self._append_plain_text(segment.text, is_reasoning=True)
+                if self._render_reasoning_stream:
+                    self._begin_reasoning_mode()
+                    self._append_plain_text(segment.text, is_reasoning=True)
                 handled = True
             else:
                 if self._reasoning_active:
                     self._end_reasoning_mode()
+                if self._render_reasoning_stream and self._has_reasoning:
+                    self._drop_reasoning_stream()
                 emitted_non_thinking = True
                 self._append_text_in_current_mode(segment.text)
                 handled = True
@@ -610,13 +616,29 @@ class StreamingMessageHandle:
             return True
 
         if chunk.is_reasoning:
-            self._begin_reasoning_mode()
-            return self._append_plain_text(chunk.text, is_reasoning=True)
+            if self._render_reasoning_stream:
+                self._begin_reasoning_mode()
+                return self._append_plain_text(chunk.text, is_reasoning=True)
+            return False
 
+        if self._render_reasoning_stream and self._has_reasoning:
+            self._drop_reasoning_stream()
         if self._reasoning_active:
             self._end_reasoning_mode()
 
         return self._append_text_in_current_mode(chunk.text)
+
+    def _drop_reasoning_stream(self) -> None:
+        if not self._has_reasoning:
+            return
+        if self._styled_buffer:
+            kept = [text for text, is_reasoning in self._styled_buffer if not is_reasoning]
+            rebuilt = "".join(kept)
+            self._buffer = [rebuilt] if rebuilt else []
+        self._styled_buffer.clear()
+        self._render_reasoning_stream = False
+        self._has_reasoning = False
+        self._reasoning_active = False
 
     def _handle_chunk(self, chunk: str) -> bool:
         if not chunk:

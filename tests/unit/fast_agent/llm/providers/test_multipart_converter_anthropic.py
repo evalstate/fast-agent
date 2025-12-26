@@ -1,8 +1,11 @@
 import base64
+import json
 import unittest
 
 from mcp.types import (
     BlobResourceContents,
+    CallToolRequest,
+    CallToolRequestParams,
     CallToolResult,
     EmbeddedResource,
     ImageContent,
@@ -12,6 +15,7 @@ from mcp.types import (
 )
 from pydantic import AnyUrl
 
+from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS
 from fast_agent.llm.provider.anthropic.multipart_converter_anthropic import (
     AnthropicConverter,
 )
@@ -714,6 +718,42 @@ class TestAnthropicAssistantConverter(unittest.TestCase):
         self.assertEqual(anthropic_msg["content"][0]["text"], "First part of response")
         self.assertEqual(anthropic_msg["content"][1]["type"], "text")
         self.assertEqual(anthropic_msg["content"][1]["text"], "Second part of response")
+
+    def test_assistant_thinking_blocks_deserialized_from_channel(self):
+        """Ensure thinking channel JSON is converted to Anthropic thinking params."""
+        thinking_payload = {
+            "type": "thinking",
+            "thinking": "Reasoning summary.",
+            "signature": "sig123",
+        }
+        redacted_payload = {"type": "redacted_thinking", "data": "opaque"}
+        channels = {
+            ANTHROPIC_THINKING_BLOCKS: [
+                TextContent(type="text", text=json.dumps(thinking_payload)),
+                TextContent(type="text", text=json.dumps(redacted_payload)),
+            ]
+        }
+        tool_calls = {
+            "toolu_1": CallToolRequest(
+                method="tools/call",
+                params=CallToolRequestParams(name="test_tool", arguments={"x": 1}),
+            )
+        }
+        multipart = PromptMessageExtended(
+            role="assistant", content=[], tool_calls=tool_calls, channels=channels
+        )
+
+        anthropic_msg = AnthropicConverter.convert_to_anthropic(multipart)
+
+        self.assertEqual(anthropic_msg["role"], "assistant")
+        self.assertEqual(len(anthropic_msg["content"]), 3)
+        self.assertEqual(anthropic_msg["content"][0]["type"], "thinking")
+        self.assertEqual(anthropic_msg["content"][0]["thinking"], "Reasoning summary.")
+        self.assertEqual(anthropic_msg["content"][0]["signature"], "sig123")
+        self.assertEqual(anthropic_msg["content"][1]["type"], "redacted_thinking")
+        self.assertEqual(anthropic_msg["content"][1]["data"], "opaque")
+        self.assertEqual(anthropic_msg["content"][2]["type"], "tool_use")
+        self.assertEqual(anthropic_msg["content"][2]["name"], "test_tool")
 
     def test_assistant_non_text_content_stripped(self):
         """Test that non-text content is stripped from assistant messages."""

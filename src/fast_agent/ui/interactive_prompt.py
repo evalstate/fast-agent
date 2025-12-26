@@ -1398,7 +1398,7 @@ class InteractivePrompt:
                 rich_print("[yellow]No message history available[/yellow]")
                 return
 
-            message_history = agent.llm.message_history
+            message_history = agent.message_history
             if not message_history:
                 rich_print("[yellow]No messages in history[/yellow]")
                 return

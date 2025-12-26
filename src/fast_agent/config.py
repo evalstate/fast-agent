@@ -296,6 +296,20 @@ class AnthropicSettings(BaseModel):
     - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
     """
 
+    thinking_enabled: bool = False
+    """
+    Enable extended thinking for supported Claude models (Sonnet 4+, Opus 4+).
+    When enabled, Claude will show its step-by-step reasoning process.
+    Note: Extended thinking is incompatible with structured output (forced tool choice).
+    """
+
+    thinking_budget_tokens: int = 10000
+    """
+    Maximum tokens for Claude's internal reasoning process (minimum 1024).
+    Larger budgets enable more thorough analysis for complex problems.
+    Must be less than max_tokens.
+    """
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
 

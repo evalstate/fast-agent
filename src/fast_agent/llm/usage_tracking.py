@@ -149,6 +149,10 @@ class TurnUsage(BaseModel):
             cache_write_tokens=cache_creation_tokens,  # Tokens written to cache (25% surcharge)
         )
 
+        # Extract thinking/reasoning tokens if available (extended thinking feature)
+        # Note: For Claude 4 models, you're billed for full thinking tokens, not summaries
+        thinking_tokens = getattr(usage, "thinking_tokens", 0) or 0
+
         return cls(
             provider=Provider.ANTHROPIC,
             model=model,
@@ -156,6 +160,7 @@ class TurnUsage(BaseModel):
             output_tokens=usage.output_tokens,
             total_tokens=usage.input_tokens + usage.output_tokens,
             cache_usage=cache_usage,
+            reasoning_tokens=thinking_tokens,
             raw_usage=usage,  # Store the original Anthropic usage object
         )
 

@@ -31,6 +31,7 @@ class PromptMessageExtended(BaseModel):
     stop_reason: LlmStopReason | None = None
     is_template: bool = False
 
+
     @classmethod
     def to_extended(cls, messages: list[PromptMessage]) -> list["PromptMessageExtended"]:
         """Convert a sequence of PromptMessages into PromptMessageExtended objects."""

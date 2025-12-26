@@ -15,9 +15,13 @@ from anthropic.types import (
     RawContentBlockStartEvent,
     RawContentBlockStopEvent,
     RawMessageDeltaEvent,
+    RedactedThinkingBlock,
+    SignatureDelta,
     TextBlock,
     TextBlockParam,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolParam,
     ToolUseBlock,
     ToolUseBlockParam,
@@ -32,7 +36,7 @@ from mcp.types import (
     TextContent,
 )
 
-from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS, FAST_AGENT_ERROR_CHANNEL, REASONING
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
@@ -136,6 +140,23 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if self.context.config and self.context.config.anthropic:
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
+
+    def _is_thinking_enabled(self, model: str) -> bool:
+        """Check if extended thinking should be enabled for this request."""
+        from fast_agent.llm.model_database import ModelDatabase
+
+        if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
+            return False
+        if self.context.config and self.context.config.anthropic:
+            return self.context.config.anthropic.thinking_enabled
+        return False
+
+    def _get_thinking_budget(self) -> int:
+        """Get the thinking budget tokens (minimum 1024)."""
+        if self.context.config and self.context.config.anthropic:
+            budget = getattr(self.context.config.anthropic, "thinking_budget_tokens", 10000)
+            return max(1024, budget)
+        return 10000
 
     async def _prepare_tools(
         self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
@@ -280,11 +301,13 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         stream: AsyncMessageStream,
         model: str,
         capture_filename: Path | None = None,
-    ) -> Message:
+    ) -> tuple[Message, list[str]]:
         """Process the streaming response and display real-time token usage."""
         # Track estimated output tokens by counting text chunks
         estimated_tokens = 0
         tool_streams: dict[int, dict[str, Any]] = {}
+        thinking_segments: list[str] = []
+        thinking_indices: set[int] = set()
 
         try:
             # Process the raw event stream to get token counts
@@ -295,6 +318,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
                 if isinstance(event, RawContentBlockStartEvent):
                     content_block = event.content_block
+                    if isinstance(content_block, (ThinkingBlock, RedactedThinkingBlock)):
+                        thinking_indices.add(event.index)
+                        continue
                     if isinstance(content_block, ToolUseBlock):
                         tool_streams[event.index] = {
                             "name": content_block.name,
@@ -324,6 +350,15 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
                 if isinstance(event, RawContentBlockDeltaEvent):
                     delta = event.delta
+                    if isinstance(delta, ThinkingDelta):
+                        if delta.thinking:
+                            self._notify_stream_listeners(
+                                StreamChunk(text=delta.thinking, is_reasoning=True)
+                            )
+                            thinking_segments.append(delta.thinking)
+                        continue
+                    if isinstance(delta, SignatureDelta):
+                        continue
                     if isinstance(delta, InputJSONDelta):
                         info = tool_streams.get(event.index)
                         if info is not None:
@@ -348,6 +383,10 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                                 },
                             )
                         continue
+
+                if isinstance(event, RawContentBlockStopEvent) and event.index in thinking_indices:
+                    thinking_indices.discard(event.index)
+                    continue
 
                 if isinstance(event, RawContentBlockStopEvent) and event.index in tool_streams:
                     info = tool_streams.pop(event.index)
@@ -428,7 +467,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
                     f"Streaming complete - Model: {model}, Input tokens: {message.usage.input_tokens}, Output tokens: {message.usage.output_tokens}"
                 )
 
-            return message
+            return message, thinking_segments
         except APIError as error:
             logger.error("Streaming APIError during Anthropic completion", exc_info=error)
             raise  # Re-raise to be handled by _anthropic_completion
@@ -571,10 +610,33 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             base_args["system"] = self.instruction or params.systemPrompt
 
         if structured_model:
+            if self._is_thinking_enabled(model):
+                logger.warning(
+                    "Extended thinking is incompatible with structured output. "
+                    "Disabling thinking for this request."
+                )
             base_args["tool_choice"] = {"type": "tool", "name": STRUCTURED_OUTPUT_TOOL_NAME}
 
-        if params.maxTokens is not None:
+        thinking_enabled = self._is_thinking_enabled(model)
+        if thinking_enabled and structured_model:
+            thinking_enabled = False
+
+        if thinking_enabled:
+            thinking_budget = self._get_thinking_budget()
+            base_args["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": thinking_budget,
+            }
+            current_max = params.maxTokens or 16000
+            if current_max <= thinking_budget:
+                base_args["max_tokens"] = thinking_budget + 8192
+            else:
+                base_args["max_tokens"] = current_max
+        elif params.maxTokens is not None:
             base_args["max_tokens"] = params.maxTokens
+
+        if thinking_enabled and available_tools:
+            base_args["extra_headers"] = {"anthropic-beta": "interleaved-thinking-2025-05-14"}
 
         self._log_chat_progress(self.chat_turn(), model=model)
         # Use the base class method to prepare all arguments with Anthropic-specific exclusions
@@ -613,7 +675,9 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         try:
             async with anthropic.messages.stream(**arguments) as stream:
                 # Process the stream
-                response = await self._process_stream(stream, model, capture_filename)
+                response, thinking_segments = await self._process_stream(
+                    stream, model, capture_filename
+                )
         except asyncio.CancelledError as e:
             reason = str(e) if e.args else "cancelled"
             logger.info(f"Anthropic completion cancelled: {reason}")
@@ -658,8 +722,12 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         response_as_message = self.convert_message_to_message_param(response)
         messages.append(response_as_message)
-        if response.content and response.content[0].type == "text":
-            response_content_blocks.append(TextContent(type="text", text=response.content[0].text))
+        if response.content:
+            for content_block in response.content:
+                if isinstance(content_block, TextBlock):
+                    response_content_blocks.append(
+                        TextContent(type="text", text=content_block.text)
+                    )
 
         stop_reason: LlmStopReason = LlmStopReason.END_TURN
 
@@ -691,8 +759,49 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
 
         self._log_chat_finished(model=model)
 
-        return Prompt.assistant(
-            *response_content_blocks, stop_reason=stop_reason, tool_calls=tool_calls
+        channels: dict[str, list[Any]] | None = None
+        if thinking_segments:
+            channels = {REASONING: [TextContent(type="text", text="".join(thinking_segments))]}
+        elif response.content:
+            thinking_texts = [
+                block.thinking
+                for block in response.content
+                if isinstance(block, ThinkingBlock) and block.thinking
+            ]
+            if thinking_texts:
+                channels = {REASONING: [TextContent(type="text", text="".join(thinking_texts))]}
+
+        raw_thinking_blocks = []
+        if response.content:
+            raw_thinking_blocks = [
+                block
+                for block in response.content
+                if isinstance(block, (ThinkingBlock, RedactedThinkingBlock))
+            ]
+        if raw_thinking_blocks:
+            if channels is None:
+                channels = {}
+            serialized_blocks = []
+            for block in raw_thinking_blocks:
+                try:
+                    payload = block.model_dump()
+                except Exception:
+                    payload = {"type": getattr(block, "type", "thinking")}
+                    if isinstance(block, ThinkingBlock):
+                        payload.update(
+                            {"thinking": block.thinking, "signature": block.signature}
+                        )
+                    elif isinstance(block, RedactedThinkingBlock):
+                        payload.update({"data": block.data})
+                serialized_blocks.append(TextContent(type="text", text=json.dumps(payload)))
+            channels[ANTHROPIC_THINKING_BLOCKS] = serialized_blocks
+
+        return PromptMessageExtended(
+            role="assistant",
+            content=response_content_blocks,
+            tool_calls=tool_calls,
+            channels=channels,
+            stop_reason=stop_reason,
         )
 
     async def _apply_prompt_provider_specific(

@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Literal, Sequence, Union, cast
 from urllib.parse import urlparse
@@ -10,7 +11,11 @@ from anthropic.types import (
     ImageBlockParam,
     MessageParam,
     PlainTextSourceParam,
+    RedactedThinkingBlock,
+    RedactedThinkingBlockParam,
     TextBlockParam,
+    ThinkingBlock,
+    ThinkingBlockParam,
     ToolResultBlockParam,
     ToolUseBlockParam,
     URLImageSourceParam,
@@ -27,6 +32,7 @@ from mcp.types import (
     TextResourceContents,
 )
 
+from fast_agent.constants import ANTHROPIC_THINKING_BLOCKS
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import (
     get_image_data,
@@ -76,12 +82,55 @@ class AnthropicConverter:
             An Anthropic API MessageParam object
         """
         role = multipart_msg.role
-        all_content_blocks = []
+        all_content_blocks: list = []
 
         # If this is an assistant message that contains tool_calls, convert
         # those into Anthropic tool_use blocks so the next user message can
         # legally include corresponding tool_result blocks.
         if role == "assistant" and multipart_msg.tool_calls:
+            # CRITICAL: Thinking blocks must come FIRST in assistant messages
+            # when using extended thinking with tool use
+            if multipart_msg.channels:
+                raw_thinking = multipart_msg.channels.get(ANTHROPIC_THINKING_BLOCKS)
+                if raw_thinking:
+                    for thinking_block in raw_thinking:
+                        # Pass through raw ThinkingBlock/RedactedThinkingBlock
+                        # These contain signatures needed for API verification
+                        if isinstance(thinking_block, ThinkingBlock):
+                            all_content_blocks.append(
+                                ThinkingBlockParam(
+                                    type="thinking",
+                                    thinking=thinking_block.thinking,
+                                    signature=thinking_block.signature,
+                                )
+                            )
+                        elif isinstance(thinking_block, RedactedThinkingBlock):
+                            # Redacted thinking blocks are passed as-is
+                            # They contain encrypted data that the API can verify
+                            all_content_blocks.append(thinking_block)
+                        elif isinstance(thinking_block, TextContent):
+                            try:
+                                payload = json.loads(thinking_block.text)
+                            except (TypeError, json.JSONDecodeError):
+                                payload = None
+                            if isinstance(payload, dict):
+                                block_type = payload.get("type")
+                                if block_type == "thinking":
+                                    all_content_blocks.append(
+                                        ThinkingBlockParam(
+                                            type="thinking",
+                                            thinking=payload.get("thinking", ""),
+                                            signature=payload.get("signature", ""),
+                                        )
+                                    )
+                                elif block_type == "redacted_thinking":
+                                    all_content_blocks.append(
+                                        RedactedThinkingBlockParam(
+                                            type="redacted_thinking",
+                                            data=payload.get("data", ""),
+                                        )
+                                    )
+
             for tool_use_id, req in multipart_msg.tool_calls.items():
                 sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
                 params = req.params
