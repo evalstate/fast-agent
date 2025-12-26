@@ -36,7 +36,7 @@ from pydantic import BaseModel
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.agents.llm_agent import DEFAULT_CAPABILITIES
-from fast_agent.agents.tool_agent import ToolAgent, ToolTimingInfo
+from fast_agent.agents.tool_agent import ToolAgent
 from fast_agent.constants import FORCE_SEQUENTIAL_TOOL_CALLS, HUMAN_INPUT_TOOL_NAME
 from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
@@ -60,9 +60,9 @@ from fast_agent.types import (
     PromptMessageExtended,
     RequestParams,
     ToolTimingInfo,
-    ToolTimings,
 )
 from fast_agent.ui import console
+from fast_agent.utils.async_utils import gather_with_cancel
 
 # Define a TypeVar for models
 ModelT = TypeVar("ModelT", bound=BaseModel)
@@ -951,9 +951,7 @@ class McpAgent(ABC, ToolAgent):
                 end_time = time.perf_counter()
                 return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
 
-            results = await asyncio.gather(
-                *(run_one(call) for call in planned_calls), return_exceptions=True
-            )
+            results = await gather_with_cancel(run_one(call) for call in planned_calls)
 
             for i, item in enumerate(results):
                 call = planned_calls[i]
@@ -962,7 +960,7 @@ class McpAgent(ABC, ToolAgent):
                 namespaced_tool = call["namespaced_tool"]
                 candidate_namespaced_tool = call["candidate_namespaced_tool"]
 
-                if isinstance(item, Exception):
+                if isinstance(item, BaseException):
                     self.logger.error(f"MCP tool {display_tool_name} failed: {item}")
                     result = CallToolResult(
                         content=[TextContent(type="text", text=f"Error: {str(item)}")],
@@ -973,10 +971,10 @@ class McpAgent(ABC, ToolAgent):
                     _, result, duration_ms = item
 
                 tool_results[correlation_id] = result
-                tool_timings[correlation_id] = {
-                    "timing_ms": duration_ms,
-                    "transport_channel": getattr(result, "transport_channel", None),
-                }
+                tool_timings[correlation_id] = ToolTimingInfo(
+                    timing_ms=duration_ms,
+                    transport_channel=getattr(result, "transport_channel", None),
+                )
 
                 skybridge_config = None
                 skybridge_tool = namespaced_tool or candidate_namespaced_tool

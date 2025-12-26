@@ -1,13 +1,12 @@
-import asyncio
 import time
-from typing import Any, Callable, Dict, List, Sequence, TypedDict
+from typing import Any, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 from mcp.types import CallToolResult, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
-from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks
+from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
     FAST_AGENT_ERROR_CHANNEL,
     FORCE_SEQUENTIAL_TOOL_CALLS,
@@ -17,19 +16,13 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo, ToolTimings
+from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
+from fast_agent.utils.async_utils import gather_with_cancel
 
 logger = get_logger(__name__)
 
 
-class ToolTimingInfo(TypedDict):
-    """Timing information for a single tool call."""
-
-    timing_ms: float
-    transport_channel: str | None
-
-
-class ToolAgent(LlmAgent):
+class ToolAgent(LlmAgent, _ToolLoopAgent):
     """
     A Tool Calling agent that uses FastMCP Tools for execution.
 
@@ -131,7 +124,6 @@ class ToolAgent(LlmAgent):
         tool_results: dict[str, CallToolResult] = {}
         tool_timings: dict[str, ToolTimingInfo] = {}
         tool_loop_error: str | None = None
-        # TODO -- use gather() for parallel results, update display
         tool_schemas = (await self.list_tools()).tools
         available_tools = [t.name for t in tool_schemas]
 
@@ -179,14 +171,13 @@ class ToolAgent(LlmAgent):
                 end_time = time.perf_counter()
                 return correlation_id, result, round((end_time - start_time) * 1000, 2)
 
-            results = await asyncio.gather(
-                *(run_one(cid, name, args) for cid, name, args in planned_calls),
-                return_exceptions=True,
+            results = await gather_with_cancel(
+                run_one(cid, name, args) for cid, name, args in planned_calls
             )
 
             for i, item in enumerate(results):
                 correlation_id, tool_name, _ = planned_calls[i]
-                if isinstance(item, Exception):
+                if isinstance(item, BaseException):
                     msg = f"Error: {str(item)}"
                     result = CallToolResult(content=[text_content(msg)], isError=True)
                     duration_ms = 0.0
@@ -194,10 +185,10 @@ class ToolAgent(LlmAgent):
                     _, result, duration_ms = item
 
                 tool_results[correlation_id] = result
-                tool_timings[correlation_id] = {
-                    "timing_ms": duration_ms,
-                    "transport_channel": None,
-                }
+                tool_timings[correlation_id] = ToolTimingInfo(
+                    timing_ms=duration_ms,
+                    transport_channel=None,
+                )
                 self.display.show_tool_result(
                     name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
                 )

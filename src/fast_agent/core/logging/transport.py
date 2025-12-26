@@ -22,6 +22,7 @@ from fast_agent.core.logging.events import Event, EventFilter
 from fast_agent.core.logging.json_serializer import JSONSerializer
 from fast_agent.core.logging.listeners import EventListener, LifecycleAwareListener
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import gather_with_cancel
 
 
 class EventTransport(Protocol):
@@ -419,7 +420,7 @@ class AsyncEventBus:
                         print(f"Error creating listener task: {e}")
 
                 if tasks:
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
+                    results = await gather_with_cancel(tasks)
                     for r in results:
                         if isinstance(r, Exception):
                             print(f"Error in listener: {r}")
@@ -450,7 +451,7 @@ class AsyncEventBus:
                         except Exception:
                             pass
                     if tasks:
-                        await asyncio.gather(*tasks, return_exceptions=True)
+                        await gather_with_cancel(tasks)
                     self._queue.task_done()
                 except asyncio.QueueEmpty:
                     break

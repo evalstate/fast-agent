@@ -5,6 +5,8 @@ from typing import Any, Callable, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, ConfigDict
 
+from fast_agent.utils.async_utils import gather_with_cancel
+
 SignalValueT = TypeVar("SignalValueT")
 
 
@@ -176,7 +178,7 @@ class ConsoleSignalHandler(SignalHandler[str]):
         print(f"[SIGNAL SENT: {signal.name}] Value: {signal.payload}")
 
         handlers = self._handlers.get(signal.name, [])
-        await asyncio.gather(*(handler(signal) for handler in handlers), return_exceptions=True)
+        await gather_with_cancel(handler(signal) for handler in handlers)
 
         # Notify any waiting coroutines
         if signal.name in self._pending_signals:
@@ -265,7 +267,7 @@ class AsyncioSignalHandler(BaseSignalHandler[SignalValueT]):
         for _, handler in handlers:
             tasks.append(handler(signal))
 
-        await asyncio.gather(*tasks, return_exceptions=True)
+        await gather_with_cancel(tasks)
 
 
 # TODO: saqadri - check if we need to do anything to combine this and AsyncioSignalHandler

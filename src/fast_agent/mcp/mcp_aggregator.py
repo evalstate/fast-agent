@@ -1,4 +1,4 @@
-from asyncio import Lock, gather
+from asyncio import Lock
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -44,6 +44,7 @@ from fast_agent.mcp.skybridge import (
 from fast_agent.mcp.tool_execution_handler import NoOpToolExecutionHandler, ToolExecutionHandler
 from fast_agent.mcp.tool_permission_handler import NoOpToolPermissionHandler, ToolPermissionHandler
 from fast_agent.mcp.transport_tracking import TransportSnapshot
+from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
@@ -493,9 +494,8 @@ class MCPAggregator(ContextDependent):
             return
 
         # Gather data from all servers concurrently
-        results = await gather(
-            *(load_server_data(server_name) for server_name in servers_to_load),
-            return_exceptions=True,
+        results = await gather_with_cancel(
+            load_server_data(server_name) for server_name in servers_to_load
         )
 
         total_tool_count = 0
@@ -555,7 +555,7 @@ class MCPAggregator(ContextDependent):
         tasks = [
             self._evaluate_skybridge_for_server(server_name) for server_name in target_servers
         ]
-        results = await gather(*tasks, return_exceptions=True)
+        results = await gather_with_cancel(tasks)
 
         for result in results:
             if isinstance(result, BaseException):
