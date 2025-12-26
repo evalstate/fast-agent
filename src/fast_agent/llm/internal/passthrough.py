@@ -30,7 +30,7 @@ class PassthroughLLM(FastAgentLLM):
     """
 
     def __init__(
-        self, provider=Provider.FAST_AGENT, name: str = "Passthrough", **kwargs: dict[str, Any]
+        self, provider=Provider.FAST_AGENT, name: str = "Passthrough", **kwargs: Any
     ) -> None:
         super().__init__(name=name, provider=provider, **kwargs)
         self.logger = get_logger(__name__)

@@ -14,6 +14,7 @@ Usage:
     )
 """
 
+import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
@@ -21,21 +22,56 @@ from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
-
 from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.config import get_settings
+from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
+from fast_agent.skills.manager import (
+    fetch_marketplace_skills,
+    fetch_marketplace_skills_with_source,
+    format_marketplace_display_url,
+    get_manager_directory,
+    get_marketplace_url,
+    install_marketplace_skill,
+    list_local_skills,
+    reload_skill_manifests,
+    remove_local_skill,
+    resolve_skill_directories,
+    select_manifest_by_name_or_index,
+    select_skill_by_name_or_index,
+)
+from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
+from fast_agent.ui.command_payloads import (
+    ClearCommand,
+    CommandPayload,
+    ListPromptsCommand,
+    ListSkillsCommand,
+    ListToolsCommand,
+    LoadHistoryCommand,
+    SaveHistoryCommand,
+    SelectPromptCommand,
+    ShowHistoryCommand,
+    ShowMarkdownCommand,
+    ShowMcpStatusCommand,
+    ShowSystemCommand,
+    ShowUsageCommand,
+    SkillsCommand,
+    SwitchAgentCommand,
+    is_command_payload,
+)
 from fast_agent.ui.enhanced_prompt import (
     _display_agent_info_helper,
     get_argument_input,
     get_enhanced_input,
     get_selection_input,
     handle_special_commands,
+    parse_special_input,
     show_mcp_status,
 )
 from fast_agent.ui.history_display import display_history_overview
@@ -113,216 +149,220 @@ class InteractivePrompt:
                     agent_provider=prompt_provider,  # Pass agent provider for info display
                 )
 
+                if isinstance(user_input, str):
+                    user_input = parse_special_input(user_input)
+
                 # Handle special commands - pass "True" to enable agent switching
                 command_result = await handle_special_commands(user_input, True)
 
                 # Check if we should switch agents
-                if isinstance(command_result, dict):
-                    command_dict: dict[str, Any] = command_result
-                    if "switch_agent" in command_dict:
-                        new_agent = command_dict["switch_agent"]
-                        if new_agent in available_agents_set:
-                            agent = new_agent
-                            # Display new agent info immediately when switching
-                            rich_print()  # Add spacing
-                            await _display_agent_info_helper(agent, prompt_provider)
-                            continue
-                        else:
+                if is_command_payload(command_result):
+                    command_payload: CommandPayload = cast("CommandPayload", command_result)
+                    match command_payload:
+                        case SwitchAgentCommand(agent_name=new_agent):
+                            if new_agent in available_agents_set:
+                                agent = new_agent
+                                # Display new agent info immediately when switching
+                                rich_print()  # Add spacing
+                                await _display_agent_info_helper(agent, prompt_provider)
+                                continue
                             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
                             continue
-                    # Keep the existing list_prompts handler for backward compatibility
-                    elif "list_prompts" in command_dict:
-                        # Use the prompt_provider directly
-                        await self._list_prompts(prompt_provider, agent)
-                        continue
-                    elif "select_prompt" in command_dict:
-                        # Handle prompt selection, using both list_prompts and apply_prompt
-                        prompt_name = command_dict.get("prompt_name")
-                        prompt_index = command_dict.get("prompt_index")
+                        # Keep the existing list_prompts handler for backward compatibility
+                        case ListPromptsCommand():
+                            # Use the prompt_provider directly
+                            await self._list_prompts(prompt_provider, agent)
+                            continue
+                        case SelectPromptCommand(
+                            prompt_name=prompt_name, prompt_index=prompt_index
+                        ):
+                            # Handle prompt selection, using both list_prompts and apply_prompt
+                            # If a specific index was provided (from /prompt <number>)
+                            if prompt_index is not None:
+                                # First get a list of all prompts to look up the index
+                                all_prompts = await self._get_all_prompts(prompt_provider, agent)
+                                if not all_prompts:
+                                    rich_print("[yellow]No prompts available[/yellow]")
+                                    continue
 
-                        # If a specific index was provided (from /prompt <number>)
-                        if prompt_index is not None:
-                            # First get a list of all prompts to look up the index
-                            all_prompts = await self._get_all_prompts(prompt_provider, agent)
-                            if not all_prompts:
-                                rich_print("[yellow]No prompts available[/yellow]")
+                                # Check if the index is valid
+                                if 1 <= prompt_index <= len(all_prompts):
+                                    # Get the prompt at the specified index (1-based to 0-based)
+                                    selected_prompt = all_prompts[prompt_index - 1]
+                                    # Use the already created namespaced_name to ensure consistency
+                                    await self._select_prompt(
+                                        prompt_provider,
+                                        agent,
+                                        selected_prompt["namespaced_name"],
+                                    )
+                                else:
+                                    rich_print(
+                                        f"[red]Invalid prompt number: {prompt_index}. Valid range is 1-{len(all_prompts)}[/red]"
+                                    )
+                                    # Show the prompt list for convenience
+                                    await self._list_prompts(prompt_provider, agent)
+                            else:
+                                # Use the name-based selection
+                                await self._select_prompt(prompt_provider, agent, prompt_name)
+                            continue
+                        case ListToolsCommand():
+                            # Handle tools list display
+                            await self._list_tools(prompt_provider, agent)
+                            continue
+                        case ListSkillsCommand():
+                            await self._list_skills(prompt_provider, agent)
+                            continue
+                        case SkillsCommand(action=action, argument=argument):
+                            payload = {"action": action, "argument": argument}
+                            await self._handle_skills_command(prompt_provider, agent, payload)
+                            continue
+                        case ShowUsageCommand():
+                            # Handle usage display
+                            await self._show_usage(prompt_provider, agent)
+                            continue
+                        case ShowHistoryCommand(agent=target_agent):
+                            target_agent = target_agent or agent
+                            try:
+                                agent_obj = prompt_provider._agent(target_agent)
+                            except Exception:
+                                rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
                                 continue
 
-                            # Check if the index is valid
-                            if 1 <= prompt_index <= len(all_prompts):
-                                # Get the prompt at the specified index (1-based to 0-based)
-                                selected_prompt = all_prompts[prompt_index - 1]
-                                # Use the already created namespaced_name to ensure consistency
-                                await self._select_prompt(
-                                    prompt_provider,
-                                    agent,
-                                    selected_prompt["namespaced_name"],
+                            history = getattr(agent_obj, "message_history", [])
+                            usage = getattr(agent_obj, "usage_accumulator", None)
+                            display_history_overview(target_agent, history, usage)
+                            continue
+                        case ClearCommand(kind="clear_last", agent=target_agent):
+                            target_agent = target_agent or agent
+                            try:
+                                agent_obj = prompt_provider._agent(target_agent)
+                            except Exception:
+                                rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                                continue
+
+                            removed_message = None
+                            pop_callable = getattr(agent_obj, "pop_last_message", None)
+                            if callable(pop_callable):
+                                removed_message = pop_callable()
+                            else:
+                                history = getattr(agent_obj, "message_history", [])
+                                if history:
+                                    try:
+                                        removed_message = history.pop()
+                                    except Exception:
+                                        removed_message = None
+
+                            if removed_message:
+                                role = getattr(removed_message, "role", "message")
+                                role_display = (
+                                    role.capitalize() if isinstance(role, str) else "Message"
+                                )
+                                rich_print(
+                                    f"[green]Removed last {role_display} for agent '{target_agent}'.[/green]"
                                 )
                             else:
                                 rich_print(
-                                    f"[red]Invalid prompt number: {prompt_index}. Valid range is 1-{len(all_prompts)}[/red]"
+                                    f"[yellow]No messages to remove for agent '{target_agent}'.[/yellow]"
                                 )
-                                # Show the prompt list for convenience
-                                await self._list_prompts(prompt_provider, agent)
-                        else:
-                            # Use the name-based selection
-                            await self._select_prompt(prompt_provider, agent, prompt_name)
-                        continue
-                    elif "list_tools" in command_dict:
-                        # Handle tools list display
-                        await self._list_tools(prompt_provider, agent)
-                        continue
-                    elif "list_skills" in command_dict:
-                        await self._list_skills(prompt_provider, agent)
-                        continue
-                    elif "show_usage" in command_dict:
-                        # Handle usage display
-                        await self._show_usage(prompt_provider, agent)
-                        continue
-                    elif "show_history" in command_dict:
-                        history_info = command_dict.get("show_history")
-                        history_agent = (
-                            history_info.get("agent") if isinstance(history_info, dict) else None
-                        )
-                        target_agent = history_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
                             continue
-
-                        history = getattr(agent_obj, "message_history", [])
-                        usage = getattr(agent_obj, "usage_accumulator", None)
-                        display_history_overview(target_agent, history, usage)
-                        continue
-                    elif "clear_last" in command_dict:
-                        clear_info = command_dict.get("clear_last")
-                        clear_agent = (
-                            clear_info.get("agent") if isinstance(clear_info, dict) else None
-                        )
-                        target_agent = clear_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
-                            continue
-
-                        removed_message = None
-                        pop_callable = getattr(agent_obj, "pop_last_message", None)
-                        if callable(pop_callable):
-                            removed_message = pop_callable()
-                        else:
-                            history = getattr(agent_obj, "message_history", [])
-                            if history:
-                                try:
-                                    removed_message = history.pop()
-                                except Exception:
-                                    removed_message = None
-
-                        if removed_message:
-                            role = getattr(removed_message, "role", "message")
-                            role_display = role.capitalize() if isinstance(role, str) else "Message"
-                            rich_print(
-                                f"[green]Removed last {role_display} for agent '{target_agent}'.[/green]"
-                            )
-                        else:
-                            rich_print(
-                                f"[yellow]No messages to remove for agent '{target_agent}'.[/yellow]"
-                            )
-                        continue
-                    elif "clear_history" in command_dict:
-                        clear_info = command_dict.get("clear_history")
-                        clear_agent = (
-                            clear_info.get("agent") if isinstance(clear_info, dict) else None
-                        )
-                        target_agent = clear_agent or agent
-                        try:
-                            agent_obj = prompt_provider._agent(target_agent)
-                        except Exception:
-                            rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
-                            continue
-
-                        if hasattr(agent_obj, "clear"):
+                        case ClearCommand(kind="clear_history", agent=target_agent):
+                            target_agent = target_agent or agent
                             try:
-                                agent_obj.clear()
-                                rich_print(
-                                    f"[green]History cleared for agent '{target_agent}'.[/green]"
-                                )
-                            except Exception as exc:
-                                rich_print(
-                                    f"[red]Failed to clear history for '{target_agent}': {exc}[/red]"
-                                )
-                        else:
-                            rich_print(
-                                f"[yellow]Agent '{target_agent}' does not support clearing history.[/yellow]"
-                            )
-                        continue
-                    elif "show_system" in command_dict:
-                        # Handle system prompt display
-                        await self._show_system(prompt_provider, agent)
-                        continue
-                    elif "show_markdown" in command_dict:
-                        # Handle markdown display
-                        await self._show_markdown(prompt_provider, agent)
-                        continue
-                    elif "show_mcp_status" in command_dict:
-                        rich_print()
-                        await show_mcp_status(agent, prompt_provider)
-                        continue
-                    elif "save_history" in command_dict:
-                        # Save history for the current agent
-                        filename = command_dict.get("filename")
-                        try:
-                            agent_obj = prompt_provider._agent(agent)
+                                agent_obj = prompt_provider._agent(target_agent)
+                            except Exception:
+                                rich_print(f"[red]Unable to load agent '{target_agent}'[/red]")
+                                continue
 
-                            # Prefer type-safe exporter over magic string
-                            saved_path = await HistoryExporter.save(agent_obj, filename)
-                            rich_print(f"[green]History saved to {saved_path}[/green]")
-                        except Exception:
-                            # Fallback to magic string path for maximum compatibility
-                            control = CONTROL_MESSAGE_SAVE_HISTORY + (
-                                f" {filename}" if filename else ""
-                            )
-                            result = await send_func(control, agent)
-                            if result:
-                                rich_print(f"[green]{result}[/green]")
-                        continue
-                    elif "load_history" in command_dict:
-                        # Load history for the current agent
-                        if command_dict.get("error"):
-                            rich_print(f"[red]{command_dict['error']}[/red]")
+                            if hasattr(agent_obj, "clear"):
+                                try:
+                                    agent_obj.clear()
+                                    rich_print(
+                                        f"[green]History cleared for agent '{target_agent}'.[/green]"
+                                    )
+                                except Exception as exc:
+                                    rich_print(
+                                        f"[red]Failed to clear history for '{target_agent}': {exc}[/red]"
+                                    )
+                            else:
+                                rich_print(
+                                    f"[yellow]Agent '{target_agent}' does not support clearing history.[/yellow]"
+                                )
                             continue
+                        case ShowSystemCommand():
+                            # Handle system prompt display
+                            await self._show_system(prompt_provider, agent)
+                            continue
+                        case ShowMarkdownCommand():
+                            # Handle markdown display
+                            await self._show_markdown(prompt_provider, agent)
+                            continue
+                        case ShowMcpStatusCommand():
+                            rich_print()
+                            await show_mcp_status(agent, prompt_provider)
+                            continue
+                        case SaveHistoryCommand(filename=filename):
+                            # Save history for the current agent
+                            try:
+                                agent_obj = prompt_provider._agent(agent)
 
-                        filename = command_dict.get("filename")
-                        try:
-                            from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+                                # Prefer type-safe exporter over magic string
+                                saved_path = await HistoryExporter.save(agent_obj, filename)
+                                rich_print(f"[green]History saved to {saved_path}[/green]")
+                            except Exception:
+                                # Fallback to magic string path for maximum compatibility
+                                control = CONTROL_MESSAGE_SAVE_HISTORY + (
+                                    f" {filename}" if filename else ""
+                                )
+                                result = await send_func(control, agent)
+                                if result:
+                                    rich_print(f"[green]{result}[/green]")
+                            continue
+                        case LoadHistoryCommand(filename=filename, error=error):
+                            # Load history for the current agent
+                            if error:
+                                rich_print(f"[red]{error}[/red]")
+                                continue
 
-                            # Get the agent object and its underlying LLM
-                            agent_obj = prompt_provider._agent(agent)
+                            if filename is None:
+                                rich_print("[red]Filename required for load_history[/red]")
+                                continue
 
-                            # Load history directly without triggering LLM call
-                            load_history_into_agent(agent_obj, Path(filename))
+                            try:
+                                from fast_agent.mcp.prompts.prompt_load import (
+                                    load_history_into_agent,
+                                )
 
-                            msg_count = len(agent_obj.message_history)
-                            rich_print(
-                                f"[green]Loaded {msg_count} messages from {filename}[/green]"
-                            )
-                        except FileNotFoundError:
-                            rich_print(f"[red]File not found: {filename}[/red]")
-                        except Exception as e:
-                            rich_print(f"[red]Error loading history: {e}[/red]")
-                        continue
+                                # Get the agent object and its underlying LLM
+                                agent_obj = prompt_provider._agent(agent)
+
+                                # Load history directly without triggering LLM call
+                                load_history_into_agent(agent_obj, Path(filename))
+
+                                msg_count = len(agent_obj.message_history)
+                                rich_print(
+                                    f"[green]Loaded {msg_count} messages from {filename}[/green]"
+                                )
+                            except FileNotFoundError:
+                                rich_print(f"[red]File not found: {filename}[/red]")
+                            except Exception as e:
+                                rich_print(f"[red]Error loading history: {e}[/red]")
+                            continue
+                        case _:
+                            pass
 
                 # Skip further processing if:
                 # 1. The command was handled (command_result is truthy)
-                # 2. The original input was a dictionary (special command like /prompt)
-                # 3. The command result itself is a dictionary (special command handling result)
+                # 2. The original input was a command payload (special command like /prompt)
+                # 3. The command result itself is a command payload (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
                 if (
                     command_result
-                    or isinstance(user_input, dict)
-                    or isinstance(command_result, dict)
+                    or is_command_payload(user_input)
+                    or is_command_payload(command_result)
                 ):
+                    continue
+
+                if not isinstance(user_input, str):
                     continue
 
                 if user_input.upper() == "STOP":
@@ -1016,62 +1056,254 @@ class InteractivePrompt:
         """List available local skills for an agent."""
 
         try:
-            assert hasattr(prompt_provider, "_agent"), (
-                "Interactive prompt expects an AgentApp with _agent()"
-            )
-            agent = prompt_provider._agent(agent_name)
-
-            rich_print(f"\n[bold]Skills for agent [cyan]{agent_name}[/cyan]:[/bold]")
-
-            skill_manifests = getattr(agent, "_skill_manifests", None)
-            manifests = list(skill_manifests) if skill_manifests else []
-
-            if not manifests:
-                rich_print("[yellow]No skills available for this agent[/yellow]")
-                return
-
-            rich_print()
-
-            for index, manifest in enumerate(manifests, 1):
-                from rich.text import Text
-
-                name = getattr(manifest, "name", "")
-                description = getattr(manifest, "description", "")
-                path = Path(getattr(manifest, "path", Path()))
-
-                tool_line = Text()
-                tool_line.append(f"[{index:2}] ", style="dim cyan")
-                tool_line.append(name, style="bright_blue bold")
-                rich_print(tool_line)
-
-                if description:
-                    import textwrap
-
-                    wrapped_lines = textwrap.wrap(
-                        description.strip(), width=72, subsequent_indent="     "
-                    )
-                    for line in wrapped_lines:
-                        if line.startswith("     "):
-                            rich_print(f"     [white]{line[5:]}[/white]")
-                        else:
-                            rich_print(f"     [white]{line}[/white]")
-
-                source_path = path if path else Path(".")
-                if source_path.is_file():
-                    source_path = source_path.parent
-                try:
-                    display_path = source_path.relative_to(Path.cwd())
-                except ValueError:
-                    display_path = source_path
-
-                rich_print(f"     [dim green]source:[/dim green] {display_path}")
-                rich_print()
+            manager_dir = get_manager_directory()
+            manifests = list_local_skills(manager_dir)
+            self._render_local_skills(manifests, manager_dir)
 
         except Exception as exc:  # noqa: BLE001
             import traceback
 
             rich_print(f"[red]Error listing skills: {exc}[/red]")
             rich_print(f"[dim]{traceback.format_exc()}[/dim]")
+
+    async def _handle_skills_command(
+        self, prompt_provider: "AgentApp", agent_name: str, payload: dict[str, Any]
+    ) -> None:
+        action = str(payload.get("action") or "list").lower()
+        argument = payload.get("argument")
+
+        if action in {"list", ""}:
+            await self._list_skills(prompt_provider, agent_name)
+            return
+        if action in {"add", "install"}:
+            await self._add_skill(prompt_provider, agent_name, argument)
+            return
+        if action in {"registry", "marketplace", "source"}:
+            await self._set_skills_registry(argument)
+            return
+        if action in {"remove", "rm", "delete", "uninstall"}:
+            await self._remove_skill(prompt_provider, agent_name, argument)
+            return
+
+        rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
+
+    async def _set_skills_registry(self, argument: str | None) -> None:
+        if not argument:
+            current = get_marketplace_url(get_settings())
+            rich_print(f"[dim]Current registry:[/dim] {current}")
+            rich_print("[dim]Usage: /skills registry <url>[/dim]")
+            return
+
+        url = str(argument).strip()
+        try:
+            marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to load registry: {exc}[/red]")
+            return
+
+        settings = get_settings()
+        skills_settings = getattr(settings, "skills", None)
+        if skills_settings is not None:
+            skills_settings.marketplace_urls = [resolved_url]
+            skills_settings.marketplace_url = resolved_url
+
+        if resolved_url != url:
+            rich_print(f"[dim]Resolved from:[/dim] {url}")
+            rich_print(
+                f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
+            )
+        rich_print(f"[dim]Skills discovered:[/dim] {len(marketplace)}")
+
+    async def _add_skill(
+        self, prompt_provider: "AgentApp", agent_name: str, argument: str | None
+    ) -> None:
+        manager_dir = get_manager_directory()
+        marketplace_url = get_marketplace_url()
+        try:
+            marketplace = await fetch_marketplace_skills(marketplace_url)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to load marketplace: {exc}[/red]")
+            return
+
+        if not marketplace:
+            rich_print("[yellow]No skills found in the marketplace.[/yellow]")
+            return
+
+        selection = argument
+        if not selection:
+            rich_print("\n[bold]Marketplace skills:[/bold]\n")
+            repo_hint = None
+            if marketplace:
+                repo_url = getattr(marketplace[0], "repo_url", None)
+                if repo_url:
+                    repo_ref = getattr(marketplace[0], "repo_ref", None)
+                    repo_hint = f"{repo_url}@{repo_ref}" if repo_ref else repo_url
+            if repo_hint:
+                rich_print(f"[dim]Repository: {format_marketplace_display_url(repo_hint)}[/dim]")
+            self._render_marketplace_skills(marketplace)
+            selection = await get_selection_input(
+                "Install skill by number or name (empty to cancel): ",
+                options=[entry.name for entry in marketplace],
+                allow_cancel=True,
+            )
+            if selection is None:
+                return
+
+        skill = select_skill_by_name_or_index(marketplace, selection)
+        if not skill:
+            rich_print(f"[red]Skill not found: {selection}[/red]")
+            return
+
+        try:
+            install_path = await install_marketplace_skill(skill, destination_root=manager_dir)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to install skill: {exc}[/red]")
+            return
+
+        self._render_install_result(skill, install_path)
+        await self._refresh_agent_skills(prompt_provider, agent_name)
+
+    async def _remove_skill(
+        self, prompt_provider: "AgentApp", agent_name: str, argument: str | None
+    ) -> None:
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        if not manifests:
+            rich_print("[yellow]No local skills to remove.[/yellow]")
+            return
+
+        selection = argument
+        if not selection:
+            self._render_local_skills(manifests, manager_dir)
+            selection = await get_selection_input(
+                "Remove skill by number or name (empty to cancel): ",
+                options=[manifest.name for manifest in manifests],
+                allow_cancel=True,
+            )
+            if selection is None:
+                return
+
+        manifest = select_manifest_by_name_or_index(manifests, selection)
+        if not manifest:
+            rich_print(f"[red]Skill not found: {selection}[/red]")
+            return
+
+        try:
+            skill_dir = Path(manifest.path).parent
+            remove_local_skill(skill_dir, destination_root=manager_dir)
+        except Exception as exc:  # noqa: BLE001
+            rich_print(f"[red]Failed to remove skill: {exc}[/red]")
+            return
+
+        rich_print(f"[green]Removed skill:[/green] {manifest.name}")
+        await self._refresh_agent_skills(prompt_provider, agent_name)
+
+    async def _refresh_agent_skills(self, prompt_provider: "AgentApp", agent_name: str) -> None:
+        assert hasattr(prompt_provider, "_agent"), (
+            "Interactive prompt expects an AgentApp with _agent()"
+        )
+        agent = prompt_provider._agent(agent_name)
+        override_dirs = resolve_skill_directories(get_settings())
+        registry, manifests = reload_skill_manifests(
+            base_dir=Path.cwd(), override_directories=override_dirs
+        )
+        instruction_context = None
+        try:
+            skills_text = format_skills_for_prompt(manifests, read_tool_name="read_skill")
+            instruction_context = {"agentSkills": skills_text}
+        except Exception:
+            instruction_context = None
+
+        await rebuild_agent_instruction(
+            agent,
+            skill_manifests=manifests,
+            context=instruction_context,
+            skill_registry=registry,
+        )
+
+    def _render_marketplace_skills(self, marketplace: list[Any]) -> None:
+        current_bundle = None
+        for index, entry in enumerate(marketplace, 1):
+            from rich.text import Text
+
+            bundle_name = getattr(entry, "bundle_name", None)
+            bundle_description = getattr(entry, "bundle_description", None)
+            if bundle_name and bundle_name != current_bundle:
+                current_bundle = bundle_name
+                rich_print("")
+                rich_print(f"[bold]{bundle_name}[/bold]")
+                if bundle_description:
+                    wrapped_lines = textwrap.wrap(bundle_description.strip(), width=72)
+                    for line in wrapped_lines:
+                        rich_print(f"[white]{line.strip()}[/white]")
+                rich_print("")
+
+            tool_line = Text()
+            tool_line.append(f"[{index:2}] ", style="dim cyan")
+            tool_line.append(entry.name, style="bright_blue bold")
+            rich_print(tool_line)
+
+            if entry.description:
+                wrapped_lines = textwrap.wrap(
+                    entry.description.strip(), width=72, subsequent_indent="     "
+                )
+                for line in wrapped_lines:
+                    if line.startswith("     "):
+                        rich_print(f"     [white]{line[5:]}[/white]")
+                    else:
+                        rich_print(f"     [white]{line}[/white]")
+            if entry.source_url:
+                rich_print(f"     [dim green]source:[/dim green] {entry.source_url}")
+            rich_print()
+
+    def _render_local_skills(self, manifests: list[Any], manager_dir: Path) -> None:
+        rich_print(f"\n[bold]Skills in [cyan]{manager_dir}[/cyan]:[/bold]\n")
+        if not manifests:
+            rich_print("[yellow]No skills available in the manager directory[/yellow]")
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+            return
+        for index, manifest in enumerate(manifests, 1):
+            from rich.text import Text
+
+            name = getattr(manifest, "name", "")
+            description = getattr(manifest, "description", "")
+            path = Path(getattr(manifest, "path", Path()))
+
+            tool_line = Text()
+            tool_line.append(f"[{index:2}] ", style="dim cyan")
+            tool_line.append(name, style="bright_blue bold")
+            rich_print(tool_line)
+
+            if description:
+                wrapped_lines = textwrap.wrap(
+                    description.strip(), width=72, subsequent_indent="     "
+                )
+                for line in wrapped_lines:
+                    if line.startswith("     "):
+                        rich_print(f"     [white]{line[5:]}[/white]")
+                    else:
+                        rich_print(f"     [white]{line}[/white]")
+
+            source_path = path if path else Path(".")
+            if source_path.is_file():
+                source_path = source_path.parent
+            try:
+                display_path = source_path.relative_to(Path.cwd())
+            except ValueError:
+                display_path = source_path
+
+        rich_print(f"     [dim green]source:[/dim green] {display_path}")
+        rich_print()
+        rich_print("[dim]Use /skills add to install a skill[/dim]")
+        rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
+
+    def _render_install_result(self, skill: Any, install_path: Path) -> None:
+        try:
+            display_path = install_path.relative_to(Path.cwd())
+        except ValueError:
+            display_path = install_path
+        rich_print(f"[green]Installed skill:[/green] {skill.name}")
+        rich_print(f"[dim green]location:[/dim green] {display_path}")
 
     async def _show_usage(self, prompt_provider: "AgentApp", agent_name: str) -> None:
         """

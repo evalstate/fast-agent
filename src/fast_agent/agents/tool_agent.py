@@ -17,7 +17,7 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo, ToolTimings
 
 logger = get_logger(__name__)
 
@@ -232,7 +232,10 @@ class ToolAgent(LlmAgent):
 
             tool_results[correlation_id] = result
             # Store timing info (transport_channel not available for local tools)
-            tool_timings[correlation_id] = {"timing_ms": duration_ms, "transport_channel": None}
+            tool_timings[correlation_id] = ToolTimingInfo(
+                timing_ms=duration_ms,
+                transport_channel=None,
+            )
             self.display.show_tool_result(
                 name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
             )

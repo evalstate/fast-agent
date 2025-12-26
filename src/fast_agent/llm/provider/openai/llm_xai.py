@@ -9,10 +9,9 @@ DEFAULT_XAI_MODEL = "grok-3"
 
 
 class XAILLM(OpenAILLM):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(
-            *args, provider=Provider.XAI, **kwargs
-        )  # Properly pass args and kwargs to parent
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.XAI, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize xAI parameters"""
@@ -26,8 +25,8 @@ class XAILLM(OpenAILLM):
 
         return base_params
 
-    def _base_url(self) -> str:
-        base_url = os.getenv("XAI_BASE_URL", XAI_BASE_URL)
+    def _base_url(self) -> str | None:
+        base_url: str | None = os.getenv("XAI_BASE_URL", XAI_BASE_URL)
         if self.context.config and self.context.config.xai:
             base_url = self.context.config.xai.base_url
 

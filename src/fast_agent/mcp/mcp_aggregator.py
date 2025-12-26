@@ -32,6 +32,7 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
+from fast_agent.mcp.interfaces import ServerRegistryProtocol
 from fast_agent.mcp.mcp_agent_client_session import MCPAgentClientSession
 from fast_agent.mcp.mcp_connection_manager import MCPConnectionManager
 from fast_agent.mcp.skybridge import (
@@ -46,6 +47,7 @@ from fast_agent.mcp.transport_tracking import TransportSnapshot
 
 if TYPE_CHECKING:
     from fast_agent.context import Context
+    from fast_agent.mcp_server_registry import ServerRegistry
 
 
 logger = get_logger(__name__)  # This will be replaced per-instance when agent_name is available
@@ -138,19 +140,15 @@ class MCPAggregator(ContextDependent):
 
         # Keep a connection manager to manage persistent connections for this aggregator
         if self.connection_persistence:
+            context = self._require_context()
             # Try to get existing connection manager from context
-            context = self.context
             if not hasattr(context, "_connection_manager") or context._connection_manager is None:
-                server_registry = context.server_registry
-                if server_registry is None:
-                    raise RuntimeError("Context is missing server registry for MCP connections")
+                server_registry = cast("ServerRegistry", self._require_server_registry())
                 manager = MCPConnectionManager(server_registry, context=context)
                 await manager.__aenter__()
                 context._connection_manager = manager
                 self._owns_connection_manager = True
-            self._persistent_connection_manager = cast(
-                "MCPConnectionManager", context._connection_manager
-            )
+            self._persistent_connection_manager = context._connection_manager
         else:
             self._persistent_connection_manager = None
 
@@ -231,6 +229,23 @@ class MCPAggregator(ContextDependent):
         # Track discovered Skybridge configurations per server
         self._skybridge_configs: dict[str, SkybridgeServerConfig] = {}
 
+    def _require_context(self) -> "Context":
+        if self.context is None:
+            raise RuntimeError("MCPAggregator requires a context")
+        return self.context
+
+    def _require_server_registry(self) -> ServerRegistryProtocol:
+        context = self._require_context()
+        server_registry = getattr(context, "server_registry", None)
+        if server_registry is None:
+            raise RuntimeError("Context is missing server registry for MCP connections")
+        return server_registry
+
+    def _require_connection_manager(self) -> MCPConnectionManager:
+        if self._persistent_connection_manager is None:
+            raise RuntimeError("Persistent connection manager is not initialized")
+        return self._persistent_connection_manager
+
     def _create_progress_callback(
         self, server_name: str, tool_name: str, tool_call_id: str
     ) -> "ProgressFnT":
@@ -308,6 +323,7 @@ class MCPAggregator(ContextDependent):
         except Exception as e:
             logger.error(f"Error creating MCPAggregator: {e}")
             await instance.__aexit__(None, None, None)
+            raise
 
     def _create_session_factory(self, server_name: str):
         """
@@ -375,8 +391,9 @@ class MCPAggregator(ContextDependent):
 
         for server_name in self.server_names:
             # Check if server should be loaded on start
-            if self.context and getattr(self.context, "server_registry", None):
-                server_config = self.context.server_registry.get_server_config(server_name)
+            server_registry = self.context.server_registry if self.context else None
+            if server_registry is not None:
+                server_config = server_registry.get_server_config(server_name)
                 if (
                     server_config
                     and not getattr(server_config, "load_on_start", True)
@@ -398,7 +415,8 @@ class MCPAggregator(ContextDependent):
                     },
                 )
 
-                await self._persistent_connection_manager.get_server(
+                manager = self._require_connection_manager()
+                await manager.get_server(
                     server_name, client_session_factory=self._create_session_factory(server_name)
                 )
 
@@ -717,7 +735,8 @@ class MCPAggregator(ContextDependent):
             return None
 
         try:
-            server_conn = await self._persistent_connection_manager.get_server(
+            manager = self._require_connection_manager()
+            server_conn = await manager.get_server(
                 server_name, client_session_factory=self._create_session_factory(server_name)
             )
             # server_capabilities is a property, not a coroutine
@@ -846,12 +865,12 @@ class MCPAggregator(ContextDependent):
             if not server_conn:
                 return
 
-            server_config = getattr(server_conn, "server_config", None)
-            if not server_config or server_config.transport != "stdio":
+            server_config = server_conn.server_config
+            if server_config.transport != "stdio":
                 return
 
             # Get transport metrics and emit synthetic message event
-            transport_metrics = getattr(server_conn, "transport_metrics", None)
+            transport_metrics = server_conn.transport_metrics
             if transport_metrics:
                 # Import here to avoid circular imports
                 from fast_agent.mcp.transport_tracking import ChannelEvent
@@ -869,34 +888,51 @@ class MCPAggregator(ContextDependent):
                 "Failed to notify stdio transport activity for %s", server_name, exc_info=True
             )
 
-    async def get_server_instructions(self) -> dict[str, tuple[str, list[str]]]:
+    async def get_server_instructions(self) -> dict[str, tuple[str | None, list[str]]]:
         """
-        Get instructions from all connected servers along with their tool names.
+        Get instructions from currently-connected servers along with their tool names.
 
         Returns:
-            Dict mapping server name to tuple of (instructions, list of tool names)
-        """
-        instructions = {}
+            Dict mapping server name to tuple of (instructions, list of tool names).
 
-        if self.connection_persistence and hasattr(self, "_persistent_connection_manager"):
-            # Get instructions from persistent connections
-            for server_name in self.server_names:
-                try:
-                    server_conn = await self._persistent_connection_manager.get_server(
-                        server_name,
-                        client_session_factory=self._create_session_factory(server_name),
-                    )
-                    # Always include server, even if no instructions
-                    # Get tool names for this server
-                    tool_names = [
-                        namespaced_tool.tool.name
-                        for namespaced_tool_name, namespaced_tool in self._namespaced_tool_map.items()
-                        if namespaced_tool.server_name == server_name
-                    ]
-                    # Include server even if instructions is None
-                    instructions[server_name] = (server_conn.server_instructions, tool_names)
-                except Exception as e:
-                    logger.debug(f"Failed to get instructions from server {server_name}: {e}")
+        Notes:
+            This method must not implicitly connect to servers. Connection is controlled
+            by `load_servers()` (and its `load_on_start` / `force_connect` behavior).
+            This ensures optional MCP servers don't get launched just because an agent
+            prompt contains the `{{serverInstructions}}` placeholder.
+        """
+        instructions: dict[str, tuple[str | None, list[str]]] = {}
+
+        if not self.connection_persistence:
+            return instructions
+
+        manager = getattr(self, "_persistent_connection_manager", None)
+        if manager is None:
+            return instructions
+
+        # Only read from already-running server connections to avoid implicit connects.
+        running_servers = getattr(manager, "running_servers", {}) or {}
+        for server_name in self.server_names:
+            server_conn = running_servers.get(server_name)
+            if not server_conn:
+                continue
+
+            try:
+                if not server_conn.is_healthy():
+                    continue
+            except Exception:
+                continue
+
+            tool_names = [
+                namespaced_tool.tool.name
+                for _, namespaced_tool in self._namespaced_tool_map.items()
+                if namespaced_tool.server_name == server_name
+            ]
+
+            try:
+                instructions[server_name] = (server_conn.server_instructions, tool_names)
+            except Exception as e:
+                logger.debug(f"Failed to get instructions from server {server_name}: {e}")
 
         return instructions
 
@@ -945,36 +981,32 @@ class MCPAggregator(ContextDependent):
                         server_name,
                         client_session_factory=self._create_session_factory(server_name),
                     )
-                    implementation = getattr(server_conn, "server_implementation", None)
-                    if implementation:
-                        implementation_name = getattr(implementation, "name", None)
-                        implementation_version = getattr(implementation, "version", None)
-                    capabilities = getattr(server_conn, "server_capabilities", None)
-                    client_capabilities = getattr(server_conn, "client_capabilities", None)
+                    implementation = server_conn.server_implementation
+                    if implementation is not None:
+                        implementation_name = implementation.name
+                        implementation_version = implementation.version
+                    capabilities = server_conn.server_capabilities
+                    client_capabilities = server_conn.client_capabilities
                     session = server_conn.session
                     client_info = getattr(session, "client_info", None) if session else None
                     if client_info:
                         client_info_name = getattr(client_info, "name", None)
                         client_info_version = getattr(client_info, "version", None)
                     is_connected = server_conn.is_healthy()
-                    error_message = getattr(server_conn, "_error_message", None)
-                    instructions_available = getattr(
-                        server_conn, "server_instructions_available", None
-                    )
-                    instructions_enabled = getattr(server_conn, "server_instructions_enabled", None)
-                    instructions_included = bool(getattr(server_conn, "server_instructions", None))
-                    server_cfg = getattr(server_conn, "server_config", None)
+                    error_message = server_conn._error_message
+                    instructions_available = server_conn.server_instructions_available
+                    instructions_enabled = server_conn.server_instructions_enabled
+                    instructions_included = bool(server_conn.server_instructions)
+                    server_cfg = server_conn.server_config
                     if session:
-                        elicitation_mode = getattr(
-                            session, "effective_elicitation_mode", elicitation_mode
-                        )
-                        session_id = getattr(server_conn, "session_id", None)
-                        if not session_id and getattr(server_conn, "_get_session_id_cb", None):
+                        elicitation_mode = session.effective_elicitation_mode
+                        session_id = server_conn.session_id
+                        if not session_id and server_conn._get_session_id_cb:
                             try:
                                 session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
                             except Exception:
                                 session_id = None
-                    metrics = getattr(server_conn, "transport_metrics", None)
+                    metrics = server_conn.transport_metrics
                     if metrics is not None:
                         try:
                             transport_snapshot = metrics.snapshot()
@@ -990,15 +1022,13 @@ class MCPAggregator(ContextDependent):
                         data={"error": str(exc)},
                     )
 
-            if (
-                server_cfg is None
-                and self.context
-                and getattr(self.context, "server_registry", None)
-            ):
-                try:
-                    server_cfg = self.context.server_registry.get_server_config(server_name)
-                except Exception:
-                    server_cfg = None
+            if server_cfg is None:
+                server_registry = self.context.server_registry if self.context else None
+                if server_registry is not None:
+                    try:
+                        server_cfg = server_registry.get_server_config(server_name)
+                    except Exception:
+                        server_cfg = None
 
             if server_cfg is not None:
                 instructions_enabled = (
@@ -1006,23 +1036,23 @@ class MCPAggregator(ContextDependent):
                     if instructions_enabled is not None
                     else server_cfg.include_instructions
                 )
-                roots = getattr(server_cfg, "roots", None)
+                roots = server_cfg.roots
                 roots_configured = bool(roots)
                 roots_count = len(roots) if roots else 0
-                transport = getattr(server_cfg, "transport", transport)
-                elicitation = getattr(server_cfg, "elicitation", None)
+                transport = server_cfg.transport or transport
+                elicitation = server_cfg.elicitation
                 elicitation_mode = (
                     getattr(elicitation, "mode", None) if elicitation else elicitation_mode
                 )
-                sampling_cfg = getattr(server_cfg, "sampling", None)
-                spoofing_enabled = bool(getattr(server_cfg, "implementation", None))
-                if implementation_name is None and getattr(server_cfg, "implementation", None):
+                sampling_cfg = server_cfg.sampling
+                spoofing_enabled = server_cfg.implementation is not None
+                if implementation_name is None and server_cfg.implementation is not None:
                     implementation_name = server_cfg.implementation.name
-                    implementation_version = getattr(server_cfg.implementation, "version", None)
+                    implementation_version = server_cfg.implementation.version
                 if session_id is None:
                     if server_cfg.transport == "stdio":
                         session_id = "local"
-                    elif server_conn and getattr(server_conn, "_get_session_id_cb", None):
+                    elif server_conn and server_conn._get_session_id_cb:
                         try:
                             session_id = server_conn._get_session_id_cb()  # type: ignore[attr-defined]
                         except Exception:
@@ -1091,7 +1121,7 @@ class MCPAggregator(ContextDependent):
         operation_type: str,
         operation_name: str,
         method_name: str,
-        method_args: dict[str, Any] = None,
+        method_args: dict[str, Any] | None = None,
         error_factory: Callable[[str], R] | None = None,
         progress_callback: ProgressFnT | None = None,
     ) -> R:
@@ -1156,10 +1186,14 @@ class MCPAggregator(ContextDependent):
         # Try initial execution
         try:
             if self.connection_persistence:
-                server_connection = await self._persistent_connection_manager.get_server(
+                manager = self._require_connection_manager()
+                server_connection = await manager.get_server(
                     server_name, client_session_factory=self._create_session_factory(server_name)
                 )
-                result = await try_execute(server_connection.session)
+                session = server_connection.session
+                if session is None:
+                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
+                result = await try_execute(session)
                 success_flag = True
             else:
                 logger.debug(
@@ -1170,8 +1204,9 @@ class MCPAggregator(ContextDependent):
                         "agent_name": self.agent_name,
                     },
                 )
+                server_registry = self._require_server_registry()
                 async with gen_client(
-                    server_name, server_registry=self.context.server_registry
+                    server_name, server_registry=server_registry
                 ) as client:
                     result = await try_execute(client)
                     logger.debug(
@@ -1200,6 +1235,13 @@ class MCPAggregator(ContextDependent):
             if success_flag is not None:
                 await self._record_server_call(server_name, operation_type, success_flag)
 
+        if result is None:
+            error_msg = (
+                f"Failed to {method_name} '{operation_name}' on server '{server_name}'"
+            )
+            if error_factory:
+                return error_factory(error_msg)
+            raise RuntimeError(error_msg)
         return result
 
     async def _handle_connection_error(
@@ -1216,15 +1258,20 @@ class MCPAggregator(ContextDependent):
         try:
             if self.connection_persistence:
                 # Force disconnect and create fresh connection
-                server_connection = await self._persistent_connection_manager.reconnect_server(
+                manager = self._require_connection_manager()
+                server_connection = await manager.reconnect_server(
                     server_name,
                     client_session_factory=self._create_session_factory(server_name),
                 )
-                result = await try_execute(server_connection.session)
+                session = server_connection.session
+                if session is None:
+                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
+                result = await try_execute(session)
             else:
                 # For non-persistent connections, just try again
+                server_registry = self._require_server_registry()
                 async with gen_client(
-                    server_name, server_registry=self.context.server_registry
+                    server_name, server_registry=server_registry
                 ) as client:
                     result = await try_execute(client)
 
@@ -1270,8 +1317,9 @@ class MCPAggregator(ContextDependent):
 
         # Check if reconnect_on_disconnect is enabled for this server
         server_config = None
-        if self.context and getattr(self.context, "server_registry", None):
-            server_config = self.context.server_registry.get_server_config(server_name)
+        server_registry = self.context.server_registry if self.context else None
+        if server_registry is not None:
+            server_config = server_registry.get_server_config(server_name)
 
         reconnect_enabled = server_config and server_config.reconnect_on_disconnect
 
@@ -1296,15 +1344,20 @@ class MCPAggregator(ContextDependent):
 
         try:
             if self.connection_persistence:
-                server_connection = await self._persistent_connection_manager.reconnect_server(
+                manager = self._require_connection_manager()
+                server_connection = await manager.reconnect_server(
                     server_name,
                     client_session_factory=self._create_session_factory(server_name),
                 )
-                result = await try_execute(server_connection.session)
+                session = server_connection.session
+                if session is None:
+                    raise RuntimeError(f"Server session not initialized for '{server_name}'")
+                result = await try_execute(session)
             else:
                 # For non-persistent connections, just try again
+                server_registry = self._require_server_registry()
                 async with gen_client(
-                    server_name, server_registry=self.context.server_registry
+                    server_name, server_registry=server_registry
                 ) as client:
                     result = await try_execute(client)
 
@@ -1342,7 +1395,9 @@ class MCPAggregator(ContextDependent):
             else:
                 raise Exception(error_msg)
 
-    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
+    async def _parse_resource_name(
+        self, name: str, resource_type: str
+    ) -> tuple[str | None, str]:
         """
         Parse a possibly namespaced resource name into server name and local resource name.
 

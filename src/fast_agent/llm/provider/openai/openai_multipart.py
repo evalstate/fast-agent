@@ -25,7 +25,8 @@ def openai_to_extended(
     message: Union[
         ChatCompletionMessage,
         ChatCompletionMessageParam,
-        list[Union[ChatCompletionMessage, ChatCompletionMessageParam]],
+        dict[str, Any],
+        list[Union[ChatCompletionMessage, ChatCompletionMessageParam, dict[str, Any]]],
     ],
 ) -> Union[PromptMessageExtended, list[PromptMessageExtended]]:
     """
@@ -43,16 +44,21 @@ def openai_to_extended(
 
 
 def _openai_message_to_extended(
-    message: Union[ChatCompletionMessage, dict[str, Any]],
+    message: Union[ChatCompletionMessage, ChatCompletionMessageParam, dict[str, Any]],
 ) -> PromptMessageExtended:
     """Convert a single OpenAI message to PromptMessageExtended."""
     # Get role and content from message
-    if isinstance(message, dict):
+    # ChatCompletionMessage is a class with attributes; MessageParam types are TypedDicts
+    if isinstance(message, ChatCompletionMessage):
+        role = message.role
+        content = message.content
+    elif isinstance(message, dict):
         role = message.get("role", "assistant")
         content = message.get("content", "")
     else:
-        role = message.role
-        content = message.content
+        # Fallback for any other object with role/content attributes
+        role = getattr(message, "role", "assistant")
+        content = getattr(message, "content", "")
 
     mcp_contents = []
 

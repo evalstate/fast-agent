@@ -8,6 +8,8 @@ security compared to direct file system access.
 
 from typing import TYPE_CHECKING, Any
 
+from acp.helpers import tool_diff_content
+from acp.schema import ToolCallProgress
 from mcp.types import CallToolResult, Tool
 
 from fast_agent.core.logging.logger import get_logger
@@ -312,6 +314,44 @@ class ACPFilesystemRuntime:
             content_length=len(content),
         )
 
+        # Read existing file content for diff display (if file exists)
+        old_text: str | None = None
+        try:
+            response = await self.connection.read_text_file(
+                path=path,
+                session_id=self.session_id,
+            )
+            old_text = response.content
+        except Exception:
+            # File doesn't exist or can't be read - that's fine, old_text stays None
+            pass
+
+        # Send diff content update before permission check (so permission screen shows diff)
+        # Use ensure_tool_call_exists to handle both streaming and non-streaming cases
+        if tool_use_id and self._tool_handler:
+            try:
+                tool_call_id = await self._tool_handler.ensure_tool_call_exists(
+                    tool_use_id=tool_use_id,
+                    tool_name="write_text_file",
+                    server_name="acp_filesystem",
+                    arguments=arguments,
+                )
+                diff_content = tool_diff_content(
+                    path=path,
+                    new_text=content,
+                    old_text=old_text,
+                )
+                await self.connection.session_update(
+                    session_id=self.session_id,
+                    update=ToolCallProgress(
+                        session_update="tool_call_update",
+                        tool_call_id=tool_call_id,
+                        content=[diff_content],
+                    ),
+                )
+            except Exception as e:
+                self.logger.error(f"Error sending pre-permission diff update: {e}", exc_info=True)
+
         # Check permission before execution
         if self._permission_handler:
             try:
@@ -374,10 +414,11 @@ class ACPFilesystemRuntime:
             )
 
             # Notify tool handler of completion
+            # Pass None for content to preserve the diff content we already sent
             if self._tool_handler and tool_call_id:
                 try:
                     await self._tool_handler.on_tool_complete(
-                        tool_call_id, True, result.content, None
+                        tool_call_id, True, None, None
                     )
                 except Exception as e:
                     self.logger.error(f"Error in tool complete handler: {e}", exc_info=True)

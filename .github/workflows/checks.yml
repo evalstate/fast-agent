@@ -48,6 +48,9 @@ jobs:
       - name: Run pyright
         run: uv run scripts/lint.py
 
+      - name: Run ty
+        run: uv run scripts/typecheck.py
+
   test:
     runs-on: ubuntu-latest
     steps:

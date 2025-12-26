@@ -49,8 +49,9 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
     Google LLM provider using the native google.genai library.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.GOOGLE, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.GOOGLE, **kwargs)
         # Initialize the converter
         self._converter = GoogleConverter()
 
@@ -214,7 +215,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                 "text",
                                 {
                                     "chunk": text,
-                                    "streams_arguments": False,
                                 },
                             )
 
@@ -238,7 +238,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "tool_name": name,
                                     "tool_use_id": tool_use_id,
                                     "index": active_tool_index,
-                                    "streams_arguments": False,
                                 },
                             )
                             timeline.append(("tool_call", active_tool_index, ""))
@@ -267,7 +266,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "tool_use_id": stream_info["tool_use_id"],
                                     "index": active_tool_index,
                                     "chunk": delta,
-                                    "streams_arguments": False,
                                 },
                             )
 
@@ -283,7 +281,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "tool_name": stream_info["name"],
                                     "tool_use_id": stream_info["tool_use_id"],
                                     "index": active_tool_index,
-                                    "streams_arguments": False,
                                 },
                             )
                         active_tool_index = None
@@ -304,7 +301,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                         "tool_name": stream_info["name"],
                         "tool_use_id": stream_info["tool_use_id"],
                         "index": active_tool_index,
-                        "streams_arguments": False,
                     },
                 )
 
@@ -389,14 +385,16 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                 generate_content_config.response_schema = response_schema
         elif available_tools:
             # Tool calling enabled only when not doing structured output
-            generate_content_config.tools = available_tools
+            generate_content_config.tools = available_tools  # type: ignore[assignment]
             generate_content_config.tool_config = types.ToolConfig(
-                function_calling_config=types.FunctionCallingConfig(mode="AUTO")
+                function_calling_config=types.FunctionCallingConfig(
+                    mode=types.FunctionCallingConfigMode.AUTO
+                )
             )
 
         # 3. Call the google.genai API
         client = self._initialize_google_client()
-        model_name = self._resolve_model_name(request_params.model)
+        model_name = self._resolve_model_name(request_params.model or DEFAULT_GOOGLE_MODEL)
         try:
             # Use the async client
             api_response = None
@@ -453,17 +451,24 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         if not api_response.candidates:
             # No response from the model, we're done
             self.logger.debug("No candidates returned.")
+            return Prompt.assistant(stop_reason=LlmStopReason.END_TURN)
 
         candidate = api_response.candidates[0]  # Process the first candidate
 
         # Convert the model's response content to fast-agent types
-        model_response_content_parts = self._converter.convert_from_google_content(
-            candidate.content
-        )
+        # Handle case where candidate.content might be None
+        candidate_content = candidate.content
+        if candidate_content is None:
+            model_response_content_parts: list[ContentBlock | CallToolRequestParams] = []
+        else:
+            model_response_content_parts = self._converter.convert_from_google_content(
+                candidate_content
+            )
         stop_reason = LlmStopReason.END_TURN
         tool_calls: dict[str, CallToolRequest] | None = None
         # Add model's response to the working conversation history for this turn
-        conversation_history.append(candidate.content)
+        if candidate_content is not None:
+            conversation_history.append(candidate_content)
 
         # Extract and process text content and tool calls
         assistant_message_parts = []

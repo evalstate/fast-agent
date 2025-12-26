@@ -8,7 +8,7 @@ import re
 from typing import Literal
 from urllib.parse import urlparse
 
-from fast_agent.mcp.hf_auth import add_hf_auth_header
+from fast_agent.mcp.hf_auth import TokenProvider, add_hf_auth_header
 
 
 def parse_server_url(
@@ -102,7 +102,9 @@ def generate_server_name(url: str) -> str:
 
 
 def parse_server_urls(
-    urls_param: str, auth_token: str | None = None
+    urls_param: str,
+    auth_token: str | None = None,
+    hub_token_provider: TokenProvider | None = None,
 ) -> list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]]:
     """
     Parse a comma-separated list of URLs into server configurations.
@@ -110,6 +112,9 @@ def parse_server_urls(
     Args:
         urls_param: Comma-separated list of URLs
         auth_token: Optional bearer token for authorization
+        hub_token_provider: Optional callable that returns a HuggingFace token.
+            Defaults to using huggingface_hub.get_token(). Pass a custom provider
+            for testing.
 
     Returns:
         List of tuples containing (server_name, transport_type, url, headers)
@@ -134,7 +139,7 @@ def parse_server_urls(
         server_name, transport_type, parsed_url = parse_server_url(url)
 
         # Apply HuggingFace authentication if appropriate
-        final_headers = add_hf_auth_header(parsed_url, headers)
+        final_headers = add_hf_auth_header(parsed_url, headers, hub_token_provider)
 
         result.append((server_name, transport_type, parsed_url, final_headers))
 

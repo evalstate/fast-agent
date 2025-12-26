@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from mcp import Tool
 from mcp.types import (
@@ -21,7 +21,9 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
     ChatCompletionSystemMessageParam,
     ChatCompletionToolParam,
+    ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_message_tool_call import Function
 from pydantic_core import from_json
 
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, REASONING
@@ -31,7 +33,7 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.fastagent_llm import FastAgentLLM, RequestParams
 from fast_agent.llm.model_database import ModelDatabase
-from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter, OpenAIMessage
+from fast_agent.llm.provider.openai.multipart_converter_openai import OpenAIConverter
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import TurnUsage
@@ -104,8 +106,9 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         FastAgentLLM.PARAM_STOP_SEQUENCES,
     }
 
-    def __init__(self, provider: Provider = Provider.OPENAI, *args, **kwargs) -> None:
-        super().__init__(*args, provider=provider, **kwargs)
+    def __init__(self, provider: Provider = Provider.OPENAI, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=provider, **kwargs)
 
         # Initialize logger with name if available
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
@@ -120,7 +123,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Determine reasoning mode for the selected model
         chosen_model = self.default_request_params.model if self.default_request_params else None
-        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model)
+        self._reasoning_mode = ModelDatabase.get_reasoning(chosen_model) if chosen_model else None
         self._reasoning = self._reasoning_mode == "openai"
         if self._reasoning_mode:
             self.logger.info(
@@ -139,8 +142,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         return base_params
 
-    def _base_url(self) -> str:
-        return self.context.config.openai.base_url if self.context.config.openai else None
+    def _base_url(self) -> str | None:
+        if self.context.config and self.context.config.openai:
+            return self.context.config.openai.base_url
+        return None
 
     def _default_headers(self) -> dict[str, str] | None:
         """
@@ -188,33 +193,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 "Please check that your API key is valid and not expired.",
             ) from e
 
-    def _streams_tool_arguments(self) -> bool:
-        """
-        Determine whether the current provider streams tool call arguments incrementally.
-
-        Official OpenAI and Azure OpenAI endpoints stream arguments. Most third-party
-        OpenAI-compatible gateways (e.g. OpenRouter, Moonshot) deliver the full arguments
-        once, so we should treat them as non-streaming to restore the legacy \"Calling Tool\"
-        display experience.
-        """
-        if self.provider in (Provider.AZURE, Provider.HUGGINGFACE):
-            return True
-
-        if self.provider == Provider.OPENAI:
-            base_url = self._base_url()
-            if not base_url:
-                return True
-            lowered = base_url.lower()
-            return "api.openai" in lowered or "openai.azure" in lowered or "azure.com" in lowered
-
-        return False
-
     def _emit_tool_notification_fallback(
         self,
         tool_calls: Any,
         notified_indices: set[int],
         *,
-        streams_arguments: bool,
         model: str,
     ) -> None:
         """Emit start/stop notifications when streaming metadata was missing."""
@@ -246,7 +229,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 "tool_name": tool_name,
                 "tool_use_id": tool_use_id,
                 "index": index,
-                "streams_arguments": streams_arguments,
             }
 
             self._notify_tool_stream_listeners("start", payload)
@@ -259,7 +241,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     "tool_name": tool_name,
                     "tool_use_id": tool_use_id,
                     "tool_event": "start",
-                    "streams_arguments": streams_arguments,
                     "fallback": True,
                 },
             )
@@ -273,7 +254,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     "tool_name": tool_name,
                     "tool_use_id": tool_use_id,
                     "tool_event": "stop",
-                    "streams_arguments": streams_arguments,
                     "fallback": True,
                 },
             )
@@ -310,7 +290,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         *,
         delta_tool_calls: Any,
         tool_call_started: dict[int, dict[str, Any]],
-        streams_arguments: bool,
         model: str,
         notified_tool_indices: set[int],
     ) -> None:
@@ -321,48 +300,59 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                 continue
 
             existing_info = tool_call_started.get(index)
-            tool_use_id = tool_call.id or (
-                existing_info.get("tool_use_id") if existing_info else None
-            )
-            function_name = (
-                tool_call.function.name
-                if tool_call.function and tool_call.function.name
-                else (existing_info.get("tool_name") if existing_info else None)
+
+            # Get current chunk values
+            chunk_id = tool_call.id
+            chunk_name = (
+                tool_call.function.name if tool_call.function and tool_call.function.name else None
             )
 
-            if existing_info is None and tool_use_id and function_name:
-                tool_call_started[index] = {
-                    "tool_name": function_name,
-                    "tool_use_id": tool_use_id,
-                    "streams_arguments": streams_arguments,
-                }
-                self._notify_tool_stream_listeners(
-                    "start",
-                    {
+            # Accumulate values: prefer new, fall back to existing
+            tool_use_id = chunk_id or (existing_info.get("tool_use_id") if existing_info else None)
+            function_name = chunk_name or (
+                existing_info.get("tool_name") if existing_info else None
+            )
+
+            # Always create/update tracking entry when we have any new info
+            # This ensures we accumulate metadata across chunks
+            if chunk_id or chunk_name:
+                if existing_info is None:
+                    tool_call_started[index] = {
                         "tool_name": function_name,
                         "tool_use_id": tool_use_id,
-                        "index": index,
-                        "streams_arguments": streams_arguments,
-                    },
-                )
-                self.logger.info(
-                    "Model started streaming tool call",
-                    data={
-                        "progress_action": ProgressAction.CALLING_TOOL,
-                        "agent_name": self.name,
-                        "model": model,
-                        "tool_name": function_name,
-                        "tool_use_id": tool_use_id,
-                        "tool_event": "start",
-                        "streams_arguments": streams_arguments,
-                    },
-                )
-                notified_tool_indices.add(index)
-            elif existing_info:
-                if tool_use_id:
-                    existing_info["tool_use_id"] = tool_use_id
-                if function_name:
-                    existing_info["tool_name"] = function_name
+                        "notified": False,
+                    }
+                    existing_info = tool_call_started[index]
+                else:
+                    if tool_use_id:
+                        existing_info["tool_use_id"] = tool_use_id
+                    if function_name:
+                        existing_info["tool_name"] = function_name
+
+            # Fire "start" notification once we have BOTH values
+            if existing_info and not existing_info.get("notified"):
+                if existing_info.get("tool_use_id") and existing_info.get("tool_name"):
+                    self._notify_tool_stream_listeners(
+                        "start",
+                        {
+                            "tool_name": existing_info["tool_name"],
+                            "tool_use_id": existing_info["tool_use_id"],
+                            "index": index,
+                        },
+                    )
+                    self.logger.info(
+                        "Model started streaming tool call",
+                        data={
+                            "progress_action": ProgressAction.CALLING_TOOL,
+                            "agent_name": self.name,
+                            "model": model,
+                            "tool_name": existing_info["tool_name"],
+                            "tool_use_id": existing_info["tool_use_id"],
+                            "tool_event": "start",
+                        },
+                    )
+                    existing_info["notified"] = True
+                    notified_tool_indices.add(index)
 
             if tool_call.function and tool_call.function.arguments:
                 info = tool_call_started.setdefault(
@@ -370,7 +360,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     {
                         "tool_name": function_name,
                         "tool_use_id": tool_use_id,
-                        "streams_arguments": streams_arguments,
+                        "notified": False,
                     },
                 )
                 self._notify_tool_stream_listeners(
@@ -380,7 +370,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         "tool_use_id": info.get("tool_use_id"),
                         "index": index,
                         "chunk": tool_call.function.arguments,
-                        "streams_arguments": info.get("streams_arguments", False),
                     },
                 )
 
@@ -388,7 +377,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self,
         *,
         tool_call_started: dict[int, dict[str, Any]],
-        streams_arguments: bool,
         model: str,
         notified_tool_indices: set[int],
     ) -> None:
@@ -400,7 +388,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     "tool_name": info.get("tool_name"),
                     "tool_use_id": info.get("tool_use_id"),
                     "index": index,
-                    "streams_arguments": info.get("streams_arguments", False),
                 },
             )
             self.logger.info(
@@ -412,7 +399,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     "tool_name": info.get("tool_name"),
                     "tool_use_id": info.get("tool_use_id"),
                     "tool_event": "stop",
-                    "streams_arguments": info.get("streams_arguments", False),
                 },
             )
             notified_tool_indices.add(index)
@@ -424,7 +410,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         content: str,
         model: str,
         estimated_tokens: int,
-        streams_arguments: bool,
         reasoning_active: bool,
     ) -> tuple[int, bool]:
         """Emit text deltas and close any active reasoning block."""
@@ -437,7 +422,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             "text",
             {
                 "chunk": content,
-                "streams_arguments": streams_arguments,
             },
         )
 
@@ -446,6 +430,41 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
     def _close_reasoning_if_active(self, reasoning_active: bool) -> bool:
         """Return reasoning state; kept for symmetry."""
         return False if reasoning_active else reasoning_active
+
+    @staticmethod
+    def _extract_incremental_delta(delta: str, cumulative: str) -> tuple[str, str]:
+        """Return the incremental portion of a possibly cumulative stream delta."""
+        if not delta:
+            return "", cumulative
+        if cumulative and delta.startswith(cumulative):
+            return delta[len(cumulative) :], delta
+        return delta, cumulative + delta
+
+    def _apply_content_delta(
+        self,
+        *,
+        delta_content: str | None,
+        cumulative_content: str,
+        model: str,
+        estimated_tokens: int,
+        reasoning_active: bool,
+    ) -> tuple[str, int, bool, str]:
+        """Apply a content delta, returning updated state and any incremental text."""
+        if not delta_content:
+            return cumulative_content, estimated_tokens, reasoning_active, ""
+
+        incremental, cumulative_content = self._extract_incremental_delta(
+            delta_content, cumulative_content
+        )
+        if incremental:
+            estimated_tokens, reasoning_active = self._emit_text_delta(
+                content=incremental,
+                model=model,
+                estimated_tokens=estimated_tokens,
+                reasoning_active=reasoning_active,
+            )
+
+        return cumulative_content, estimated_tokens, reasoning_active, incremental
 
     async def _process_stream(
         self,
@@ -472,10 +491,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Use ChatCompletionStreamState helper for accumulation (OpenAI only)
         state = ChatCompletionStreamState()
+        cumulative_content = ""
 
         # Track tool call state for stream events
         tool_call_started: dict[int, dict[str, Any]] = {}
-        streams_arguments = self._streams_tool_arguments()
         notified_tool_indices: set[int] = set()
 
         # Process the stream chunks
@@ -505,26 +524,25 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     self._handle_tool_delta(
                         delta_tool_calls=delta.tool_calls,
                         tool_call_started=tool_call_started,
-                        streams_arguments=streams_arguments,
                         model=model,
                         notified_tool_indices=notified_tool_indices,
                     )
 
                 # Handle text content streaming
-                if delta.content:
-                    estimated_tokens, reasoning_active = self._emit_text_delta(
-                        content=delta.content,
+                cumulative_content, estimated_tokens, reasoning_active, _ = (
+                    self._apply_content_delta(
+                        delta_content=delta.content,
+                        cumulative_content=cumulative_content,
                         model=model,
                         estimated_tokens=estimated_tokens,
-                        streams_arguments=streams_arguments,
                         reasoning_active=reasoning_active,
                     )
+                )
 
                 # Fire "stop" event when tool calls complete
                 if choice.finish_reason == "tool_calls":
                     self._finalize_tool_calls_on_stop(
                         tool_call_started=tool_call_started,
-                        streams_arguments=streams_arguments,
                         model=model,
                         notified_tool_indices=notified_tool_indices,
                     )
@@ -565,7 +583,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self._emit_tool_notification_fallback(
             tool_calls,
             notified_tool_indices,
-            streams_arguments=streams_arguments,
             model=model,
         )
 
@@ -621,6 +638,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Manual accumulation of response data
         accumulated_content = ""
+        cumulative_content = ""
         role = "assistant"
         tool_calls_map = {}  # Use a map to accumulate tool calls by index
         function_call = None
@@ -629,7 +647,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # Track tool call state for stream events
         tool_call_started: dict[int, dict[str, Any]] = {}
-        streams_arguments = self._streams_tool_arguments()
         notified_tool_indices: set[int] = set()
 
         # Process the stream chunks manually
@@ -658,27 +675,27 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     self._handle_tool_delta(
                         delta_tool_calls=delta.tool_calls,
                         tool_call_started=tool_call_started,
-                        streams_arguments=streams_arguments,
                         model=model,
                         notified_tool_indices=notified_tool_indices,
                     )
 
                 # Handle text content streaming
-                if delta.content:
-                    estimated_tokens, reasoning_active = self._emit_text_delta(
-                        content=delta.content,
+                cumulative_content, estimated_tokens, reasoning_active, incremental = (
+                    self._apply_content_delta(
+                        delta_content=delta.content,
+                        cumulative_content=cumulative_content,
                         model=model,
                         estimated_tokens=estimated_tokens,
-                        streams_arguments=streams_arguments,
                         reasoning_active=reasoning_active,
                     )
-                    accumulated_content += delta.content
+                )
+                if incremental:
+                    accumulated_content += incremental
 
                 # Fire "stop" event when tool calls complete
                 if choice.finish_reason == "tool_calls":
                     self._finalize_tool_calls_on_stop(
                         tool_call_started=tool_call_started,
-                        streams_arguments=streams_arguments,
                         model=model,
                         notified_tool_indices=notified_tool_indices,
                     )
@@ -739,10 +756,10 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                         ChatCompletionMessageToolCall(
                             id=tool_call_data["id"],
                             type=tool_call_data["type"],
-                            function={
-                                "name": tool_call_data["function"]["name"],
-                                "arguments": tool_call_data["function"]["arguments"],
-                            },
+                            function=Function(
+                                name=tool_call_data["function"]["name"],
+                                arguments=tool_call_data["function"]["arguments"],
+                            ),
                         )
                     )
 
@@ -789,7 +806,6 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         self._emit_tool_notification_fallback(
             tool_calls,
             notified_tool_indices,
-            streams_arguments=streams_arguments,
             model=model,
         )
 
@@ -797,7 +813,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
     async def _openai_completion(
         self,
-        message: list[OpenAIMessage] | None,
+        message: list[ChatCompletionMessageParam] | None,
         request_params: RequestParams | None = None,
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
@@ -820,19 +836,22 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         # The caller supplies the full history; convert it directly
         if message:
-            messages.extend(message)
+            messages.extend(cast("list[ChatCompletionMessageParam]", message))
 
-        available_tools: list[ChatCompletionToolParam] | None = [
-            {
-                "type": "function",
-                "function": {
-                    "name": tool.name,
-                    "description": tool.description if tool.description else "",
-                    "parameters": self.adjust_schema(tool.inputSchema),
-                },
-            }
-            for tool in tools or []
-        ]
+        available_tools: list[ChatCompletionToolParam] | None = cast(
+            "list[ChatCompletionToolParam]",
+            [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description if tool.description else "",
+                        "parameters": self.adjust_schema(tool.inputSchema),
+                    },
+                }
+                for tool in tools or []
+            ],
+        )
 
         if not available_tools:
             if self.provider in [Provider.DEEPSEEK, Provider.ALIYUN]:
@@ -932,7 +951,7 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
 
         message_dict["role"] = normalized_role or message_dict.get("role", "assistant")
 
-        messages.append(message_dict)
+        messages.append(cast("ChatCompletionMessageParam", message_dict))
         stop_reason = LlmStopReason.END_TURN
         requested_tool_calls: dict[str, CallToolRequest] | None = None
         if await self._is_tool_stop_reason(choice.finish_reason) and message.tool_calls:
@@ -1056,13 +1075,16 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Convert the supplied history/messages directly
         converted_messages = self._convert_to_provider_format(multipart_messages)
         if not converted_messages:
-            converted_messages = [{"role": "user", "content": ""}]
+            converted_messages = [ChatCompletionUserMessageParam(role="user", content="")]
 
         return await self._openai_completion(converted_messages, req_params, tools)
 
     def _prepare_api_request(
-        self, messages, tools: list[ChatCompletionToolParam] | None, request_params: RequestParams
-    ) -> dict[str, str]:
+        self,
+        messages: list[ChatCompletionMessageParam],
+        tools: list[ChatCompletionToolParam] | None,
+        request_params: RequestParams,
+    ) -> dict[str, Any]:
         # Create base arguments dictionary
 
         # overriding model via request params not supported (intentional)
@@ -1148,7 +1170,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
             List of OpenAI ChatCompletionMessageParam objects
         """
         converted: list[ChatCompletionMessageParam] = []
-        reasoning_mode = ModelDatabase.get_reasoning(self.default_request_params.model)
+        model = self.default_request_params.model
+        reasoning_mode = ModelDatabase.get_reasoning(model) if model else None
 
         for msg in messages:
             # convert_to_openai returns a list of messages
@@ -1162,7 +1185,8 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     if reasoning_texts:
                         reasoning_content = "\n\n".join(reasoning_texts)
                         for oai_msg in openai_msgs:
-                            oai_msg["reasoning_content"] = reasoning_content
+                            # reasoning_content is an OpenAI extension not in the TypedDict
+                            cast("dict[str, Any]", oai_msg)["reasoning_content"] = reasoning_content
 
             # gpt-oss: per docs, reasoning should be dropped on subsequent sampling
             # UNLESS tool calling is involved. For tool calls, prefix the assistant
@@ -1175,8 +1199,11 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
                     if reasoning_texts:
                         reasoning_text = "\n\n".join(reasoning_texts)
                         for oai_msg in openai_msgs:
-                            existing_content = oai_msg.get("content", "") or ""
-                            oai_msg["content"] = reasoning_text + existing_content
+                            # Cast to dict to allow string concatenation with content
+                            oai_dict = cast("dict[str, Any]", oai_msg)
+                            existing_content = oai_dict.get("content", "") or ""
+                            if isinstance(existing_content, str):
+                                oai_dict["content"] = reasoning_text + existing_content
 
             converted.extend(openai_msgs)
 

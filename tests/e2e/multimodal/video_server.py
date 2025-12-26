@@ -30,7 +30,7 @@ video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"  # Mystery Video
 async def get_video_link() -> list[TextContent | ResourceLink]:
     """Return a ResourceLink to a video."""
     return [
-        text_content(type="text", text="Here's a video link for analysis:"),
+        text_content("Here's a video link for analysis:"),
         video_link(video_url, name="Mystery Video"),
     ]
 

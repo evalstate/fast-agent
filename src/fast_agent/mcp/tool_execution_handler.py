@@ -91,6 +91,48 @@ class ToolExecutionHandler(Protocol):
         """
         ...
 
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """
+        Get the ACP toolCallId for a given LLM tool_use_id.
+
+        This allows callers to look up an existing tool_call_id (e.g., from
+        streaming notifications) before on_tool_start is called.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+
+        Returns:
+            The toolCallId if one exists for this tool_use_id, None otherwise
+        """
+        ...
+
+    async def ensure_tool_call_exists(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None = None,
+    ) -> str:
+        """
+        Ensure a tool call notification exists for the given tool_use_id.
+
+        If a notification was already created (e.g., via streaming), returns that toolCallId.
+        Otherwise creates a new pending notification with the provided info.
+
+        This handles the non-streaming case where tool calls arrive in one chunk
+        and we need to ensure the notification exists before sending diffs.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+            tool_name: Name of the tool being called
+            server_name: Name of the server providing the tool
+            arguments: Tool arguments (for display)
+
+        Returns:
+            The ACP toolCallId (existing or newly created)
+        """
+        ...
+
 
 class NoOpToolExecutionHandler(ToolExecutionHandler):
     """Default no-op handler that maintains existing behavior."""
@@ -135,3 +177,18 @@ class NoOpToolExecutionHandler(ToolExecutionHandler):
     ) -> None:
         """No-op - does nothing."""
         pass
+
+    async def get_tool_call_id_for_tool_use(self, tool_use_id: str) -> str | None:
+        """No-op - always returns None."""
+        return None
+
+    async def ensure_tool_call_exists(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict | None = None,
+    ) -> str:
+        """No-op - generates a simple UUID."""
+        import uuid
+        return str(uuid.uuid4())

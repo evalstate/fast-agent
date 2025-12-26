@@ -9,9 +9,10 @@ DEFAULT_HUGGINGFACE_MODEL = "moonshotai/Kimi-K2-Instruct-0905"
 
 
 class HuggingFaceLLM(OpenAICompatibleLLM):
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         self._hf_provider_suffix: str | None = None
-        super().__init__(*args, provider=Provider.HUGGINGFACE, **kwargs)
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.HUGGINGFACE, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize HuggingFace-specific default parameters"""

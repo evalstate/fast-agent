@@ -61,15 +61,17 @@ async def forms_elicitation_handler(
         agent_name = "Unknown Agent"
 
     # Create human input request
+    # Note: requestedSchema is only present on ElicitRequestFormParams, not ElicitRequestURLParams
+    requested_schema = getattr(params, "requestedSchema", None)
     request = HumanInputRequest(
         prompt=params.message,
-        description=f"Schema: {params.requestedSchema}" if params.requestedSchema else None,
+        description=f"Schema: {requested_schema}" if requested_schema else None,
         request_id=f"elicit_{id(params)}",
         metadata={
             "agent_name": agent_name,
             "server_name": server_name,
             "elicitation": True,
-            "requested_schema": params.requestedSchema,
+            "requested_schema": requested_schema,
         },
     )
 
@@ -98,20 +100,21 @@ async def forms_elicitation_handler(
             try:
                 from fast_agent.human_input.elicitation_state import elicitation_state
 
-                elicitation_state.disable_server(server_name)
+                if server_name is not None:
+                    elicitation_state.disable_server(server_name)
             except Exception:
                 # Do not fail the flow if state update fails
                 pass
             return ElicitResult(action="cancel")
 
         # Parse response based on schema if provided
-        if params.requestedSchema:
+        if requested_schema:
             # Check if the response is already JSON (from our form)
             try:
                 # Try to parse as JSON first (from schema-driven form)
                 content = json.loads(response_data)
                 # Validate that all required fields are present
-                required_fields = params.requestedSchema.get("required", [])
+                required_fields = requested_schema.get("required", [])
                 for field in required_fields:
                     if field not in content:
                         logger.warning(f"Missing required field '{field}' in elicitation response")
@@ -119,7 +122,7 @@ async def forms_elicitation_handler(
             except json.JSONDecodeError:
                 # Not JSON, try to handle as simple text response
                 # This is a fallback for simple schemas or text-based responses
-                properties = params.requestedSchema.get("properties", {})
+                properties = requested_schema.get("properties", {})
                 if len(properties) == 1:
                     # Single field schema - try to parse based on type
                     field_name = next(iter(properties))

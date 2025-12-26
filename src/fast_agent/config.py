@@ -105,7 +105,9 @@ class MCPTimelineSettings(BaseModel):
 class SkillsSettings(BaseModel):
     """Configuration for the skills directory override."""
 
-    directory: str | None = None
+    directories: list[str] | None = None
+    marketplace_url: str | None = None
+    marketplace_urls: list[str] | None = None
 
     model_config = ConfigDict(extra="ignore")
 

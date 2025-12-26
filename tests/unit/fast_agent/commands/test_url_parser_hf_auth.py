@@ -9,6 +9,11 @@ import os
 from fast_agent.cli.commands.url_parser import parse_server_urls
 
 
+def _no_hub_token() -> None:
+    """Token provider that always returns None (no huggingface_hub token)."""
+    return None
+
+
 def _set_hf_token(value: str | None) -> str | None:
     """Set HF_TOKEN environment variable and return the original value."""
     original = os.getenv("HF_TOKEN")
@@ -53,7 +58,9 @@ class TestParseServerUrlsHfAuth:
         """Test that HF URLs don't get auth headers when no token is available."""
         original = _set_hf_token(None)
         try:
-            result = parse_server_urls("https://hf.co/models/gpt2")
+            result = parse_server_urls(
+                "https://hf.co/models/gpt2", hub_token_provider=_no_hub_token
+            )
 
             assert len(result) == 1
             server_name, transport_type, url, headers = result[0]

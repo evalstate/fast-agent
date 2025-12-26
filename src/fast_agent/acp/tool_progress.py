@@ -125,6 +125,79 @@ class ACPToolProgressManager:
                         return tool_call_id
         return None
 
+    async def ensure_tool_call_exists(
+        self,
+        tool_use_id: str,
+        tool_name: str,
+        server_name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> str:
+        """
+        Ensure a tool call notification exists for the given tool_use_id.
+
+        If a notification was already created via streaming events, returns that toolCallId.
+        Otherwise creates a new pending notification with the provided info.
+
+        This handles the non-streaming case where tool calls arrive in one chunk
+        and we need to ensure the notification exists before sending diffs.
+
+        Args:
+            tool_use_id: The LLM's tool use ID
+            tool_name: Name of the tool being called
+            server_name: Name of the server providing the tool
+            arguments: Tool arguments (for display)
+
+        Returns:
+            The ACP toolCallId (existing or newly created)
+        """
+        # First check if a notification already exists (streaming case)
+        existing = await self.get_tool_call_id_for_tool_use(tool_use_id)
+        if existing:
+            return existing
+
+        # No streaming notification exists - create one now (non-streaming case)
+        external_id = str(uuid.uuid4())
+        self._stream_tool_use_ids[tool_use_id] = external_id
+
+        kind = self._infer_tool_kind(tool_name, arguments)
+        title = f"{server_name}/{tool_name}"
+
+        async with self._lock:
+            tool_call_start = self._tracker.start(
+                external_id=external_id,
+                title=title,
+                kind=kind,
+                status="pending",
+                raw_input=arguments,
+            )
+            self._tool_call_id_to_external_id[tool_call_start.toolCallId] = external_id
+            # Store titles for later updates
+            self._simple_titles[tool_call_start.toolCallId] = title
+            self._full_titles[tool_call_start.toolCallId] = title
+
+        # Send the notification
+        try:
+            await self._connection.session_update(
+                session_id=self._session_id, update=tool_call_start
+            )
+            logger.debug(
+                f"Created tool call notification (non-streaming): {tool_call_start.toolCallId}",
+                name="acp_tool_call_ensure",
+                tool_call_id=tool_call_start.toolCallId,
+                external_id=external_id,
+                tool_name=tool_name,
+                server_name=server_name,
+                tool_use_id=tool_use_id,
+            )
+        except Exception as e:
+            logger.error(
+                f"Error sending tool_call notification: {e}",
+                name="acp_tool_call_ensure_error",
+                exc_info=True,
+            )
+
+        return tool_call_start.toolCallId
+
     def handle_tool_stream_event(self, event_type: str, info: dict[str, Any] | None = None) -> None:
         """
         Handle tool stream events from the LLM during streaming.
@@ -171,6 +244,10 @@ class ACPToolProgressManager:
             tool_use_id: LLM's tool use ID
             external_id: Pre-generated external ID for SDK tracker
         """
+        logger.debug(
+            f"_send_stream_start_notification called: tool={tool_name}, tool_use_id={tool_use_id}",
+            name="acp_tool_stream_start_entry",
+        )
         try:
             # Parse the tool name if it's namespaced (e.g., "acp_filesystem__write_text_file")
             if is_namespaced_name(tool_name):
@@ -252,7 +329,7 @@ class ACPToolProgressManager:
                 )
                 chunk_count = self._stream_chunk_counts[tool_use_id]
                 base_title = self._stream_base_titles.get(tool_use_id, "Tool")
-                title_with_count = f"{base_title} (streaming: {chunk_count} chunks)"
+                title_with_count = f"{base_title} (streaming: {chunk_count})"
 
                 # Use SDK's append_stream_text to accumulate chunks into content
                 update = self._tracker.append_stream_text(
@@ -443,8 +520,8 @@ class ACPToolProgressManager:
         # Create title
         title = f"{server_name}/{tool_name}"
         if arguments:
-            # Include key argument info in title
-            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
+            # Include trimmed arg list info in title
+            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items()))
             if len(arg_str) > 50:
                 arg_str = arg_str[:47] + "..."
             title = f"{title}({arg_str})"
@@ -452,13 +529,6 @@ class ACPToolProgressManager:
         # Use SDK tracker to create or update the tool call notification
         async with self._lock:
             if existing_external_id:
-                # Get final chunk count before clearing
-                final_chunk_count = self._stream_chunk_counts.get(tool_use_id or "", 0)
-
-                # Update title with streamed count only if we showed streaming progress
-                if final_chunk_count >= 25:
-                    title = f"{title} (streamed {final_chunk_count} chunks)"
-
                 # Update the existing stream notification with full details
                 # Clear streaming content by setting content=[] since we now have full rawInput
                 tool_call_update = self._tracker.progress(

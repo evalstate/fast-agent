@@ -3,7 +3,7 @@ Helper functions for working with content objects (Fast Agent namespace).
 
 """
 
-from typing import TYPE_CHECKING, Sequence, Union
+from typing import TYPE_CHECKING, Sequence, TypeGuard, Union
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -70,22 +70,22 @@ def get_resource_uri(content: ContentBlock) -> str | None:
     return None
 
 
-def is_text_content(content: ContentBlock) -> bool:
+def is_text_content(content: ContentBlock) -> TypeGuard[TextContent | TextResourceContents]:
     """Check if the content is text content."""
-    return isinstance(content, TextContent) or isinstance(content, TextResourceContents)
+    return isinstance(content, (TextContent, TextResourceContents))
 
 
-def is_image_content(content: Union[TextContent, ImageContent, EmbeddedResource]) -> bool:
+def is_image_content(content: ContentBlock) -> TypeGuard[ImageContent]:
     """Check if the content is image content."""
     return isinstance(content, ImageContent)
 
 
-def is_resource_content(content: ContentBlock) -> bool:
+def is_resource_content(content: ContentBlock) -> TypeGuard[EmbeddedResource]:
     """Check if the content is an embedded resource."""
     return isinstance(content, EmbeddedResource)
 
 
-def is_resource_link(content: ContentBlock) -> bool:
+def is_resource_link(content: ContentBlock) -> TypeGuard[ResourceLink]:
     """Check if the content is a resource link."""
     return isinstance(content, ResourceLink)
 

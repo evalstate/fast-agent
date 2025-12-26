@@ -94,7 +94,8 @@ class TestAnthropicCaching:
         # Template messages should have cache_control
         # The last template message should have cache_control on its last block
         found_cache_control = False
-        for i, msg in enumerate(converted[:2]):  # First 2 are templates
+        template_count = len(template_msgs)
+        for i, msg in enumerate(converted[:template_count]):  # First template_count are templates
             if "content" in msg:
                 for block in msg["content"]:
                     if isinstance(block, dict) and "cache_control" in block:

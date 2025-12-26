@@ -8,8 +8,9 @@ DEFAULT_QWEN_MODEL = "qwen-turbo"
 
 
 class AliyunLLM(GroqLLM):
-    def __init__(self, *args, **kwargs) -> None:
-        OpenAILLM.__init__(self, *args, provider=Provider.ALIYUN, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        kwargs.pop("provider", None)
+        OpenAILLM.__init__(self, provider=Provider.ALIYUN, **kwargs)
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
         """Initialize Aliyun-specific default parameters"""

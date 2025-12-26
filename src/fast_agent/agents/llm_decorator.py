@@ -11,6 +11,7 @@ from typing import (
     Any,
     Callable,
     Mapping,
+    Self,
     Sequence,
     Type,
     TypeVar,
@@ -179,7 +180,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         self._context = context
         self._name = self.config.name
         self._tracer = trace.get_tracer(__name__)
-        self.instruction = self.config.instruction
+        self._instruction = self.config.instruction
 
         # Agent-owned conversation state (PromptMessageExtended only)
         self._message_history: list[PromptMessageExtended] = []
@@ -213,6 +214,17 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     async def shutdown(self) -> None:
         self.initialized = False
+
+    @property
+    def instruction(self) -> str:
+        """Return the agent's instruction/system prompt."""
+        return self._instruction
+
+    def set_instruction(self, instruction: str) -> None:
+        """Set the agent's instruction/system prompt."""
+        self._instruction = instruction
+        if self._default_request_params:
+            self._default_request_params.systemPrompt = instruction
 
     @property
     def agent_type(self) -> AgentType:
@@ -274,7 +286,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         """Hook for subclasses/mixins to supply constructor kwargs when cloning."""
         return {}
 
-    async def spawn_detached_instance(self, *, name: str | None = None) -> "LlmAgent":
+    async def spawn_detached_instance(self, *, name: str | None = None) -> Self:
         """Create a fresh agent instance with its own MCP/LLM stack."""
 
         new_config = deepcopy(self.config)
@@ -599,7 +611,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
     ) -> _CallContext:
         """Normalize template/history handling for both generate and structured."""
         sanitized_messages, summary = self._sanitize_messages_for_llm(messages)
-        final_request_params = self._llm.get_request_params(request_params)
+        final_request_params = self._require_llm().get_request_params(request_params)
 
         use_history = final_request_params.use_history if final_request_params else True
         call_params = final_request_params.model_copy() if final_request_params else None
@@ -1001,9 +1013,9 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     def pop_last_message(self) -> PromptMessageExtended | None:
         """Remove and return the most recent message from the conversation history."""
-        if self.llm:
-            return self.llm.pop_last_message()
-        return None
+        if not self._message_history:
+            return None
+        return self._message_history.pop()
 
     @property
     def usage_accumulator(self) -> UsageAccumulator | None:
@@ -1019,6 +1031,12 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     @property
     def llm(self) -> FastAgentLLMProtocol | None:
+        return self._llm
+
+    def _require_llm(self) -> FastAgentLLMProtocol:
+        """Return the attached LLM, raising if not yet attached."""
+        if self._llm is None:
+            raise RuntimeError(f"Agent '{self._name}' has no LLM attached")
         return self._llm
 
     # --- Default MCP-facing convenience methods (no-op for plain LLM agents) ---
@@ -1065,7 +1083,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
 
     @property
     def provider(self) -> Provider:
-        return self.llm.provider
+        return self._require_llm().provider
 
     def _merge_request_params(
         self,

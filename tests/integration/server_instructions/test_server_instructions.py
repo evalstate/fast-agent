@@ -33,25 +33,28 @@ Please follow the server-specific instructions above.""",
             agent = agent_app.agent_with_template
 
             # Check that template variables were replaced
-            assert "{{serverInstructions}}" not in agent.instruction, \
+            assert "{{serverInstructions}}" not in agent.instruction, (
                 "{{serverInstructions}} template was not replaced"
+            )
 
             # Check that server instructions are present in XML format
-            assert "<mcp-server" in agent.instruction, \
+            assert "<fastagent:mcp-server" in agent.instruction, (
                 "Server instructions not formatted as XML"
-            assert 'name="instructions_enabled"' in agent.instruction, \
+            )
+            assert 'name="instructions_enabled"' in agent.instruction, (
                 "Server name not in XML format"
+            )
 
             # Check that the actual instructions content is present
-            assert "calculation and text manipulation tools" in agent.instruction, \
+            assert "calculation and text manipulation tools" in agent.instruction, (
                 "Server instructions content not found"
+            )
 
             # Check that tools are listed
-            assert "<tools>" in agent.instruction, \
-                "Tools section not found in XML"
-            assert "instructions_enabled__calculate_sum" in agent.instruction, \
+            assert "<tools>" in agent.instruction, "Tools section not found in XML"
+            assert "instructions_enabled__calculate_sum" in agent.instruction, (
                 "Tool names not properly prefixed in instructions"
-
+            )
 
             return agent.instruction
 
@@ -80,24 +83,28 @@ async def test_server_instructions_include_flag(fast_agent):
             agent = agent_app.agent_disabled
 
             # Template should be replaced with empty string
-            assert "{{serverInstructions}}" not in agent.instruction, \
+            assert "{{serverInstructions}}" not in agent.instruction, (
                 "Template variable not replaced"
+            )
 
             # Should NOT contain the server instructions
-            assert "calculation and text manipulation tools" not in agent.instruction, \
+            assert "calculation and text manipulation tools" not in agent.instruction, (
                 "Server instructions found when include_instructions is false"
+            )
 
             # Should not have XML server blocks
-            assert "<mcp-server" not in agent.instruction, \
+            assert "<fastagent:mcp-server" not in agent.instruction, (
                 "Server XML found when include_instructions is false"
+            )
 
             return agent.instruction
 
     result = await agent_disabled()
     print("Agent instruction with disabled instructions:")
     print(result)
-    assert result.strip() == "Base instruction.", \
+    assert result.strip() == "Base instruction.", (
         f"Expected 'Base instruction.' but got '{result.strip()}'"
+    )
 
 
 @pytest.mark.integration
@@ -118,7 +125,7 @@ async def test_multiple_servers_instructions(fast_agent):
             agent = agent_app.agent_multiple
 
             # Should have instructions from instructions_enabled
-            assert "<mcp-server" in agent.instruction
+            assert "<fastagent:mcp-server" in agent.instruction
             assert 'name="instructions_enabled"' in agent.instruction
             assert "calculation and text manipulation tools" in agent.instruction
 
@@ -126,7 +133,7 @@ async def test_multiple_servers_instructions(fast_agent):
             assert 'name="no_instructions"' not in agent.instruction
 
             # Count server blocks - should only be 1 (instructions_enabled)
-            server_blocks = agent.instruction.count("<mcp-server")
+            server_blocks = agent.instruction.count("<fastagent:mcp-server")
             assert server_blocks == 1, f"Expected 1 server block, found {server_blocks}"
 
             return agent.instruction
@@ -157,11 +164,12 @@ async def test_no_template_no_substitution(fast_agent):
             agent = agent_app.agent_no_template
 
             # Instruction should remain unchanged
-            assert agent.instruction == original_instruction, \
+            assert agent.instruction == original_instruction, (
                 f"Instruction changed when it shouldn't. Expected '{original_instruction}', got '{agent.instruction}'"
+            )
 
             # Should not have any XML or instructions added
-            assert "<mcp-server" not in agent.instruction
+            assert "<fastagent:mcp-server" not in agent.instruction
             assert "calculation and text manipulation tools" not in agent.instruction
 
             return agent.instruction
@@ -190,7 +198,7 @@ async def test_tools_list_in_instructions(fast_agent):
             agent = agent_app.agent_tools_check
 
             # Extract the tools section
-            tools_match = re.search(r'<tools>(.*?)</tools>', agent.instruction, re.DOTALL)
+            tools_match = re.search(r"<tools>(.*?)</tools>", agent.instruction, re.DOTALL)
             assert tools_match, "Tools section not found"
 
             tools_content = tools_match.group(1)
@@ -202,7 +210,7 @@ async def test_tools_list_in_instructions(fast_agent):
                 "instructions_enabled__calculate_divide",
                 "instructions_enabled__text_reverse",
                 "instructions_enabled__text_uppercase",
-                "instructions_enabled__text_count"
+                "instructions_enabled__text_count",
             ]
 
             for tool in expected_tools:
@@ -241,11 +249,12 @@ async def test_empty_server_instructions(fast_agent):
 
             # Should NOT have server block (no instructions means no XML block)
             assert 'name="no_instructions"' not in agent.instruction
-            assert "<mcp-server" not in agent.instruction
+            assert "<fastagent:mcp-server" not in agent.instruction
 
             # The instruction should just be the base prompt
-            assert agent.instruction.strip() == "Prompt:", \
+            assert agent.instruction.strip() == "Prompt:", (
                 f"Expected 'Prompt:' but got '{agent.instruction.strip()}'"
+            )
 
             return agent.instruction
 

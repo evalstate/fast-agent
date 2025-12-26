@@ -198,8 +198,10 @@ class GoogleConverter:
                                 )
                     else:
                         # Check if the resource itself has text content
-                        # Use get_text helper to extract text from various content types
-                        resource_text = get_text(part_content.resource)
+                        # Try to get text from TextResourceContents directly
+                        resource_text: str | None = None
+                        if isinstance(part_content.resource, TextResourceContents):
+                            resource_text = part_content.resource.text
 
                         if resource_text is not None:
                             parts.append(types.Part.from_text(text=resource_text))
@@ -273,7 +275,7 @@ class GoogleConverter:
             elif part.function_call:
                 fast_agent_parts.append(
                     CallToolRequestParams(
-                        name=part.function_call.name,
+                        name=part.function_call.name or "unknown_function",
                         arguments=part.function_call.args,
                     )
                 )
@@ -288,7 +290,7 @@ class GoogleConverter:
         return CallToolRequest(
             method="tools/call",
             params=CallToolRequestParams(
-                name=function_call.name,
+                name=function_call.name or "unknown_function",
                 arguments=function_call.args,
             ),
         )
@@ -337,8 +339,10 @@ class GoogleConverter:
                             textual_outputs.append(f"[Error processing PDF from tool result: {e}]")
                     else:
                         # Check if the resource itself has text content
-                        # Use get_text helper to extract text from various content types
-                        resource_text = get_text(item.resource)
+                        # Try to get text from TextResourceContents directly
+                        resource_text: str | None = None
+                        if isinstance(item.resource, TextResourceContents):
+                            resource_text = item.resource.text
 
                         if resource_text is not None:
                             textual_outputs.append(resource_text)

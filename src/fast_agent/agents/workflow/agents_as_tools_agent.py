@@ -191,7 +191,7 @@ from contextlib import contextmanager, nullcontext
 from copy import copy
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from mcp import ListToolsResult, Tool
 from mcp.types import CallToolResult
@@ -638,9 +638,10 @@ class AgentsAsToolsAgent(McpAgent):
 
         call_descriptors: list[dict[str, Any]] = []
         descriptor_by_id: dict[str, dict[str, Any]] = {}
+        tasks: list[asyncio.Task[CallToolResult]] = []
         id_list: list[str] = []
 
-        for correlation_id, tool_request in request.tool_calls.items():
+        for correlation_id, tool_request in (request.tool_calls or {}).items():
             if correlation_id not in target_ids:
                 continue
 
@@ -812,7 +813,9 @@ class AgentsAsToolsAgent(McpAgent):
                 for i, cid in enumerate(id_list, 1):
                     tool_name = descriptor_by_id[cid]["tool"]
                     tool_args = descriptor_by_id[cid]["args"]
-                    tasks.append(asyncio.create_task(call_with_instance_name(tool_name, tool_args, i, cid)))
+                    tasks.append(
+                        asyncio.create_task(call_with_instance_name(tool_name, tool_args, i, cid))
+                    )
                 results = await asyncio.gather(*tasks, return_exceptions=True)
             for i, result in enumerate(results):
                 correlation_id = id_list[i]
@@ -825,9 +828,11 @@ class AgentsAsToolsAgent(McpAgent):
                     descriptor_by_id[correlation_id]["status"] = "error"
                     descriptor_by_id[correlation_id]["error_message"] = msg
                 else:
-                    tool_results[correlation_id] = result
+                    # After exception check, result is CallToolResult
+                    tool_result = cast("CallToolResult", result)
+                    tool_results[correlation_id] = tool_result
                     descriptor_by_id[correlation_id]["status"] = (
-                        "error" if result.isError else "done"
+                        "error" if tool_result.isError else "done"
                     )
 
         ordered_records: list[dict[str, Any]] = []

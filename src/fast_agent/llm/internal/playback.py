@@ -54,7 +54,7 @@ class PlaybackLLM(PassthroughLLM):
             f"MESSAGES EXHAUSTED (list size {len(self._messages)}) ({self._overage} overage)"
         )
 
-    async def generate(
+    async def generate(  # type: ignore[override]
         self,
         messages: Union[
             str,

@@ -9,7 +9,8 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from importlib.metadata import version as get_version
-from typing import Any, Awaitable, Callable
+from pathlib import Path
+from typing import Any, Awaitable, Callable, Sequence
 
 from acp import Agent as ACPAgent
 from acp import (
@@ -49,6 +50,13 @@ from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilitie
 from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
+from fast_agent.acp.protocols import (
+    FilesystemRuntimeCapable,
+    InstructionContextCapable,
+    PlanTelemetryCapable,
+    ShellRuntimeCapable,
+    WorkflowTelemetryCapable,
+)
 from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
@@ -60,16 +68,19 @@ from fast_agent.constants import (
     TERMINAL_OUTPUT_TOKEN_HEADROOM_RATIO,
     TERMINAL_OUTPUT_TOKEN_RATIO,
 )
+from fast_agent.context import Context
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt_templates import (
     apply_template_variables,
     enrich_with_environment_context,
 )
-from fast_agent.interfaces import ACPAwareProtocol, StreamingAgentProtocol
+from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, StreamingAgentProtocol
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.mcp.helpers.content_helpers import is_text_content
+from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 from fast_agent.workflow_telemetry import ACPPlanTelemetryProvider, ToolHandlerWorkflowTelemetry
 
@@ -187,7 +198,7 @@ class AgentACPServer(ACPAgent):
         instance_scope: str,
         server_name: str = "fast-agent-acp",
         server_version: str | None = None,
-        skills_directory_override: str | None = None,
+        skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
     ) -> None:
         """
@@ -446,15 +457,8 @@ class AgentACPServer(ACPAgent):
 
         # Create a SessionMode for each agent
         for agent_name, agent in instance.agents.items():
-            # Get instruction from agent's config
-            instruction = ""
-            resolved_instruction = resolved_cache.get(agent_name)
-            if resolved_instruction:
-                instruction = resolved_instruction
-            elif hasattr(agent, "_config") and hasattr(agent._config, "instruction"):
-                instruction = agent._config.instruction
-            elif hasattr(agent, "instruction"):
-                instruction = agent.instruction
+            # Get instruction from resolved cache (if available) or agent's instruction
+            instruction = resolved_cache.get(agent_name) or agent.instruction
 
             # Format description (first line, truncated to 200 chars)
             description = truncate_description(instruction) if instruction else None
@@ -527,6 +531,27 @@ class AgentACPServer(ACPAgent):
                 return None
         return RequestParams(systemPrompt=resolved)
 
+    def _build_status_line_meta(
+        self, agent: Any, turn_start_index: int | None
+    ) -> dict[str, Any] | None:
+        """Build ACP _meta payload for status line usage display."""
+        if not agent or not getattr(agent, "usage_accumulator", None):
+            return None
+
+        totals = last_turn_usage(agent.usage_accumulator, turn_start_index)
+        if not totals:
+            return None
+
+        input_tokens = totals["input_tokens"]
+        output_tokens = totals["output_tokens"]
+        tool_calls = totals["tool_calls"]
+        tool_info = f", {tool_calls} tools" if tool_calls > 0 else ""
+        context_pct = agent.usage_accumulator.context_usage_percentage
+        context_info = f" ({context_pct:.1f}%)" if context_pct is not None else ""
+        status_line = f"{input_tokens:,} in, {output_tokens:,} out{tool_info}{context_info}"
+
+        return {"field_meta": {"openhands.dev/metrics": {"status_line": status_line}}}
+
     async def new_session(
         self,
         cwd: str,
@@ -583,8 +608,8 @@ class AgentACPServer(ACPAgent):
 
                 # Register tool handler with agents' aggregators
                 for agent_name, agent in instance.agents.items():
-                    if hasattr(agent, "_aggregator"):
-                        aggregator = agent._aggregator
+                    if isinstance(agent, McpAgentProtocol):
+                        aggregator = agent.aggregator
                         aggregator._tool_handler = tool_handler
 
                         logger.info(
@@ -594,11 +619,11 @@ class AgentACPServer(ACPAgent):
                             agent_name=agent_name,
                         )
 
-                    if hasattr(agent, "workflow_telemetry"):
+                    if isinstance(agent, WorkflowTelemetryCapable):
                         agent.workflow_telemetry = workflow_telemetry
 
                     # Set up plan telemetry for agents that support it (e.g., IterativePlanner)
-                    if hasattr(agent, "plan_telemetry"):
+                    if isinstance(agent, PlanTelemetryCapable):
                         plan_telemetry = ACPPlanTelemetryProvider(self._connection, session_id)
                         agent.plan_telemetry = plan_telemetry
                         logger.info(
@@ -644,8 +669,8 @@ class AgentACPServer(ACPAgent):
 
                     # Register permission handler with all agents' aggregators
                     for agent_name, agent in instance.agents.items():
-                        if hasattr(agent, "_aggregator"):
-                            aggregator = agent._aggregator
+                        if isinstance(agent, McpAgentProtocol):
+                            aggregator = agent.aggregator
                             aggregator._permission_handler = permission_handler
 
                             logger.info(
@@ -668,7 +693,7 @@ class AgentACPServer(ACPAgent):
                     # Check if any agent has shell runtime enabled
                     for agent_name, agent in instance.agents.items():
                         if (
-                            hasattr(agent, "_shell_runtime_enabled")
+                            isinstance(agent, ShellRuntimeCapable)
                             and agent._shell_runtime_enabled
                         ):
                             # Create ACPTerminalRuntime for this session
@@ -680,7 +705,7 @@ class AgentACPServer(ACPAgent):
                                 session_id=session_id,
                                 activation_reason="via ACP terminal support",
                                 timeout_seconds=getattr(
-                                    agent._shell_runtime, "timeout_seconds", 90
+                                    agent._shell_runtime, "timeout_seconds", 90  # ty: ignore[unresolved-attribute]
                                 ),
                                 tool_handler=tool_handler,
                                 default_output_byte_limit=default_limit,
@@ -688,17 +713,16 @@ class AgentACPServer(ACPAgent):
                             )
 
                             # Inject into agent
-                            if hasattr(agent, "set_external_runtime"):
-                                agent.set_external_runtime(terminal_runtime)
-                                session_state.terminal_runtime = terminal_runtime
+                            agent.set_external_runtime(terminal_runtime)
+                            session_state.terminal_runtime = terminal_runtime
 
-                                logger.info(
-                                    "ACP terminal runtime injected",
-                                    name="acp_terminal_injected",
-                                    session_id=session_id,
-                                    agent_name=agent_name,
-                                    default_output_limit=default_limit,
-                                )
+                            logger.info(
+                                "ACP terminal runtime injected",
+                                name="acp_terminal_injected",
+                                session_id=session_id,
+                                agent_name=agent_name,
+                                default_output_limit=default_limit,
+                            )
 
                 # If client supports filesystem operations, inject ACP filesystem runtime
                 if self._client_supports_fs_read or self._client_supports_fs_write:
@@ -718,7 +742,7 @@ class AgentACPServer(ACPAgent):
 
                     # Inject filesystem runtime into each agent
                     for agent_name, agent in instance.agents.items():
-                        if hasattr(agent, "set_filesystem_runtime"):
+                        if isinstance(agent, FilesystemRuntimeCapable):
                             agent.set_filesystem_runtime(filesystem_runtime)
                             logger.info(
                                 "ACP filesystem runtime injected",
@@ -747,6 +771,17 @@ class AgentACPServer(ACPAgent):
                 resolved_for_session[agent_name] = resolved
         if resolved_for_session:
             session_state.resolved_instructions = resolved_for_session
+
+        # Set session context on agents that have InstructionBuilder
+        # This ensures {{env}}, {{workspaceRoot}}, etc. are available when rebuilding
+        for agent_name, agent in instance.agents.items():
+            if isinstance(agent, InstructionContextCapable):
+                try:
+                    agent.set_instruction_context(session_context)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to set instruction context on agent {agent_name}: {e}"
+                    )
 
         # Create slash command handler for this session
         resolved_prompts = session_state.resolved_instructions
@@ -784,32 +819,23 @@ class AgentACPServer(ACPAgent):
 
             acp_context.set_slash_handler(slash_handler)
 
+            # Share the resolved instructions cache so agents can invalidate it
+            acp_context.set_resolved_instructions(session_state.resolved_instructions)
+
             # Store ACPContext
             session_state.acp_context = acp_context
 
             # Set ACPContext on each agent's Context object (if they have one)
             for agent_name, agent in instance.agents.items():
-                if hasattr(agent, "_context") and agent._context is not None:
-                    agent._context.acp = acp_context
+                context = getattr(agent, "context", None)
+                if isinstance(context, Context):
+                    context.acp = acp_context
                     logger.debug(
                         "ACPContext set on agent",
                         name="acp_context_set",
                         session_id=session_id,
                         agent_name=agent_name,
                     )
-                elif hasattr(agent, "context"):
-                    # Try via context property
-                    try:
-                        agent.context.acp = acp_context
-                        logger.debug(
-                            "ACPContext set on agent via context property",
-                            name="acp_context_set",
-                            session_id=session_id,
-                            agent_name=agent_name,
-                        )
-                    except Exception:
-                        # Agent may not have a context available
-                        pass
 
             logger.info(
                 "ACPContext created for session",
@@ -1090,6 +1116,7 @@ class AgentACPServer(ACPAgent):
             # Send to the fast-agent agent with streaming support
             # Track the stop reason to return in PromptResponse
             acp_stop_reason: StopReason = END_TURN
+            status_line_meta: dict[str, Any] | None = None
             try:
                 if current_agent_name:
                     agent = instance.agents[current_agent_name]
@@ -1147,11 +1174,15 @@ class AgentACPServer(ACPAgent):
                         session_request_params = self._build_session_request_params(
                             agent, session_state
                         )
+                        turn_start_index = None
+                        if isinstance(agent, AgentProtocol) and agent.usage_accumulator is not None:
+                            turn_start_index = len(agent.usage_accumulator.turns)
                         result = await agent.generate(
                             prompt_message,
                             request_params=session_request_params,
                         )
                         response_text = result.last_text() or "No content generated"
+                        status_line_meta = self._build_status_line_meta(agent, turn_start_index)
 
                         # Map the LLM stop reason to ACP stop reason
                         try:
@@ -1198,9 +1229,16 @@ class AgentACPServer(ACPAgent):
                         if not streaming_tasks and self._connection and response_text:
                             try:
                                 message_chunk = update_agent_message_text(response_text)
-                                await self._connection.session_update(
-                                    session_id=session_id, update=message_chunk
-                                )
+                                if status_line_meta:
+                                    await self._connection.session_update(
+                                        session_id=session_id,
+                                        update=message_chunk,
+                                        **status_line_meta,
+                                    )
+                                else:
+                                    await self._connection.session_update(
+                                        session_id=session_id, update=message_chunk
+                                    )
                                 logger.info(
                                     "Sent final sessionUpdate with complete response (no streaming)",
                                     name="acp_final_update",
@@ -1210,6 +1248,25 @@ class AgentACPServer(ACPAgent):
                                 logger.error(
                                     f"Error sending final update: {e}",
                                     name="acp_final_update_error",
+                                    exc_info=True,
+                                )
+                        elif streaming_tasks and self._connection and status_line_meta:
+                            try:
+                                message_chunk = update_agent_message_text("")
+                                await self._connection.session_update(
+                                    session_id=session_id,
+                                    update=message_chunk,
+                                    **status_line_meta,
+                                )
+                                logger.debug(
+                                    "Sent status line metadata update after streaming",
+                                    name="acp_status_line_update",
+                                    session_id=session_id,
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Error sending status line update: {e}",
+                                    name="acp_status_line_update_error",
                                     exc_info=True,
                                 )
 
@@ -1260,6 +1317,7 @@ class AgentACPServer(ACPAgent):
             # Return response with appropriate stop reason
             return PromptResponse(
                 stop_reason=acp_stop_reason,
+                field_meta=status_line_meta,
             )
         except asyncio.CancelledError:
             # Task was cancelled - return appropriate response

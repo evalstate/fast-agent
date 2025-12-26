@@ -138,7 +138,7 @@ async def _get_or_create_history_file(create_model: str, tmp_path_factory) -> Pa
 
     async with agent_session(create_model, f"history-create-{create_model}") as creator_agent:
         await _create_history(creator_agent)
-        save_messages(creator_agent.message_history, history_file)
+        save_messages(creator_agent.message_history, str(history_file))
 
     assert history_file.exists()
     _HISTORY_CACHE[create_model] = history_file

@@ -1,7 +1,21 @@
 """HuggingFace authentication utilities for MCP connections."""
 
 import os
+from collections.abc import Callable
 from urllib.parse import urlparse
+
+# Type alias for token provider functions
+TokenProvider = Callable[[], str | None]
+
+
+def _default_hub_token_provider() -> str | None:
+    """Default token provider that uses huggingface_hub.get_token()."""
+    try:
+        from huggingface_hub import get_token  # type: ignore
+
+        return get_token()
+    except Exception:
+        return None
 
 
 def is_huggingface_url(url: str) -> bool:
@@ -47,12 +61,18 @@ def is_huggingface_url(url: str) -> bool:
         return False
 
 
-def get_hf_token_from_env() -> str | None:
+def get_hf_token_from_env(
+    hub_token_provider: TokenProvider | None = None,
+) -> str | None:
     """
     Get the HuggingFace token from the HF_TOKEN environment variable.
 
     Falls back to `huggingface_hub.get_token()` when available, so users who have
     authenticated via `hf auth login` don't need to manually export HF_TOKEN.
+
+    Args:
+        hub_token_provider: Optional callable that returns a token. Defaults to
+            using huggingface_hub.get_token(). Pass a custom provider for testing.
 
     Returns:
         The HF_TOKEN value if set, None otherwise
@@ -61,21 +81,23 @@ def get_hf_token_from_env() -> str | None:
     if token:
         return token
 
-    try:
-        from huggingface_hub import get_token  # type: ignore
-
-        return get_token()
-    except Exception:
-        return None
+    provider = hub_token_provider if hub_token_provider is not None else _default_hub_token_provider
+    return provider()
 
 
-def should_add_hf_auth(url: str, existing_headers: dict[str, str] | None) -> bool:
+def should_add_hf_auth(
+    url: str,
+    existing_headers: dict[str, str] | None,
+    hub_token_provider: TokenProvider | None = None,
+) -> bool:
     """
     Determine if HuggingFace authentication should be added to the headers.
 
     Args:
         url: The URL to check
         existing_headers: Existing headers dictionary (may be None)
+        hub_token_provider: Optional callable that returns a token. Defaults to
+            using huggingface_hub.get_token(). Pass a custom provider for testing.
 
     Returns:
         True if HF auth should be added, False otherwise
@@ -106,24 +128,30 @@ def should_add_hf_auth(url: str, existing_headers: dict[str, str] | None) -> boo
             if "Authorization" in existing_headers:
                 return False
 
-    return get_hf_token_from_env() is not None
+    return get_hf_token_from_env(hub_token_provider) is not None
 
 
-def add_hf_auth_header(url: str, headers: dict[str, str] | None) -> dict[str, str] | None:
+def add_hf_auth_header(
+    url: str,
+    headers: dict[str, str] | None,
+    hub_token_provider: TokenProvider | None = None,
+) -> dict[str, str] | None:
     """
     Add HuggingFace authentication header if appropriate.
 
     Args:
         url: The URL to check
         headers: Existing headers dictionary (may be None)
+        hub_token_provider: Optional callable that returns a token. Defaults to
+            using huggingface_hub.get_token(). Pass a custom provider for testing.
 
     Returns:
         Updated headers dictionary with HF auth if appropriate, or original headers
     """
-    if not should_add_hf_auth(url, headers):
+    if not should_add_hf_auth(url, headers, hub_token_provider):
         return headers
 
-    hf_token = get_hf_token_from_env()
+    hf_token = get_hf_token_from_env(hub_token_provider)
     if hf_token is None:
         return headers
 

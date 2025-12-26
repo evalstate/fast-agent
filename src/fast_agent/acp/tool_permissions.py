@@ -247,8 +247,8 @@ class ACPToolPermissionManager:
         # Create descriptive title with argument summary
         title = f"{server_name}/{tool_name}"
         if arguments:
-            # Include key argument info in title for user context
-            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items())[:2])
+            # Include trimmed arg list info in title for user context
+            arg_str = ", ".join(f"{k}={v}" for k, v in list(arguments.items()))
             if len(arg_str) > 50:
                 arg_str = arg_str[:47] + "..."
             title = f"{title}({arg_str})"
@@ -273,6 +273,7 @@ class ACPToolPermissionManager:
 
         # Create ToolCallUpdate object per ACP spec with raw_input for full argument visibility
         tool_kind = _infer_tool_kind(tool_name, arguments)
+
         tool_call = ToolCallUpdate(
             tool_call_id=tool_call_id or "pending",
             title=title,

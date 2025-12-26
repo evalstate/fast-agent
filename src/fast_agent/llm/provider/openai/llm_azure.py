@@ -5,7 +5,7 @@ from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 
 try:
-    from azure.identity import DefaultAzureCredential
+    from azure.identity import DefaultAzureCredential  # ty: ignore[unresolved-import]
 except ImportError:
     DefaultAzureCredential = None
 
@@ -27,9 +27,10 @@ class AzureOpenAILLM(OpenAILLM):
     Handles both API Key and DefaultAzureCredential authentication.
     """
 
-    def __init__(self, provider: Provider = Provider.AZURE, *args, **kwargs):
+    def __init__(self, provider: Provider = Provider.AZURE, **kwargs):
         # Set provider to AZURE, pass through to base
-        super().__init__(provider=provider, *args, **kwargs)
+        kwargs.pop("provider", None)
+        super().__init__(provider=provider, **kwargs)
 
         # Context/config extraction
         context = getattr(self, "context", None)

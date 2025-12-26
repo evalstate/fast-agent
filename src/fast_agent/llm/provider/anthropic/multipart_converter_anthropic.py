@@ -1,5 +1,6 @@
 import re
-from typing import Sequence, Union
+from typing import Literal, Sequence, Union, cast
+from urllib.parse import urlparse
 
 from anthropic.types import (
     Base64ImageSourceParam,
@@ -83,15 +84,9 @@ class AnthropicConverter:
         if role == "assistant" and multipart_msg.tool_calls:
             for tool_use_id, req in multipart_msg.tool_calls.items():
                 sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)
-                name = None
-                args = None
-                try:
-                    params = getattr(req, "params", None)
-                    if params is not None:
-                        name = getattr(params, "name", None)
-                        args = getattr(params, "arguments", None)
-                except Exception:
-                    pass
+                params = req.params
+                name = params.name if params else None
+                args = params.arguments if params else None
 
                 all_content_blocks.append(
                     ToolUseBlockParam(
@@ -179,36 +174,44 @@ class AnthropicConverter:
             if is_text_content(content_item):
                 # Handle text content
                 text = get_text(content_item)
-                anthropic_blocks.append(TextBlockParam(type="text", text=text))
+                if text:
+                    anthropic_blocks.append(TextBlockParam(type="text", text=text))
 
             elif is_image_content(content_item):
-                # Handle image content
-                image_content = content_item  # type: ImageContent
+                # Handle image content - cast needed for ty type narrowing
+                image_content = cast("ImageContent", content_item)
+                mime_type = image_content.mimeType or ""
                 # Check if image MIME type is supported
-                if not AnthropicConverter._is_supported_image_type(image_content.mimeType):
+                if not AnthropicConverter._is_supported_image_type(mime_type):
                     data_size = len(image_content.data) if image_content.data else 0
                     anthropic_blocks.append(
                         TextBlockParam(
                             type="text",
-                            text=f"Image with unsupported format '{image_content.mimeType}' ({data_size} bytes)",
+                            text=f"Image with unsupported format '{mime_type}' ({data_size} bytes)",
                         )
                     )
                 else:
                     image_data = get_image_data(image_content)
-                    anthropic_blocks.append(
-                        ImageBlockParam(
-                            type="image",
-                            source=Base64ImageSourceParam(
-                                type="base64",
-                                media_type=image_content.mimeType,
-                                data=image_data,
-                            ),
+                    if image_data and mime_type in SUPPORTED_IMAGE_MIME_TYPES:
+                        anthropic_blocks.append(
+                            ImageBlockParam(
+                                type="image",
+                                source=Base64ImageSourceParam(
+                                    type="base64",
+                                    media_type=cast(
+                                        "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
+                                        mime_type,
+                                    ),
+                                    data=image_data,
+                                ),
+                            )
                         )
-                    )
 
             elif is_resource_content(content_item):
-                # Handle embedded resource
-                block = AnthropicConverter._convert_embedded_resource(content_item, document_mode)
+                # Handle embedded resource - cast needed for ty type narrowing
+                block = AnthropicConverter._convert_embedded_resource(
+                    cast("EmbeddedResource", content_item), document_mode
+                )
                 anthropic_blocks.append(block)
 
         return anthropic_blocks
@@ -230,8 +233,9 @@ class AnthropicConverter:
         """
         resource_content = resource.resource
         uri_str = get_resource_uri(resource)
-        uri = getattr(resource_content, "uri", None)
-        is_url: bool = uri and uri.scheme in ("http", "https")
+        uri = resource_content.uri
+        parsed_uri = urlparse(uri_str) if uri_str else None
+        is_url: bool = bool(parsed_uri and parsed_uri.scheme in ("http", "https"))
 
         # Determine MIME type
         mime_type = AnthropicConverter._determine_mime_type(resource_content)
@@ -262,7 +266,12 @@ class AnthropicConverter:
                 return ImageBlockParam(
                     type="image",
                     source=Base64ImageSourceParam(
-                        type="base64", media_type=mime_type, data=image_data
+                        type="base64",
+                        media_type=cast(
+                            "Literal['image/jpeg', 'image/png', 'image/gif', 'image/webp']",
+                            mime_type,
+                        ),
+                        data=image_data,
                     ),
                 )
 
@@ -320,9 +329,10 @@ class AnthropicConverter:
             resource.resource, "blob"
         ):
             blob_length = len(resource.resource.blob)
+            uri_display = uri._url if uri else (uri_str or "<unknown>")
             return TextBlockParam(
                 type="text",
-                text=f"Embedded Resource {uri._url} with unsupported format {mime_type} ({blob_length} characters)",
+                text=f"Embedded Resource {uri_display} with unsupported format {mime_type} ({blob_length} characters)",
             )
 
         return AnthropicConverter._create_fallback_text(
@@ -342,11 +352,11 @@ class AnthropicConverter:
         Returns:
             The MIME type as a string
         """
-        if getattr(resource, "mimeType", None):
+        if resource.mimeType:
             return resource.mimeType
 
-        if getattr(resource, "uri", None):
-            return guess_mime_type(resource.uri.serialize_url)
+        if resource.uri:
+            return guess_mime_type(str(resource.uri))
 
         if hasattr(resource, "blob"):
             return "application/octet-stream"
@@ -372,7 +382,7 @@ class AnthropicConverter:
 
     @staticmethod
     def _create_fallback_text(
-        message: str, resource: Union[TextContent, ImageContent, EmbeddedResource]
+        message: str, resource: ContentBlock
     ) -> TextBlockParam:
         """
         Create a fallback text block for unsupported resource types.
@@ -384,9 +394,12 @@ class AnthropicConverter:
         Returns:
             A TextBlockParam with the fallback message
         """
-        if isinstance(resource, EmbeddedResource) and hasattr(resource.resource, "uri"):
+        if isinstance(resource, EmbeddedResource):
             uri = resource.resource.uri
-            return TextBlockParam(type="text", text=f"[{message}: {uri._url}]")
+            if uri:
+                return TextBlockParam(type="text", text=f"[{message}: {uri._url}]")
+            if uri_str := get_resource_uri(resource):
+                return TextBlockParam(type="text", text=f"[{message}: {uri_str}]")
 
         return TextBlockParam(type="text", text=f"[{message}]")
 

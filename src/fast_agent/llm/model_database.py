@@ -31,6 +31,9 @@ class ModelParameters(BaseModel):
     stream_mode: Literal["openai", "manual"] = "openai"
     """Determines how streaming deltas should be processed."""
 
+    system_role: None | str = "system"
+    """Role to use for the System Prompt"""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -169,6 +172,15 @@ class ModelDatabase:
         context_window=65536, max_output_tokens=32768, tokenizes=TEXT_ONLY
     )
 
+    DEEPSEEK_V_32 = ModelParameters(
+        context_window=65536,
+        max_output_tokens=32768,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="gpt-oss",
+        system_role="developer",
+    )
+
     DEEPSEEK_DISTILL = ModelParameters(
         context_window=131072,
         max_output_tokens=131072,
@@ -215,6 +227,15 @@ class ModelDatabase:
     GLM_46 = ModelParameters(
         context_window=202752,
         max_output_tokens=8192,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        stream_mode="manual",
+    )
+
+    GLM_47 = ModelParameters(
+        context_window=202752,
+        max_output_tokens=65536,  # default from https://docs.z.ai/guides/overview/concept-param#token-usage-calculation - max is 131072
         tokenizes=TEXT_ONLY,
         json_mode="object",
         reasoning="reasoning_content",
@@ -319,6 +340,7 @@ class ModelDatabase:
         "gemini-2.5-flash-preview-09-2025": GEMINI_STANDARD,
         "gemini-2.5-flash": GEMINI_STANDARD,
         "gemini-3-pro-preview": GEMINI_STANDARD,
+        "gemini-3-flash-preview": GEMINI_STANDARD,
         # xAI Grok Models
         "grok-4-fast-reasoning": GROK_4_VLM,
         "grok-4-fast-non-reasoning": GROK_4_VLM,
@@ -337,6 +359,7 @@ class ModelDatabase:
         "openai/gpt-oss-120b": OPENAI_GPT_OSS_SERIES,  # https://cookbook.openai.com/articles/openai-harmony
         "openai/gpt-oss-20b": OPENAI_GPT_OSS_SERIES,  # tool/reasoning interleave guidance
         "zai-org/glm-4.6": GLM_46,
+        "zai-org/glm-4.7": GLM_47,
         "minimaxai/minimax-m2": GLM_46,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,

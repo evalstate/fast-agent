@@ -42,20 +42,26 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.mcp.common import (
-    create_namespaced_name,
     get_resource_name,
     get_server_name,
     is_namespaced_name,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool, ServerStatus
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills import SkillManifest
+from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
     run_elicitation_form,
     set_elicitation_input_callback,
 )
 from fast_agent.tools.shell_runtime import ShellRuntime
-from fast_agent.types import PromptMessageExtended, RequestParams
+from fast_agent.tools.skill_reader import SkillReader
+from fast_agent.types import (
+    PromptMessageExtended,
+    RequestParams,
+    ToolTimingInfo,
+    ToolTimings,
+)
 from fast_agent.ui import console
 
 # Define a TypeVar for models
@@ -69,7 +75,6 @@ if TYPE_CHECKING:
 
     from fast_agent.context import Context
     from fast_agent.llm.usage_tracking import UsageAccumulator
-    from fast_agent.skills import SkillManifest
 
 
 class McpAgent(ABC, ToolAgent):
@@ -103,21 +108,29 @@ class McpAgent(ABC, ToolAgent):
             **kwargs,
         )
 
-        self.instruction = self.config.instruction
+        # Store the original template - resolved instruction set after build()
+        self._instruction_template = self.config.instruction
+        self._instruction = self.config.instruction  # Will be replaced by builder output
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
-        if not manifests and context and getattr(context, "skill_registry", None):
+        if not manifests and context and context.skill_registry:
             try:
                 manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
             except Exception:
                 manifests = []
 
-        self._skill_manifests = list(manifests)
-        self._skill_map: dict[str, SkillManifest] = {
-            manifest.name: manifest for manifest in manifests
-        }
-        self._agent_skills_warning_shown = False
+        self._skill_manifests: list[SkillManifest] = []
+        self._skill_map: dict[str, SkillManifest] = {}
+        self._skill_reader: SkillReader | None = None
+        self.set_skill_manifests(manifests)
+        self.skill_registry: SkillRegistry | None = None
+        if isinstance(self.config.skills, SkillRegistry):
+            self.skill_registry = self.config.skills
+        elif self.config.skills is None and context and context.skill_registry:
+            self.skill_registry = context.skill_registry
+        self._warnings: list[str] = []
+        self._warning_messages_seen: set[str] = set()
         shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
@@ -169,6 +182,9 @@ class McpAgent(ABC, ToolAgent):
         self._bash_tool = self._shell_runtime.tool
         if self._shell_runtime_enabled:
             self._shell_runtime.announce()
+
+        # Store instruction context for template resolution
+        self._instruction_context: dict[str, str] = {}
 
         # Allow external runtime injection (e.g., for ACP terminal support)
         self._external_runtime = None
@@ -254,6 +270,26 @@ class McpAgent(ABC, ToolAgent):
         return self._aggregator
 
     @property
+    def instruction_template(self) -> str:
+        """The original instruction template with placeholders."""
+        return self._instruction_template or ""
+
+    @property
+    def instruction_context(self) -> dict[str, str]:
+        """Context values for instruction template resolution."""
+        return self._instruction_context
+
+    @property
+    def skill_manifests(self) -> list[SkillManifest]:
+        """List of skill manifests configured for this agent."""
+        return self._skill_manifests
+
+    @property
+    def has_filesystem_runtime(self) -> bool:
+        """Whether filesystem runtime is available (affects skill tool names)."""
+        return self._filesystem_runtime is not None
+
+    @property
     def initialized(self) -> bool:
         """Check if both the agent and aggregator are initialized."""
         return self._initialized and self._aggregator.initialized
@@ -269,82 +305,66 @@ class McpAgent(ABC, ToolAgent):
         Apply template substitution to the instruction, including server instructions.
         This is called during initialization after servers are connected.
         """
-        if not self.instruction:
+        from fast_agent.core.instruction_refresh import build_instruction
+
+        if not self._instruction_template:
             return
 
-        # Gather server instructions if the template includes {{serverInstructions}}
-        if "{{serverInstructions}}" in self.instruction:
-            try:
-                instructions_data = await self._aggregator.get_server_instructions()
-                server_instructions = self._format_server_instructions(instructions_data)
-            except Exception as e:
-                self.logger.warning(f"Failed to get server instructions: {e}")
-                server_instructions = ""
+        # Build the instruction using the central helper
+        new_instruction = await build_instruction(
+            self._instruction_template,
+            aggregator=self._aggregator,
+            skill_manifests=self._skill_manifests,
+            has_filesystem_runtime=self.has_filesystem_runtime,
+            context=self._instruction_context,
+        )
+        self.set_instruction(new_instruction)
 
-            # Replace the template variable
-            self.instruction = self.instruction.replace(
-                "{{serverInstructions}}", server_instructions
-            )
-
-        skills_placeholder_present = "{{agentSkills}}" in self.instruction
-
-        if skills_placeholder_present:
-            agent_skills = format_skills_for_prompt(self._skill_manifests)
-            self.instruction = self.instruction.replace("{{agentSkills}}", agent_skills)
-            self._agent_skills_warning_shown = True
-        elif self._skill_manifests and not self._agent_skills_warning_shown:
+        # Warn if skills configured but placeholder missing
+        if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
             warning_message = (
                 "Agent skills are configured but the system prompt does not include {{agentSkills}}. "
                 "Skill descriptions will not be added to the system prompt."
             )
-            self.logger.warning(warning_message)
-            try:
-                console.console.print(f"[yellow]{warning_message}[/yellow]")
-            except Exception:  # pragma: no cover - console fallback
-                pass
-            self._agent_skills_warning_shown = True
-
-        # Update default request params to match
-        if self._default_request_params:
-            self._default_request_params.systemPrompt = self.instruction
+            self._record_warning(warning_message)
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
 
-    def _format_server_instructions(
-        self, instructions_data: dict[str, tuple[str | None, list[str]]]
-    ) -> str:
+    def set_skill_manifests(self, manifests: Sequence[SkillManifest]) -> None:
+        self._skill_manifests = list(manifests)
+        self._skill_map = {manifest.name: manifest for manifest in self._skill_manifests}
+        if self._skill_manifests:
+            self._skill_reader = SkillReader(self._skill_manifests, self.logger)
+        else:
+            self._skill_reader = None
+
+    def _record_warning(self, message: str) -> None:
+        if message in self._warning_messages_seen:
+            return
+        self._warning_messages_seen.add(message)
+        self._warnings.append(message)
+        self.logger.warning(message)
+        try:
+            console.console.print(f"[yellow]{message}[/yellow]")
+        except Exception:  # pragma: no cover - console fallback
+            pass
+
+    @property
+    def warnings(self) -> list[str]:
+        return list(self._warnings)
+
+    def set_instruction_context(self, context: dict[str, str]) -> None:
         """
-        Format server instructions with XML tags and tool lists.
+        Set session-level context variables for instruction template resolution.
+
+        This should be called when an ACP session is established to provide
+        variables like {{env}}, {{workspaceRoot}} etc. that are resolved per-session.
 
         Args:
-            instructions_data: Dict mapping server name to (instructions, tool_names)
-
-        Returns:
-            Formatted string with server instructions
+            context: Dict mapping placeholder names to values (e.g., {"env": "...", "workspaceRoot": "/path"})
         """
-        if not instructions_data:
-            return ""
-
-        formatted_parts = []
-        for server_name, (instructions, tool_names) in instructions_data.items():
-            # Skip servers with no instructions
-            if instructions is None:
-                continue
-
-            # Format tool names with server prefix using the new namespacing convention
-            prefixed_tools = [create_namespaced_name(server_name, tool) for tool in tool_names]
-            tools_list = ", ".join(prefixed_tools) if prefixed_tools else "No tools available"
-
-            formatted_parts.append(
-                f'<mcp-server name="{server_name}">\n'
-                f"<tools>{tools_list}</tools>\n"
-                f"<instructions>\n{instructions}\n</instructions>\n"
-                f"</mcp-server>"
-            )
-
-        if formatted_parts:
-            return "\n\n".join(formatted_parts)
-        return ""
+        self._instruction_context.update(context)
+        self.logger.debug(f"Set instruction context for agent {self._name}: {list(context.keys())}")
 
     async def __call__(
         self,
@@ -431,7 +451,9 @@ class McpAgent(ABC, ToolAgent):
         if namespace not in filters:
             return list(tools)
 
-        filtered = self._filter_server_collections({namespace: tools}, filters, lambda tool: tool.name)
+        filtered = self._filter_server_collections(
+            {namespace: tools}, filters, lambda tool: tool.name
+        )
         return filtered.get(namespace, [])
 
     async def _get_filtered_mcp_tools(self) -> list[Tool]:
@@ -518,7 +540,13 @@ class McpAgent(ABC, ToolAgent):
                     if name == "read_text_file":
                         return await self._filesystem_runtime.read_text_file(arguments, tool_use_id)
                     elif name == "write_text_file":
-                        return await self._filesystem_runtime.write_text_file(arguments, tool_use_id)
+                        return await self._filesystem_runtime.write_text_file(
+                            arguments, tool_use_id
+                        )
+
+        # Check skill reader (non-ACP context with skills)
+        if self._skill_reader and name == "read_skill":
+            return await self._skill_reader.execute(arguments)
 
         # Fall back to shell runtime
         if self._shell_runtime.tool and name == self._shell_runtime.tool.name:
@@ -548,7 +576,7 @@ class McpAgent(ABC, ToolAgent):
         """
         try:
             # Run via shared tool runner
-            resp_text = await run_elicitation_form(arguments, agent_name=self._name)
+            resp_text = await run_elicitation_form(arguments or {}, agent_name=self._name)
             if resp_text == "__DECLINED__":
                 return CallToolResult(
                     isError=False,
@@ -804,9 +832,7 @@ class McpAgent(ABC, ToolAgent):
         namespaced_tools = self._aggregator._namespaced_tool_map
 
         tool_call_items = list(request.tool_calls.items())
-        should_parallel = (
-            (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
-        )
+        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
 
         planned_calls: list[dict[str, Any]] = []
 
@@ -831,11 +857,11 @@ class McpAgent(ABC, ToolAgent):
                 )
 
             # Select display/highlight names
-            display_tool_name = (
-                (namespaced_tool or candidate_namespaced_tool).namespaced_tool_name
-                if (namespaced_tool or candidate_namespaced_tool) is not None
-                else tool_name
-            )
+            active_namespaced = namespaced_tool or candidate_namespaced_tool
+            if active_namespaced is not None:
+                display_tool_name = active_namespaced.namespaced_tool_name
+            else:
+                display_tool_name = tool_name
 
             # Check if tool is available from various sources
             is_external_runtime_tool = (
@@ -849,12 +875,16 @@ class McpAgent(ABC, ToolAgent):
                 and hasattr(self._filesystem_runtime, "tools")
                 and any(tool.name == tool_name for tool in self._filesystem_runtime.tools)
             )
+            is_skill_reader_tool = (
+                self._skill_reader and self._skill_reader.enabled and tool_name == "read_skill"
+            )
 
             tool_available = (
                 tool_name == HUMAN_INPUT_TOOL_NAME
                 or (self._shell_runtime.tool and tool_name == self._shell_runtime.tool.name)
                 or is_external_runtime_tool
                 or is_filesystem_runtime_tool
+                or is_skill_reader_tool
                 or namespaced_tool is not None
                 or local_tool is not None
                 or candidate_namespaced_tool is not None
@@ -912,6 +942,7 @@ class McpAgent(ABC, ToolAgent):
             )
 
         if should_parallel and planned_calls:
+
             async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
                 start_time = time.perf_counter()
                 result = await self.call_tool(
@@ -985,10 +1016,10 @@ class McpAgent(ABC, ToolAgent):
                 duration_ms = round((end_time - start_time) * 1000, 2)
 
                 tool_results[correlation_id] = result
-                tool_timings[correlation_id] = {
-                    "timing_ms": duration_ms,
-                    "transport_channel": getattr(result, "transport_channel", None),
-                }
+                tool_timings[correlation_id] = ToolTimingInfo(
+                    timing_ms=duration_ms,
+                    transport_channel=getattr(result, "transport_channel", None),
+                )
 
                 skybridge_config = None
                 skybridge_tool = namespaced_tool or candidate_namespaced_tool
@@ -1221,6 +1252,12 @@ class McpAgent(ABC, ToolAgent):
                 if fs_tool and fs_tool.name not in existing_names:
                     merged_tools.append(fs_tool)
                     existing_names.add(fs_tool.name)
+        elif self._skill_reader and self._skill_reader.enabled:
+            # Non-ACP context with skills: provide read_skill tool
+            skill_tool = self._skill_reader.tool
+            if skill_tool.name not in existing_names:
+                merged_tools.append(skill_tool)
+                existing_names.add(skill_tool.name)
 
         if self.config.human_input:
             human_tool = getattr(self, "_human_input_tool", None)
@@ -1356,7 +1393,7 @@ class McpAgent(ABC, ToolAgent):
         runtime_name = runtime_info.get("name")
         return runtime_name or "shell"
 
-    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str, str]:
+    async def _parse_resource_name(self, name: str, resource_type: str) -> tuple[str | None, str]:
         """Delegate resource name parsing to the aggregator."""
         return await self._aggregator._parse_resource_name(name, resource_type)
 

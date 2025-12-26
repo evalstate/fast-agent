@@ -26,7 +26,9 @@ fast = FastAgent("Example Tool Use Application")
 @fast.custom(CustomToolAgent)
 async def main() -> None:
     async with fast.run() as agent:
-        await agent.default.generate("What is the topic of the video call no.1234?")
+        await agent.default.generate(
+            "What is the topic of the video call no.1234?",
+        )
 
 
 if __name__ == "__main__":

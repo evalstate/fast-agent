@@ -35,6 +35,9 @@ from .llm_stop_reason import LlmStopReason
 # Message search utilities
 from .message_search import extract_first, extract_last, find_matches, search_messages
 
+# Tool timing metadata
+from .tool_timing import ToolTimingInfo, ToolTimings
+
 __all__ = [
     # Enums / types
     "LlmStopReason",
@@ -56,4 +59,7 @@ __all__ = [
     "find_matches",
     "extract_first",
     "extract_last",
+    # Tool timing types
+    "ToolTimingInfo",
+    "ToolTimings",
 ]

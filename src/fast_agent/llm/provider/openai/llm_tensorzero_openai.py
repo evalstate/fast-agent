@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam
 
@@ -14,18 +14,17 @@ class TensorZeroOpenAILLM(OpenAILLM):
     features, such as system template variables and custom parameters.
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         """
         Initializes the TensorZeroOpenAIAugmentedLLM.
 
         Args:
-            *args: Variable length argument list.
             **kwargs: Arbitrary keyword arguments.
         """
         self._t0_episode_id = kwargs.pop("episode_id", None)
         self._t0_function_name = kwargs.get("model", "")
-
-        super().__init__(*args, provider=Provider.TENSORZERO, **kwargs)
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.TENSORZERO, **kwargs)
         self.logger.info("TensorZeroOpenAILLM initialized.")
 
     def _initialize_default_params(self, kwargs: dict) -> RequestParams:
@@ -83,15 +82,21 @@ class TensorZeroOpenAILLM(OpenAILLM):
             self.logger.debug(f"Injecting template variables: {request_params.template_vars}")
             system_message_found = False
             for i, msg in enumerate(messages):
-                if msg.get("role") == "system":
+                # Work with msg as a dict for type safety
+                msg_dict = cast("dict[str, Any]", msg)
+                if msg_dict.get("role") == "system":
+                    content = msg_dict.get("content")
                     # If content is a string, convert it to the TensorZero format
-                    if isinstance(msg.get("content"), str):
-                        messages[i] = ChatCompletionSystemMessageParam(
-                            role="system", content=[request_params.template_vars]
+                    if isinstance(content, str):
+                        # TensorZero expects content as list with template vars
+                        messages[i] = cast(
+                            "ChatCompletionSystemMessageParam",
+                            {"role": "system", "content": [request_params.template_vars]},
                         )
-                    elif isinstance(msg.get("content"), list):
+                    elif isinstance(content, list) and len(content) > 0:
                         # If content is already a list, merge the template vars
-                        msg["content"][0].update(request_params.template_vars)
+                        if isinstance(content[0], dict):
+                            content[0].update(request_params.template_vars)
                     system_message_found = True
                     break
 
@@ -99,13 +104,15 @@ class TensorZeroOpenAILLM(OpenAILLM):
                 # If no system message exists, create one
                 messages.insert(
                     0,
-                    ChatCompletionSystemMessageParam(
-                        role="system", content=[request_params.template_vars]
+                    cast(
+                        "ChatCompletionSystemMessageParam",
+                        {"role": "system", "content": [request_params.template_vars]},
                     ),
                 )
 
         # Add TensorZero-specific extra body parameters
-        extra_body = arguments.get("extra_body", {})
+        extra_body_raw = arguments.get("extra_body", {})
+        extra_body: dict[str, Any] = extra_body_raw if isinstance(extra_body_raw, dict) else {}
 
         if self._t0_episode_id:
             extra_body["tensorzero::episode_id"] = str(self._t0_episode_id)
@@ -117,8 +124,11 @@ class TensorZeroOpenAILLM(OpenAILLM):
             if t0_args:
                 self.logger.debug(f"Merging tensorzero_arguments from metadata: {t0_args}")
                 for msg in messages:
-                    if msg.get("role") == "system" and isinstance(msg.get("content"), list):
-                        msg["content"][0].update(t0_args)
+                    msg_dict = cast("dict[str, Any]", msg)
+                    content = msg_dict.get("content")
+                    if msg_dict.get("role") == "system" and isinstance(content, list) and len(content) > 0:
+                        if isinstance(content[0], dict):
+                            content[0].update(t0_args)
                         break
 
         if extra_body:
