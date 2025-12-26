@@ -141,22 +141,38 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
             cache_mode = self.context.config.anthropic.cache_mode
         return cache_mode
 
-    def _is_thinking_enabled(self, model: str) -> bool:
-        """Check if extended thinking should be enabled for this request."""
+    def _get_thinking_budget(self, model: str) -> int | None:
+        """
+        Get the thinking budget tokens if extended thinking is enabled.
+
+        Returns None if thinking is disabled, otherwise returns the budget
+        (enforcing minimum of 1024 tokens per Anthropic API requirements).
+        """
         from fast_agent.llm.model_database import ModelDatabase
 
+        # Model must support anthropic_thinking
         if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
-            return False
-        if self.context.config and self.context.config.anthropic:
-            return self.context.config.anthropic.thinking_enabled
-        return False
+            return None
 
-    def _get_thinking_budget(self) -> int:
-        """Get the thinking budget tokens (minimum 1024)."""
+        # Check if budget is configured (None = disabled)
         if self.context.config and self.context.config.anthropic:
-            budget = getattr(self.context.config.anthropic, "thinking_budget_tokens", 10000)
-            return max(1024, budget)
-        return 10000
+            budget = self.context.config.anthropic.thinking_budget_tokens
+            if budget is None:
+                return None
+            # Enforce minimum of 1024 per API requirements
+            if budget < 1024:
+                logger.warning(
+                    f"Thinking budget {budget} is below minimum of 1024, using 1024"
+                )
+                return 1024
+            # Warn about high budgets that may cause timeouts
+            if budget > 32000:
+                logger.warning(
+                    f"Thinking budget {budget} exceeds 32K; consider batch processing to avoid timeouts"
+                )
+            return budget
+
+        return None
 
     async def _prepare_tools(
         self, structured_model: Type[ModelT] | None = None, tools: list[Tool] | None = None
@@ -609,24 +625,24 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if self.instruction or params.systemPrompt:
             base_args["system"] = self.instruction or params.systemPrompt
 
+        # Get thinking budget (None = disabled)
+        thinking_budget = self._get_thinking_budget(model)
+
         if structured_model:
-            if self._is_thinking_enabled(model):
+            if thinking_budget is not None:
                 logger.warning(
                     "Extended thinking is incompatible with structured output. "
                     "Disabling thinking for this request."
                 )
+                thinking_budget = None
             base_args["tool_choice"] = {"type": "tool", "name": STRUCTURED_OUTPUT_TOOL_NAME}
 
-        thinking_enabled = self._is_thinking_enabled(model)
-        if thinking_enabled and structured_model:
-            thinking_enabled = False
-
-        if thinking_enabled:
-            thinking_budget = self._get_thinking_budget()
+        if thinking_budget is not None:
             base_args["thinking"] = {
                 "type": "enabled",
                 "budget_tokens": thinking_budget,
             }
+            # max_tokens must exceed budget_tokens
             current_max = params.maxTokens or 16000
             if current_max <= thinking_budget:
                 base_args["max_tokens"] = thinking_budget + 8192
@@ -635,7 +651,7 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         elif params.maxTokens is not None:
             base_args["max_tokens"] = params.maxTokens
 
-        if thinking_enabled and available_tools:
+        if thinking_budget is not None and available_tools:
             base_args["extra_headers"] = {"anthropic-beta": "interleaved-thinking-2025-05-14"}
 
         self._log_chat_progress(self.chat_turn(), model=model)
