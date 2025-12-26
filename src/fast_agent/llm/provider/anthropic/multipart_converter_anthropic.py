@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Literal, Sequence, Union, cast
 from urllib.parse import urlparse
@@ -11,6 +12,7 @@ from anthropic.types import (
     MessageParam,
     PlainTextSourceParam,
     RedactedThinkingBlock,
+    RedactedThinkingBlockParam,
     TextBlockParam,
     ThinkingBlock,
     ThinkingBlockParam,
@@ -106,6 +108,28 @@ class AnthropicConverter:
                             # Redacted thinking blocks are passed as-is
                             # They contain encrypted data that the API can verify
                             all_content_blocks.append(thinking_block)
+                        elif isinstance(thinking_block, TextContent):
+                            try:
+                                payload = json.loads(thinking_block.text)
+                            except (TypeError, json.JSONDecodeError):
+                                payload = None
+                            if isinstance(payload, dict):
+                                block_type = payload.get("type")
+                                if block_type == "thinking":
+                                    all_content_blocks.append(
+                                        ThinkingBlockParam(
+                                            type="thinking",
+                                            thinking=payload.get("thinking", ""),
+                                            signature=payload.get("signature", ""),
+                                        )
+                                    )
+                                elif block_type == "redacted_thinking":
+                                    all_content_blocks.append(
+                                        RedactedThinkingBlockParam(
+                                            type="redacted_thinking",
+                                            data=payload.get("data", ""),
+                                        )
+                                    )
 
             for tool_use_id, req in multipart_msg.tool_calls.items():
                 sanitized_id = AnthropicConverter._sanitize_tool_id(tool_use_id)

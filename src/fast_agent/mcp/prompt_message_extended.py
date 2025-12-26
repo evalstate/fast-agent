@@ -1,4 +1,4 @@
-from typing import Any, Mapping, Sequence
+from typing import Mapping, Sequence
 
 from mcp.types import (
     CallToolRequest,
@@ -27,10 +27,10 @@ class PromptMessageExtended(BaseModel):
     content: list[ContentBlock] = []
     tool_calls: dict[str, CallToolRequest] | None = None
     tool_results: dict[str, CallToolResult] | None = None
-    # Channels can carry provider-specific payloads (e.g., raw Anthropic thinking blocks).
-    channels: Mapping[str, Sequence[Any]] | None = None
+    channels: Mapping[str, Sequence[ContentBlock]] | None = None
     stop_reason: LlmStopReason | None = None
     is_template: bool = False
+
 
     @classmethod
     def to_extended(cls, messages: list[PromptMessage]) -> list["PromptMessageExtended"]:

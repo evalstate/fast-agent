@@ -781,7 +781,20 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         if raw_thinking_blocks:
             if channels is None:
                 channels = {}
-            channels[ANTHROPIC_THINKING_BLOCKS] = raw_thinking_blocks
+            serialized_blocks = []
+            for block in raw_thinking_blocks:
+                try:
+                    payload = block.model_dump()
+                except Exception:
+                    payload = {"type": getattr(block, "type", "thinking")}
+                    if isinstance(block, ThinkingBlock):
+                        payload.update(
+                            {"thinking": block.thinking, "signature": block.signature}
+                        )
+                    elif isinstance(block, RedactedThinkingBlock):
+                        payload.update({"data": block.data})
+                serialized_blocks.append(TextContent(type="text", text=json.dumps(payload)))
+            channels[ANTHROPIC_THINKING_BLOCKS] = serialized_blocks
 
         return PromptMessageExtended(
             role="assistant",
