@@ -242,6 +242,15 @@ class ModelDatabase:
         stream_mode="manual",
     )
 
+    MINIMAX_21 = ModelParameters(
+        context_window=202752,
+        max_output_tokens=131072,
+        tokenizes=TEXT_ONLY,
+        json_mode="object",
+        reasoning="reasoning_content",
+        stream_mode="manual",
+    )
+
     HF_PROVIDER_DEEPSEEK31 = ModelParameters(
         context_window=163_800, max_output_tokens=8192, tokenizes=TEXT_ONLY
     )
@@ -361,6 +370,7 @@ class ModelDatabase:
         "zai-org/glm-4.6": GLM_46,
         "zai-org/glm-4.7": GLM_47,
         "minimaxai/minimax-m2": GLM_46,
+        "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
         "deepseek-ai/deepseek-v3.2-exp": HF_PROVIDER_DEEPSEEK32,
