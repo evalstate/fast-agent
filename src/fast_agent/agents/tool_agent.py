@@ -1,3 +1,4 @@
+import time
 from typing import Any, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
@@ -5,22 +6,24 @@ from mcp.types import CallToolResult, ListToolsResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
+from fast_agent.agents.tool_runner import ToolRunner, ToolRunnerHooks, _ToolLoopAgent
 from fast_agent.constants import (
-    DEFAULT_MAX_ITERATIONS,
     FAST_AGENT_ERROR_CHANNEL,
+    FORCE_SEQUENTIAL_TOOL_CALLS,
     HUMAN_INPUT_TOOL_NAME,
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.interfaces import ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo, ToolTimings
-from fast_agent.types.llm_stop_reason import LlmStopReason
+from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
+from fast_agent.utils.async_utils import gather_with_cancel
 
 logger = get_logger(__name__)
 
 
-class ToolAgent(LlmAgent):
+class ToolAgent(LlmAgent, _ToolLoopAgent):
     """
     A Tool Calling agent that uses FastMCP Tools for execution.
 
@@ -55,7 +58,6 @@ class ToolAgent(LlmAgent):
                     logger.warning(f"Failed to initialize human-input tool: {e}")
 
         for tool in working_tools:
-            (tool)
             if isinstance(tool, FastMCPTool):
                 fast_tool = tool
             elif callable(tool):
@@ -87,43 +89,27 @@ class ToolAgent(LlmAgent):
         if tools is None:
             tools = (await self.list_tools()).tools
 
-        iterations = 0
-        max_iterations = request_params.max_iterations if request_params else DEFAULT_MAX_ITERATIONS
+        runner = ToolRunner(
+            agent=self,
+            messages=messages,
+            request_params=request_params,
+            tools=tools,
+            hooks=self._tool_runner_hooks(),
+        )
+        return await runner.until_done()
 
-        while True:
-            result = await super().generate_impl(
-                messages,
-                request_params=request_params,
-                tools=tools,
-            )
+    def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        if isinstance(self, ToolRunnerHookCapable):
+            return self.tool_runner_hooks
+        return None
 
-            if LlmStopReason.TOOL_USE == result.stop_reason:
-                tool_message = await self.run_tools(result)
-                error_channel_messages = (tool_message.channels or {}).get(FAST_AGENT_ERROR_CHANNEL)
-                if error_channel_messages:
-                    tool_result_contents = [
-                        content
-                        for tool_result in (tool_message.tool_results or {}).values()
-                        for content in tool_result.content
-                    ]
-                    if tool_result_contents:
-                        if result.content is None:
-                            result.content = []
-                        result.content.extend(tool_result_contents)
-                    result.stop_reason = LlmStopReason.ERROR
-                    break
-                if self.config.use_history:
-                    messages = [tool_message]
-                else:
-                    messages.extend([result, tool_message])
-            else:
-                break
-
-            iterations += 1
-            if iterations > max_iterations:
-                logger.warning("Max iterations reached, stopping tool loop")
-                break
-        return result
+    async def _tool_runner_llm_step(
+        self,
+        messages: list[PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        return await super().generate_impl(messages, request_params=request_params, tools=tools)
 
     # we take care of tool results, so skip displaying them
     def show_user_message(self, message: PromptMessageExtended) -> None:
@@ -133,19 +119,21 @@ class ToolAgent(LlmAgent):
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
         """Runs the tools in the request, and returns a new User message with the results"""
-        import time
-
         if not request.tool_calls:
             logger.warning("No tool calls found in request", data=request)
             return PromptMessageExtended(role="user", tool_results={})
 
         tool_results: dict[str, CallToolResult] = {}
-        tool_timings: ToolTimings = {}  # Track timing for each tool call
+        tool_timings: dict[str, ToolTimingInfo] = {}
         tool_loop_error: str | None = None
-        # TODO -- use gather() for parallel results, update display
         tool_schemas = (await self.list_tools()).tools
         available_tools = [t.name for t in tool_schemas]
-        for correlation_id, tool_request in request.tool_calls.items():
+
+        tool_call_items = list(request.tool_calls.items())
+        should_parallel = (not FORCE_SEQUENTIAL_TOOL_CALLS) and len(tool_call_items) > 1
+
+        planned_calls: list[tuple[str, str, dict[str, Any]]] = []
+        for correlation_id, tool_request in tool_call_items:
             tool_name = tool_request.params.name
             tool_args = tool_request.params.arguments or {}
 
@@ -158,7 +146,60 @@ class ToolAgent(LlmAgent):
                     tool_results=tool_results,
                 )
                 break
+            planned_calls.append((correlation_id, tool_name, tool_args))
 
+        if should_parallel and planned_calls:
+            for correlation_id, tool_name, tool_args in planned_calls:
+                highlight_index = None
+                try:
+                    highlight_index = available_tools.index(tool_name)
+                except ValueError:
+                    pass
+
+                self.display.show_tool_call(
+                    name=self.name,
+                    tool_args=tool_args,
+                    bottom_items=available_tools,
+                    tool_name=tool_name,
+                    highlight_index=highlight_index,
+                    max_item_length=12,
+                )
+
+            async def run_one(
+                correlation_id: str, tool_name: str, tool_args: dict[str, Any]
+            ) -> tuple[str, CallToolResult, float]:
+                start_time = time.perf_counter()
+                result = await self.call_tool(tool_name, tool_args)
+                end_time = time.perf_counter()
+                return correlation_id, result, round((end_time - start_time) * 1000, 2)
+
+            results = await gather_with_cancel(
+                run_one(cid, name, args) for cid, name, args in planned_calls
+            )
+
+            for i, item in enumerate(results):
+                correlation_id, tool_name, _ = planned_calls[i]
+                if isinstance(item, BaseException):
+                    msg = f"Error: {str(item)}"
+                    result = CallToolResult(content=[text_content(msg)], isError=True)
+                    duration_ms = 0.0
+                else:
+                    _, result, duration_ms = item
+
+                tool_results[correlation_id] = result
+                tool_timings[correlation_id] = ToolTimingInfo(
+                    timing_ms=duration_ms,
+                    transport_channel=None,
+                )
+                self.display.show_tool_result(
+                    name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
+                )
+
+            return self._finalize_tool_results(
+                tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+            )
+
+        for correlation_id, tool_name, tool_args in planned_calls:
             # Find the index of the current tool in available_tools for highlighting
             highlight_index = None
             try:
@@ -188,9 +229,13 @@ class ToolAgent(LlmAgent):
                 timing_ms=duration_ms,
                 transport_channel=None,
             )
-            self.display.show_tool_result(name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms)
+            self.display.show_tool_result(
+                name=self.name, result=result, tool_name=tool_name, timing_ms=duration_ms
+            )
 
-        return self._finalize_tool_results(tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error)
+        return self._finalize_tool_results(
+            tool_results, tool_timings=tool_timings, tool_loop_error=tool_loop_error
+        )
 
     def _mark_tool_loop_error(
         self,
@@ -211,7 +256,7 @@ class ToolAgent(LlmAgent):
         self,
         tool_results: dict[str, CallToolResult],
         *,
-        tool_timings: ToolTimings | None = None,
+        tool_timings: dict[str, ToolTimingInfo] | None = None,
         tool_loop_error: str | None = None,
     ) -> PromptMessageExtended:
         import json

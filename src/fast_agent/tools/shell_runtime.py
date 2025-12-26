@@ -14,6 +14,7 @@ from mcp.types import CallToolResult, TextContent, Tool
 
 from fast_agent.ui import console
 from fast_agent.ui.progress_display import progress_display
+from fast_agent.utils.async_utils import gather_with_cancel
 
 
 class ShellRuntime:
@@ -302,7 +303,7 @@ class ShellRuntime:
                 watchdog_task = asyncio.create_task(watchdog())
 
                 # Wait for streams to complete
-                await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+                await gather_with_cancel([stdout_task, stderr_task])
 
                 # Cancel watchdog if still running
                 if watchdog_task and not watchdog_task.done():
