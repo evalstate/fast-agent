@@ -9,7 +9,7 @@ from typing import (
     Union,
 )
 
-from mcp.types import TextContent
+from mcp.types import ListToolsResult, TextContent
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_ERROR_CHANNEL
 from fast_agent.types import PromptMessageExtended, RequestParams
@@ -34,6 +34,8 @@ class _ToolLoopAgent(Protocol):
     ) -> PromptMessageExtended: ...
 
     async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended: ...
+
+    async def list_tools(self) -> ListToolsResult: ...
 
 
 @dataclass(frozen=True)
@@ -67,8 +69,8 @@ class ToolRunner:
         *,
         agent: _ToolLoopAgent,
         messages: list[PromptMessageExtended],
-        request_params: RequestParams | None,
-        tools: list[Tool] | None,
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
         hooks: ToolRunnerHooks | None = None,
     ) -> None:
         self._agent = agent
@@ -94,6 +96,8 @@ class ToolRunner:
         await self._ensure_tool_response_staged()
         if self._done:
             raise StopAsyncIteration
+
+        await self._ensure_tools_ready()
 
         if self._hooks.before_llm_call is not None:
             await self._hooks.before_llm_call(self, self._delta_messages)
@@ -187,6 +191,10 @@ class ToolRunner:
             if self._last_message is not None:
                 self._delta_messages.append(self._last_message)
             self._delta_messages.append(tool_message)
+
+    async def _ensure_tools_ready(self) -> None:
+        if self._tools is None:
+            self._tools = (await self._agent.list_tools()).tools
 
     async def _ensure_tool_response_staged(self) -> None:
         if self._pending_tool_request is None:
