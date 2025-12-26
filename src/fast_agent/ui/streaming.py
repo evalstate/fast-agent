@@ -321,6 +321,8 @@ class StreamingMessageHandle:
         processed = self._wrap_plain_chunk(processed)
         if self._pending_table_row:
             self._buffer.append(self._pending_table_row)
+            if self._has_reasoning:
+                self._styled_buffer.append((self._pending_table_row, False))
             self._pending_table_row = ""
         self._buffer.append(processed)
         if self._has_reasoning:
@@ -627,11 +629,16 @@ class StreamingMessageHandle:
         return self._append_text_in_current_mode(chunk.text)
 
     def _drop_reasoning_stream(self) -> None:
+        if not self._has_reasoning:
+            return
+        if self._styled_buffer:
+            kept = [text for text, is_reasoning in self._styled_buffer if not is_reasoning]
+            rebuilt = "".join(kept)
+            self._buffer = [rebuilt] if rebuilt else []
+        self._styled_buffer.clear()
         self._render_reasoning_stream = False
         self._has_reasoning = False
         self._reasoning_active = False
-        self._styled_buffer.clear()
-        self._buffer.clear()
 
     def _handle_chunk(self, chunk: str) -> bool:
         if not chunk:

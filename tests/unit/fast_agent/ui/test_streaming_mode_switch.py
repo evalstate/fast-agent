@@ -58,13 +58,11 @@ def test_reasoning_stream_switches_back_to_markdown() -> None:
 
         text = "".join(handle._buffer)
         intro_idx = text.find("Intro")
-        thinking_idx = text.find("Thinking")
         answer_idx = text.find("Answer")
         assert intro_idx != -1
-        assert thinking_idx != -1
         assert answer_idx != -1
-        assert "\n" in text[intro_idx + len("Intro") : thinking_idx]
-        assert "\n" in text[thinking_idx + len("Thinking") : answer_idx]
+        assert text.find("Thinking") == -1
+        assert "\n" in text[intro_idx + len("Intro") : answer_idx]
     finally:
         _restore_console_size(original_width, original_height)
 
