@@ -14,6 +14,7 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.interfaces import ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
@@ -57,7 +58,6 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     logger.warning(f"Failed to initialize human-input tool: {e}")
 
         for tool in working_tools:
-            (tool)
             if isinstance(tool, FastMCPTool):
                 fast_tool = tool
             elif callable(tool):
@@ -99,6 +99,8 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         return await runner.until_done()
 
     def _tool_runner_hooks(self) -> ToolRunnerHooks | None:
+        if isinstance(self, ToolRunnerHookCapable):
+            return self.tool_runner_hooks
         return None
 
     async def _tool_runner_llm_step(

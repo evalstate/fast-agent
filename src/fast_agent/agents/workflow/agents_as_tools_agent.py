@@ -639,7 +639,6 @@ class AgentsAsToolsAgent(McpAgent):
 
         call_descriptors: list[dict[str, Any]] = []
         descriptor_by_id: dict[str, dict[str, Any]] = {}
-        tasks: list[asyncio.Task[CallToolResult]] = []
         id_list: list[str] = []
 
         for correlation_id, tool_request in (request.tool_calls or {}).items():

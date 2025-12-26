@@ -280,7 +280,13 @@ class LlmAgent(LlmDecorator):
         Messages are already normalized to List[PromptMessageExtended].
         """
         if "user" == messages[-1].role:
-            self.show_user_message(message=messages[-1])
+            trailing_users: list[PromptMessageExtended] = []
+            for message in reversed(messages):
+                if message.role != "user":
+                    break
+                trailing_users.append(message)
+            for message in reversed(trailing_users):
+                self.show_user_message(message=message)
 
         # TODO - manage error catch, recovery, pause
         summary_text: Text | None = None
@@ -341,7 +347,13 @@ class LlmAgent(LlmDecorator):
         request_params: RequestParams | None = None,
     ) -> Tuple[ModelT | None, PromptMessageExtended]:
         if "user" == messages[-1].role:
-            self.show_user_message(message=messages[-1])
+            trailing_users: list[PromptMessageExtended] = []
+            for message in reversed(messages):
+                if message.role != "user":
+                    break
+                trailing_users.append(message)
+            for message in reversed(trailing_users):
+                self.show_user_message(message=message)
 
         (result, message), summary = await self._structured_with_summary(
             messages, model, request_params
