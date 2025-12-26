@@ -215,7 +215,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                 "text",
                                 {
                                     "chunk": text,
-                                    "streams_arguments": False,
                                 },
                             )
 
@@ -239,7 +238,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "tool_name": name,
                                     "tool_use_id": tool_use_id,
                                     "index": active_tool_index,
-                                    "streams_arguments": False,
                                 },
                             )
                             timeline.append(("tool_call", active_tool_index, ""))
@@ -268,7 +266,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "tool_use_id": stream_info["tool_use_id"],
                                     "index": active_tool_index,
                                     "chunk": delta,
-                                    "streams_arguments": False,
                                 },
                             )
 
@@ -284,7 +281,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                                     "tool_name": stream_info["name"],
                                     "tool_use_id": stream_info["tool_use_id"],
                                     "index": active_tool_index,
-                                    "streams_arguments": False,
                                 },
                             )
                         active_tool_index = None
@@ -305,7 +301,6 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
                         "tool_name": stream_info["name"],
                         "tool_use_id": stream_info["tool_use_id"],
                         "index": active_tool_index,
-                        "streams_arguments": False,
                     },
                 )
 

@@ -83,9 +83,7 @@ class StreamingMessageHandle:
         self._convert_literal_newlines = False
         self._pending_literal_backslashes = ""
         initial_renderable = (
-            Text("", style=self._plain_text_style or "")
-            if self._use_plain_text
-            else Markdown("")
+            Text("", style=self._plain_text_style or "") if self._use_plain_text else Markdown("")
         )
         refresh_rate = (
             PLAIN_STREAM_REFRESH_PER_SECOND
@@ -652,7 +650,9 @@ class StreamingMessageHandle:
     def _build_styled_text(self, text: str) -> Text:
         """Build a Rich Text object with dim/italic styling for reasoning segments."""
         if not self._has_reasoning or not self._styled_buffer:
-            return Text(text, style=self._plain_text_style) if self._plain_text_style else Text(text)
+            return (
+                Text(text, style=self._plain_text_style) if self._plain_text_style else Text(text)
+            )
 
         segments = self._slice_styled_segments(text)
         self._styled_buffer = segments
@@ -815,7 +815,6 @@ class StreamingMessageHandle:
             if not self._active:
                 return
 
-            streams_arguments = info.get("streams_arguments", False) if info else False
             tool_name = info.get("tool_name", "unknown") if info else "unknown"
 
             if event_type == "start":
@@ -823,8 +822,7 @@ class StreamingMessageHandle:
                 self.update(f"→ Calling {tool_name}\n")
                 return
             if event_type == "delta":
-                if streams_arguments and info and "chunk" in info:
-                    self.update(info["chunk"])
+                self.update(info.get("chunk", "") if info else "")
             elif event_type == "stop":
                 self._end_tool_mode()
         except Exception as exc:
@@ -833,7 +831,6 @@ class StreamingMessageHandle:
                 exc_info=True,
                 data={
                     "event_type": event_type,
-                    "streams_arguments": info.get("streams_arguments") if info else None,
                     "error": str(exc),
                 },
             )
