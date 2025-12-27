@@ -180,3 +180,93 @@ def test_huggingface_display_info_user_override():
     info = llm.get_hf_display_info()
     assert info["model"] == "zai-org/GLM-4.6"
     assert info["provider"] == "groq"
+
+
+# ============================================================================
+# Query String Options Tests
+# ============================================================================
+
+
+def test_query_string_single_option():
+    """Test parsing a model string with a single query param option"""
+    config = ModelFactory.parse_model_string("openai.o3?reasoning=high")
+    assert config.provider == Provider.OPENAI
+    assert config.model_name == "o3"
+    assert config.options == {"reasoning": "high"}
+    assert config.reasoning_effort == ReasoningEffort.HIGH
+
+
+def test_query_string_multiple_options():
+    """Test parsing a model string with multiple query param options"""
+    config = ModelFactory.parse_model_string("claude-sonnet-4-5?thinking=true&budget=50000")
+    assert config.provider == Provider.ANTHROPIC
+    assert config.model_name == "claude-sonnet-4-5"
+    assert config.options == {"thinking": "true", "budget": "50000"}
+
+
+def test_query_string_with_downstream_provider():
+    """Test parsing query params with downstream provider suffix"""
+    config = ModelFactory.parse_model_string("kimi:groq?verbose=true", aliases=TEST_ALIASES)
+    assert config.provider == Provider.HUGGINGFACE
+    assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905:groq"
+    assert config.options == {"verbose": "true"}
+
+
+def test_query_string_boolean_flag():
+    """Test parsing bare boolean flags in query string (e.g., ?streaming)"""
+    config = ModelFactory.parse_model_string("gpt-4.1?streaming")
+    assert config.provider == Provider.OPENAI
+    assert config.model_name == "gpt-4.1"
+    assert config.options == {"streaming": "true"}
+
+
+def test_query_string_empty_value():
+    """Test parsing query param with empty value"""
+    config = ModelFactory.parse_model_string("gpt-4.1?foo=")
+    assert config.provider == Provider.OPENAI
+    assert config.options == {"foo": ""}
+
+
+def test_legacy_reasoning_format_still_works():
+    """Test that legacy .reasoning format still works and populates options"""
+    config = ModelFactory.parse_model_string("openai.o3.high")
+    assert config.provider == Provider.OPENAI
+    assert config.model_name == "o3"
+    assert config.reasoning_effort == ReasoningEffort.HIGH
+    # Legacy format should populate options dict
+    assert config.options == {"reasoning": "high"}
+
+
+def test_query_string_reasoning_overrides_legacy():
+    """Test that query string ?reasoning= takes precedence over legacy .reasoning suffix"""
+    # This is an edge case - user specifies both (shouldn't happen, but let's define behavior)
+    config = ModelFactory.parse_model_string("openai.o3.low?reasoning=high")
+    assert config.provider == Provider.OPENAI
+    # When ?reasoning= is present, legacy suffix is not treated as reasoning
+    # so model_name includes "o3.low" but then the EFFORT_MAP check happens after...
+    # Actually, let's check - the query string is extracted first, then the parts are split
+    # Since ?reasoning=high is present, the legacy check is skipped
+    assert config.options == {"reasoning": "high"}
+    assert config.reasoning_effort == ReasoningEffort.HIGH
+
+
+def test_options_property_with_various_values():
+    """Test the reasoning_effort property with various option values"""
+    cases = [
+        ("gpt-4.1?reasoning=minimal", ReasoningEffort.MINIMAL),
+        ("gpt-4.1?reasoning=low", ReasoningEffort.LOW),
+        ("gpt-4.1?reasoning=medium", ReasoningEffort.MEDIUM),
+        ("gpt-4.1?reasoning=high", ReasoningEffort.HIGH),
+        ("gpt-4.1?reasoning=invalid", None),  # Invalid value returns None
+        ("gpt-4.1?other=value", None),  # No reasoning option
+    ]
+    for model_str, expected_effort in cases:
+        config = ModelFactory.parse_model_string(model_str)
+        assert config.reasoning_effort == expected_effort, f"Failed for {model_str}"
+
+
+def test_options_dict_is_empty_by_default():
+    """Test that options dict is empty when no options provided"""
+    config = ModelFactory.parse_model_string("gpt-4.1")
+    assert config.options == {}
+    assert config.reasoning_effort is None

@@ -30,7 +30,19 @@ class ModelConfig(BaseModel):
 
     provider: Provider
     model_name: str
-    reasoning_effort: ReasoningEffort | None = None
+    options: dict[str, str] = {}
+    """
+    Model options parsed from query string (e.g., ?reasoning=high&budget=10000).
+    Options are passed through to the LLM provider.
+    """
+
+    @property
+    def reasoning_effort(self) -> ReasoningEffort | None:
+        """Get reasoning effort from options for backward compatibility."""
+        reasoning = self.options.get("reasoning")
+        if reasoning and reasoning.lower() in ("minimal", "low", "medium", "high"):
+            return ReasoningEffort(reasoning.lower())
+        return None
 
 
 class ModelFactory:
@@ -176,30 +188,71 @@ class ModelFactory:
     }
 
     @classmethod
+    def _parse_options(cls, query_string: str) -> dict[str, str]:
+        """Parse URL-style query string into options dict.
+
+        Args:
+            query_string: Query string without leading '?' (e.g., "reasoning=high&budget=10000")
+
+        Returns:
+            Dict of option name to value
+        """
+        options: dict[str, str] = {}
+        if not query_string:
+            return options
+
+        for pair in query_string.split("&"):
+            if "=" in pair:
+                key, value = pair.split("=", 1)
+                if key:
+                    options[key.strip()] = value.strip()
+            elif pair.strip():
+                # Handle bare options like "?streaming" as boolean flags
+                options[pair.strip()] = "true"
+
+        return options
+
+    @classmethod
     def parse_model_string(
         cls, model_string: str, aliases: dict[str, str] | None = None
     ) -> ModelConfig:
         """Parse a model string into a ModelConfig object
 
+        Supports two formats:
+        - New format: provider.model[:downstream]?option1=value1&option2=value2
+        - Legacy format: provider.model.reasoning_effort[:downstream]
+
         Args:
-            model_string: The model specification string (e.g. "gpt-4.1", "kimi:groq")
+            model_string: The model specification string (e.g. "gpt-4.1", "kimi:groq",
+                          "openai.o3?reasoning=high", "sonnet?budget=10000")
             aliases: Optional custom aliases map. Defaults to MODEL_ALIASES.
         """
         if aliases is None:
             aliases = cls.MODEL_ALIASES
 
+        options: dict[str, str] = {}
+
+        # Step 1: Extract query string options (e.g., ?reasoning=high&budget=10000)
+        if "?" in model_string:
+            model_string, query_string = model_string.split("?", 1)
+            options = cls._parse_options(query_string)
+
+        # Step 2: Extract downstream provider suffix (e.g., :groq)
         suffix: str | None = None
         if ":" in model_string:
             base, suffix = model_string.rsplit(":", 1)
             if base:
                 model_string = base
 
+        # Step 3: Resolve aliases
         model_string = aliases.get(model_string, model_string)
 
         # If user provided a suffix (e.g., kimi:groq), strip any existing suffix
         # from the resolved alias (e.g., hf.model:cerebras -> hf.model)
         if suffix and ":" in model_string:
             model_string = model_string.rsplit(":", 1)[0]
+
+        # Step 4: Handle provider override via slash notation (e.g., openai/gpt-4.1)
         provider_override: Provider | None = None
         if "/" in model_string:
             prefix, rest = model_string.split("/", 1)
@@ -211,18 +264,19 @@ class ModelFactory:
 
         model_name_str = model_string  # Default full string as model name initially
         provider: Provider | None = provider_override
-        reasoning_effort = None
         parts_for_provider_model = []
 
-        # Check for reasoning effort first (last part)
-        if len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
-            reasoning_effort = cls.EFFORT_MAP[parts[-1].lower()]
+        # Step 5: Check for legacy reasoning effort suffix (e.g., .high, .low)
+        # Only if no ?reasoning= option was provided
+        if "reasoning" not in options and len(parts) > 1 and parts[-1].lower() in cls.EFFORT_MAP:
+            # Convert legacy format to options
+            options["reasoning"] = parts[-1].lower()
             # Remove effort from parts list for provider/model name determination
             parts_for_provider_model = parts[:-1]
         else:
             parts_for_provider_model = parts[:]
 
-        # Try to match longest possible provider string
+        # Step 6: Try to match longest possible provider string
         identified_provider_parts = 0  # How many parts belong to the provider string
 
         if provider is None and len(parts_for_provider_model) >= 2:
@@ -237,14 +291,14 @@ class ModelFactory:
                 provider = Provider(potential_provider_str)
                 identified_provider_parts = 1
 
-        # Construct model_name from remaining parts
+        # Step 7: Construct model_name from remaining parts
         if identified_provider_parts > 0:
             model_name_str = ".".join(parts_for_provider_model[identified_provider_parts:])
         else:
             # If no provider prefix was matched, the whole string (after effort removal) is the model name
             model_name_str = ".".join(parts_for_provider_model)
 
-        # If provider still None, try to get from DEFAULT_PROVIDERS using the model_name_str
+        # Step 8: If provider still None, try to get from DEFAULT_PROVIDERS using the model_name_str
         if provider is None:
             provider = cls.DEFAULT_PROVIDERS.get(model_name_str)
 
@@ -263,11 +317,12 @@ class ModelFactory:
                 f"(e.g., tensorzero.my-function), got: {model_string}"
             )
 
+        # Step 9: Append downstream provider suffix to model name
         if suffix:
             model_name_str = f"{model_name_str}:{suffix}"
 
         return ModelConfig(
-            provider=provider, model_name=model_name_str, reasoning_effort=reasoning_effort
+            provider=provider, model_name=model_name_str, options=options
         )
 
     @classmethod
@@ -303,8 +358,16 @@ class ModelFactory:
         ) -> FastAgentLLMProtocol:
             base_params = RequestParams()
             base_params.model = config.model_name
+
+            # Pass all options from model string to LLM
+            # Options are passed as model_options dict and individual common options
+            if config.options:
+                kwargs["model_options"] = config.options
+
+            # Backward compatibility: pass reasoning_effort as separate kwarg
             if config.reasoning_effort:
                 kwargs["reasoning_effort"] = config.reasoning_effort.value
+
             llm_args = {
                 "model": config.model_name,
                 "request_params": request_params,

@@ -34,6 +34,13 @@ class ModelParameters(BaseModel):
     system_role: None | str = "system"
     """Role to use for the System Prompt"""
 
+    known_options: list[str] = []
+    """
+    List of known model options that can be passed via query string.
+    Examples: ["reasoning", "budget", "verbosity", "thinking"]
+    Used for validation when strict_options is enabled.
+    """
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -89,6 +96,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_VISION,
         reasoning="openai",
+        known_options=["reasoning"],
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
@@ -135,6 +143,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        known_options=["reasoning"],
     )
 
     OPENAI_O3_MINI_SERIES = ModelParameters(
@@ -142,6 +151,7 @@ class ModelDatabase:
         max_output_tokens=100000,
         tokenizes=TEXT_ONLY,
         reasoning="openai",
+        known_options=["reasoning"],
     )
     OPENAI_GPT_OSS_SERIES = ModelParameters(
         context_window=131072,
@@ -155,6 +165,7 @@ class ModelDatabase:
         max_output_tokens=128000,
         tokenizes=OPENAI_MULTIMODAL,
         reasoning="openai",
+        known_options=["reasoning"],
     )
 
     ANTHROPIC_OPUS_4_VERSIONED = ModelParameters(
@@ -162,12 +173,14 @@ class ModelDatabase:
         max_output_tokens=32000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        known_options=["thinking", "budget"],
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
         max_output_tokens=64000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        known_options=["thinking", "budget"],
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
     ANTHROPIC_37_SERIES_THINKING = ModelParameters(
@@ -175,6 +188,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        known_options=["thinking", "budget"],
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -535,3 +549,44 @@ class ModelDatabase:
     def list_models(cls) -> list[str]:
         """List all available model names"""
         return list(cls.MODELS.keys())
+
+    @classmethod
+    def get_known_options(cls, model: str) -> list[str]:
+        """Get the list of known/valid options for a model.
+
+        Returns an empty list if the model is not in the database or has no known options.
+        """
+        params = cls.get_model_params(model)
+        return params.known_options if params else []
+
+    @classmethod
+    def validate_options(
+        cls, model: str, options: dict[str, str], strict: bool = True
+    ) -> tuple[bool, list[str]]:
+        """Validate options against known options for a model.
+
+        Args:
+            model: The model name to validate against
+            options: Dict of option names to values
+            strict: If True, unknown options are considered errors.
+                    If False, unknown options are allowed (passthrough).
+
+        Returns:
+            Tuple of (is_valid, list of unknown option names)
+        """
+        if not options:
+            return True, []
+
+        known = cls.get_known_options(model)
+        if not known:
+            # Model not in database or has no known options defined
+            # In strict mode, all options are unknown; in non-strict, allow all
+            if strict and options:
+                return False, list(options.keys())
+            return True, []
+
+        unknown = [opt for opt in options if opt not in known]
+        if strict and unknown:
+            return False, unknown
+
+        return True, unknown
