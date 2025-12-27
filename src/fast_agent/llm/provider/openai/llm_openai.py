@@ -113,9 +113,16 @@ class OpenAILLM(FastAgentLLM[ChatCompletionMessageParam, ChatCompletionMessage])
         # Initialize logger with name if available
         self.logger = get_logger(f"{__name__}.{self.name}" if self.name else __name__)
 
-        # Set up reasoning-related attributes
+        # Set up reasoning-related attributes with priority:
+        # 1. Model string options (e.g., ?reasoning=high)
+        # 2. Legacy kwarg (reasoning_effort)
+        # 3. Config file setting
         self._reasoning_effort = kwargs.get("reasoning_effort", None)
-        if self.context and self.context.config and self.context.config.openai:
+
+        # Check model options first (highest priority)
+        if self.model_options and self.model_options.reasoning:
+            self._reasoning_effort = self.model_options.reasoning
+        elif self.context and self.context.config and self.context.config.openai:
             if self._reasoning_effort is None and hasattr(
                 self.context.config.openai, "reasoning_effort"
             ):

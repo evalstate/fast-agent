@@ -142,17 +142,41 @@ class AnthropicLLM(FastAgentLLM[MessageParam, Message]):
         return cache_mode
 
     def _is_thinking_enabled(self, model: str) -> bool:
-        """Check if extended thinking should be enabled for this request."""
+        """Check if extended thinking should be enabled for this request.
+
+        Priority:
+        1. Model string options (e.g., ?thinking=on or ?thinking=off)
+        2. Config file setting (anthropic.thinking_enabled)
+        """
         from fast_agent.llm.model_database import ModelDatabase
 
         if ModelDatabase.get_reasoning(model) != "anthropic_thinking":
             return False
+
+        # Check model options first (highest priority)
+        if self.model_options:
+            thinking_opt = self.model_options.is_thinking_enabled()
+            if thinking_opt is not None:
+                return thinking_opt
+
+        # Fall back to config file setting
         if self.context.config and self.context.config.anthropic:
             return self.context.config.anthropic.thinking_enabled
         return False
 
     def _get_thinking_budget(self) -> int:
-        """Get the thinking budget tokens (minimum 1024)."""
+        """Get the thinking budget tokens (minimum 1024).
+
+        Priority:
+        1. Model string options (e.g., ?thinking_budget=20000)
+        2. Config file setting (anthropic.thinking_budget_tokens)
+        3. Default: 10000
+        """
+        # Check model options first (highest priority)
+        if self.model_options and self.model_options.thinking_budget is not None:
+            return max(1024, self.model_options.thinking_budget)
+
+        # Fall back to config file setting
         if self.context.config and self.context.config.anthropic:
             budget = getattr(self.context.config.anthropic, "thinking_budget_tokens", 10000)
             return max(1024, budget)

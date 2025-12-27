@@ -57,6 +57,7 @@ MessageT = TypeVar("MessageT")
 # Forward reference for type annotations
 if TYPE_CHECKING:
     from fast_agent.context import Context
+    from fast_agent.llm.model_factory import ModelOptions
 
 
 # Context variable for storing MCP metadata
@@ -117,6 +118,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         context: Union["Context", None] = None,
         model: str | None = None,
         api_key: str | None = None,
+        model_options: "ModelOptions | None" = None,
         **kwargs: Any,
     ) -> None:
         """
@@ -128,6 +130,7 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
             request_params: RequestParams to configure LLM behaviour
             context: Application context
             model: Optional model name override
+            model_options: Optional ModelOptions from model string parsing
             **kwargs: Additional provider-specific parameters
         """
         # Extract request_params before super() call
@@ -138,6 +141,8 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
         self.name: str = name or "fast-agent"
         self.instruction = instruction
         self._provider = provider
+        # Store model options parsed from model string (e.g., ?reasoning=high&thinking=on)
+        self._model_options = model_options
         # memory contains provider specific API types.
         self.history: Memory[MessageParamT] = SimpleMemory[MessageParamT]()
 
@@ -925,6 +930,11 @@ class FastAgentLLM(ContextDependent, FastAgentLLMProtocol, Generic[MessageParamT
     def model_name(self) -> str | None:
         """Return the effective model name, if set."""
         return self._model_name
+
+    @property
+    def model_options(self) -> "ModelOptions | None":
+        """Return the model options parsed from the model string."""
+        return self._model_options
 
     @property
     def model_info(self):

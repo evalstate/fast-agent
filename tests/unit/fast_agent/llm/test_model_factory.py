@@ -5,6 +5,7 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.exceptions import ModelConfigError
 from fast_agent.llm.model_factory import (
     ModelFactory,
+    ModelOptions,
     Provider,
     ReasoningEffort,
 )
@@ -21,6 +22,146 @@ TEST_ALIASES = {
     "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
     "minimax": "hf.MiniMaxAI/MiniMax-M2",  # No default provider
 }
+
+
+# ============================================================================
+# Tests for new query-string style options
+# ============================================================================
+
+
+class TestModelOptions:
+    """Tests for ModelOptions parsing from query strings."""
+
+    def test_empty_query_string(self):
+        """Test parsing empty query string."""
+        opts = ModelOptions.from_query_string("")
+        assert opts.reasoning is None
+        assert opts.thinking is None
+        assert opts.thinking_budget is None
+        assert opts.extra == {}
+
+    def test_reasoning_option(self):
+        """Test parsing reasoning option."""
+        opts = ModelOptions.from_query_string("reasoning=high")
+        assert opts.reasoning == "high"
+        assert opts.get_reasoning_effort() == ReasoningEffort.HIGH
+
+    def test_reasoning_option_low(self):
+        """Test parsing reasoning=low option."""
+        opts = ModelOptions.from_query_string("reasoning=low")
+        assert opts.reasoning == "low"
+        assert opts.get_reasoning_effort() == ReasoningEffort.LOW
+
+    def test_thinking_enabled(self):
+        """Test parsing thinking=on option."""
+        opts = ModelOptions.from_query_string("thinking=on")
+        assert opts.thinking == "on"
+        assert opts.is_thinking_enabled() is True
+
+    def test_thinking_disabled(self):
+        """Test parsing thinking=off option."""
+        opts = ModelOptions.from_query_string("thinking=off")
+        assert opts.thinking == "off"
+        assert opts.is_thinking_enabled() is False
+
+    def test_thinking_budget(self):
+        """Test parsing thinking_budget option."""
+        opts = ModelOptions.from_query_string("thinking_budget=20000")
+        assert opts.thinking_budget == 20000
+
+    def test_invalid_thinking_budget(self):
+        """Test parsing invalid thinking_budget raises error."""
+        with pytest.raises(ModelConfigError):
+            ModelOptions.from_query_string("thinking_budget=invalid")
+
+    def test_multiple_options(self):
+        """Test parsing multiple options."""
+        opts = ModelOptions.from_query_string("reasoning=high&thinking=on&thinking_budget=15000")
+        assert opts.reasoning == "high"
+        assert opts.thinking == "on"
+        assert opts.thinking_budget == 15000
+
+    def test_unknown_option_stored_in_extra(self):
+        """Test that unknown options are stored in extra dict."""
+        opts = ModelOptions.from_query_string("reasoning=high&verbosity=verbose&custom_opt=value")
+        assert opts.reasoning == "high"
+        assert opts.extra["verbosity"] == "verbose"
+        assert opts.extra["custom_opt"] == "value"
+
+    def test_strict_option_false(self):
+        """Test parsing strict=false option."""
+        opts = ModelOptions.from_query_string("strict=false")
+        assert opts.strict is False
+
+    def test_case_insensitive_keys(self):
+        """Test that option keys are case-insensitive."""
+        opts = ModelOptions.from_query_string("REASONING=high&Thinking=ON")
+        assert opts.reasoning == "high"
+        assert opts.thinking == "on"
+
+
+class TestModelStringWithOptions:
+    """Tests for parsing model strings with query-string options."""
+
+    def test_simple_model_with_reasoning_option(self):
+        """Test parsing model with reasoning option."""
+        config = ModelFactory.parse_model_string("o1?reasoning=high")
+        assert config.provider == Provider.OPENAI
+        assert config.model_name == "o1"
+        assert config.reasoning_effort == ReasoningEffort.HIGH
+        assert config.options.reasoning == "high"
+
+    def test_provider_model_with_reasoning_option(self):
+        """Test parsing provider.model with reasoning option."""
+        config = ModelFactory.parse_model_string("openai.o1?reasoning=medium")
+        assert config.provider == Provider.OPENAI
+        assert config.model_name == "o1"
+        assert config.reasoning_effort == ReasoningEffort.MEDIUM
+        assert config.options.reasoning == "medium"
+
+    def test_model_with_thinking_option(self):
+        """Test parsing model with thinking option."""
+        config = ModelFactory.parse_model_string("claude-opus-4-5?thinking=on")
+        assert config.provider == Provider.ANTHROPIC
+        assert config.model_name == "claude-opus-4-5"
+        assert config.options.thinking == "on"
+        assert config.options.is_thinking_enabled() is True
+
+    def test_model_with_thinking_budget(self):
+        """Test parsing model with thinking_budget option."""
+        config = ModelFactory.parse_model_string("claude-opus-4-5?thinking=on&thinking_budget=25000")
+        assert config.provider == Provider.ANTHROPIC
+        assert config.options.thinking == "on"
+        assert config.options.thinking_budget == 25000
+
+    def test_huggingface_model_with_provider_suffix_and_options(self):
+        """Test HuggingFace model with provider suffix and options."""
+        config = ModelFactory.parse_model_string("kimi:groq?strict=false", aliases=TEST_ALIASES)
+        assert config.provider == Provider.HUGGINGFACE
+        assert config.model_name == "moonshotai/Kimi-K2-Instruct-0905:groq"
+        assert config.options.strict is False
+
+    def test_legacy_reasoning_suffix_still_works(self):
+        """Test that legacy .high suffix still works for backward compatibility."""
+        config = ModelFactory.parse_model_string("openai.o1.high")
+        assert config.provider == Provider.OPENAI
+        assert config.model_name == "o1"
+        assert config.reasoning_effort == ReasoningEffort.HIGH
+        # Options should be populated with reasoning for consistency
+        assert config.options.reasoning == "high"
+
+    def test_options_override_legacy_suffix(self):
+        """Test that ?reasoning=X overrides .X legacy suffix."""
+        # Legacy suffix says medium, but option says high
+        config = ModelFactory.parse_model_string("openai.o1.medium?reasoning=high")
+        assert config.reasoning_effort == ReasoningEffort.HIGH  # Options take precedence
+
+    def test_model_with_downstream_provider_and_options(self):
+        """Test model with downstream provider suffix and options."""
+        config = ModelFactory.parse_model_string("hf.moonshotai/kimi-k2:groq?strict=false")
+        assert config.provider == Provider.HUGGINGFACE
+        assert config.model_name == "moonshotai/kimi-k2:groq"
+        assert config.options.strict is False
 
 
 def test_simple_model_names():
