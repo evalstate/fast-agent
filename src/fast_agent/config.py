@@ -39,7 +39,34 @@ class MCPServerAuthSettings(BaseModel):
     # Token persistence: use OS keychain via 'keyring' by default; fallback to 'memory'.
     persist: Literal["keyring", "memory"] = "keyring"
 
+    # Client ID Metadata Document (CIMD) URL.
+    # When provided and the server advertises client_id_metadata_document_supported=true,
+    # this URL will be used as the client_id instead of performing dynamic client registration.
+    # Must be a valid HTTPS URL with a non-root pathname (e.g., https://example.com/client.json).
+    # See: https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization
+    client_metadata_url: str | None = None
+
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+    @field_validator("client_metadata_url", mode="after")
+    @classmethod
+    def _validate_client_metadata_url(cls, v: str | None) -> str | None:
+        """Validate that client_metadata_url is a valid HTTPS URL with a non-root path."""
+        if v is None:
+            return None
+        from urllib.parse import urlparse
+
+        try:
+            parsed = urlparse(v)
+            if parsed.scheme != "https":
+                raise ValueError("client_metadata_url must use HTTPS scheme")
+            if parsed.path in ("", "/"):
+                raise ValueError("client_metadata_url must have a non-root pathname")
+            return v
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError(f"Invalid client_metadata_url: {e}")
 
 
 class MCPSamplingSettings(BaseModel):

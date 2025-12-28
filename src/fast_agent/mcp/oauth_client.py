@@ -417,6 +417,7 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
     redirect_path = "/callback"
     scope_value: str | None = None
     persist_mode: str = "keyring"
+    client_metadata_url: str | None = None
 
     if server_config.auth is not None:
         try:
@@ -425,6 +426,7 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
             redirect_path = getattr(server_config.auth, "redirect_path", "/callback")
             scope_field = getattr(server_config.auth, "scope", None)
             persist_mode = getattr(server_config.auth, "persist", "keyring")
+            client_metadata_url = getattr(server_config.auth, "client_metadata_url", None)
             if isinstance(scope_field, list):
                 scope_value = " ".join(scope_field)
             elif isinstance(scope_field, str):
@@ -504,6 +506,7 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
         storage=storage,
         redirect_handler=_redirect_handler,
         callback_handler=_callback_handler,
+        client_metadata_url=client_metadata_url,
     )
 
     return provider
