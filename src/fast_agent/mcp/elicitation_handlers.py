@@ -36,7 +36,10 @@ async def forms_elicitation_handler(
     context: RequestContext["ClientSession", Any], params: ElicitRequestParams
 ) -> ElicitResult:
     """
-    Interactive forms-based elicitation handler using enhanced input handler.
+    Combined elicitation handler supporting both form and URL modes.
+
+    For form mode: Uses interactive forms-based UI for data collection.
+    For URL mode: Displays the URL inline for out-of-band user interaction.
     """
     logger.info(f"Eliciting response for params: {params}")
 
@@ -60,7 +63,35 @@ async def forms_elicitation_handler(
     if not agent_name:
         agent_name = "Unknown Agent"
 
-    # Create human input request
+    # Detect URL mode - params will have 'url' attribute for ElicitRequestURLParams
+    url_value = getattr(params, "url", None)
+    if url_value:
+        # URL elicitation - display URL and return accept
+        # The user interaction happens out-of-band (in browser, etc.)
+        url: str = str(url_value)  # Ensure it's a string
+        message = params.message
+        elicitation_id = getattr(params, "elicitationId", None)
+
+        logger.info(
+            f"URL elicitation from {server_name}: {url} (elicitationId={elicitation_id})"
+        )
+
+        # Display the URL to the user
+        from fast_agent.ui.console_display import ConsoleDisplay
+
+        display = ConsoleDisplay()
+        display.show_url_elicitation(
+            message=message,
+            url=url,
+            server_name=server_name or "Unknown Server",
+            agent_name=agent_name,
+        )
+
+        # Per MCP spec: return accept to indicate user has been shown the URL
+        # The actual interaction (OAuth, payment, etc.) happens out-of-band
+        return ElicitResult(action="accept")
+
+    # Form mode - use interactive form UI
     # Note: requestedSchema is only present on ElicitRequestFormParams, not ElicitRequestURLParams
     requested_schema = getattr(params, "requestedSchema", None)
     request = HumanInputRequest(

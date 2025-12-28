@@ -33,3 +33,10 @@ mcp:
       args: ["run", "elicitation_game_server.py"]
       elicitation:
         mode: "forms"
+
+    # URL elicitation server - for out-of-band interactions (OAuth, payments, etc.)
+    url_elicitation_server:
+      command: "uv"
+      args: ["run", "url_elicitation_server.py"]
+      elicitation:
+        mode: "forms" # Combined handler supports both form and URL modes
