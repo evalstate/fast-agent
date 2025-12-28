@@ -832,6 +832,51 @@ class ConsoleDisplay:
         console.console.print()
         console.console.print(content, markup=self._markup)
 
+    def show_url_elicitation(
+        self, message: str, url: str, server_name: str, agent_name: str | None = None
+    ) -> None:
+        """Display URL elicitation request with clickable link.
+
+        Compact format similar to mermaid diagram links, while maintaining
+        security visibility (server name, domain, full URL).
+
+        Args:
+            message: The server's message explaining why navigation is needed
+            url: The URL the server wants the user to navigate to
+            server_name: Name of the MCP server making the request
+            agent_name: Optional name of the agent (for future use)
+        """
+        if self.config and not self.config.logger.show_chat:
+            return
+
+        from urllib.parse import urlparse
+
+        # Extract domain for security display
+        parsed = urlparse(url)
+        domain = parsed.netloc or url  # Fallback to full URL if no domain
+
+        # Line 1: bullet + type + [server] + message (all inline)
+        header = Text()
+        header.append("● ", style="dim")
+        header.append("url-elicitation ", style="dim")
+        header.append(f"[{server_name}] ", style="cyan")
+        header.append(message, style="default")
+        console.console.print(header, markup=self._markup)
+
+        # Line 2: domain (highlighted) + full URL (dim)
+        url_line = Text()
+        url_line.append("  ", style="dim")
+        url_line.append(domain, style="yellow bold")
+        url_line.append(" → ", style="dim")
+        url_line.append(url, style="dim")
+        console.console.print(url_line, markup=self._markup)
+
+        # Line 3: clickable link
+        link_line = Text()
+        link_line.append("  ", style="dim")
+        link_line.append("Open URL", style=f"bright_blue link {url}")
+        console.console.print(link_line, markup=self._markup)
+
     def show_user_message(
         self,
         message: Union[str, Text],
