@@ -417,6 +417,7 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
     redirect_path = "/callback"
     scope_value: str | None = None
     persist_mode: str = "keyring"
+    client_id: str | None = None
 
     if server_config.auth is not None:
         try:
@@ -425,6 +426,7 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
             redirect_path = getattr(server_config.auth, "redirect_path", "/callback")
             scope_field = getattr(server_config.auth, "scope", None)
             persist_mode = getattr(server_config.auth, "persist", "keyring")
+            client_id = getattr(server_config.auth, "client_id", None)
             if isinstance(scope_field, list):
                 scope_value = " ".join(scope_field)
             elif isinstance(scope_field, str):
@@ -498,12 +500,21 @@ def build_oauth_provider(server_config: MCPServerSettings) -> OAuthClientProvide
     else:
         storage = InMemoryTokenStorage()
 
-    provider = OAuthClientProvider(
-        server_url=base_url,
-        client_metadata=client_metadata,
-        storage=storage,
-        redirect_handler=_redirect_handler,
-        callback_handler=_callback_handler,
-    )
+    # Build provider kwargs, optionally including client_metadata_url for CIMD
+    provider_kwargs: dict[str, Any] = {
+        "server_url": base_url,
+        "client_metadata": client_metadata,
+        "storage": storage,
+        "redirect_handler": _redirect_handler,
+        "callback_handler": _callback_handler,
+    }
+
+    # If a client_id URL is provided (Client ID Metadata Document), pass it to the provider
+    # The authorization server will fetch this URL to retrieve client metadata
+    if client_id:
+        provider_kwargs["client_metadata_url"] = client_id
+        logger.info(f"Using CIMD client_id: {client_id}")
+
+    provider = OAuthClientProvider(**provider_kwargs)
 
     return provider

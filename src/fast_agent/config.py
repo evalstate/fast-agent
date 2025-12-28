@@ -29,6 +29,13 @@ class MCPServerAuthSettings(BaseModel):
     # the system will assume OAuth is enabled by default.
     oauth: bool = True
 
+    # Client ID Metadata Document URL (CIMD).
+    # When provided, this HTTPS URL serves as the client_id and points to a JSON document
+    # containing OAuth client metadata. The authorization server will fetch this URL
+    # to retrieve client information. See:
+    # https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#client-id-metadata-documents
+    client_id: str | None = None
+
     # Local callback server configuration
     redirect_port: int = 3030
     redirect_path: str = "/callback"
