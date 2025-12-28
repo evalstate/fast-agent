@@ -3,7 +3,6 @@ Direct factory functions for creating agent and workflow instances without proxi
 Implements type-safe factories with improved error handling.
 """
 
-import os
 from functools import partial
 from typing import Any, Protocol, TypeVar, cast
 
@@ -18,8 +17,9 @@ from fast_agent.agents.workflow.iterative_planner import IterativePlanner
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.core import Core
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.model_resolution import resolve_model_spec
 from fast_agent.core.validation import get_dependencies_groups
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
@@ -113,25 +113,23 @@ def get_model_factory(
     Returns:
         ModelFactory instance for the specified or default model
     """
-    # Hardcoded default has lowest precedence
-    model_spec = HARDCODED_DEFAULT_MODEL
-
-    # Environment variable has next precedence
-    env_model = os.getenv("FAST_AGENT_MODEL")
-    if env_model:
-        model_spec = env_model
-
-    # Config has next precedence
-    if default_model or context.config.default_model:
-        model_spec = default_model or context.config.default_model
-
-    # Command line override has next precedence
-    if cli_model:
-        model_spec = cli_model
-
-    # Model from decorator has highest precedence
-    if model:
-        model_spec = model
+    model_spec, source = resolve_model_spec(
+        context,
+        model=model,
+        default_model=default_model,
+        cli_model=cli_model,
+        hardcoded_default=HARDCODED_DEFAULT_MODEL,
+    )
+    if model_spec is None:
+        raise ModelConfigError(
+            "No model configured",
+            "Set --model, FAST_AGENT_MODEL, or default_model in config.",
+        )
+    logger.info(
+        f"Resolved model '{model_spec}' via {source}",
+        model=model_spec,
+        source=source,
+    )
 
     # Update or create request_params with the final model choice
     if request_params:
@@ -159,12 +157,15 @@ def get_default_model_source(
     if cli_model:
         return None
 
-    # Check if config file has a default model
-    if config_default_model:
+    _, source = resolve_model_spec(
+        context=None,
+        default_model=config_default_model,
+        cli_model=None,
+        fallback_to_hardcoded=False,
+    )
+    if source == "config file":
         return "config file"
-
-    # Check if environment variable is set
-    if os.getenv("FAST_AGENT_MODEL"):
+    if source and source.startswith("environment variable"):
         return "environment variable"
 
     return None

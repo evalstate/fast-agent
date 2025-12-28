@@ -1,0 +1,16 @@
+default_model: passthrough
+
+logger:
+  level: "error"
+  type: "file"
+  progress_display: false
+  show_chat: false
+  show_tools: false
+
+mcp:
+  servers:
+    sampling_tools_test:
+      command: "uv"
+      args: ["run", "sampling_tools_test_server.py"]
+      sampling:
+        model: "passthrough"

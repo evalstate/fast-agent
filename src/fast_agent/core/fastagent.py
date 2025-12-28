@@ -585,6 +585,7 @@ class FastAgent:
         )
         if config:
             config.model_source = model_source  # type: ignore[attr-defined]
+            config.cli_model_override = cli_model_override  # type: ignore[attr-defined]
 
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span(self.name):

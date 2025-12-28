@@ -1,12 +1,18 @@
 """
 This simplified implementation directly converts between MCP types and PromptMessageExtended.
+Supports "sampling with tools" as per MCP specification.
 """
 
 from typing import TYPE_CHECKING, Any
 
 from mcp import ClientSession
 from mcp.shared.context import RequestContext
-from mcp.types import CreateMessageRequestParams, CreateMessageResult, TextContent
+from mcp.types import (
+    CreateMessageRequestParams,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
+    TextContent,
+)
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -63,22 +69,28 @@ def create_sampling_llm(
 
 async def sample(
     context: RequestContext[ClientSession, Any], params: CreateMessageRequestParams
-) -> CreateMessageResult:
+) -> CreateMessageResult | CreateMessageResultWithTools:
     """
     Handle sampling requests from the MCP protocol using SamplingConverter.
 
     This function:
     1. Extracts the model from the request
     2. Uses SamplingConverter to convert types
-    3. Calls the LLM's generate_prompt method
-    4. Returns the result as a CreateMessageResult
+    3. Calls the LLM's generate method (with tools if provided)
+    4. Returns the result as CreateMessageResult or CreateMessageResultWithTools
+
+    Supports "sampling with tools" per MCP specification. When tools are provided
+    and the LLM wants to use them, returns CreateMessageResultWithTools with
+    stopReason="toolUse". The MCP server is responsible for executing tools
+    and sending follow-up requests with tool results.
 
     Args:
         context: The MCP RequestContext containing the ClientSession
-        params: The sampling request parameters
+        params: The sampling request parameters (may include tools and toolChoice)
 
     Returns:
-        A CreateMessageResult containing the LLM's response
+        CreateMessageResult for final answers, or
+        CreateMessageResultWithTools when the LLM wants to use tools
     """
     # Get server name for notification tracking
     server_name: str = getattr(context.session, "session_server_name", None) or "unknown"
@@ -86,6 +98,7 @@ async def sample(
     # Start tracking sampling operation
     try:
         from fast_agent.ui import notification_tracker
+
         notification_tracker.start_sampling(server_name)
     except Exception:
         # Don't let notification tracking break sampling
@@ -155,9 +168,32 @@ async def sample(
         # Extract request parameters using our converter
         request_params = SamplingConverter.extract_request_params(params)
 
-        llm_response: PromptMessageExtended = await llm.generate(conversation, request_params)
-        logger.info(f"Complete sampling request : {llm_response.first_text()[:50]}...")
+        # Check if tools are provided in the request
+        tools = params.tools if params.tools else None
+        has_tools = tools is not None and len(tools) > 0
 
+        # Call LLM with tools if provided
+        llm_response: PromptMessageExtended = await llm.generate(
+            conversation, request_params, tools=tools
+        )
+
+        # Log response (truncate for brevity)
+        response_text = llm_response.first_text()
+        log_text = response_text[:50] if response_text else "<no text>"
+        logger.info(f"Complete sampling request: {log_text}...")
+
+        # Check if this is a tool use response
+        if has_tools and llm_response.stop_reason == LlmStopReason.TOOL_USE:
+            # Return tool use response - MCP server will execute tools and continue
+            content_blocks = SamplingConverter.llm_response_to_sampling_content(llm_response)
+            return CreateMessageResultWithTools(
+                role=llm_response.role,
+                content=content_blocks,
+                model=model,
+                stopReason="toolUse",
+            )
+
+        # Return standard text response
         return CreateMessageResult(
             role=llm_response.role,
             content=TextContent(type="text", text=llm_response.first_text()),
@@ -173,6 +209,7 @@ async def sample(
         # End tracking sampling operation
         try:
             from fast_agent.ui import notification_tracker
+
             notification_tracker.end_sampling(server_name)
         except Exception:
             # Don't let notification tracking break sampling
