@@ -1,0 +1,10 @@
+logger:
+  level: error
+  type: file
+mcp:
+  servers:
+    sampling_tools:
+      command: uv
+      args:
+        - run
+        - sampling_tools_server.py

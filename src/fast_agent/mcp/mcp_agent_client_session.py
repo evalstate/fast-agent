@@ -27,6 +27,8 @@ from mcp.types import (
     ReadResourceRequestParams,
     ReadResourceResult,
     Root,
+    SamplingCapability,
+    SamplingToolsCapability,
     ToolListChangedNotification,
 )
 from pydantic import AnyUrl, FileUrl
@@ -176,8 +178,18 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
         # Pop parameters we're explicitly setting to avoid duplicates
         kwargs.pop("list_roots_callback", None)
         kwargs.pop("sampling_callback", None)
+        kwargs.pop("sampling_capabilities", None)
         kwargs.pop("client_info", None)
         kwargs.pop("elicitation_callback", None)
+
+        # Create sampling capabilities with tools support when sampling is enabled
+        sampling_caps = None
+        if sampling_cb is not None:
+            # Advertise full sampling capability including tools support
+            sampling_caps = SamplingCapability(
+                tools=SamplingToolsCapability()
+            )
+
         super().__init__(
             read_stream,
             write_stream,
@@ -185,6 +197,7 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             **kwargs,
             list_roots_callback=list_roots_cb,
             sampling_callback=sampling_cb,
+            sampling_capabilities=sampling_caps,
             client_info=fast_agent,
             elicitation_callback=elicitation_handler,
         )

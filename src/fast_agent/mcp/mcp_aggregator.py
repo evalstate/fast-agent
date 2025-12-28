@@ -29,6 +29,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.model_resolution import resolve_model_spec
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
@@ -347,7 +348,23 @@ class MCPAggregator(ContextDependent):
 
             # Access config directly if it was passed from BaseAgent
             if self.config:
-                agent_model = self.config.model
+                cli_model_override = None
+                if self.context and getattr(self.context, "config", None):
+                    cli_model_override = getattr(
+                        self.context.config, "cli_model_override", None
+                    )
+                agent_model, model_source = resolve_model_spec(
+                    self.context,
+                    model=self.config.model,
+                    cli_model=cli_model_override,
+                    fallback_to_hardcoded=False,
+                )
+                if model_source:
+                    logger.info(
+                        f"Resolved MCP agent model '{agent_model}' via {model_source}",
+                        model=agent_model,
+                        source=model_source,
+                    )
                 agent_name = self.config.name
                 elicitation_handler = self.config.elicitation_handler
                 api_key = self.config.api_key
