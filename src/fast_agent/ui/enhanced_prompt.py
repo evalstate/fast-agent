@@ -431,7 +431,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
             "tools": "List available MCP Tools",
-            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
+            "skills": "Manage local skills (/skills, /skills add, /skills remove, /skills refresh)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
@@ -1400,6 +1400,7 @@ async def handle_special_commands(
         rich_print("  /usage         - Show current usage statistics")
         rich_print("  /skills        - List local skills for the manager directory")
         rich_print("  /skills add    - Install a skill from the marketplace")
+        rich_print("  /skills refresh - Rescan local skills and refresh the agent prompt")
         rich_print("  /skills remove - Remove a skill from the manager directory")
         rich_print("  /history [agent_name] - Show chat history overview")
         rich_print("  /clear [agent_name]   - Clear conversation history (keeps templates)")

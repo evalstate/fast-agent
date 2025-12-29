@@ -162,9 +162,11 @@ class SlashCommandHandler:
             ),
             "skills": AvailableCommand(
                 name="skills",
-                description="List or manage local skills (add/remove/registry)",
+                description="List or manage local skills (add/remove/registry/refresh)",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
+                    root=UnstructuredCommandInput(
+                        hint="[add|remove|registry|refresh] [name|number|url]"
+                    )
                 ),
             ),
             "save": AvailableCommand(
@@ -707,7 +709,7 @@ class SlashCommandHandler:
         return "\n".join(lines).strip()
 
     async def _handle_skills(self, arguments: str | None = None) -> str:
-        """Manage local skills (list/add/remove)."""
+        """Manage local skills (list/add/remove/refresh)."""
         tokens = (arguments or "").strip().split(maxsplit=1)
         action = tokens[0].lower() if tokens else "list"
         remainder = tokens[1] if len(tokens) > 1 else ""
@@ -720,8 +722,13 @@ class SlashCommandHandler:
             return await self._handle_skills_registry(remainder)
         if action in {"remove", "rm", "delete", "uninstall"}:
             return await self._handle_skills_remove(remainder)
+        if action in {"refresh", "reload"}:
+            return await self._handle_skills_refresh()
 
-        return "Unknown /skills action. Use `/skills`, `/skills add`, or `/skills remove`."
+        return (
+            "Unknown /skills action. Use `/skills`, `/skills add`, `/skills remove`, "
+            "or `/skills refresh`."
+        )
 
     async def _handle_skills_registry(self, argument: str) -> str:
         heading = "# skills registry"
@@ -965,6 +972,26 @@ class SlashCommandHandler:
             ]
         )
 
+    async def _handle_skills_refresh(self) -> str:
+        agent, error = self._get_current_agent_or_error("# skills refresh")
+        if error:
+            return error
+        assert agent is not None
+
+        await self._refresh_agent_skills(agent)
+        manager_dir = get_manager_directory()
+        manifests = list_local_skills(manager_dir)
+        skill_word = "skill" if len(manifests) == 1 else "skills"
+
+        return "\n".join(
+            [
+                "# skills refresh",
+                "",
+                f"Refreshed {len(manifests)} {skill_word}.",
+                f"Directory: `{manager_dir}`",
+            ]
+        )
+
     async def _refresh_agent_skills(self, agent: AgentProtocol) -> None:
         override_dirs = resolve_skill_directories(get_settings())
         registry, manifests = reload_skill_manifests(
@@ -996,6 +1023,7 @@ class SlashCommandHandler:
         lines.append("")
         lines.append("Use `/skills add` to list available skills to install\n")
         lines.append("Remove a skill with `/skills remove <number|name>`.\n")
+        lines.append("Refresh skills with `/skills refresh`.\n")
         lines.append("Change skills registry with `/skills registry <url>`.\n")
         return "\n".join(lines)
 

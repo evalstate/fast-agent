@@ -1084,8 +1084,23 @@ class InteractivePrompt:
         if action in {"remove", "rm", "delete", "uninstall"}:
             await self._remove_skill(prompt_provider, agent_name, argument)
             return
+        if action in {"refresh", "reload"}:
+            await self._refresh_agent_skills(prompt_provider, agent_name)
+            manager_dir = get_manager_directory()
+            manifests = list_local_skills(manager_dir)
+            skill_word = "skill" if len(manifests) == 1 else "skills"
+            try:
+                display_dir = manager_dir.relative_to(Path.cwd())
+            except ValueError:
+                display_dir = manager_dir
+            rich_print(
+                f"[green]Refreshed {len(manifests)} {skill_word} from {display_dir}[/green]"
+            )
+            return
 
-        rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
+        rich_print(
+            f"[yellow]Unknown /skills action: {action}. Use /skills, /skills add, /skills remove, or /skills refresh.[/yellow]"
+        )
 
     async def _set_skills_registry(self, argument: str | None) -> None:
         if not argument:
