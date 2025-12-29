@@ -1,9 +1,10 @@
 import asyncio
+from collections.abc import Sequence
 from unittest.mock import AsyncMock
 
 import pytest
 from mcp import CallToolRequest, Tool
-from mcp.types import CallToolRequestParams
+from mcp.types import CallToolRequestParams, PromptMessage, TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -13,7 +14,7 @@ from fast_agent.agents.workflow.agents_as_tools_agent import (
 )
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import text_content
-from fast_agent.types import PromptMessageExtended
+from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 class FakeChildAgent(LlmAgent):
@@ -24,7 +25,15 @@ class FakeChildAgent(LlmAgent):
         self._response_text = response_text
         self._delay = delay
 
-    async def generate(self, messages, request_params=None):
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
         if self._delay:
             await asyncio.sleep(self._delay)
         return PromptMessageExtended(
@@ -39,7 +48,15 @@ class FakeChildAgent(LlmAgent):
 
 
 class ErrorChannelChild(FakeChildAgent):
-    async def generate(self, messages, request_params=None):
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
         return PromptMessageExtended(
             role="assistant",
             content=[],
@@ -50,7 +67,15 @@ class ErrorChannelChild(FakeChildAgent):
 class StubNestedAgentsAsTools(AgentsAsToolsAgent):
     """Stub AgentsAsToolsAgent that responds without hitting an LLM."""
 
-    async def generate(self, messages, request_params=None):
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
         return PromptMessageExtended(
             role="assistant",
             content=[text_content(f"{self.name}-reply")],
@@ -69,7 +94,7 @@ async def test_list_tools_merges_base_and_child():
 
     # Inject a base MCP tool via the filtered MCP path to ensure merge behavior.
     base_tool = Tool(name="base_tool", description="base", inputSchema={"type": "object"})
-    agent._get_filtered_mcp_tools = AsyncMock(return_value=[base_tool])
+    setattr(agent, "_get_filtered_mcp_tools", AsyncMock(return_value=[base_tool]))
 
     result = await agent.list_tools()
     tool_names = {t.name for t in result.tools}
@@ -94,7 +119,7 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
 
     result_message = await agent.run_tools(request)
-    assert result_message.tool_results
+    assert result_message.tool_results is not None
 
     fast_result = result_message.tool_results["1"]
     slow_result = result_message.tool_results["2"]
@@ -102,6 +127,9 @@ async def test_run_tools_respects_max_parallel_and_timeout():
     assert not fast_result.isError
     # Skipped due to max_parallel cap.
     assert slow_result.isError
+    assert slow_result.content is not None
+    assert slow_result.content[0].type == "text"
+    assert isinstance(slow_result.content[0], TextContent)
     assert "Skipped" in slow_result.content[0].text
 
     # Now ensure timeout path yields an error result when a single slow call runs.
@@ -111,9 +139,14 @@ async def test_run_tools_respects_max_parallel_and_timeout():
         tool_calls={"3": CallToolRequest(params=CallToolRequestParams(name="agent__slow", arguments={"text": "hi"}))},
     )
     single_result = await agent.run_tools(request_single)
+    assert single_result.tool_results is not None
     err_res = single_result.tool_results["3"]
     assert err_res.isError
-    assert any("Tool execution failed" in (block.text or "") for block in err_res.content)
+    assert err_res.content is not None
+    assert any(
+        isinstance(block, TextContent) and "Tool execution failed" in (block.text or "")
+        for block in err_res.content
+    )
 
 
 @pytest.mark.asyncio
@@ -125,7 +158,8 @@ async def test_invoke_child_appends_error_channel():
     call_result = await agent._invoke_child_agent(child, {"text": "hi"})
 
     assert call_result.isError
-    texts = [block.text for block in call_result.content if hasattr(block, "text")]
+    assert call_result.content is not None
+    texts = [block.text for block in call_result.content if isinstance(block, TextContent)]
     assert "err-block" in texts
 
 
@@ -144,7 +178,12 @@ async def test_nested_agents_as_tools_preserves_instance_labels():
     request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
 
     result_message = await parent.run_tools(request)
+    assert result_message.tool_results is not None
     result = result_message.tool_results["1"]
     assert not result.isError
     # Reply should include the instance-suffixed nested agent name.
-    assert any("nested[1]-reply" in (block.text or "") for block in result.content)
+    assert result.content is not None
+    assert any(
+        isinstance(block, TextContent) and "nested[1]-reply" in (block.text or "")
+        for block in result.content
+    )

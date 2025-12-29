@@ -23,6 +23,7 @@ def test_transport_factory_validation_stdio_without_command():
         # We need to access the internal transport_context_factory
         # This is a bit of a hack but necessary for unit testing
         config = registry.get_server_config("test_server")
+        assert config is not None
 
         # Simulate what happens inside launch_server
         def transport_context_factory():

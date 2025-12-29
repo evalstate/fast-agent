@@ -47,7 +47,7 @@ def test_resolve_simple_env_var(temp_config_files):
 
     with patch.dict(os.environ, {"TEST_API_KEY": "actual_key_from_env"}):
         settings = get_settings(str(config_file))
-        assert settings.api_key == "actual_key_from_env"
+        assert getattr(settings, "api_key") == "actual_key_from_env"
 
 
 def test_resolve_env_var_with_default_when_set(temp_config_files):
@@ -57,7 +57,7 @@ def test_resolve_env_var_with_default_when_set(temp_config_files):
 
     with patch.dict(os.environ, {"SERVICE_URL": "http://env.url"}):
         settings = get_settings(str(config_file))
-        assert settings.service_url == "http://env.url"
+        assert getattr(settings, "service_url") == "http://env.url"
 
 
 def test_resolve_env_var_with_default_when_not_set(temp_config_files):
@@ -67,7 +67,7 @@ def test_resolve_env_var_with_default_when_not_set(temp_config_files):
 
     with patch.dict(os.environ, {}, clear=True):
         settings = get_settings(str(config_file))
-        assert settings.service_url == "http://default.url"
+        assert getattr(settings, "service_url") == "http://default.url"
 
 
 def test_resolve_env_var_no_default_not_set(temp_config_files):
@@ -77,7 +77,7 @@ def test_resolve_env_var_no_default_not_set(temp_config_files):
 
     with patch.dict(os.environ, {}, clear=True):
         settings = get_settings(str(config_file))
-        assert settings.another_key == "${UNSET_KEY_NO_DEFAULT}"
+        assert getattr(settings, "another_key") == "${UNSET_KEY_NO_DEFAULT}"
 
 
 def test_nested_env_var_resolution(temp_config_files):
@@ -93,9 +93,11 @@ def test_nested_env_var_resolution(temp_config_files):
 
     with patch.dict(os.environ, {"NESTED_ENV_VAR": "nested_from_env"}):
         settings = get_settings(str(config_file))
-        assert settings.parent["child_plain"] == "value"
-        assert settings.parent["child_env"] == "nested_from_env"
-        assert settings.parent["child_env_default"] == "default_child_val"
+        parent = getattr(settings, "parent")
+        assert isinstance(parent, dict)
+        assert parent["child_plain"] == "value"
+        assert parent["child_env"] == "nested_from_env"
+        assert parent["child_env_default"] == "default_child_val"
 
 
 def test_env_var_in_list(temp_config_files):
@@ -110,10 +112,11 @@ def test_env_var_in_list(temp_config_files):
     write_config(config_file, config_data)
     with patch.dict(os.environ, {"LIST_ITEM_ENV": "list_item_from_env"}):
         settings = get_settings(str(config_file))
-        assert isinstance(settings.items, list)
-        assert settings.items[0] == "item1"
-        assert settings.items[1] == "list_item_from_env"
-        assert settings.items[2] == "default_list_item"
+        items = getattr(settings, "items")
+        assert isinstance(items, list)
+        assert items[0] == "item1"
+        assert items[1] == "list_item_from_env"
+        assert items[2] == "default_list_item"
 
 
 def test_mixed_config_and_secrets_with_env_vars(temp_config_files):
@@ -134,10 +137,10 @@ def test_mixed_config_and_secrets_with_env_vars(temp_config_files):
         {"CONFIG_VAR": "env_config_val", "SECRET_ENV_KEY": "actual_secret"},
     ):
         settings = get_settings(str(config_file))
-        assert settings.general_setting == "from_config_file"
-        assert settings.config_env == "env_config_val"
-        assert settings.secret_key == "actual_secret"
-        assert settings.db_password == "default_db_pass"
+        assert getattr(settings, "general_setting") == "from_config_file"
+        assert getattr(settings, "config_env") == "env_config_val"
+        assert getattr(settings, "secret_key") == "actual_secret"
+        assert getattr(settings, "db_password") == "default_db_pass"
 
 
 def test_env_var_in_mcp_server_settings(temp_config_files):

@@ -2,6 +2,8 @@
 Unit tests for the URL parser utility functions.
 """
 
+from typing import Literal
+
 import pytest
 
 from fast_agent.cli.commands.url_parser import (
@@ -115,7 +117,7 @@ class TestUrlParser:
 
     def test_generate_server_configs(self):
         """Test generating server configurations from parsed URLs."""
-        parsed_urls = [
+        parsed_urls: list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]] = [
             ("example_com", "http", "http://example.com/mcp", None),
             ("api_test_com", "sse", "https://api.test.com/sse", None),
         ]
@@ -135,7 +137,7 @@ class TestUrlParser:
     def test_generate_server_configs_with_auth(self):
         """Test generating server configurations with auth headers."""
         auth_headers = {"Authorization": "Bearer test_token_123"}
-        parsed_urls = [
+        parsed_urls: list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]] = [
             ("example_com", "http", "http://example.com/mcp", auth_headers),
             ("api_test_com", "sse", "https://api.test.com/sse", auth_headers),
         ]
@@ -152,7 +154,7 @@ class TestUrlParser:
     def test_generate_server_configs_with_name_collisions(self):
         """Test handling of server name collisions."""
         # Create a list of parsed URLs with the same server name
-        parsed_urls = [
+        parsed_urls: list[tuple[str, Literal["http", "sse"], str, dict[str, str] | None]] = [
             (
                 "evalstate",
                 "sse",

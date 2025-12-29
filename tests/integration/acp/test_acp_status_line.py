@@ -4,6 +4,7 @@ import asyncio
 import re
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
 from acp.helpers import text_block
@@ -37,14 +38,17 @@ FAST_AGENT_CMD = (
 def _extract_status_line(meta: object) -> str | None:
     if not isinstance(meta, dict):
         return None
-    field_meta = meta.get("field_meta")
+    meta_dict = cast("dict[str, object]", meta)
+    field_meta = meta_dict.get("field_meta")
     if isinstance(field_meta, dict):
-        metrics = field_meta.get("openhands.dev/metrics")
+        field_meta_dict = cast("dict[str, object]", field_meta)
+        metrics = field_meta_dict.get("openhands.dev/metrics")
     else:
-        metrics = meta.get("openhands.dev/metrics")
+        metrics = meta_dict.get("openhands.dev/metrics")
     if not isinstance(metrics, dict):
         return None
-    status_line = metrics.get("status_line")
+    metrics_dict = cast("dict[str, object]", metrics)
+    status_line = metrics_dict.get("status_line")
     if isinstance(status_line, str) and status_line.strip():
         return status_line
     return None

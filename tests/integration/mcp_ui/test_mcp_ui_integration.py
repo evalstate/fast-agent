@@ -23,6 +23,7 @@ async def passthrough_agent(tmp_path):
         core = Core()
         await core.initialize()
         # Avoid auto-opening browser windows during tests
+        assert core.context.config is not None
         core.context.config.mcp_ui_mode = "enabled"
 
         agent = McpAgentWithUI(

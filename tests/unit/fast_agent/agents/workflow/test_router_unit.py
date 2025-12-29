@@ -79,7 +79,7 @@ async def test_single_agent_shortcircuit():
     await router.initialize()
 
     # Test routing directly returns the single agent without LLM call
-    response, _ = await router._route_request("some request")
+    response, _ = await router._route_request(Prompt.user("some request"))
 
     # Verify result
     assert response

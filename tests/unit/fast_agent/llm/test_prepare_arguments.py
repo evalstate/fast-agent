@@ -11,8 +11,9 @@ from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 class StubLLM(FastAgentLLM):
     """Minimal implementation of FastAgentLLM for testing purposes"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(provider=Provider.FAST_AGENT, *args, **kwargs)
+    def __init__(self, **kwargs: Any) -> None:
+        kwargs.pop("provider", None)
+        super().__init__(provider=Provider.FAST_AGENT, **kwargs)
 
     async def _apply_prompt_provider_specific(
         self,
@@ -198,7 +199,7 @@ class TestRequestParamsInLLM:
         llm = StubLLM()
 
         base_args = {"model": "test-model"}
-        params = RequestParams(temperature=None, top_p=0.9)
+        params = RequestParams(temperature=None, metadata={"top_p": 0.9})
 
         result = llm.prepare_provider_arguments(base_args, params)
 

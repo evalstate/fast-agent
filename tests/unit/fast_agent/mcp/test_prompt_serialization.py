@@ -3,6 +3,7 @@ Tests for serializing PromptMessageExtended objects to delimited format.
 """
 
 from mcp.types import EmbeddedResource, ImageContent, TextContent, TextResourceContents
+from pydantic import AnyUrl
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (
@@ -26,7 +27,7 @@ class TestPromptSerialization:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://data.json",
+                            uri=AnyUrl("resource://data.json"),
                             mimeType="application/json",
                             text='{"key": "value"}',
                         ),
@@ -63,20 +64,30 @@ class TestPromptSerialization:
 
         # Check first message
         assert len(parsed_messages[0].content) == 2
-        assert parsed_messages[0].content[0].type == "text"
-        assert parsed_messages[0].content[0].text == "Here's a resource:"
-        assert parsed_messages[0].content[1].type == "resource"
-        assert str(parsed_messages[0].content[1].resource.uri) == "resource://data.json"
-        assert parsed_messages[0].content[1].resource.mimeType == "application/json"
-        assert parsed_messages[0].content[1].resource.text == '{"key": "value"}'
+        first_block = parsed_messages[0].content[0]
+        assert isinstance(first_block, TextContent)
+        assert first_block.type == "text"
+        assert first_block.text == "Here's a resource:"
+        resource_block = parsed_messages[0].content[1]
+        assert isinstance(resource_block, EmbeddedResource)
+        assert resource_block.type == "resource"
+        resource = resource_block.resource
+        assert isinstance(resource, TextResourceContents)
+        assert str(resource.uri) == "resource://data.json"
+        assert resource.mimeType == "application/json"
+        assert resource.text == '{"key": "value"}'
 
         # Check second message
         assert len(parsed_messages[1].content) == 2
-        assert parsed_messages[1].content[0].type == "text"
-        assert parsed_messages[1].content[0].text == "I've processed your resource."
-        assert parsed_messages[1].content[1].type == "image"
-        assert parsed_messages[1].content[1].data == "base64EncodedImage"
-        assert parsed_messages[1].content[1].mimeType == "image/jpeg"
+        assistant_block = parsed_messages[1].content[0]
+        assert isinstance(assistant_block, TextContent)
+        assert assistant_block.type == "text"
+        assert assistant_block.text == "I've processed your resource."
+        image_block = parsed_messages[1].content[1]
+        assert isinstance(image_block, ImageContent)
+        assert image_block.type == "image"
+        assert image_block.data == "base64EncodedImage"
+        assert image_block.mimeType == "image/jpeg"
 
     def test_multipart_to_delimited_format(self):
         """Test converting PromptMessageExtended to delimited format for saving."""
@@ -122,7 +133,7 @@ class TestPromptSerialization:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://example.py",
+                            uri=AnyUrl("resource://example.py"),
                             mimeType="text/x-python",
                             text="def hello():\n    print('Hello, world!')",
                         ),

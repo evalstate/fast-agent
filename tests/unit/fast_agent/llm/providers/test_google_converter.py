@@ -36,9 +36,10 @@ def test_convert_function_results_to_google_text_only():
     content = contents[0]
     assert isinstance(content, types.Content)
     assert content.role == "tool"
-    assert content.parts
+    parts = content.parts
+    assert parts is not None
     # First part should be a function response named 'weather'
-    fn_resp = content.parts[0].function_response
+    fn_resp = parts[0].function_response
     assert fn_resp is not None
     assert fn_resp.name == "weather"
     assert isinstance(fn_resp.response, dict)
@@ -78,7 +79,7 @@ def test_convert_video_resource():
     resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri="file:///path/to/video.mp4",
+            uri=AnyUrl("file:///path/to/video.mp4"),
             mimeType="video/mp4",
             blob=encoded_video
         )
@@ -99,8 +100,10 @@ def test_convert_video_resource():
     content = contents[0]
     
     assert isinstance(content, types.Content)
-    assert len(content.parts) == 1
-    part = content.parts[0]
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 1
+    part = parts[0]
     
     # Check if it's an inline data part
     assert part.inline_data is not None
@@ -117,7 +120,7 @@ def test_convert_mixed_content_video_text():
     video_resource = EmbeddedResource(
         type="resource",
         resource=BlobResourceContents(
-            uri="file:///video.mp4",
+            uri=AnyUrl("file:///video.mp4"),
             mimeType="video/mp4",
             blob=encoded_video
         )
@@ -138,14 +141,16 @@ def test_convert_mixed_content_video_text():
     # Verify
     assert len(contents) == 1
     content = contents[0]
-    assert len(content.parts) == 2
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 2
     
     # First part should be video
-    assert content.parts[0].inline_data is not None
-    assert content.parts[0].inline_data.mime_type == "video/mp4"
+    assert parts[0].inline_data is not None
+    assert parts[0].inline_data.mime_type == "video/mp4"
     
     # Second part should be text
-    assert content.parts[1].text == "Describe this video"
+    assert parts[1].text == "Describe this video"
 
 
 def test_convert_youtube_url_video():
@@ -172,8 +177,10 @@ def test_convert_youtube_url_video():
     # Verify
     assert len(contents) == 1
     content = contents[0]
-    assert len(content.parts) == 1
-    part = content.parts[0]
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 1
+    part = parts[0]
     
     # Should use file_data for YouTube URLs
     assert part.file_data is not None
@@ -193,8 +200,10 @@ def test_convert_resource_link_video():
 
     assert len(contents) == 1
     content = contents[0]
-    assert len(content.parts) == 1
-    part = content.parts[0]
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 1
+    part = parts[0]
 
     # Should use file_data for video ResourceLink
     assert part.file_data is not None
@@ -214,8 +223,10 @@ def test_convert_resource_link_image():
 
     assert len(contents) == 1
     content = contents[0]
-    assert len(content.parts) == 1
-    part = content.parts[0]
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 1
+    part = parts[0]
 
     # Should use file_data for image ResourceLink
     assert part.file_data is not None
@@ -235,8 +246,10 @@ def test_convert_resource_link_audio():
 
     assert len(contents) == 1
     content = contents[0]
-    assert len(content.parts) == 1
-    part = content.parts[0]
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 1
+    part = parts[0]
 
     # Should use file_data for audio ResourceLink
     assert part.file_data is not None
@@ -260,8 +273,10 @@ def test_convert_resource_link_text_fallback():
 
     assert len(contents) == 1
     content = contents[0]
-    assert len(content.parts) == 1
-    part = content.parts[0]
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) == 1
+    part = parts[0]
 
     # Should use text for non-media ResourceLink
     assert part.text is not None
@@ -286,11 +301,14 @@ def test_convert_resource_link_in_tool_result():
     assert content.role == "tool"
 
     # Should have function response part and media part
-    assert len(content.parts) >= 1
+    parts = content.parts
+    assert parts is not None
+    assert len(parts) >= 1
 
     # Check for the media part (video)
-    media_parts = [p for p in content.parts if p.file_data is not None]
+    media_parts = [p for p in parts if p.file_data is not None]
     assert len(media_parts) == 1
+    assert media_parts[0].file_data is not None
     assert media_parts[0].file_data.file_uri == "https://storage.example.com/output.mp4"
     assert media_parts[0].file_data.mime_type == "video/mp4"
 
@@ -315,7 +333,11 @@ def test_convert_resource_link_text_in_tool_result():
     assert content.role == "tool"
 
     # Should have function response part with text content
-    fn_resp = content.parts[0].function_response
+    parts = content.parts
+    assert parts is not None
+    fn_resp = parts[0].function_response
     assert fn_resp is not None
-    assert "text_content" in fn_resp.response
-    assert "config_file" in fn_resp.response["text_content"]
+    response = fn_resp.response
+    assert isinstance(response, dict)
+    assert "text_content" in response
+    assert "config_file" in response["text_content"]

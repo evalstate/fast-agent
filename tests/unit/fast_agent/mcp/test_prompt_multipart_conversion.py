@@ -13,6 +13,11 @@ from fast_agent.mcp.prompts.prompt_load import create_messages_with_resources, l
 from fast_agent.mcp.prompts.prompt_template import PromptTemplateLoader
 
 
+def _text(block: object) -> TextContent:
+    assert isinstance(block, TextContent)
+    return block
+
+
 def test_resource_message_role_merging():
     """
     Test that demonstrates how resources cause role merging issues.
@@ -153,7 +158,7 @@ def test_playback_pattern_with_simple_messages():
     assert multipart[3].role == "assistant"
 
     # Check content is preserved
-    assert multipart[0].content[0].text == "user1"
-    assert multipart[1].content[0].text == "assistant1"
-    assert multipart[2].content[0].text == "user2"
-    assert multipart[3].content[0].text == "assistant2"
+    assert _text(multipart[0].content[0]).text == "user1"
+    assert _text(multipart[1].content[0]).text == "assistant1"
+    assert _text(multipart[2].content[0]).text == "user2"
+    assert _text(multipart[3].content[0]).text == "assistant2"

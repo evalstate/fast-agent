@@ -3,6 +3,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
@@ -73,6 +74,9 @@ async def test_skill_reader_rejects_relative_path(tmp_path: Path) -> None:
     result = await reader.execute({"path": "skills/alpha/SKILL.md"})
 
     assert result.isError is True
+    assert result.content is not None
+    assert result.content[0].type == "text"
+    assert isinstance(result.content[0], TextContent)
     assert "Path must be absolute" in result.content[0].text
 
 
@@ -91,6 +95,9 @@ async def test_skill_reader_blocks_outside_skill_directory(tmp_path: Path) -> No
     result = await reader.execute({"path": str(outside_file)})
 
     assert result.isError is True
+    assert result.content is not None
+    assert result.content[0].type == "text"
+    assert isinstance(result.content[0], TextContent)
     assert "not within an allowed skill directory" in result.content[0].text
 
 
@@ -107,7 +114,10 @@ async def test_skill_reader_reads_valid_skill_file(tmp_path: Path) -> None:
     result = await reader.execute({"path": str(skill_file)})
 
     assert result.isError is False
-    assert any("Alpha body" in block.text for block in result.content)
+    assert result.content is not None
+    assert any(
+        isinstance(block, TextContent) and "Alpha body" in block.text for block in result.content
+    )
 
 
 @pytest.mark.asyncio

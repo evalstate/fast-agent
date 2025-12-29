@@ -1,6 +1,7 @@
 """Tests for instruction building and refresh utilities."""
 
 import asyncio
+from typing import TYPE_CHECKING, cast
 
 from fast_agent.core.instruction_refresh import (
     McpInstructionCapable,
@@ -8,6 +9,9 @@ from fast_agent.core.instruction_refresh import (
     format_server_instructions,
     rebuild_agent_instruction,
 )
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.mcp_aggregator import MCPAggregator
 
 
 class StubAggregator:
@@ -135,7 +139,7 @@ def test_build_instruction_with_context() -> None:
 def test_build_instruction_with_aggregator() -> None:
     template = "{{serverInstructions}}"
     aggregator = StubAggregator({"my-server": ("Be helpful", ["do_thing"])})
-    result = asyncio.run(build_instruction(template, aggregator=aggregator))
+    result = asyncio.run(build_instruction(template, aggregator=cast("MCPAggregator", aggregator)))
     assert "my-server" in result
     assert "Be helpful" in result
 

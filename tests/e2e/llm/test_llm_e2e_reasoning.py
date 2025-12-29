@@ -46,6 +46,7 @@ def _make_stream_tracker():
 
 async def _run_turn(agent: LlmAgent, prompt: str) -> tuple[dict[str, int], list[str], str | None]:
     listener, state = _make_stream_tracker()
+    assert agent.llm is not None
     remove = agent.llm.add_stream_listener(listener)
     try:
         result = await agent.generate(prompt)

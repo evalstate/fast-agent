@@ -5,7 +5,10 @@ These tests directly test the _convert_extended_messages_to_provider method
 to verify cache_control markers are applied correctly based on cache_mode settings.
 """
 
+from typing import Literal
+
 import pytest
+from anthropic.types import MessageParam
 from mcp.types import CallToolResult, TextContent
 
 from fast_agent.config import AnthropicSettings, Settings
@@ -20,7 +23,9 @@ from fast_agent.types import RequestParams
 class TestAnthropicCaching:
     """Test cases for Anthropic caching functionality."""
 
-    def _create_context_with_cache_mode(self, cache_mode: str) -> Context:
+    def _create_context_with_cache_mode(
+        self, cache_mode: Literal["off", "prompt", "auto"]
+    ) -> Context:
         """Create a context with specified cache mode."""
         ctx = Context()
         ctx.config = Settings()
@@ -29,15 +34,20 @@ class TestAnthropicCaching:
         )
         return ctx
 
-    def _create_llm(self, cache_mode: str = "off") -> AnthropicLLM:
+    def _create_llm(
+        self, cache_mode: Literal["off", "prompt", "auto"] = "off"
+    ) -> AnthropicLLM:
         """Create an AnthropicLLM instance with specified cache mode."""
         ctx = self._create_context_with_cache_mode(cache_mode)
         llm = AnthropicLLM(context=ctx)
         return llm
 
     def _apply_cache_plan(
-        self, messages: list[PromptMessageExtended], cache_mode: str, system_blocks: int = 0
-    ) -> list[dict]:
+        self,
+        messages: list[PromptMessageExtended],
+        cache_mode: Literal["off", "prompt", "auto"],
+        system_blocks: int = 0,
+    ) -> list[MessageParam]:
         planner = AnthropicCachePlanner()
         plan = planner.plan_indices(messages, cache_mode=cache_mode, system_cache_blocks=system_blocks)
         converted = [AnthropicConverter.convert_to_anthropic(m) for m in messages]
@@ -281,7 +291,8 @@ class TestAnthropicCaching:
         converted = self._apply_cache_plan(template_msgs, cache_mode="prompt")
 
         # Cache control should be on the last block
-        content_blocks = converted[0]["content"]
+        content = converted[0].get("content", [])
+        content_blocks = [] if isinstance(content, str) else list(content)
         assert len(content_blocks) == 2
 
         # First block should NOT have cache_control
@@ -291,8 +302,7 @@ class TestAnthropicCaching:
 
         # At least one block should have cache_control
         found_cache_control = any(
-            isinstance(block, dict) and "cache_control" in block
-            for block in content_blocks
+            isinstance(block, dict) and "cache_control" in block for block in content_blocks
         )
         assert found_cache_control, "Template should have cache_control"
 

@@ -5,6 +5,7 @@ import sys
 import types
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 from mcp.types import Tool
@@ -43,6 +44,16 @@ SKYBRIDGE_MIME_TYPE = _module.SKYBRIDGE_MIME_TYPE
 NamespacedTool = _module.NamespacedTool
 
 
+def _tool_with_meta(name: str, input_schema: dict[str, Any], meta: dict[str, Any]) -> Tool:
+    return Tool.model_validate(
+        {
+            "name": name,
+            "inputSchema": input_schema,
+            "_meta": meta,
+        }
+    )
+
+
 def _create_aggregator() -> MCPAggregator:
     """Create an aggregator instance suitable for unit testing."""
     aggregator = MCPAggregator(
@@ -62,10 +73,10 @@ def test_skybridge_detection_marks_valid_resources() -> None:
     aggregator.server_supports_feature = AsyncMock(return_value=True)  # type: ignore[attr-defined]
     aggregator._server_to_tool_map["test"] = [
         NamespacedTool(
-            tool=Tool(
+            tool=_tool_with_meta(
                 name="tool_a",
-                inputSchema={"type": "object"},
-                _meta={"openai/outputTemplate": "ui://component/app"},
+                input_schema={"type": "object"},
+                meta={"openai/outputTemplate": "ui://component/app"},
             ),
             server_name="test",
             namespaced_tool_name="test.tool_a",
@@ -105,10 +116,10 @@ def test_skybridge_detection_warns_on_invalid_mime() -> None:
     aggregator.server_supports_feature = AsyncMock(return_value=True)  # type: ignore[attr-defined]
     aggregator._server_to_tool_map["test"] = [
         NamespacedTool(
-            tool=Tool(
+            tool=_tool_with_meta(
                 name="tool_a",
-                inputSchema={"type": "object"},
-                _meta={"openai/outputTemplate": "ui://component/app"},
+                input_schema={"type": "object"},
+                meta={"openai/outputTemplate": "ui://component/app"},
             ),
             server_name="test",
             namespaced_tool_name="test.tool_a",
@@ -154,10 +165,10 @@ def test_skybridge_detection_handles_missing_resources_capability() -> None:
     aggregator.server_supports_feature = AsyncMock(return_value=False)  # type: ignore[attr-defined]
     aggregator._server_to_tool_map["test"] = [
         NamespacedTool(
-            tool=Tool(
+            tool=_tool_with_meta(
                 name="tool_a",
-                inputSchema={"type": "object"},
-                _meta={"openai/outputTemplate": "ui://component/app"},
+                input_schema={"type": "object"},
+                meta={"openai/outputTemplate": "ui://component/app"},
             ),
             server_name="test",
             namespaced_tool_name="test.tool_a",
@@ -179,10 +190,10 @@ def test_list_tools_marks_skybridge_meta() -> None:
     aggregator = _create_aggregator()
     aggregator.initialized = True
 
-    tool = Tool(
+    tool = _tool_with_meta(
         name="tool_a",
-        inputSchema={"type": "object"},
-        _meta={"openai/outputTemplate": "ui://component/app"},
+        input_schema={"type": "object"},
+        meta={"openai/outputTemplate": "ui://component/app"},
     )
 
     namespaced = NamespacedTool(

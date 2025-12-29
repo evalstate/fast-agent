@@ -14,6 +14,16 @@ from fast_agent.llm.sampling_converter import SamplingConverter
 from fast_agent.types import PromptMessageExtended
 
 
+def _text(block: object) -> TextContent:
+    assert isinstance(block, TextContent)
+    return block
+
+
+def _image(block: object) -> ImageContent:
+    assert isinstance(block, ImageContent)
+    return block
+
+
 class TestSamplingConverter:
     """Tests for SamplingConverter"""
 
@@ -29,8 +39,8 @@ class TestSamplingConverter:
         # Verify conversion
         assert prompt_message.role == "user"
         assert len(prompt_message.content) == 1
-        assert prompt_message.content[0].type == "text"
-        assert prompt_message.content[0].text == "Hello, world!"
+        assert _text(prompt_message.content[0]).type == "text"
+        assert _text(prompt_message.content[0]).text == "Hello, world!"
 
     def test_sampling_message_to_prompt_message_image(self):
         """Test converting an image SamplingMessage to PromptMessageExtended"""
@@ -46,9 +56,10 @@ class TestSamplingConverter:
         # Verify conversion
         assert prompt_message.role == "user"
         assert len(prompt_message.content) == 1
-        assert prompt_message.content[0].type == "image"
-        assert prompt_message.content[0].data == "base64_encoded_image_data"
-        assert prompt_message.content[0].mimeType == "image/png"
+        image_block = _image(prompt_message.content[0])
+        assert image_block.type == "image"
+        assert image_block.data == "base64_encoded_image_data"
+        assert image_block.mimeType == "image/png"
 
     def test_convert_messages(self):
         """Test converting multiple SamplingMessages to PromptMessageExtended objects"""
@@ -67,13 +78,13 @@ class TestSamplingConverter:
 
         # Verify each message was converted correctly
         assert prompt_messages[0].role == "user"
-        assert prompt_messages[0].content[0].text == "Hello"
+        assert _text(prompt_messages[0].content[0]).text == "Hello"
 
         assert prompt_messages[1].role == "assistant"
-        assert prompt_messages[1].content[0].text == "Hi there"
+        assert _text(prompt_messages[1].content[0]).text == "Hi there"
 
         assert prompt_messages[2].role == "user"
-        assert prompt_messages[2].content[0].text == "How are you?"
+        assert _text(prompt_messages[2].content[0]).text == "How are you?"
 
     def test_convert_messages_with_mixed_content_types(self):
         """Test converting messages with different content types"""
@@ -99,14 +110,15 @@ class TestSamplingConverter:
 
         # First message (text)
         assert prompt_messages[0].role == "user"
-        assert prompt_messages[0].content[0].type == "text"
-        assert prompt_messages[0].content[0].text == "What's in this image?"
+        assert _text(prompt_messages[0].content[0]).type == "text"
+        assert _text(prompt_messages[0].content[0]).text == "What's in this image?"
 
         # Second message (image)
         assert prompt_messages[1].role == "user"
-        assert prompt_messages[1].content[0].type == "image"
-        assert prompt_messages[1].content[0].data == "base64_encoded_image_data"
-        assert prompt_messages[1].content[0].mimeType == "image/png"
+        image_block = _image(prompt_messages[1].content[0])
+        assert image_block.type == "image"
+        assert image_block.data == "base64_encoded_image_data"
+        assert image_block.mimeType == "image/png"
 
     def test_extract_request_params_full(self):
         """Test extracting RequestParams from CreateMessageRequestParams with all fields"""
@@ -160,8 +172,8 @@ class TestSamplingConverter:
         # Verify result
         assert isinstance(result, CreateMessageResult)
         assert result.role == "assistant"
-        assert result.content.type == "text"
-        assert result.content.text == "Error in sampling: Test error"
+        assert _text(result.content).type == "text"
+        assert _text(result.content).text == "Error in sampling: Test error"
         assert result.model == model
         assert result.stopReason == "error"
 
@@ -191,7 +203,9 @@ class TestSamplingConverter:
         assert prompt_message.role == "user"
         assert prompt_message.tool_results is not None
         assert "call_123" in prompt_message.tool_results
-        assert prompt_message.tool_results["call_123"].content[0].text == "Tool result: 42"
+        tool_content = prompt_message.tool_results["call_123"].content
+        assert tool_content is not None
+        assert _text(tool_content[0]).text == "Tool result: 42"
 
     def test_sampling_message_with_tool_use(self):
         """Test converting a SamplingMessage with ToolUseContent (assistant response)"""

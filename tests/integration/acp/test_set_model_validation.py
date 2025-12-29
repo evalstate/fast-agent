@@ -183,8 +183,10 @@ async def test_validate_resolves_aliases_to_hf_models() -> None:
             resolved_model = model
             break
 
-    if hf_alias is None:
+    if hf_alias is None or resolved_model is None:
         pytest.skip("No HF model aliases found in MODEL_ALIASES")
+    assert hf_alias is not None
+    assert resolved_model is not None
 
     # Extract the expected model ID from the resolved model
     expected_model_id = resolved_model[3:]  # Strip "hf."

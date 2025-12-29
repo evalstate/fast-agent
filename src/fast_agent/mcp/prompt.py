@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal, Union
 
 from mcp import CallToolRequest
-from mcp.types import ContentBlock, PromptMessage
+from mcp.types import ContentBlock, PromptMessage, ReadResourceResult, ResourceContents
 
 from fast_agent.mcp.mcp_content import Assistant, MCPPrompt, User
 from fast_agent.types import LlmStopReason, PromptMessageExtended
@@ -39,7 +39,15 @@ class Prompt:
     def user(
         cls,
         *content_items: Union[
-            str, Path, bytes, dict, ContentBlock, PromptMessage, PromptMessageExtended
+            str,
+            Path,
+            bytes,
+            dict,
+            ContentBlock,
+            ResourceContents,
+            ReadResourceResult,
+            PromptMessage,
+            PromptMessageExtended,
         ],
     ) -> PromptMessageExtended:
         """
@@ -62,7 +70,15 @@ class Prompt:
     def assistant(
         cls,
         *content_items: Union[
-            str, Path, bytes, dict, ContentBlock, PromptMessage, PromptMessageExtended
+            str,
+            Path,
+            bytes,
+            dict,
+            ContentBlock,
+            ResourceContents,
+            ReadResourceResult,
+            PromptMessage,
+            PromptMessageExtended,
         ],
         stop_reason: LlmStopReason | None = None,
         tool_calls: dict[str, CallToolRequest] | None = None,
@@ -102,7 +118,15 @@ class Prompt:
     def message(
         cls,
         *content_items: Union[
-            str, Path, bytes, dict, ContentBlock, PromptMessage, PromptMessageExtended
+            str,
+            Path,
+            bytes,
+            dict,
+            ContentBlock,
+            ResourceContents,
+            ReadResourceResult,
+            PromptMessage,
+            PromptMessageExtended,
         ],
         role: Literal["user", "assistant"] = "user",
     ) -> PromptMessageExtended:

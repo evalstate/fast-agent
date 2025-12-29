@@ -17,9 +17,11 @@ async def test_wizard_model_selection_uses_curated_ids() -> None:
     pytest.importorskip("ruamel.yaml")
     _ensure_hf_inference_acp_on_path()
 
-    from hf_inference_acp.wizard.model_catalog import CURATED_MODELS
-    from hf_inference_acp.wizard.stages import WizardStage
-    from hf_inference_acp.wizard.wizard_llm import WizardSetupLLM
+    from hf_inference_acp.wizard.model_catalog import (  # ty: ignore[unresolved-import]
+        CURATED_MODELS,
+    )
+    from hf_inference_acp.wizard.stages import WizardStage  # ty: ignore[unresolved-import]
+    from hf_inference_acp.wizard.wizard_llm import WizardSetupLLM  # ty: ignore[unresolved-import]
 
     llm = WizardSetupLLM()
     llm._state.first_message = False  # skip welcome
@@ -30,4 +32,3 @@ async def test_wizard_model_selection_uses_curated_ids() -> None:
     assert llm._state.selected_model == CURATED_MODELS[0].id
     assert llm._state.stage == WizardStage.MCP_CONNECT
     assert "Step 3" in response
-
