@@ -7,13 +7,13 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from pydantic import AnyUrl
 from mcp.types import (
     EmbeddedResource,
     ImageContent,
     TextContent,
     TextResourceContents,
 )
+from pydantic import AnyUrl
 
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 from fast_agent.mcp.prompt_serialization import (

@@ -14,10 +14,10 @@ from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.context import Context
+from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
-from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.types import RequestParams
 
 

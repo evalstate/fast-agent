@@ -1,4 +1,3 @@
-from typing import Iterable
 
 from anthropic.types import MessageParam
 from mcp.types import TextContent

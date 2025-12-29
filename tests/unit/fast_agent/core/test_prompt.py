@@ -7,7 +7,13 @@ import os
 import tempfile
 from pathlib import Path
 
-from mcp.types import EmbeddedResource, ImageContent, PromptMessage, TextContent, TextResourceContents
+from mcp.types import (
+    EmbeddedResource,
+    ImageContent,
+    PromptMessage,
+    TextContent,
+    TextResourceContents,
+)
 
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended

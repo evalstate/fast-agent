@@ -1,5 +1,7 @@
 import base64
 import unittest
+from collections.abc import Iterable, Mapping
+from typing import TYPE_CHECKING, cast
 
 from mcp.types import (
     BlobResourceContents,
@@ -12,10 +14,16 @@ from mcp.types import (
     TextResourceContents,
 )
 from pydantic import AnyUrl
-from openai.types.chat import ChatCompletionToolMessageParam, ChatCompletionUserMessageParam
 
-from collections.abc import Iterable, Mapping
-from typing import cast
+from fast_agent.llm.provider.openai import llm_openai
+from fast_agent.llm.provider.openai.multipart_converter_openai import (
+    OpenAIConverter,
+)
+from fast_agent.llm.provider_types import Provider
+from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionToolMessageParam, ChatCompletionUserMessageParam
 
 
 def content_parts(message: Mapping[str, object]) -> list[dict[str, object]]:
@@ -26,6 +34,7 @@ def content_parts(message: Mapping[str, object]) -> list[dict[str, object]]:
         return []
     filtered = [part for part in content if isinstance(part, dict)]
     return cast("list[dict[str, object]]", filtered)
+
 
 def text_part(message: Mapping[str, object], index: int = 0) -> str:
     part = content_parts(message)[index]
@@ -46,15 +55,6 @@ def file_part(message: Mapping[str, object], index: int = 0) -> dict[str, object
     file_obj = part.get("file")
     assert isinstance(file_obj, dict)
     return cast("dict[str, object]", file_obj)
-
-
-
-from fast_agent.llm.provider.openai import llm_openai
-from fast_agent.llm.provider.openai.multipart_converter_openai import (
-    OpenAIConverter,
-)
-from fast_agent.llm.provider_types import Provider
-from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 class TestOpenAIUserConverter(unittest.TestCase):
@@ -427,7 +427,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
             tool_result=tool_result, tool_call_id=tool_call_id
         )
         assert not isinstance(tool_message, tuple)
-        tool_message = cast(ChatCompletionToolMessageParam, tool_message)
+        tool_message = cast("ChatCompletionToolMessageParam", tool_message)
 
         # Assertions
         self.assertEqual(tool_message["role"], "tool")
@@ -463,17 +463,17 @@ class TestOpenAIToolConverter(unittest.TestCase):
         self.assertEqual(len(tool_messages), 3)
 
         # Check first tool message (text only)
-        tool_msg0 = cast(ChatCompletionToolMessageParam, tool_messages[0])
+        tool_msg0 = cast("ChatCompletionToolMessageParam", tool_messages[0])
         self.assertEqual(tool_msg0["role"], "tool")
         self.assertEqual(tool_msg0["tool_call_id"], tool_call_id1)
         self.assertEqual(tool_msg0["content"], "Text-only result")
 
         # Check second tool message (with image)
-        tool_msg1 = cast(ChatCompletionToolMessageParam, tool_messages[1])
+        tool_msg1 = cast("ChatCompletionToolMessageParam", tool_messages[1])
         self.assertEqual(tool_msg1["role"], "tool")
         self.assertEqual(tool_msg1["tool_call_id"], tool_call_id2)
         self.assertEqual(tool_msg1["content"], "Here's the image:")
-        user_msg = cast(ChatCompletionUserMessageParam, tool_messages[2])
+        user_msg = cast("ChatCompletionUserMessageParam", tool_messages[2])
         self.assertEqual(user_msg["role"], "user")
         self.assertEqual(content_parts(user_msg)[0]["type"], "image_url")
 
@@ -510,8 +510,8 @@ class TestOpenAIToolConverter(unittest.TestCase):
 
         assert isinstance(tool_message, tuple)
         tool_msg, user_messages = tool_message
-        tool_msg = cast(ChatCompletionToolMessageParam, tool_msg)
-        user_msg = cast(ChatCompletionUserMessageParam, user_messages[0])
+        tool_msg = cast("ChatCompletionToolMessageParam", tool_msg)
+        user_msg = cast("ChatCompletionUserMessageParam", user_messages[0])
 
         self.assertEqual(tool_msg["role"], "tool")
         self.assertEqual(tool_msg["tool_call_id"], tool_call_id)
@@ -593,9 +593,7 @@ class TestTextConcatenation(unittest.TestCase):
 
         # Third block should be combined text2 and text3
         self.assertEqual(content_parts(openai_msg)[2]["type"], "text")
-        self.assertEqual(
-            text_part(openai_msg, 2), "Text after image. More text after image."
-        )
+        self.assertEqual(text_part(openai_msg, 2), "Text after image. More text after image.")
 
     def test_tool_result_with_concatenation(self):
         """Test that tool results can use text concatenation."""
@@ -612,7 +610,7 @@ class TestTextConcatenation(unittest.TestCase):
             concatenate_text_blocks=True,
         )
         assert not isinstance(tool_message, tuple)
-        tool_message = cast(ChatCompletionToolMessageParam, tool_message)
+        tool_message = cast("ChatCompletionToolMessageParam", tool_message)
 
         # Assertions - should have concatenated the text blocks
         self.assertEqual(tool_message["role"], "tool")

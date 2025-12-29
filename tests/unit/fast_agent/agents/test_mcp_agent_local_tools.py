@@ -1,7 +1,6 @@
 from typing import TYPE_CHECKING, Any
 
 import pytest
-
 from mcp.types import TextContent
 
 from fast_agent.agents.agent_types import AgentConfig

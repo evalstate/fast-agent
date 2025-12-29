@@ -1,4 +1,3 @@
-from typing import Any, cast
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -8,8 +7,8 @@ from fast_agent.context import Context
 from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
-from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
 
 def test_model_database_context_windows():

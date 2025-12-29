@@ -1,12 +1,14 @@
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
-from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam
 
 from fast_agent.agents import McpAgent
 from fast_agent.llm.provider.openai.llm_tensorzero_openai import TensorZeroOpenAILLM
 from fast_agent.llm.request_params import RequestParams
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletionMessageParam, ChatCompletionSystemMessageParam
 
 # --- Fixtures ---
 

@@ -4,9 +4,8 @@ Unit tests for ACP content block conversion to MCP format.
 
 from __future__ import annotations
 
-from typing import cast
-
 import base64
+from typing import TYPE_CHECKING, cast
 
 from acp.schema import (
     BlobResourceContents,
@@ -15,7 +14,6 @@ from acp.schema import (
     TextContentBlock,
     TextResourceContents,
 )
-from acp.helpers import ContentBlock as ACPContentBlock
 from mcp.types import (
     BlobResourceContents as MCPBlobResourceContents,
 )
@@ -36,6 +34,9 @@ from fast_agent.acp.content_conversion import (
     convert_acp_content_to_mcp,
     convert_acp_prompt_to_mcp_content_blocks,
 )
+
+if TYPE_CHECKING:
+    from acp.helpers import ContentBlock as ACPContentBlock
 
 
 class TestTextContentConversion:
@@ -243,7 +244,7 @@ class TestUnsupportedContent:
             type = "audio"
             data = "base64-audio-data"
 
-        result = convert_acp_content_to_mcp(cast(ACPContentBlock, UnsupportedContent()))
+        result = convert_acp_content_to_mcp(cast("ACPContentBlock", UnsupportedContent()))
         assert result is None
 
     def test_prompt_with_unsupported_content_skips_it(self):
@@ -254,7 +255,7 @@ class TestUnsupportedContent:
 
         acp_prompt: list[ACPContentBlock] = [
             TextContentBlock(type="text", text="Hello"),
-            cast(ACPContentBlock, UnsupportedContent()),
+            cast("ACPContentBlock", UnsupportedContent()),
             TextContentBlock(type="text", text="World"),
         ]
 
