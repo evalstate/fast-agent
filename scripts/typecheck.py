@@ -5,9 +5,9 @@ import typer
 from rich import print
 
 
-def main(path: str = "src") -> None:
+def main() -> None:
     try:
-        command = ["ty", "check", path]
+        command = ["ty", "check", "./tests", "./src"]
         process = subprocess.run(
             command,
             check=True,
