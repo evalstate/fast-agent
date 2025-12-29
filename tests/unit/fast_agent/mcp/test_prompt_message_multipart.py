@@ -13,6 +13,16 @@ from fast_agent.mcp.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
+def _text(block: object) -> TextContent:
+    assert isinstance(block, TextContent)
+    return block
+
+
+def _image(block: object) -> ImageContent:
+    assert isinstance(block, ImageContent)
+    return block
+
+
 class TestPromptMessageExtended:
     """Tests for the PromptMessageExtended class."""
 
@@ -31,8 +41,8 @@ class TestPromptMessageExtended:
         assert len(result) == 1
         assert result[0].role == "user"
         assert len(result[0].content) == 2
-        assert result[0].content[0].text == "Hello"
-        assert result[0].content[1].text == "How are you?"
+        assert _text(result[0].content[0]).text == "Hello"
+        assert _text(result[0].content[1]).text == "How are you?"
 
     def test_from_prompt_messages_with_multiple_roles(self):
         """Test converting a sequence of PromptMessages with different roles."""
@@ -54,9 +64,9 @@ class TestPromptMessageExtended:
         assert len(result[0].content) == 1
         assert len(result[1].content) == 1
         assert len(result[2].content) == 1
-        assert result[0].content[0].text == "Hello"
-        assert result[1].content[0].text == "Hi there!"
-        assert result[2].content[0].text == "How are you?"
+        assert _text(result[0].content[0]).text == "Hello"
+        assert _text(result[1].content[0]).text == "Hi there!"
+        assert _text(result[2].content[0]).text == "How are you?"
 
     def test_from_prompt_messages_with_mixed_content_types(self):
         """Test converting messages with mixed content types (text and image)."""
@@ -80,10 +90,11 @@ class TestPromptMessageExtended:
         assert len(result) == 1
         assert result[0].role == "user"
         assert len(result[0].content) == 2
-        assert result[0].content[0].text == "Look at this image:"
-        assert result[0].content[1].type == "image"
-        assert result[0].content[1].data == "base64_encoded_image_data"
-        assert result[0].content[1].mimeType == "image/png"
+        assert _text(result[0].content[0]).text == "Look at this image:"
+        image_block = _image(result[0].content[1])
+        assert image_block.type == "image"
+        assert image_block.data == "base64_encoded_image_data"
+        assert image_block.mimeType == "image/png"
 
     def test_to_prompt_messages(self):
         """Test converting a PromptMessageExtended back to PromptMessages."""
@@ -103,8 +114,8 @@ class TestPromptMessageExtended:
         assert len(result) == 2
         assert result[0].role == "user"
         assert result[1].role == "user"
-        assert result[0].content.text == "Hello"
-        assert result[1].content.text == "How are you?"
+        assert _text(result[0].content).text == "Hello"
+        assert _text(result[1].content).text == "How are you?"
 
     def test_parse_get_prompt_result(self):
         """Test parsing a GetPromptResult into PromptMessageExtended objects."""
@@ -129,9 +140,9 @@ class TestPromptMessageExtended:
         assert len(multiparts[0].content) == 1
         assert len(multiparts[1].content) == 1
         assert len(multiparts[2].content) == 1
-        assert multiparts[0].content[0].text == "Hello"
-        assert multiparts[1].content[0].text == "Hi there!"
-        assert multiparts[2].content[0].text == "How are you?"
+        assert _text(multiparts[0].content[0]).text == "Hello"
+        assert _text(multiparts[1].content[0]).text == "Hi there!"
+        assert _text(multiparts[2].content[0]).text == "How are you?"
 
     def test_empty_messages(self):
         """Test handling of empty message lists."""
@@ -165,7 +176,7 @@ class TestPromptMessageExtended:
         assert len(result) == len(messages)
         for i in range(len(messages)):
             assert result[i].role == messages[i].role
-            assert result[i].content.text == messages[i].content.text
+            assert _text(result[i].content).text == _text(messages[i].content).text
 
     def test_from_get_prompt_result(self):
         """Test from_get_prompt_result method with error handling."""

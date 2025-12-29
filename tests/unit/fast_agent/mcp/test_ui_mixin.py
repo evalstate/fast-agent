@@ -3,6 +3,7 @@
 
 import pytest
 from mcp.types import CallToolResult, EmbeddedResource, TextContent, TextResourceContents
+from pydantic import AnyUrl
 from rich.text import Text
 
 from fast_agent.agents.agent_types import AgentConfig
@@ -85,10 +86,11 @@ def ui_agent(mock_config, mock_context):
     return agent
 
 
-def create_ui_resource(uri="ui://test/component", text="<html>Test UI</html>"):
+def create_ui_resource(uri: str = "ui://test/component", text: str = "<html>Test UI</html>"):
     """Helper to create a UI embedded resource."""
     return EmbeddedResource(
-        type="resource", resource=TextResourceContents(uri=uri, mimeType="text/html", text=text)
+        type="resource",
+        resource=TextResourceContents(uri=AnyUrl(uri), mimeType="text/html", text=text),
     )
 
 
@@ -238,8 +240,8 @@ async def test_show_assistant_message_displays_ui_resources(ui_agent):
         def stub_open_browser(links, **kwargs):
             pass
 
-        ui_mixin_module.ui_links_from_channel = stub_ui_links
-        ui_mixin_module.open_links_in_browser = stub_open_browser
+        setattr(ui_mixin_module, "ui_links_from_channel", stub_ui_links)
+        setattr(ui_mixin_module, "open_links_in_browser", stub_open_browser)
 
         await ui_agent.show_assistant_message(assistant_msg)
 
@@ -249,8 +251,8 @@ async def test_show_assistant_message_displays_ui_resources(ui_agent):
 
     finally:
         # Restore original functions
-        ui_mixin_module.ui_links_from_channel = original_ui_links_from_channel
-        ui_mixin_module.open_links_in_browser = original_open_links_in_browser
+        setattr(ui_mixin_module, "ui_links_from_channel", original_ui_links_from_channel)
+        setattr(ui_mixin_module, "open_links_in_browser", original_open_links_in_browser)
 
 
 def test_is_ui_embedded_resource(ui_agent):
@@ -263,7 +265,7 @@ def test_is_ui_embedded_resource(ui_agent):
     non_ui = EmbeddedResource(
         type="resource",
         resource=TextResourceContents(
-            uri="http://example.com", mimeType="text/html", text="content"
+            uri=AnyUrl("http://example.com"), mimeType="text/html", text="content"
         ),
     )
     assert ui_agent._is_ui_embedded_resource(non_ui) is False

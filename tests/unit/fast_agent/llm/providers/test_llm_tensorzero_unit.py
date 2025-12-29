@@ -1,3 +1,4 @@
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -87,8 +88,9 @@ def test_prepare_api_request_with_template_vars(mock_super_prepare, t0_llm):
 @patch("fast_agent.llm.provider.openai.llm_openai.OpenAILLM._prepare_api_request")
 def test_prepare_api_request_merges_metadata(mock_super_prepare, t0_llm):
     """Tests merging of tensorzero_arguments from metadata."""
-    initial_system_message = ChatCompletionSystemMessageParam(
-        role="system", content=[{"var1": "original"}]
+    initial_system_message = cast(
+        "ChatCompletionSystemMessageParam",
+        {"role": "system", "content": [{"var1": "original"}]},
     )
     messages: list[ChatCompletionMessageParam] = [initial_system_message]
     mock_super_prepare.return_value = {"model": "test_chat", "messages": messages}
@@ -116,8 +118,9 @@ def test_prepare_api_request_adds_episode_id(mock_super_prepare, t0_llm):
 @patch("fast_agent.llm.provider.openai.llm_openai.OpenAILLM._prepare_api_request")
 def test_prepare_api_request_all_features(mock_super_prepare, t0_llm):
     """Tests all features working together."""
-    initial_system_message = ChatCompletionSystemMessageParam(
-        role="system", content="Original prompt"
+    initial_system_message = cast(
+        "ChatCompletionSystemMessageParam",
+        {"role": "system", "content": "Original prompt"},
     )
     messages: list[ChatCompletionMessageParam] = [initial_system_message]
     mock_super_prepare.return_value = {

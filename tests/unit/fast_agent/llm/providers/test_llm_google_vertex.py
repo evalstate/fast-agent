@@ -14,7 +14,11 @@ def _build_llm(config: Settings) -> GoogleNativeLLM:
 def test_vertex_cfg_accepts_model_object_and_resolves_preview_names() -> None:
     """Vertex config may arrive as a pydantic model with a custom attr object."""
     google_settings = GoogleSettings()
-    google_settings.vertex_ai = types.SimpleNamespace(enabled=True, project_id="proj", location="loc")
+    setattr(
+        google_settings,
+        "vertex_ai",
+        types.SimpleNamespace(enabled=True, project_id="proj", location="loc"),
+    )
     config = Settings(google=google_settings)
 
     llm = _build_llm(config)

@@ -1,8 +1,10 @@
 import asyncio
 from contextlib import AsyncExitStack
+from typing import cast
 
 from fast_agent.core.agent_app import AgentApp
 from fast_agent.core.fastagent import AgentInstance
+from fast_agent.interfaces import AgentProtocol
 from fast_agent.mcp.server.agent_server import AgentMCPServer
 
 
@@ -24,7 +26,7 @@ class _DummyAgent:
 
 def test_tool_description_supports_agent_placeholder():
     async def create_instance() -> AgentInstance:
-        agent = _DummyAgent()
+        agent = cast(AgentProtocol, _DummyAgent())
         app = AgentApp({"worker": agent})
         return AgentInstance(app=app, agents={"worker": agent})
 
@@ -47,7 +49,7 @@ def test_tool_description_supports_agent_placeholder():
 
 def test_tool_description_defaults_when_not_provided():
     async def create_instance() -> AgentInstance:
-        agent = _DummyAgent()
+        agent = cast(AgentProtocol, _DummyAgent())
         app = AgentApp({"writer": agent})
         return AgentInstance(app=app, agents={"writer": agent})
 
@@ -79,7 +81,7 @@ async def _exercise_request_scope():
     async def create_instance() -> AgentInstance:
         nonlocal create_count
         create_count += 1
-        agent = _DummyAgent()
+        agent = cast(AgentProtocol, _DummyAgent())
         app = AgentApp({"worker": agent})
         return AgentInstance(app=app, agents={"worker": agent})
 
@@ -127,7 +129,7 @@ async def _exercise_connection_scope():
     async def create_instance() -> AgentInstance:
         nonlocal create_count
         create_count += 1
-        agent = _DummyAgent()
+        agent = cast(AgentProtocol, _DummyAgent())
         app = AgentApp({"worker": agent})
         return AgentInstance(app=app, agents={"worker": agent})
 

@@ -33,7 +33,9 @@ def test_search_messages_user_scope():
     results = search_messages(messages, "error", scope="user")
     assert len(results) == 1
     assert results[0].role == "user"
-    assert "errors" in results[0].content[0].text
+    first_block = results[0].content[0]
+    assert isinstance(first_block, TextContent)
+    assert "errors" in first_block.text
 
 
 def test_search_messages_assistant_scope():
@@ -79,7 +81,11 @@ def test_search_messages_tool_results_scope():
 
     results = search_messages(messages, r"Job started:", scope="tool_results")
     assert len(results) == 1
-    assert results[0].tool_results["call_1"].content[0].text == "Job started: abc123def"
+    tool_results = results[0].tool_results
+    assert tool_results is not None
+    first_block = tool_results["call_1"].content[0]
+    assert isinstance(first_block, TextContent)
+    assert first_block.text == "Job started: abc123def"
 
 
 def test_search_messages_tool_calls_scope():
@@ -110,7 +116,9 @@ def test_search_messages_tool_calls_scope():
     # Search for tool name
     results = search_messages(messages, "create_job", scope="tool_calls")
     assert len(results) == 1
-    assert "call_1" in results[0].tool_calls
+    tool_calls = results[0].tool_calls
+    assert tool_calls is not None
+    assert "call_1" in tool_calls
 
     # Search in arguments
     results = search_messages(messages, "processing", scope="tool_calls")

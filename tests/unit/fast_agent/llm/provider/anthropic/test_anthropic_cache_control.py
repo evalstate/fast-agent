@@ -1,3 +1,6 @@
+from typing import Iterable
+
+from anthropic.types import MessageParam
 from mcp.types import TextContent
 
 from fast_agent.llm.provider.anthropic.cache_planner import AnthropicCachePlanner
@@ -12,13 +15,16 @@ def make_message(text: str, *, is_template: bool = False) -> PromptMessageExtend
     )
 
 
-def count_cache_controls(messages: list[dict]) -> int:
-    return sum(
-        1
-        for msg in messages
-        for block in msg.get("content", [])
-        if isinstance(block, dict) and block.get("cache_control")
-    )
+def count_cache_controls(messages: list[MessageParam]) -> int:
+    total = 0
+    for msg in messages:
+        content = msg.get("content", [])
+        if isinstance(content, str):
+            continue
+        for block in content:
+            if isinstance(block, dict) and block.get("cache_control"):
+                total += 1
+    return total
 
 
 def test_template_cache_respects_budget():
@@ -35,8 +41,10 @@ def test_template_cache_respects_budget():
     for idx in plan_indices:
         AnthropicLLM._apply_cache_control_to_message(provider_msgs[idx])
 
-    assert "cache_control" in provider_msgs[0]["content"][-1]
-    assert "cache_control" in provider_msgs[1]["content"][-1]
+    first_blocks = list(provider_msgs[0]["content"])
+    second_blocks = list(provider_msgs[1]["content"])
+    assert "cache_control" in first_blocks[-1]
+    assert "cache_control" in second_blocks[-1]
 
 
 def test_conversation_cache_respects_four_block_limit():

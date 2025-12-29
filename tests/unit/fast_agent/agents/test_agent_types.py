@@ -41,6 +41,7 @@ def test_instruction_propagates_to_default_request_params():
     )
 
     # The instruction should be propagated to default_request_params.systemPrompt
+    assert config.default_request_params is not None
     assert config.default_request_params.systemPrompt == instruction, (
         f"Expected systemPrompt to be '{instruction}', "
         f"but got {config.default_request_params.systemPrompt}"
@@ -77,6 +78,7 @@ def test_instruction_takes_precedence_over_systemPrompt():
     )
 
     # The AgentConfig.instruction should take precedence over systemPrompt in RequestParams
+    assert config.default_request_params is not None
     assert config.default_request_params.systemPrompt == instruction, (
         f"Expected AgentConfig.instruction ('{instruction}') to override "
         f"RequestParams.systemPrompt ('{original_system_prompt}'), "

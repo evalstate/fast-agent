@@ -88,27 +88,37 @@ class TestMainSettingsIntegration:
 
     def test_settings_openai_headers_from_dict(self):
         """Settings should correctly parse OpenAI headers from dict."""
-        settings = Settings(
-            openai={"api_key": "test-key", "default_headers": {"X-Custom": "value"}}
+        settings = Settings.model_validate(
+            {"openai": {"api_key": "test-key", "default_headers": {"X-Custom": "value"}}}
         )
         assert settings.openai is not None
         assert settings.openai.default_headers == {"X-Custom": "value"}
 
     def test_settings_generic_headers_from_dict(self):
         """Settings should correctly parse generic provider headers from dict."""
-        settings = Settings(
-            generic={"base_url": "http://localhost:11434/v1", "default_headers": {"X-Test": "123"}}
+        settings = Settings.model_validate(
+            {
+                "generic": {
+                    "base_url": "http://localhost:11434/v1",
+                    "default_headers": {"X-Test": "123"},
+                }
+            }
         )
         assert settings.generic is not None
         assert settings.generic.default_headers == {"X-Test": "123"}
 
     def test_settings_multiple_providers_headers(self):
         """Settings should correctly handle headers for multiple providers."""
-        settings = Settings(
-            openai={"default_headers": {"X-OpenAI": "openai-value"}},
-            openrouter={"default_headers": {"X-OpenRouter": "openrouter-value"}},
-            generic={"default_headers": {"X-Generic": "generic-value"}},
+        settings = Settings.model_validate(
+            {
+                "openai": {"default_headers": {"X-OpenAI": "openai-value"}},
+                "openrouter": {"default_headers": {"X-OpenRouter": "openrouter-value"}},
+                "generic": {"default_headers": {"X-Generic": "generic-value"}},
+            }
         )
+        assert settings.openai is not None
+        assert settings.openrouter is not None
+        assert settings.generic is not None
         assert settings.openai.default_headers == {"X-OpenAI": "openai-value"}
         assert settings.openrouter.default_headers == {"X-OpenRouter": "openrouter-value"}
         assert settings.generic.default_headers == {"X-Generic": "generic-value"}
@@ -130,7 +140,7 @@ class TestLLMDefaultHeadersMethod:
         from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
         headers = {"X-Portkey-Trace-Id": "trace-123"}
-        settings = Settings(openai={"default_headers": headers})
+        settings = Settings.model_validate({"openai": {"default_headers": headers}})
         context = Context(config=settings)
         llm = OpenAILLM(context=context)
 
@@ -141,7 +151,7 @@ class TestLLMDefaultHeadersMethod:
         from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 
         headers = {"X-Custom-Gateway": "gateway-value"}
-        settings = Settings(generic={"default_headers": headers})
+        settings = Settings.model_validate({"generic": {"default_headers": headers}})
         context = Context(config=settings)
         llm = GenericLLM(context=context)
 
@@ -152,7 +162,7 @@ class TestLLMDefaultHeadersMethod:
         from fast_agent.llm.provider.openai.llm_openrouter import OpenRouterLLM
 
         headers = {"HTTP-Referer": "https://myapp.com", "X-Title": "My App"}
-        settings = Settings(openrouter={"default_headers": headers})
+        settings = Settings.model_validate({"openrouter": {"default_headers": headers}})
         context = Context(config=settings)
         llm = OpenRouterLLM(context=context)
 
@@ -163,7 +173,7 @@ class TestLLMDefaultHeadersMethod:
         from fast_agent.llm.provider.openai.llm_deepseek import DeepSeekLLM
 
         headers = {"X-DeepSeek-Custom": "value"}
-        settings = Settings(deepseek={"default_headers": headers})
+        settings = Settings.model_validate({"deepseek": {"default_headers": headers}})
         context = Context(config=settings)
         llm = DeepSeekLLM(context=context)
 
@@ -174,7 +184,7 @@ class TestLLMDefaultHeadersMethod:
         from fast_agent.llm.provider.openai.llm_xai import XAILLM
 
         headers = {"X-XAI-Custom": "value"}
-        settings = Settings(xai={"default_headers": headers})
+        settings = Settings.model_validate({"xai": {"default_headers": headers}})
         context = Context(config=settings)
         llm = XAILLM(context=context)
 
@@ -185,7 +195,7 @@ class TestLLMDefaultHeadersMethod:
         from fast_agent.llm.provider.openai.llm_groq import GroqLLM
 
         headers = {"X-Groq-Custom": "value"}
-        settings = Settings(groq={"default_headers": headers})
+        settings = Settings.model_validate({"groq": {"default_headers": headers}})
         context = Context(config=settings)
         llm = GroqLLM(context=context)
 
@@ -200,7 +210,9 @@ class TestOpenAIClientCreation:
         from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
         headers = {"X-Portkey-Config": "config-id", "X-Custom-Header": "custom-value"}
-        settings = Settings(openai={"api_key": "test-key", "default_headers": headers})
+        settings = Settings.model_validate(
+            {"openai": {"api_key": "test-key", "default_headers": headers}}
+        )
         context = Context(config=settings)
         llm = OpenAILLM(context=context)
 
@@ -217,7 +229,7 @@ class TestOpenAIClientCreation:
         """OpenAI client should not have custom headers when none configured."""
         from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 
-        settings = Settings(openai={"api_key": "test-key"})
+        settings = Settings.model_validate({"openai": {"api_key": "test-key"}})
         context = Context(config=settings)
         llm = OpenAILLM(context=context)
 
@@ -232,7 +244,9 @@ class TestOpenAIClientCreation:
         from fast_agent.llm.provider.openai.llm_generic import GenericLLM
 
         headers = {"X-Gateway-Auth": "token123"}
-        settings = Settings(generic={"api_key": "test-key", "default_headers": headers})
+        settings = Settings.model_validate(
+            {"generic": {"api_key": "test-key", "default_headers": headers}}
+        )
         context = Context(config=settings)
         llm = GenericLLM(context=context)
 

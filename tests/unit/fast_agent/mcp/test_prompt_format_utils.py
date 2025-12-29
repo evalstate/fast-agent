@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+from pydantic import AnyUrl
 from mcp.types import (
     EmbeddedResource,
     ImageContent,
@@ -23,6 +24,21 @@ from fast_agent.mcp.prompt_serialization import (
 )
 
 
+def _text(block: object) -> TextContent:
+    assert isinstance(block, TextContent)
+    return block
+
+
+def _resource(block: object) -> EmbeddedResource:
+    assert isinstance(block, EmbeddedResource)
+    return block
+
+
+def _resource_text(resource: object) -> str:
+    assert isinstance(resource, TextResourceContents)
+    return resource.text
+
+
 class TestPromptFormatUtils:
     """Tests for the prompt_format_utils module."""
 
@@ -37,7 +53,7 @@ class TestPromptFormatUtils:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://code.py",
+                            uri=AnyUrl("resource://code.py"),
                             mimeType="text/x-python",
                             text='print("Hello, World!")',
                         ),
@@ -54,7 +70,7 @@ class TestPromptFormatUtils:
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://improved_code.py",
+                            uri=AnyUrl("resource://improved_code.py"),
                             mimeType="text/x-python",
                             text='def main():\n    print("Hello, World!")\n\nif __name__ == "__main__":\n    main()',
                         ),
@@ -136,21 +152,23 @@ I've reviewed your CSS and made it more efficient:
         assert len(messages) == 2
         assert messages[0].role == "user"
         assert len(messages[0].content) == 2  # Text and resource
-        assert messages[0].content[0].type == "text"
-        assert "Here's a CSS file" in messages[0].content[0].text
-        assert messages[0].content[1].type == "resource"
-        assert str(messages[0].content[1].resource.uri) == "resource://styles.css"
-        assert messages[0].content[1].resource.mimeType == "text/css"
-        assert messages[0].content[1].resource.text == "body { color: black; }"
+        assert _text(messages[0].content[0]).type == "text"
+        assert "Here's a CSS file" in _text(messages[0].content[0]).text
+        resource = _resource(messages[0].content[1])
+        assert resource.type == "resource"
+        assert str(resource.resource.uri) == "resource://styles.css"
+        assert resource.resource.mimeType == "text/css"
+        assert _resource_text(resource.resource) == "body { color: black; }"
 
         assert messages[1].role == "assistant"
         assert len(messages[1].content) == 2  # Text and resource
-        assert messages[1].content[0].type == "text"
-        assert "I've reviewed your CSS" in messages[1].content[0].text
-        assert messages[1].content[1].type == "resource"
-        assert str(messages[1].content[1].resource.uri) == "resource://improved_styles.css"
-        assert messages[1].content[1].resource.mimeType == "text/css"
-        assert messages[1].content[1].resource.text == "body { color: #000; }"
+        assert _text(messages[1].content[0]).type == "text"
+        assert "I've reviewed your CSS" in _text(messages[1].content[0]).text
+        resource = _resource(messages[1].content[1])
+        assert resource.type == "resource"
+        assert str(resource.resource.uri) == "resource://improved_styles.css"
+        assert resource.resource.mimeType == "text/css"
+        assert _resource_text(resource.resource) == "body { color: #000; }"
 
     def test_multiple_resources_in_one_message(self):
         """Test handling multiple resources in a single message."""
@@ -162,7 +180,7 @@ I've reviewed your CSS and made it more efficient:
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri="resource://data1.csv",
+                        uri=AnyUrl("resource://data1.csv"),
                         mimeType="text/csv",
                         text="id,name,value\n1,A,10\n2,B,20",
                     ),
@@ -170,7 +188,7 @@ I've reviewed your CSS and made it more efficient:
                 EmbeddedResource(
                     type="resource",
                     resource=TextResourceContents(
-                        uri="resource://data2.csv",
+                        uri=AnyUrl("resource://data2.csv"),
                         mimeType="text/csv",
                         text="id,name,value\n3,C,30\n4,D,40",
                     ),
@@ -212,18 +230,20 @@ I've reviewed your CSS and made it more efficient:
         assert len(messages) == 1
         assert messages[0].role == "user"
         assert len(messages[0].content) == 3  # Text and two resources
-        assert messages[0].content[0].type == "text"
-        assert messages[0].content[1].type == "resource"
+        assert _text(messages[0].content[0]).type == "text"
+        assert _resource(messages[0].content[1]).type == "resource"
         assert messages[0].content[2].type == "resource"
 
         # Verify resource content is preserved
-        assert str(messages[0].content[1].resource.uri) == "resource://data1.csv"
-        assert messages[0].content[1].resource.mimeType == "text/csv"
-        assert "id,name,value" in messages[0].content[1].resource.text
+        resource = _resource(messages[0].content[1])
+        assert str(resource.resource.uri) == "resource://data1.csv"
+        assert resource.resource.mimeType == "text/csv"
+        assert "id,name,value" in _resource_text(resource.resource)
 
-        assert str(messages[0].content[2].resource.uri) == "resource://data2.csv"
-        assert messages[0].content[2].resource.mimeType == "text/csv"
-        assert "id,name,value" in messages[0].content[2].resource.text
+        resource = _resource(messages[0].content[2])
+        assert str(resource.resource.uri) == "resource://data2.csv"
+        assert resource.resource.mimeType == "text/csv"
+        assert "id,name,value" in _resource_text(resource.resource)
 
     def test_image_handling(self):
         """Test handling image content in multipart messages."""
@@ -290,7 +310,7 @@ analysis.md""")
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://config.json",
+                            uri=AnyUrl("resource://config.json"),
                             mimeType="application/json",
                             text='{"key": "value"}',
                         ),
@@ -309,9 +329,10 @@ analysis.md""")
         assert len(loaded_messages) == 1
         assert loaded_messages[0].role == "user"
         assert len(loaded_messages[0].content) == 2  # Text and resource
-        assert loaded_messages[0].content[0].type == "text"
-        assert loaded_messages[0].content[1].type == "resource"
-        assert str(loaded_messages[0].content[1].resource.uri) == "resource://config.json"
+        assert _text(loaded_messages[0].content[0]).type == "text"
+        resource = _resource(loaded_messages[0].content[1])
+        assert resource.type == "resource"
+        assert str(resource.resource.uri) == "resource://config.json"
 
     def test_round_trip_with_mime_types(self):
         """Test round-trip conversion preserving MIME type information."""
@@ -324,7 +345,7 @@ analysis.md""")
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://script.js",
+                            uri=AnyUrl("resource://script.js"),
                             mimeType="application/javascript",
                             text="function hello() { return 'Hello!'; }",
                         ),
@@ -332,7 +353,7 @@ analysis.md""")
                     EmbeddedResource(
                         type="resource",
                         resource=TextResourceContents(
-                            uri="resource://style.css",
+                            uri=AnyUrl("resource://style.css"),
                             mimeType="text/css",
                             text="body { color: blue; }",
                         ),
@@ -360,6 +381,6 @@ analysis.md""")
         assert len(resources) == 2
 
         # Resource URIs should be preserved
-        resource_uris = [str(resource.resource.uri) for resource in resources]
+        resource_uris = [str(_resource(resource).resource.uri) for resource in resources]
         assert "resource://script.js" in resource_uris
         assert "resource://style.css" in resource_uris

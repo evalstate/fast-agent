@@ -255,6 +255,7 @@ def test_cache_hit_rate_calculation():
     # Total cache: 300 (anthropic read) + 200 (openai hit) = 500
     # Hit rate: 500 / (2100 + 500) * 100 = 500/2600 = 19.23%
     expected_hit_rate = 500 / (2100 + 500) * 100
+    assert accumulator.cache_hit_rate is not None
     assert abs(accumulator.cache_hit_rate - expected_hit_rate) < 0.01
 
     # Test with no input tokens

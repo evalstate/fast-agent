@@ -1,3 +1,5 @@
+from typing import Literal
+
 from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
@@ -25,7 +27,9 @@ def _restore_console_size(original_width: object | None, original_height: object
         console.console._height = original_height
 
 
-def _make_handle(streaming_mode: str = "markdown") -> _StreamingMessageHandle:
+def _make_handle(
+    streaming_mode: Literal["markdown", "plain", "none"] = "markdown",
+) -> _StreamingMessageHandle:
     settings = Settings()
     settings.logger.streaming = streaming_mode
     display = ConsoleDisplay(settings)

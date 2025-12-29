@@ -34,7 +34,7 @@ async def test_terminal_create_lifecycle() -> None:
 
     # Create first terminal
     result1 = await client.create_terminal(command="echo hello", session_id="test-session")
-    terminal_id1 = result1.terminalId
+    terminal_id1 = result1.terminal_id
 
     assert terminal_id1 == "terminal-1"
     assert len(client.terminals) == 1
@@ -42,7 +42,7 @@ async def test_terminal_create_lifecycle() -> None:
 
     # Create second terminal
     result2 = await client.create_terminal(command="pwd", session_id="test-session")
-    terminal_id2 = result2.terminalId
+    terminal_id2 = result2.terminal_id
 
     assert terminal_id2 == "terminal-2"
     assert len(client.terminals) == 2
@@ -68,7 +68,7 @@ async def test_terminal_output_retrieval() -> None:
 
     # Create terminal
     result = await client.create_terminal(command="echo test output", session_id="test-session")
-    terminal_id = result.terminalId
+    terminal_id = result.terminal_id
 
     # Get output
     output = await client.terminal_output(session_id="test-session", terminal_id=terminal_id)
@@ -88,14 +88,14 @@ async def test_terminal_wait_for_exit() -> None:
 
     # Create terminal
     result = await client.create_terminal(command="echo test", session_id="test-session")
-    terminal_id = result.terminalId
+    terminal_id = result.terminal_id
 
     # Wait for exit (immediate in test client)
     exit_result = await client.wait_for_terminal_exit(
         session_id="test-session", terminal_id=terminal_id
     )
 
-    assert exit_result.exitCode == 0
+    assert exit_result.exit_code == 0
     assert exit_result.signal is None
 
     # Cleanup
@@ -110,7 +110,7 @@ async def test_terminal_kill() -> None:
 
     # Create terminal
     result = await client.create_terminal(command="sleep 100", session_id="test-session")
-    terminal_id = result.terminalId
+    terminal_id = result.terminal_id
 
     # Kill it
     await client.kill_terminal(session_id="test-session", terminal_id=terminal_id)
@@ -123,7 +123,7 @@ async def test_terminal_kill() -> None:
     exit_result = await client.wait_for_terminal_exit(
         session_id="test-session", terminal_id=terminal_id
     )
-    assert exit_result.exitCode is None
+    assert exit_result.exit_code is None
     assert exit_result.signal == "SIGKILL"
 
     # Cleanup
@@ -140,7 +140,7 @@ async def test_terminal_release_cleanup() -> None:
     terminals = []
     for i in range(3):
         result = await client.create_terminal(command=f"echo {i}", session_id="test-session")
-        terminals.append(result.terminalId)
+        terminals.append(result.terminal_id)
 
     assert len(client.terminals) == 3
 
@@ -171,7 +171,7 @@ async def test_terminal_missing_id() -> None:
     exit_result = await client.wait_for_terminal_exit(
         session_id="test-session", terminal_id="missing"
     )
-    assert exit_result.exitCode is None
+    assert exit_result.exit_code is None
 
     # Kill non-existent terminal (should not error)
     await client.kill_terminal(session_id="test-session", terminal_id="missing")

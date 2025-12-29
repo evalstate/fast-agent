@@ -4,6 +4,8 @@ Unit tests for ACP content block conversion to MCP format.
 
 from __future__ import annotations
 
+from typing import cast
+
 import base64
 
 from acp.schema import (
@@ -13,6 +15,7 @@ from acp.schema import (
     TextContentBlock,
     TextResourceContents,
 )
+from acp.helpers import ContentBlock as ACPContentBlock
 from mcp.types import (
     BlobResourceContents as MCPBlobResourceContents,
 )
@@ -77,7 +80,7 @@ class TestImageContentConversion:
         acp_image = ImageContentBlock(
             type="image",
             data=image_data,
-            mimeType="image/png",
+            mime_type="image/png",
         )
 
         mcp_content = convert_acp_content_to_mcp(acp_image)
@@ -94,7 +97,7 @@ class TestImageContentConversion:
         acp_image = ImageContentBlock(
             type="image",
             data=image_data,
-            mimeType="image/jpeg",
+            mime_type="image/jpeg",
             uri="file:///path/to/image.jpg",
         )
 
@@ -114,7 +117,7 @@ class TestEmbeddedResourceConversion:
             type="resource",
             resource=TextResourceContents(
                 uri="file:///path/to/file.py",
-                mimeType="text/x-python",
+                mime_type="text/x-python",
                 text="def hello():\n    print('Hello')",
             ),
         )
@@ -136,7 +139,7 @@ class TestEmbeddedResourceConversion:
             type="resource",
             resource=BlobResourceContents(
                 uri="file:///path/to/file.pdf",
-                mimeType="application/pdf",
+                mime_type="application/pdf",
                 blob=blob_data,
             ),
         )
@@ -182,7 +185,7 @@ class TestPromptConversion:
                 type="resource",
                 resource=TextResourceContents(
                     uri="file:///main.py",
-                    mimeType="text/x-python",
+                    mime_type="text/x-python",
                     text="print('hello')",
                 ),
             ),
@@ -190,7 +193,7 @@ class TestPromptConversion:
             ImageContentBlock(
                 type="image",
                 data=image_data,
-                mimeType="image/png",
+                mime_type="image/png",
             ),
         ]
 
@@ -223,6 +226,8 @@ class TestPromptConversion:
 
         assert len(mcp_blocks) == 2
         assert all(isinstance(block, MCPTextContent) for block in mcp_blocks)
+        assert isinstance(mcp_blocks[0], MCPTextContent)
+        assert isinstance(mcp_blocks[1], MCPTextContent)
         assert mcp_blocks[0].text == "First message"
         assert mcp_blocks[1].text == "Second message"
 
@@ -238,7 +243,7 @@ class TestUnsupportedContent:
             type = "audio"
             data = "base64-audio-data"
 
-        result = convert_acp_content_to_mcp(UnsupportedContent())
+        result = convert_acp_content_to_mcp(cast(ACPContentBlock, UnsupportedContent()))
         assert result is None
 
     def test_prompt_with_unsupported_content_skips_it(self):
@@ -247,9 +252,9 @@ class TestUnsupportedContent:
         class UnsupportedContent:
             type = "audio"
 
-        acp_prompt = [
+        acp_prompt: list[ACPContentBlock] = [
             TextContentBlock(type="text", text="Hello"),
-            UnsupportedContent(),
+            cast(ACPContentBlock, UnsupportedContent()),
             TextContentBlock(type="text", text="World"),
         ]
 
@@ -258,5 +263,7 @@ class TestUnsupportedContent:
         # Should only have the two text blocks
         assert len(mcp_blocks) == 2
         assert all(isinstance(block, MCPTextContent) for block in mcp_blocks)
+        assert isinstance(mcp_blocks[0], MCPTextContent)
+        assert isinstance(mcp_blocks[1], MCPTextContent)
         assert mcp_blocks[0].text == "Hello"
         assert mcp_blocks[1].text == "World"

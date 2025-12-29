@@ -20,7 +20,9 @@ def test_sanitizes_tool_use_ids_for_assistant_calls():
     converted: MessageParam = AnthropicConverter.convert_to_anthropic(msg)
 
     assert converted["role"] == "assistant"
-    assert converted["content"][0]["id"] == expected
+    content_blocks = list(converted["content"])
+    assert isinstance(content_blocks[0], dict)
+    assert content_blocks[0]["id"] == expected
 
 
 def test_sanitizes_tool_use_ids_for_tool_results():
@@ -33,4 +35,6 @@ def test_sanitizes_tool_use_ids_for_tool_results():
     converted: MessageParam = AnthropicConverter.convert_to_anthropic(msg)
 
     assert converted["role"] == "user"
-    assert converted["content"][0]["tool_use_id"] == expected
+    content_blocks = list(converted["content"])
+    assert isinstance(content_blocks[0], dict)
+    assert content_blocks[0]["tool_use_id"] == expected

@@ -29,9 +29,10 @@ async def auto_accept_test_handler(
     """
     logger.info(f"Auto-accept test handler called: {params.message}")
 
-    if params.requestedSchema:
+    requested_schema = getattr(params, "requestedSchema", None)
+    if requested_schema:
         # Generate realistic test data based on schema
-        content = _generate_test_response(params.requestedSchema)
+        content = _generate_test_response(requested_schema)
         return ElicitResult(action="accept", content=content)
     else:
         return ElicitResult(action="accept", content={"response": "auto-test-response"})

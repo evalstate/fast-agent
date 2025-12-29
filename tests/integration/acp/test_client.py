@@ -52,7 +52,7 @@ class TestClient(Client):
     def queue_permission_selected(self, option_id: str) -> None:
         self.permission_outcomes.append(
             RequestPermissionResponse(
-                outcome=AllowedOutcome(optionId=option_id, outcome="selected")
+                outcome=AllowedOutcome(option_id=option_id, outcome="selected")
             )
         )
 
@@ -149,7 +149,7 @@ class TestClient(Client):
         }
 
         # Return the ID we created
-        return CreateTerminalResponse(terminalId=terminal_id)
+        return CreateTerminalResponse(terminal_id=terminal_id)
 
     async def terminal_output(
         self,
@@ -161,9 +161,9 @@ class TestClient(Client):
         terminal = self.terminals.get(terminal_id, {})
         exit_code = terminal.get("exit_code")
         if isinstance(exit_code, int) and exit_code >= 0:
-            exit_status = TerminalExitStatus(exitCode=exit_code)
+            exit_status = TerminalExitStatus(exit_code=exit_code)
         elif isinstance(exit_code, int) and exit_code < 0:
-            exit_status = TerminalExitStatus(exitCode=None, signal="SIGKILL")
+            exit_status = TerminalExitStatus(exit_code=None, signal="SIGKILL")
         else:
             exit_status = None
 
@@ -194,10 +194,12 @@ class TestClient(Client):
         terminal = self.terminals.get(terminal_id, {})
         exit_code = terminal.get("exit_code")
         if isinstance(exit_code, int) and exit_code >= 0:
-            return WaitForTerminalExitResponse(exitCode=exit_code, signal=None)
+            return WaitForTerminalExitResponse(exit_code=exit_code, signal=None)
 
         # Unknown or negative exit -> model as killed/terminated with no exit code
-        return WaitForTerminalExitResponse(exitCode=None, signal="SIGKILL" if exit_code else None)
+        return WaitForTerminalExitResponse(
+            exit_code=None, signal="SIGKILL" if exit_code else None
+        )
 
     async def kill_terminal(
         self,

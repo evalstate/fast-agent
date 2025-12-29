@@ -243,7 +243,7 @@ class AgentsAsToolsOptions:
 
     history_mode: HistoryMode = HistoryMode.FORK
     max_parallel: int | None = None
-    child_timeout_sec: int | None = None
+    child_timeout_sec: float | None = None
     max_display_instances: int = 20
 
     def __post_init__(self) -> None:

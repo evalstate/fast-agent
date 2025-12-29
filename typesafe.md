@@ -95,6 +95,10 @@ Python 3.13+ and current typing guidance.
 - Use `Self` for fluent APIs and `TypeAlias` for complex, reused types.
 - Use `type: ignore` only when interacting with third-party APIs that are untyped or known-broken;
   otherwise prefer `ty: ignore[rule]` with the specific rule.
+- For tests, prefer `assert isinstance(x, ConcreteType)` (or `assert x is not None`) to narrow types
+  instead of `cast(...)` when the runtime behavior enforces the type.
+- When dealing with untyped dict-like payloads in tests, add `assert isinstance(payload, dict)`
+  before passing into helpers instead of casting to `dict[str, Any]`.
 
 ## Reproducible Plan
 

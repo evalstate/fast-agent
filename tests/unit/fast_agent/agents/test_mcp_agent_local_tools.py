@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from mcp.types import TextContent
+
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
@@ -42,6 +44,10 @@ async def test_local_tools_listed_and_callable() -> None:
     result: CallToolResult = await agent.call_tool("sample_tool", {"video_id": "1234"})
     assert not result.isError
     assert calls == [{"video_id": "1234"}]
-    assert [block.text for block in result.content or []] == ["transcript for 1234"]
+    assert result.content is not None
+    assert len(result.content) == 1
+    assert result.content[0].type == "text"
+    assert isinstance(result.content[0], TextContent)
+    assert result.content[0].text == "transcript for 1234"
 
     await agent._aggregator.close()

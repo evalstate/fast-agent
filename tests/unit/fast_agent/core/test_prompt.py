@@ -7,10 +7,27 @@ import os
 import tempfile
 from pathlib import Path
 
-from mcp.types import EmbeddedResource, ImageContent, PromptMessage, TextContent
+from mcp.types import EmbeddedResource, ImageContent, PromptMessage, TextContent, TextResourceContents
 
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
+
+
+def _text_block(block: object) -> TextContent:
+    assert isinstance(block, TextContent)
+    return block
+
+
+def _embedded_text(block: object) -> str:
+    assert isinstance(block, EmbeddedResource)
+    resource = block.resource
+    assert isinstance(resource, TextResourceContents)
+    return resource.text
+
+
+def _resource_text(resource: object) -> str:
+    assert isinstance(resource, TextResourceContents)
+    return resource.text
 
 
 def test_user_method():
@@ -30,8 +47,8 @@ def test_user_method():
     assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"
     assert len(message.content) == 2
-    assert message.content[0].text == "Hello,"
-    assert message.content[1].text == "How are you?"
+    assert _text_block(message.content[0]).text == "Hello,"
+    assert _text_block(message.content[1]).text == "How are you?"
 
     # Test with PromptMessage
     prompt_message = PromptMessage(
@@ -42,7 +59,7 @@ def test_user_method():
     assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"  # Role should be changed to user
     assert len(message.content) == 1
-    assert message.content[0].text == "I'm a PromptMessage"
+    assert _text_block(message.content[0]).text == "I'm a PromptMessage"
 
     # Test with PromptMessageExtended
     multipart = Prompt.assistant("I'm a multipart message")
@@ -51,7 +68,7 @@ def test_user_method():
     assert isinstance(message, PromptMessageExtended)
     assert message.role == "user"  # Role should be changed to user
     assert len(message.content) == 1
-    assert message.content[0].text == "I'm a multipart message"
+    assert _text_block(message.content[0]).text == "I'm a multipart message"
 
 
 def test_assistant_method():
@@ -98,16 +115,15 @@ def test_with_file_paths():
 
         assert message.role == "user"
         assert len(message.content) == 2
-        assert message.content[0].text == "Check this file:"
-        assert isinstance(message.content[1], EmbeddedResource)
-        assert message.content[1].resource.text == "Hello, world!"
+        assert _text_block(message.content[0]).text == "Check this file:"
+        assert _embedded_text(message.content[1]) == "Hello, world!"
 
         # Test with image file
         message = Prompt.assistant("Here's the image:", Path(image_path))
 
         assert message.role == "assistant"
         assert len(message.content) == 2
-        assert message.content[0].text == "Here's the image:"
+        assert _text_block(message.content[0]).text == "Here's the image:"
         assert isinstance(message.content[1], ImageContent)
 
         # Decode the base64 data
@@ -137,14 +153,14 @@ def test_with_file_paths():
         assert len(message.content) == 2
         # Using dictionary comparison because the objects might not be identity-equal
         assert message.content[1].type == embedded.type
-        assert message.content[1].resource.text == embedded.resource.text
+        assert _embedded_text(message.content[1]) == _resource_text(embedded.resource)
 
         # Test with ReadResourceResult
         resource_result = ReadResourceResult(contents=[text_resource])
         message = Prompt.user("Resource result:", resource_result)
         assert message.role == "user"
         assert len(message.content) > 1  # Should have text + resource
-        assert message.content[0].text == "Resource result:"
+        assert _text_block(message.content[0]).text == "Resource result:"
         assert isinstance(message.content[1], EmbeddedResource)
 
         # Test with direct TextContent
@@ -167,9 +183,9 @@ def test_with_file_paths():
         message = Prompt.user("Text followed by:", text_content, "And an image:", image_content)
         assert message.role == "user"
         assert len(message.content) == 4
-        assert message.content[0].text == "Text followed by:"
+        assert _text_block(message.content[0]).text == "Text followed by:"
         assert message.content[1] == text_content
-        assert message.content[2].text == "And an image:"
+        assert _text_block(message.content[2]).text == "And an image:"
         assert message.content[3] == image_content
 
     finally:
@@ -201,6 +217,7 @@ def test_conversation_method():
     assert len(mixed_conversation) == 3
     assert mixed_conversation[0].role == "user"
     assert mixed_conversation[1].role == "assistant"
+    assert isinstance(mixed_conversation[1].content, TextContent)
     assert mixed_conversation[1].content.text == "Direct dict!"
     assert mixed_conversation[2].role == "user"
 

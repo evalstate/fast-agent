@@ -452,6 +452,7 @@ class TestSecurityAndLeakagePrevention:
 
             # Should return exact same headers, no modification
             assert result == existing_headers
+            assert result is not None
             assert result["Authorization"] == "Bearer user_provided_token"
         finally:
             _restore_hf_token(original)

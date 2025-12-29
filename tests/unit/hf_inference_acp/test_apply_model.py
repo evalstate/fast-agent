@@ -20,8 +20,8 @@ async def test_apply_model_does_not_override_request_params_model(monkeypatch) -
     pytest.importorskip("ruamel.yaml")
     _ensure_hf_inference_acp_on_path()
 
-    import hf_inference_acp.agents as agents_mod
-    from hf_inference_acp.agents import HuggingFaceAgent
+    import hf_inference_acp.agents as agents_mod  # ty: ignore[unresolved-import]
+    from hf_inference_acp.agents import HuggingFaceAgent  # ty: ignore[unresolved-import]
 
     calls: list[dict] = []
 

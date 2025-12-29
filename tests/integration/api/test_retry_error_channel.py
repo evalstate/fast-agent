@@ -15,8 +15,8 @@ from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams
 class FailingOpenAILLM(OpenAILLM):
     """Test double that always raises an APIError."""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, provider=Provider.OPENAI, **kwargs)
+    def __init__(self, **kwargs) -> None:
+        super().__init__(provider=Provider.OPENAI, **kwargs)
         self.attempts = 0
 
     async def _apply_prompt_provider_specific(
@@ -40,7 +40,8 @@ async def test_retry_exhaustion_returns_error_channel():
 
     assert llm.attempts == 1  # no retries when FAST_AGENT_RETRIES=0
     assert response.stop_reason == LlmStopReason.ERROR
-    assert FAST_AGENT_ERROR_CHANNEL in (response.channels or {})
+    assert response.channels is not None
+    assert FAST_AGENT_ERROR_CHANNEL in response.channels
     error_block = response.channels[FAST_AGENT_ERROR_CHANNEL][0]
     assert "request failed" in (get_text(error_block) or "")
 

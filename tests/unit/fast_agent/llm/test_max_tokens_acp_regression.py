@@ -6,15 +6,23 @@ it creates RequestParams(systemPrompt=resolved) which has maxTokens=2048 as a cl
 The merge logic should preserve the model-aware maxTokens from default_request_params.
 """
 
+from typing import TypeGuard
+
 import pytest
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
 from fast_agent.context import Context
+from fast_agent.llm.fastagent_llm import FastAgentLLM
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
+from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.types import RequestParams
+
+
+def _is_fastagent_llm(value: FastAgentLLMProtocol) -> TypeGuard[FastAgentLLM]:
+    return isinstance(value, FastAgentLLM)
 
 
 class TestModelDatabaseLookup:
@@ -202,6 +210,7 @@ class TestAttachLLMFlow:
         factory = ModelFactory.create_factory("hf.moonshotai/kimi-k2-instruct-0905")
 
         llm = await agent.attach_llm(factory)
+        assert _is_fastagent_llm(llm)
 
         assert llm.default_request_params.maxTokens == 16384, (
             f"Expected 16384, got {llm.default_request_params.maxTokens}"
@@ -218,6 +227,7 @@ class TestAttachLLMFlow:
         factory = ModelFactory.create_factory("kimi")
 
         llm = await agent.attach_llm(factory)
+        assert _is_fastagent_llm(llm)
 
         # kimi alias resolves to hf.moonshotai/Kimi-K2-Instruct-0905:groq
         # which should get maxTokens=16384 from KIMI_MOONSHOT
@@ -235,6 +245,7 @@ class TestAttachLLMFlow:
         factory = ModelFactory.create_factory("kimithink")
 
         llm = await agent.attach_llm(factory)
+        assert _is_fastagent_llm(llm)
 
         # kimithink alias resolves to hf.moonshotai/Kimi-K2-Thinking:together
         # which should get maxTokens=16384 from KIMI_MOONSHOT_THINKING
@@ -268,6 +279,7 @@ class TestAttachLLMFlow:
         # Create the factory and attach LLM with the params
         factory = ModelFactory.create_factory("kimi")
         llm = await agent.attach_llm(factory, request_params=recreated_params)
+        assert _is_fastagent_llm(llm)
 
         # maxTokens should be 16384 from the new model's ModelDatabase entry
         assert llm.default_request_params.maxTokens == 16384, (
@@ -290,6 +302,7 @@ class TestAttachLLMFlow:
         factory = ModelFactory.create_factory("hf.moonshotai/kimi-k2-instruct-0905")
 
         llm = await agent.attach_llm(factory)
+        assert _is_fastagent_llm(llm)
 
         # Verify LLM was created with correct maxTokens
         assert llm.default_request_params.maxTokens == 16384, (
@@ -322,6 +335,7 @@ class TestAttachLLMFlow:
         factory = ModelFactory.create_factory("hf:moonshotai/kimi-k2-instruct-0905")
 
         llm = await agent.attach_llm(factory)
+        assert _is_fastagent_llm(llm)
 
         # This documents the current buggy behavior
         # The model name gets corrupted with a leading colon

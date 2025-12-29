@@ -50,7 +50,7 @@ def test_get_api_key_from_config():
     """Test getting HuggingFace API key from config."""
     original = _set_hf_token(None)
     try:
-        config = Settings(huggingface=HuggingFaceSettings(api_key="hf_config_token"))
+        config = Settings(hf=HuggingFaceSettings(api_key="hf_config_token"))
         api_key = ProviderKeyManager.get_api_key("hf", config)
         assert api_key == "hf_config_token"
     finally:
@@ -61,7 +61,7 @@ def test_config_takes_precedence_over_env():
     """Test that config API key takes precedence over environment variable."""
     original = _set_hf_token("hf_env_token")
     try:
-        config = Settings(huggingface=HuggingFaceSettings(api_key="hf_config_priority"))
+        config = Settings(hf=HuggingFaceSettings(api_key="hf_config_priority"))
         api_key = ProviderKeyManager.get_api_key("hf", config)
         assert api_key == "hf_config_priority"
     finally:

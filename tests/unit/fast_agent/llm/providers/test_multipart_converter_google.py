@@ -37,7 +37,13 @@ class TestOpenAIToolConverter(unittest.TestCase):
         )
         assert 1 == len(converted)
         assert "tool" == converted[0].role
-        assert self.sample_text == converted[0].parts[0].function_response.response["text_content"]
+        parts = converted[0].parts
+        assert parts is not None
+        fn_resp = parts[0].function_response
+        assert fn_resp is not None
+        response = fn_resp.response
+        assert isinstance(response, dict)
+        assert self.sample_text == response["text_content"]
 
     def test_multiple_tool_results_with_mixed_content(self):
         """Test conversion of multiple tool results with different content types."""
@@ -66,8 +72,16 @@ class TestOpenAIToolConverter(unittest.TestCase):
 
         # Assertions
         assert 2 == len(converted)
-        assert 1 == len(converted[0].parts)  # Text Only
-        assert 2 == len(converted[1].parts[0].function_response.response)  # Text and Image
+        first_parts = converted[0].parts
+        assert first_parts is not None
+        assert 1 == len(first_parts)  # Text Only
+        second_parts = converted[1].parts
+        assert second_parts is not None
+        second_fn_resp = second_parts[0].function_response
+        assert second_fn_resp is not None
+        second_response = second_fn_resp.response
+        assert isinstance(second_response, dict)
+        assert 2 == len(second_response)  # Text and Image
 
 
 #        assert self.sample_text == converted[0].parts[0].function_response.response["text"][0]

@@ -243,7 +243,8 @@ async def test_skills_registry_numbered_selection(tmp_path: Path) -> None:
         assert "Registry set to" in response
         assert get_settings().skills.marketplace_url == marketplace2.as_posix()
         # Configured list is preserved
-        assert len(get_settings().skills.marketplace_urls) == 2
+        marketplace_urls = get_settings().skills.marketplace_urls or []
+        assert len(marketplace_urls) == 2
 
         # Invalid number
         response = await handler.execute_command("skills", "registry 99")

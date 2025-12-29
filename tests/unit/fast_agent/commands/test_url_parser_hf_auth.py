@@ -134,6 +134,7 @@ class TestParseServerUrlsHfAuth:
             # First URL - HF with token
             server_name, transport_type, url, headers = result[0]
             assert server_name == "hf_co"
+            assert headers is not None
             assert headers["Authorization"] == "Bearer hf_test_token"
 
             # Second URL - non-HF, no token
@@ -144,6 +145,7 @@ class TestParseServerUrlsHfAuth:
             # Third URL - HF with token
             server_name, transport_type, url, headers = result[2]
             assert server_name == "huggingface_co"
+            assert headers is not None
             assert headers["Authorization"] == "Bearer hf_test_token"
         finally:
             _restore_hf_token(original)

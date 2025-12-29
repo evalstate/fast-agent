@@ -25,9 +25,10 @@ async def custom_elicitation_handler(
     """Test handler that returns predictable responses for integration testing."""
     logger.info(f"Test elicitation handler called with: {params.message}")
 
-    if params.requestedSchema:
+    requested_schema = getattr(params, "requestedSchema", None)
+    if requested_schema:
         # Generate test data based on the schema for round-trip verification
-        properties = params.requestedSchema.get("properties", {})
+        properties = requested_schema.get("properties", {})
         content: dict[str, Any] = {}
 
         # Provide test values for each field

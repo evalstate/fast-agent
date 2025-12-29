@@ -238,6 +238,7 @@ class TestCallbackServerPortFallback:
             assert server.actual_port is not None
             assert server.actual_port > 0
             # The server is bound to 127.0.0.1
+            assert server._server is not None
             assert server._server.server_address[0] == "127.0.0.1"
         finally:
             server.stop()

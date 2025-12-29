@@ -75,6 +75,7 @@ def test_logger_textio_real_process(test_script_path, logger_io):
     )
 
     # Read and process stderr lines
+    assert process.stderr is not None
     for line in process.stderr:
         logger_io.write(line)
 

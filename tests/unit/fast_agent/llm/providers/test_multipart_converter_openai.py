@@ -12,6 +12,42 @@ from mcp.types import (
     TextResourceContents,
 )
 from pydantic import AnyUrl
+from openai.types.chat import ChatCompletionToolMessageParam, ChatCompletionUserMessageParam
+
+from collections.abc import Iterable, Mapping
+from typing import cast
+
+
+def content_parts(message: Mapping[str, object]) -> list[dict[str, object]]:
+    content = message.get("content", [])
+    if isinstance(content, str):
+        return []
+    if not isinstance(content, Iterable):
+        return []
+    filtered = [part for part in content if isinstance(part, dict)]
+    return cast("list[dict[str, object]]", filtered)
+
+def text_part(message: Mapping[str, object], index: int = 0) -> str:
+    part = content_parts(message)[index]
+    text = part.get("text")
+    assert isinstance(text, str)
+    return text
+
+
+def image_url_part(message: Mapping[str, object], index: int = 0) -> dict[str, object]:
+    part = content_parts(message)[index]
+    image_url = part.get("image_url")
+    assert isinstance(image_url, dict)
+    return cast("dict[str, object]", image_url)
+
+
+def file_part(message: Mapping[str, object], index: int = 0) -> dict[str, object]:
+    part = content_parts(message)[index]
+    file_obj = part.get("file")
+    assert isinstance(file_obj, dict)
+    return cast("dict[str, object]", file_obj)
+
+
 
 from fast_agent.llm.provider.openai import llm_openai
 from fast_agent.llm.provider.openai.multipart_converter_openai import (
@@ -59,10 +95,10 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "image_url")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "image_url")
         self.assertEqual(
-            openai_msg["content"][0]["image_url"]["url"],
+            image_url_part(openai_msg)["url"],
             f"data:image/jpeg;base64,{self.sample_image_base64}",
         )
 
@@ -70,7 +106,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
         """Test conversion of text-based EmbeddedResource to OpenAI text content with fastagent:file tags."""
         # Create a text resource
         text_resource = TextResourceContents(
-            uri="test://example.com/document.txt",
+            uri=AnyUrl("test://example.com/document.txt"),
             mimeType="text/plain",
             text=self.sample_text,
         )
@@ -84,20 +120,20 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertIn("<fastagent:file", openai_msg["content"][0]["text"])
-        self.assertIn('title="document.txt"', openai_msg["content"][0]["text"])
-        self.assertIn('mimetype="text/plain"', openai_msg["content"][0]["text"])
-        self.assertIn(self.sample_text, openai_msg["content"][0]["text"])
-        self.assertIn("</fastagent:file>", openai_msg["content"][0]["text"])
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("<fastagent:file", text_part(openai_msg))
+        self.assertIn('title="document.txt"', text_part(openai_msg))
+        self.assertIn('mimetype="text/plain"', text_part(openai_msg))
+        self.assertIn(self.sample_text, text_part(openai_msg))
+        self.assertIn("</fastagent:file>", text_part(openai_msg))
 
     def test_embedded_resource_pdf_conversion(self):
         """Test conversion of PDF EmbeddedResource to OpenAI file part."""
         # Create a PDF resource
         pdf_base64 = base64.b64encode(b"fake_pdf_data").decode("utf-8")
         pdf_resource = BlobResourceContents(
-            uri="test://example.com/document.pdf",
+            uri=AnyUrl("test://example.com/document.pdf"),
             mimeType="application/pdf",
             blob=pdf_base64,
         )
@@ -111,11 +147,11 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "file")
-        self.assertEqual(openai_msg["content"][0]["file"]["filename"], "document.pdf")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "file")
+        self.assertEqual(file_part(openai_msg)["filename"], "document.pdf")
         self.assertEqual(
-            openai_msg["content"][0]["file"]["file_data"],
+            file_part(openai_msg)["file_data"],
             f"data:application/pdf;base64,{pdf_base64}",
         )
 
@@ -123,7 +159,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
         """Test conversion of image URL in EmbeddedResource to OpenAI image block."""
         # Create an image resource with URL
         image_resource = BlobResourceContents(
-            uri="https://example.com/image.jpg",
+            uri=AnyUrl("https://example.com/image.jpg"),
             mimeType="image/jpeg",
             blob=self.sample_image_base64,  # This would be ignored for URL in OpenAI
         )
@@ -137,10 +173,10 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "image_url")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "image_url")
         self.assertEqual(
-            openai_msg["content"][0]["image_url"]["url"],
+            image_url_part(openai_msg)["url"],
             "https://example.com/image.jpg",
         )
 
@@ -163,12 +199,12 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertIn("Some description", openai_msg["content"][0]["text"])
-        self.assertIn("some name", openai_msg["content"][0]["text"])
-        self.assertIn("text/plain", openai_msg["content"][0]["text"])
-        self.assertIn("test://example.com/document.txt", openai_msg["content"][0]["text"])
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("Some description", text_part(openai_msg))
+        self.assertIn("some name", text_part(openai_msg))
+        self.assertIn("text/plain", text_part(openai_msg))
+        self.assertIn("test://example.com/document.txt", text_part(openai_msg))
 
     def test_multiple_content_blocks(self):
         """Test conversion of messages with multiple content blocks."""
@@ -190,19 +226,19 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 3)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertEqual(openai_msg["content"][0]["text"], "First text")
-        self.assertEqual(openai_msg["content"][1]["type"], "image_url")
-        self.assertEqual(openai_msg["content"][2]["type"], "text")
-        self.assertEqual(openai_msg["content"][2]["text"], "Second text")
+        self.assertEqual(len(content_parts(openai_msg)), 3)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertEqual(text_part(openai_msg), "First text")
+        self.assertEqual(content_parts(openai_msg)[1]["type"], "image_url")
+        self.assertEqual(content_parts(openai_msg)[2]["type"], "text")
+        self.assertEqual(text_part(openai_msg, 2), "Second text")
 
     def test_svg_resource_conversion(self):
         """Test handling of SVG resources - should convert to text with fastagent:file tags for OpenAI."""
         # Create an embedded SVG resource
         svg_content = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"></svg>'
         svg_resource = TextResourceContents(
-            uri="test://example.com/image.svg",
+            uri=AnyUrl("test://example.com/image.svg"),
             mimeType="image/svg+xml",
             text=svg_content,
         )
@@ -215,13 +251,13 @@ class TestOpenAIUserConverter(unittest.TestCase):
         openai_msg = openai_msgs[0]
 
         # Should be converted to a text block with the SVG in fastagent:file tags
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertIn("<fastagent:file", openai_msg["content"][0]["text"])
-        self.assertIn('title="image.svg"', openai_msg["content"][0]["text"])
-        self.assertIn('mimetype="image/svg+xml"', openai_msg["content"][0]["text"])
-        self.assertIn(svg_content, openai_msg["content"][0]["text"])
-        self.assertIn("</fastagent:file>", openai_msg["content"][0]["text"])
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("<fastagent:file", text_part(openai_msg))
+        self.assertIn('title="image.svg"', text_part(openai_msg))
+        self.assertIn('mimetype="image/svg+xml"', text_part(openai_msg))
+        self.assertIn(svg_content, text_part(openai_msg))
+        self.assertIn("</fastagent:file>", text_part(openai_msg))
 
     def test_empty_content_list(self):
         """Test conversion with empty content list."""
@@ -242,7 +278,7 @@ class TestOpenAIUserConverter(unittest.TestCase):
 
         # Create a code resource
         code_resource = TextResourceContents(
-            uri="test://example.com/example.py",
+            uri=AnyUrl("test://example.com/example.py"),
             mimeType="text/x-python",
             text=code_text,
         )
@@ -256,13 +292,13 @@ class TestOpenAIUserConverter(unittest.TestCase):
         openai_msg = openai_msgs[0]
 
         # Check that proper fastagent:file tags are used
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertIn("<fastagent:file", openai_msg["content"][0]["text"])
-        self.assertIn('title="example.py"', openai_msg["content"][0]["text"])
-        self.assertIn('mimetype="text/x-python"', openai_msg["content"][0]["text"])
-        self.assertIn(code_text, openai_msg["content"][0]["text"])
-        self.assertIn("</fastagent:file>", openai_msg["content"][0]["text"])
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("<fastagent:file", text_part(openai_msg))
+        self.assertIn('title="example.py"', text_part(openai_msg))
+        self.assertIn('mimetype="text/x-python"', text_part(openai_msg))
+        self.assertIn(code_text, text_part(openai_msg))
+        self.assertIn("</fastagent:file>", text_part(openai_msg))
 
 
 class TestOpenAIAssistantConverter(unittest.TestCase):
@@ -326,10 +362,10 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
         self.assertIsInstance(openai_msg["content"], list)
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "image_url")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "image_url")
         self.assertEqual(
-            openai_msg["content"][0]["image_url"]["url"],
+            image_url_part(openai_msg)["url"],
             f"data:image/jpeg;base64,{image_base64}",
         )
 
@@ -337,7 +373,7 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         """Test conversion of a PromptMessage with embedded resource to OpenAI format."""
         # Create a PromptMessage with embedded text resource
         text_resource = TextResourceContents(
-            uri="test://example.com/document.txt",
+            uri=AnyUrl("test://example.com/document.txt"),
             mimeType="text/plain",
             text="This is a text resource",
         )
@@ -350,10 +386,10 @@ class TestOpenAIAssistantConverter(unittest.TestCase):
         # Assertions
         self.assertEqual(openai_msg["role"], "user")
         self.assertIsInstance(openai_msg["content"], list)
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertIn("<fastagent:file", openai_msg["content"][0]["text"])
-        self.assertIn("This is a text resource", openai_msg["content"][0]["text"])
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("<fastagent:file", text_part(openai_msg))
+        self.assertIn("This is a text resource", text_part(openai_msg))
 
     def test_empty_assistant_message(self):
         """Test conversion of empty assistant message."""
@@ -390,6 +426,8 @@ class TestOpenAIToolConverter(unittest.TestCase):
         tool_message = OpenAIConverter.convert_tool_result_to_openai(
             tool_result=tool_result, tool_call_id=tool_call_id
         )
+        assert not isinstance(tool_message, tuple)
+        tool_message = cast(ChatCompletionToolMessageParam, tool_message)
 
         # Assertions
         self.assertEqual(tool_message["role"], "tool")
@@ -425,16 +463,19 @@ class TestOpenAIToolConverter(unittest.TestCase):
         self.assertEqual(len(tool_messages), 3)
 
         # Check first tool message (text only)
-        self.assertEqual(tool_messages[0]["role"], "tool")
-        self.assertEqual(tool_messages[0]["tool_call_id"], tool_call_id1)
-        self.assertEqual(tool_messages[0]["content"], "Text-only result")
+        tool_msg0 = cast(ChatCompletionToolMessageParam, tool_messages[0])
+        self.assertEqual(tool_msg0["role"], "tool")
+        self.assertEqual(tool_msg0["tool_call_id"], tool_call_id1)
+        self.assertEqual(tool_msg0["content"], "Text-only result")
 
         # Check second tool message (with image)
-        self.assertEqual(tool_messages[1]["role"], "tool")
-        self.assertEqual(tool_messages[1]["tool_call_id"], tool_call_id2)
-        self.assertEqual(tool_messages[1]["content"], "Here's the image:")
-        self.assertEqual(tool_messages[2]["role"], "user")
-        self.assertEqual(tool_messages[2]["content"][0]["type"], "image_url")
+        tool_msg1 = cast(ChatCompletionToolMessageParam, tool_messages[1])
+        self.assertEqual(tool_msg1["role"], "tool")
+        self.assertEqual(tool_msg1["tool_call_id"], tool_call_id2)
+        self.assertEqual(tool_msg1["content"], "Here's the image:")
+        user_msg = cast(ChatCompletionUserMessageParam, tool_messages[2])
+        self.assertEqual(user_msg["role"], "user")
+        self.assertEqual(content_parts(user_msg)[0]["type"], "image_url")
 
     def test_tool_result_with_mixed_content(self):
         """Test conversion of tool result with mixed content types."""
@@ -448,7 +489,7 @@ class TestOpenAIToolConverter(unittest.TestCase):
         # Add a PDF file
         pdf_base64 = base64.b64encode(b"fake_pdf_data").decode("utf-8")
         pdf_resource = BlobResourceContents(
-            uri="test://example.com/document.pdf",
+            uri=AnyUrl("test://example.com/document.pdf"),
             mimeType="application/pdf",
             blob=pdf_base64,
         )
@@ -467,17 +508,21 @@ class TestOpenAIToolConverter(unittest.TestCase):
             tool_result=tool_result, tool_call_id=tool_call_id
         )
 
-        self.assertEqual(len(tool_message), 2)
-        self.assertEqual(tool_message[0]["role"], "tool")
-        self.assertEqual(tool_message[0]["tool_call_id"], tool_call_id)
-        self.assertEqual(tool_message[0]["content"], "Here's the analysis:")
+        assert isinstance(tool_message, tuple)
+        tool_msg, user_messages = tool_message
+        tool_msg = cast(ChatCompletionToolMessageParam, tool_msg)
+        user_msg = cast(ChatCompletionUserMessageParam, user_messages[0])
 
-        self.assertEqual(tool_message[1][0]["role"], "user")
-        self.assertEqual(tool_message[1][0]["content"][0]["type"], "image_url")
+        self.assertEqual(tool_msg["role"], "tool")
+        self.assertEqual(tool_msg["tool_call_id"], tool_call_id)
+        self.assertEqual(tool_msg["content"], "Here's the analysis:")
 
-        self.assertEqual(tool_message[1][0]["content"][1]["type"], "file")
+        self.assertEqual(user_msg["role"], "user")
+        self.assertEqual(content_parts(user_msg)[0]["type"], "image_url")
+
+        self.assertEqual(content_parts(user_msg)[1]["type"], "file")
         self.assertEqual(
-            tool_message[1][0]["content"][1]["file"]["file_data"],
+            file_part(user_msg, 1)["file_data"],
             f"data:application/pdf;base64,{pdf_base64}",
         )
 
@@ -510,10 +555,10 @@ class TestTextConcatenation(unittest.TestCase):
 
         # Assertions - should have combined all text blocks
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
         self.assertEqual(
-            openai_msg["content"][0]["text"],
+            text_part(openai_msg),
             "First sentence. Second sentence. Third sentence.",
         )
 
@@ -537,19 +582,19 @@ class TestTextConcatenation(unittest.TestCase):
 
         # Assertions - should have concatenated adjacent text blocks but kept them separate from image
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 3)
+        self.assertEqual(len(content_parts(openai_msg)), 3)
 
         # First block should be the first text
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertEqual(openai_msg["content"][0]["text"], "Text before image.")
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertEqual(text_part(openai_msg), "Text before image.")
 
         # Second block should be the image
-        self.assertEqual(openai_msg["content"][1]["type"], "image_url")
+        self.assertEqual(content_parts(openai_msg)[1]["type"], "image_url")
 
         # Third block should be combined text2 and text3
-        self.assertEqual(openai_msg["content"][2]["type"], "text")
+        self.assertEqual(content_parts(openai_msg)[2]["type"], "text")
         self.assertEqual(
-            openai_msg["content"][2]["text"], "Text after image. More text after image."
+            text_part(openai_msg, 2), "Text after image. More text after image."
         )
 
     def test_tool_result_with_concatenation(self):
@@ -566,6 +611,8 @@ class TestTextConcatenation(unittest.TestCase):
             tool_call_id="call_123",
             concatenate_text_blocks=True,
         )
+        assert not isinstance(tool_message, tuple)
+        tool_message = cast(ChatCompletionToolMessageParam, tool_message)
 
         # Assertions - should have concatenated the text blocks
         self.assertEqual(tool_message["role"], "tool")
@@ -578,7 +625,7 @@ class TestTextConcatenation(unittest.TestCase):
         # Create a binary resource with an unsupported format
         binary_base64 = base64.b64encode(b"fake_binary_data").decode("utf-8")
         binary_resource = BlobResourceContents(
-            uri="test://example.com/data.bin",
+            uri=AnyUrl("test://example.com/data.bin"),
             mimeType="application/octet-stream",
             blob=binary_base64,
         )
@@ -592,7 +639,7 @@ class TestTextConcatenation(unittest.TestCase):
 
         # Assertions - should create a text message mentioning the resource
         self.assertEqual(openai_msg["role"], "user")
-        self.assertEqual(len(openai_msg["content"]), 1)
-        self.assertEqual(openai_msg["content"][0]["type"], "text")
-        self.assertIn("Binary resource", openai_msg["content"][0]["text"])
-        self.assertIn("data.bin", openai_msg["content"][0]["text"])
+        self.assertEqual(len(content_parts(openai_msg)), 1)
+        self.assertEqual(content_parts(openai_msg)[0]["type"], "text")
+        self.assertIn("Binary resource", text_part(openai_msg))
+        self.assertIn("data.bin", text_part(openai_msg))

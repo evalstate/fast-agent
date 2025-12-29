@@ -66,7 +66,10 @@ class RecordingStubLLM(FastAgentLLMProtocol):
     def model_info(self):
         from fast_agent.llm.model_info import ModelInfo
 
-        return ModelInfo.from_name(self.model_name, self.provider)
+        model_name = self.model_name
+        if model_name is None:
+            return None
+        return ModelInfo.from_name(model_name, self.provider)
 
 
 def make_decorator(model_name: str = "passthrough") -> tuple[LlmDecorator, RecordingStubLLM]:
@@ -153,6 +156,7 @@ async def test_removes_unsupported_tool_result_content():
 
     assert stub.generated_messages is not None
     sent_message = stub.generated_messages[0]
+    assert sent_message.tool_results is not None
     sanitized_result = sent_message.tool_results["tool1"]
     # Should have placeholder text since all content was removed
     assert len(sanitized_result.content) == 1
