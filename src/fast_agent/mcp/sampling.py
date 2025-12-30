@@ -17,6 +17,7 @@ from mcp.types import (
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.interfaces import FastAgentLLMProtocol
 from fast_agent.llm.sampling_converter import SamplingConverter
 from fast_agent.mcp.helpers.server_config_helpers import get_server_config
@@ -106,6 +107,7 @@ async def sample(
 
     model: str | None = None
     api_key: str | None = None
+    app_context: Any | None = None
     try:
         # Extract model from server config using type-safe helper
         server_config = get_server_config(context)
@@ -144,11 +146,20 @@ async def sample(
                 # Fall back to system default model
                 if model is None:
                     try:
-                        if app_context and app_context.config and app_context.config.default_model:
-                            model = app_context.config.default_model
-                            logger.debug(f"Using system default model for sampling: {model}")
+                        cli_model_override = None
+                        if app_context and app_context.config:
+                            cli_model_override = getattr(
+                                app_context.config, "cli_model_override", None
+                            )
+                        model, model_source = resolve_model_spec(
+                            app_context,
+                            cli_model=cli_model_override,
+                            hardcoded_default=HARDCODED_DEFAULT_MODEL,
+                        )
+                        if model:
+                            logger.debug(f"Using {model_source} model for sampling: {model}")
                     except Exception as e:
-                        logger.debug(f"Could not get system default model: {e}")
+                        logger.debug(f"Could not resolve default model for sampling: {e}")
 
         if model is None:
             raise ValueError(

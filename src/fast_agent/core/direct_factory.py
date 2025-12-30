@@ -19,7 +19,7 @@ from fast_agent.agents.workflow.router_agent import RouterAgent
 from fast_agent.core import Core
 from fast_agent.core.exceptions import AgentConfigError, ModelConfigError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import resolve_model_spec
+from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.core.validation import get_dependencies_groups
 from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import (
@@ -81,8 +81,6 @@ class AgentCreatorProtocol(Protocol):
         **kwargs: Any,
     ) -> AgentDict: ...
 
-
-HARDCODED_DEFAULT_MODEL = "gpt-5-mini.low"
 
 
 def get_model_factory(

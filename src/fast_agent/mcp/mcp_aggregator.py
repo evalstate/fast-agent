@@ -29,7 +29,7 @@ from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 from fast_agent.context_dependent import ContextDependent
 from fast_agent.core.exceptions import ServerSessionTerminatedError
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.core.model_resolution import resolve_model_spec
+from fast_agent.core.model_resolution import HARDCODED_DEFAULT_MODEL, resolve_model_spec
 from fast_agent.event_progress import ProgressAction
 from fast_agent.mcp.common import SEP, create_namespaced_name, is_namespaced_name
 from fast_agent.mcp.gen_client import gen_client
@@ -357,7 +357,7 @@ class MCPAggregator(ContextDependent):
                     self.context,
                     model=self.config.model,
                     cli_model=cli_model_override,
-                    fallback_to_hardcoded=False,
+                    hardcoded_default=HARDCODED_DEFAULT_MODEL,
                 )
                 if model_source:
                     logger.info(
