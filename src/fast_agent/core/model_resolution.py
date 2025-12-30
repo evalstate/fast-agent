@@ -5,6 +5,8 @@ Shared model resolution helpers to avoid circular imports.
 import os
 from typing import Any
 
+HARDCODED_DEFAULT_MODEL = "gpt-5-mini.low"
+
 
 def resolve_model_spec(
     context: Any,
