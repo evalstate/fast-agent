@@ -143,8 +143,8 @@ class ConsoleSignalHandler(SignalHandler[str]):
         if timeout_seconds:
             print(f"(Timeout in {timeout_seconds} seconds)")
 
-        # Use asyncio.get_event_loop().run_in_executor to make input non-blocking
-        loop = asyncio.get_event_loop()
+        # Use asyncio.get_running_loop().run_in_executor to make input non-blocking
+        loop = asyncio.get_running_loop()
         if timeout_seconds is not None:
             try:
                 value = await asyncio.wait_for(

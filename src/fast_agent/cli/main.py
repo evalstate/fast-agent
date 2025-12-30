@@ -1,26 +1,51 @@
 """Main CLI entry point for MCP Agent."""
 
-import typer
-from rich.table import Table
+import importlib
 
-from fast_agent.cli.commands import acp, auth, check_config, go, quickstart, serve, setup
+import click
+import typer
+import typer.main
+from typer.core import TyperGroup
+
 from fast_agent.cli.terminal import Application
 from fast_agent.ui.console import console as shared_console
 
+LAZY_SUBCOMMANDS: dict[str, str] = {
+    "go": "fast_agent.cli.commands.go:app",
+    "serve": "fast_agent.cli.commands.serve:app",
+    "acp": "fast_agent.cli.commands.acp:app",
+    "setup": "fast_agent.cli.commands.setup:app",
+    "check": "fast_agent.cli.commands.check_config:app",
+    "auth": "fast_agent.cli.commands.auth:app",
+    "quickstart": "fast_agent.cli.commands.quickstart:app",
+    "bootstrap": "fast_agent.cli.commands.quickstart:app",
+}
+
+
+class LazyGroup(TyperGroup):
+    lazy_subcommands: dict[str, str] = {}
+
+    def list_commands(self, ctx: click.Context) -> list[str]:
+        return sorted(self.lazy_subcommands)
+
+    def get_command(self, ctx: click.Context, cmd_name: str) -> click.Command | None:
+        target = self.lazy_subcommands.get(cmd_name)
+        if not target:
+            return None
+        module_path, app_name = target.split(":", 1)
+        module = importlib.import_module(module_path)
+        typer_app = getattr(module, app_name)
+        command = typer.main.get_command(typer_app)
+        command.name = cmd_name
+        return command
+
+
 app = typer.Typer(
+    cls=LazyGroup,
     help="Use `fast-agent go --help` for interactive shell arguments and options.",
     add_completion=False,  # We'll add this later when we have more commands
 )
-
-# Subcommands
-app.add_typer(go.app, name="go", help="Run an interactive agent directly from the command line")
-app.add_typer(serve.app, name="serve", help="Run FastAgent as an MCP server")
-app.add_typer(acp.app, name="acp", help="Run FastAgent as an ACP stdio server")
-app.add_typer(setup.app, name="setup", help="Set up a new agent project")
-app.add_typer(check_config.app, name="check", help="Show or diagnose fast-agent configuration")
-app.add_typer(auth.app, name="auth", help="Manage OAuth authentication for MCP servers")
-app.add_typer(quickstart.app, name="bootstrap", help="Create example applications")
-app.add_typer(quickstart.app, name="quickstart", help="Create example applications")
+LazyGroup.lazy_subcommands = LAZY_SUBCOMMANDS
 
 # Shared application context
 application = Application()
@@ -32,6 +57,7 @@ def show_welcome() -> None:
     """Show a welcome message with available commands, using new styling."""
     from importlib.metadata import version
 
+    from rich.table import Table
     from rich.text import Text
 
     try:

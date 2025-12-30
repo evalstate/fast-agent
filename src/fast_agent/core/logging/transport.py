@@ -22,7 +22,7 @@ from fast_agent.core.logging.events import Event, EventFilter
 from fast_agent.core.logging.json_serializer import JSONSerializer
 from fast_agent.core.logging.listeners import EventListener, LifecycleAwareListener
 from fast_agent.ui.console import console
-from fast_agent.utils.async_utils import gather_with_cancel
+from fast_agent.utils.async_utils import ensure_event_loop, gather_with_cancel
 
 
 class EventTransport(Protocol):
@@ -304,11 +304,7 @@ class AsyncEventBus:
         if self._running:
             return
 
-        try:
-            asyncio.get_running_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+        ensure_event_loop()
 
         self._queue = asyncio.Queue()
 

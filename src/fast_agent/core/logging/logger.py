@@ -21,6 +21,7 @@ from fast_agent.core.logging.listeners import (
     ProgressListener,
 )
 from fast_agent.core.logging.transport import AsyncEventBus, EventTransport
+from fast_agent.utils.async_utils import ensure_event_loop
 
 
 class Logger:
@@ -34,19 +35,9 @@ class Logger:
         self.namespace = namespace
         self.event_bus = AsyncEventBus.get()
 
-    def _ensure_event_loop(self):
-        """Ensure we have an event loop we can use."""
-        try:
-            return asyncio.get_running_loop()
-        except RuntimeError:
-            # If no loop is running, create a new one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
-
     def _emit_event(self, event: Event) -> None:
         """Emit an event by running it in the event loop."""
-        loop = self._ensure_event_loop()
+        loop = ensure_event_loop()
         if loop.is_running():
             # If we're in a thread with a running loop, schedule the coroutine
             asyncio.create_task(self.event_bus.emit(event))

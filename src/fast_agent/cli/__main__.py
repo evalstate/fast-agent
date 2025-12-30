@@ -4,14 +4,21 @@ import sys
 
 from fast_agent.cli.constants import GO_SPECIFIC_OPTIONS, KNOWN_SUBCOMMANDS
 from fast_agent.cli.main import app
+from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 
 # if the arguments would work with "go" we'll just route to it
 
 
 def main():
     """Main entry point that handles auto-routing to 'go' command."""
+    requested_uvloop, enabled_uvloop = configure_uvloop()
+    if requested_uvloop and not enabled_uvloop:
+        print(
+            "FAST_AGENT_UVLOOP is set but uvloop is unavailable; falling back to asyncio.",
+            file=sys.stderr,
+        )
     try:
-        loop = asyncio.get_event_loop()
+        loop = ensure_event_loop()
 
         def _log_asyncio_exception(loop: asyncio.AbstractEventLoop, context: dict) -> None:
             import logging

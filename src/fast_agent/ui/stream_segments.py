@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
+
+if TYPE_CHECKING:
+    from fast_agent.llm.stream_types import StreamChunk
 
 SegmentKind = Literal["markdown", "plain", "reasoning", "tool"]
 
@@ -127,7 +129,7 @@ class StreamSegmentBuffer:
     def consume_reasoning_gap(self) -> None:
         gap = self._consume_reasoning_gap()
         if gap:
-            self._append_to_segment(self._base_kind, gap)
+            self._append_to_segment("plain", gap)
 
     def _append_plain(
         self,

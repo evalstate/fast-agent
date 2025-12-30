@@ -9,12 +9,10 @@ from typing import Any, Literal, cast
 
 import typer
 
-from fast_agent import FastAgent
-from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
-from fast_agent.ui.console_display import ConsoleDisplay
+from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
 app = typer.Typer(
     help="Run an interactive agent directly from the command line without creating an agent.py file",
@@ -126,7 +124,10 @@ async def _run_agent(
     permissions_enabled: bool = True,
 ) -> None:
     """Async implementation to run an interactive agent."""
+    from fast_agent import FastAgent
+    from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.mcp.prompts.prompt_load import load_prompt
+    from fast_agent.ui.console_display import ConsoleDisplay
 
     # Create the FastAgent instance
 
@@ -273,6 +274,7 @@ def run_async_agent(
     permissions_enabled: bool = True,
 ):
     """Run the async agent function with proper loop handling."""
+    configure_uvloop()
     server_list = servers.split(",") if servers else None
 
     # Parse URLs and generate server configurations if provided
@@ -346,19 +348,12 @@ def run_async_agent(
                 continue
 
     # Check if we're already in an event loop
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            # We're inside a running event loop, so we can't use asyncio.run
-            # Instead, create a new loop
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-        _set_asyncio_exception_handler(loop)
-    except RuntimeError:
-        # No event loop exists, so we'll create one
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        _set_asyncio_exception_handler(loop)
+    loop = ensure_event_loop()
+    if loop.is_running():
+        # We're inside a running event loop, so we can't use asyncio.run
+        # Instead, create a new loop
+        loop = create_event_loop()
+    _set_asyncio_exception_handler(loop)
 
     try:
         loop.run_until_complete(

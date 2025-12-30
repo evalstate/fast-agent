@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
-from rich.console import Console
+if TYPE_CHECKING:
+    from rich.console import Console
 
-from fast_agent.ui.markdown_truncator import MarkdownTruncator
-from fast_agent.ui.plain_text_truncator import PlainTextTruncator
-from fast_agent.ui.stream_segments import StreamSegment
+    from fast_agent.ui.markdown_truncator import MarkdownTruncator
+    from fast_agent.ui.plain_text_truncator import PlainTextTruncator
+    from fast_agent.ui.stream_segments import StreamSegment
 
 
 def estimate_plain_text_height(text: str, width: int) -> int:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 from rich.console import Group
@@ -22,14 +22,15 @@ from fast_agent.ui.stream_viewport import StreamViewport, estimate_plain_text_he
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.ui.console_display import ConsoleDisplay
+    from rich.console import RenderableType
 
 
 logger = get_logger(__name__)
 
-MARKDOWN_STREAM_TARGET_RATIO = 0.75
+MARKDOWN_STREAM_TARGET_RATIO = 0.8
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
 MARKDOWN_STREAM_HEIGHT_FUDGE = 1
-PLAIN_STREAM_TARGET_RATIO = 0.9
+PLAIN_STREAM_TARGET_RATIO = 0.92
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 1
 
@@ -85,6 +86,7 @@ class StreamingMessageHandle:
         self._progress_paused = False
         self._plain_text_style: str | None = None
         base_kind = "plain" if use_plain_text else "markdown"
+        self._render_reasoning_markdown = not use_plain_text
         self._segment_assembler = StreamSegmentAssembler(
             base_kind=base_kind,
             tool_prefix="→",
@@ -323,7 +325,7 @@ class StreamingMessageHandle:
         if not window_segments:
             return
 
-        renderables: list[object] = []
+        renderables: list[RenderableType] = []
         content_height = 0
         width = console.console.size.width
 
@@ -343,8 +345,25 @@ class StreamingMessageHandle:
                 else:
                     renderables.append(Text(""))
             elif segment.kind == "reasoning":
-                renderables.append(Text(segment.text, style="dim italic"))
-                content_height += estimate_plain_text_height(segment.text, width)
+                if self._render_reasoning_markdown:
+                    prepared = prepare_markdown_content(
+                        segment.text, self._display._escape_xml
+                    )
+                    prepared_for_display = self._close_incomplete_code_blocks(prepared)
+                    markdown = Markdown(
+                        prepared_for_display,
+                        code_theme=self._display.code_style,
+                        style="dim italic",
+                    )
+                    renderables.append(markdown)
+                    content_height += self._markdown_truncator.measure_rendered_height(
+                        prepared_for_display,
+                        console.console,
+                        self._display.code_style,
+                    )
+                else:
+                    renderables.append(Text(segment.text, style="dim italic"))
+                    content_height += estimate_plain_text_height(segment.text, width)
             else:
                 renderables.append(Text(segment.text))
                 content_height += estimate_plain_text_height(segment.text, width)

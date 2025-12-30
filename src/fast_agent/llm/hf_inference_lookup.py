@@ -6,13 +6,14 @@ has inference providers available through the HuggingFace Inference API.
 
 from __future__ import annotations
 
-import asyncio
 import random
 from enum import Enum
 from typing import TYPE_CHECKING
 
 import httpx
 from pydantic import BaseModel, Field, computed_field
+
+from fast_agent.utils.async_utils import run_sync
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -230,7 +231,10 @@ def lookup_inference_providers_sync(
     Returns:
         InferenceProviderLookupResult with provider information
     """
-    return asyncio.run(lookup_inference_providers(model_id, timeout))
+    result = run_sync(lookup_inference_providers, model_id, timeout)
+    if result is None:
+        raise RuntimeError("Inference provider lookup returned no result")
+    return result
 
 
 def format_inference_lookup_message(result: InferenceProviderLookupResult) -> str:

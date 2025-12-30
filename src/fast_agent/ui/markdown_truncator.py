@@ -7,9 +7,12 @@ requiring expensive render passes.
 
 from __future__ import annotations
 
-from rich.console import Console
+from typing import TYPE_CHECKING
 
 from fast_agent.ui.streaming_buffer import StreamBuffer
+
+if TYPE_CHECKING:
+    from rich.console import Console
 
 
 class MarkdownTruncator:
