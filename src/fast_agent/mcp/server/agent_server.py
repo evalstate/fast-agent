@@ -17,6 +17,7 @@ import fast_agent.core
 import fast_agent.core.prompt
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.utils.async_utils import run_sync
 
 logger = get_logger(__name__)
 
@@ -332,7 +333,7 @@ class AgentMCPServer:
             finally:
                 # Run an async cleanup in a new event loop
                 try:
-                    asyncio.run(self.shutdown())
+                    run_sync(self.shutdown)
                 except (SystemExit, KeyboardInterrupt):
                     # These are expected during shutdown
                     pass
@@ -343,7 +344,7 @@ class AgentMCPServer:
                 print("\nServer stopped by user (CTRL+C)")
             finally:
                 # Minimal cleanup for stdio
-                asyncio.run(self._cleanup_stdio())
+                run_sync(self._cleanup_stdio)
 
     async def run_async(
         self, transport: TransportMode = "http", host: str = "0.0.0.0", port: int = 8000

@@ -118,3 +118,7 @@ fast-agent serve --description "Interact with the {agent} workflow via MCP"
 # Use per-connection instances to isolate history between clients
 fast-agent serve --instance-scope=connection --transport=http
 ```
+
+### Environment toggles
+
+- uvloop is enabled by default when installed (non-Windows); set `FAST_AGENT_DISABLE_UV_LOOP=1` to opt out.

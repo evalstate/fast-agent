@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import concurrent.futures
 import logging
 import uuid
 from os import PathLike
@@ -27,6 +25,7 @@ from fast_agent.core.logging.logger import LoggingConfig, get_logger
 from fast_agent.core.logging.transport import create_transport
 from fast_agent.mcp_server_registry import ServerRegistry
 from fast_agent.skills import SkillRegistry
+from fast_agent.utils.async_utils import run_sync
 
 if TYPE_CHECKING:
     from fast_agent.acp.acp_context import ACPContext
@@ -253,22 +252,10 @@ def get_current_context() -> Context:
     """
     global _global_context
     if _global_context is None:
-        try:
-            # Try to get the current event loop
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # Create a new loop in a separate thread
-                def run_async():
-                    new_loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(new_loop)
-                    return new_loop.run_until_complete(initialize_context())
-
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    _global_context = pool.submit(run_async).result()
-            else:
-                _global_context = loop.run_until_complete(initialize_context())
-        except RuntimeError:
-            _global_context = asyncio.run(initialize_context())
+        result = run_sync(initialize_context)
+        if result is None:
+            raise RuntimeError("Failed to initialize global context")
+        _global_context = result
     return _global_context
 
 

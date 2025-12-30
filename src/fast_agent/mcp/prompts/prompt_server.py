@@ -6,7 +6,6 @@ Uses the prompt_template module for clean, testable handling of prompt templates
 """
 
 import argparse
-import asyncio
 import base64
 import logging
 import sys
@@ -39,6 +38,7 @@ from fast_agent.mcp.prompts.prompt_template import (
     PromptTemplateLoader,
 )
 from fast_agent.types import PromptMessageExtended
+from fast_agent.utils.async_utils import run_sync
 
 # Configure logging
 logging.basicConfig(level=logging.ERROR)
@@ -534,7 +534,8 @@ async def async_main() -> int:
 def main() -> int:
     """Run the FastMCP server"""
     try:
-        return asyncio.run(async_main())
+        result = run_sync(async_main)
+        return result if result is not None else 1
     except KeyboardInterrupt:
         logger.info("\nServer stopped by user")
     except Exception as e:

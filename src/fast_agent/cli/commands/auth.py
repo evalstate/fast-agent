@@ -16,6 +16,7 @@ from fast_agent.mcp.oauth_client import (
     list_keyring_tokens,
 )
 from fast_agent.ui.console import console
+from fast_agent.utils.async_utils import run_sync
 
 app = typer.Typer(help="Manage OAuth authentication state for MCP servers")
 
@@ -395,9 +396,7 @@ def login(
             typer.echo(f"Login failed: {e}")
             return False
 
-    import asyncio
-
-    ok = asyncio.run(_run_login())
+    ok = bool(run_sync(_run_login))
     if ok:
         from fast_agent.mcp.oauth_client import compute_server_identity
 

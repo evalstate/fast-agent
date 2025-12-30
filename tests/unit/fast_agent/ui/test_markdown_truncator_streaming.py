@@ -279,3 +279,88 @@ def test_streaming_truncation_avoids_duplicate_table_header() -> None:
 
     result = truncator._ensure_table_header_if_needed(original, truncated)
     assert result.count("| Mission | Date |") == 1
+
+
+def test_streaming_table_scrolls_latest_rows() -> None:
+    truncator = MarkdownTruncator(target_height_ratio=0.75)
+    test_console = Console(width=200)
+
+    header = (
+        "| Rank | Airport Name | IATA | ICAO | City/Region | Country | Elevation (m) | "
+        "Elevation (ft) |"
+    )
+    separator = (
+        "|------|--------------|------|------|-------------|---------|---------------|"
+        "----------------|"
+    )
+    rows = [
+        "| 1 | Daocheng Yading Airport | DCY | ZUDC | Daocheng | China | 4,411 | 14,472 |",
+        "| 2 | Qamdo Bamda Airport | BPX | ZUBD | Qamdo | China | 4,334 | 14,219 |",
+        "| 3 | Kangding Airport | KGT | ZUKD | Kangding | China | 4,280 | 14,042 |",
+        "| 4 | Ngari Gunsa Airport | NGQ | ZUAS | Ngari | China | 4,274 | 14,022 |",
+        "| 5 | El Alto International Airport | LPB | SLLP | La Paz | Bolivia | 4,061 | 13,325 |",
+        "| 6 | Yushu Batang Airport | YUS | ZLYS | Yushu | China | 3,890 | 12,762 |",
+        "| 7 | Inca Manco Capac International Airport | JUL | SPJL | Juliaca | Peru | 3,826 | 12,552 |",
+        "| 8 | Shigatse Peace Airport | RKZ | ZURK | Shigatse | China | 3,782 | 12,408 |",
+        "| 9 | Lhasa Gonggar Airport | LXA | ZULS | Lhasa | China | 3,570 | 11,710 |",
+        "| 10 | Leh Kushok Bakula Rimpochee Airport | IXL | VILH | Leh | India | 3,256 | 10,682 |",
+        "| 11 | Alejandro Velasco Astete International Airport | CUZ | SPZO | Cusco | Peru | 3,199 | 10,489 |",
+        "| 12 | Tenzing-Hillary Airport | LUA | VNLK | Lukla | Nepal | 2,860 | 9,383 |",
+        "| 13 | Alcantari Airport (Sucre) | SRE | SLET | Sucre | Bolivia | 2,834 | 9,301 |",
+        "| 14 | Toluca International Airport | TLC | MMTO | Toluca | Mexico | 2,580 | 8,465 |",
+        "| 15 | Arequipa Airport | AQP | SPQU | Arequipa | Peru | 2,560 | 8,400 |",
+        "| 16 | Jorge Wilstermann International Airport | CBB | SLCB | Cochabamba | Bolivia | 2,548 | 8,360 |",
+        "| 17 | El Dorado International Airport | BOG | SKBO | Bogota | Colombia | 2,548 | 8,360 |",
+        "| 18 | Mariscal Sucre International Airport | UIO | SEQM | Quito | Ecuador | 2,400 | 7,873 |",
+        "| 19 | Addis Ababa Bole International Airport | ADD | HAAB | Addis Ababa | Ethiopia | 2,334 | 7,625 |",
+        "| 20 | Mexico City International Airport | MEX | MMMX | Mexico City | Mexico | 2,230 | 7,316 |",
+        "| 21 | Puebla International Airport | PBC | MMPB | Puebla | Mexico | 2,204 | 7,230 |",
+        "| 22 | Kunming Changshui International Airport | KMG | ZPPP | Kunming | China | 2,103 | 6,896 |",
+        "| 23 | Sanaa International Airport | SAH | OYSN | Sanaa | Yemen | 2,200 | 7,218 |",
+        "| 24 | Lanzhou Zhongchuan International Airport | LHW | ZLLL | Lanzhou | China | 1,967 | 6,450 |",
+        "| 25 | Kabul International Airport | KBL | OAKB | Kabul | Afghanistan | 1,791 | 5,877 |",
+        "| 26 | Denver International Airport | DEN | KDEN | Denver | USA | 1,655 | 5,431 |",
+        "| 27 | O.R. Tambo International Airport | JNB | FAOR | Johannesburg | South Africa | 1,694 | 5,558 |",
+        "| 28 | Tehran Imam Khomeini International Airport | IKA | OIIE | Tehran | Iran | 1,007 | 3,305 |",
+        "| 29 | Urumqi Diwopu International Airport | URC | ZWWW | Urumqi | China | 648 | 2,126 |",
+        "| 30 | Silao International Airport (Bajio) | BJX | MMLO | Silao | Mexico | 1,815 | 5,955 |",
+    ]
+
+    table_text = "\n".join([header, separator, *rows])
+    text = "Here is a table of the highest elevation airports worldwide:\n\n" + table_text
+
+    total_rows = len(rows)
+    total_lines = total_rows + 2
+
+    def expected_start_row(height: int, ratio: float) -> int:
+        target_lines = max(1, int(height * ratio))
+        if target_lines >= total_lines:
+            return 1
+        start_line = total_lines - target_lines + 1
+        return max(1, start_line - 2)
+
+    for height in (12, 16, 20):
+        truncated = truncator.truncate(
+            text,
+            terminal_height=height,
+            console=test_console,
+            code_theme="native",
+            prefer_recent=True,
+        )
+
+        lines = [line for line in truncated.splitlines() if line.strip()]
+        assert header in lines
+        assert separator in lines
+
+        row_numbers = []
+        for line in lines:
+            if line.startswith("|"):
+                parts = [part.strip() for part in line.split("|")]
+                if len(parts) > 1 and parts[1].isdigit():
+                    row_numbers.append(int(parts[1]))
+
+        assert row_numbers, "expected table rows to be present in truncated output"
+        start_row = expected_start_row(height, 0.75)
+        assert row_numbers[0] == start_row
+        assert row_numbers[-1] == total_rows
+        assert row_numbers == list(range(start_row, total_rows + 1))

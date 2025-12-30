@@ -3,6 +3,7 @@ from json import JSONDecodeError
 from typing import TYPE_CHECKING, Any, Iterator, Mapping, Union
 
 from mcp.types import CallToolResult
+from rich.console import Group
 from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.text import Text
@@ -166,7 +167,7 @@ class ConsoleDisplay:
         is_error: bool = False,
         truncate_content: bool = True,
         additional_message: Text | None = None,
-        pre_content: Text | None = None,
+        pre_content: Text | Group | None = None,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -204,8 +205,12 @@ class ConsoleDisplay:
         self._create_combined_separator_status(left, right_info)
 
         # Display the content
-        if pre_content and pre_content.plain:
-            console.console.print(pre_content, markup=self._markup)
+        if pre_content:
+            if isinstance(pre_content, Text):
+                if pre_content.plain:
+                    console.console.print(pre_content, markup=self._markup)
+            else:
+                console.console.print(pre_content, markup=self._markup)
         self._display_content(
             content, truncate_content, is_error, message_type, check_markdown_markers=False
         )
@@ -304,8 +309,12 @@ class ConsoleDisplay:
                             console.console.print(content, markup=self._markup)
                 else:
                     # Check if content has substantial XML (mixed content)
-                    # If so, skip markdown rendering as it turns XML into an unreadable blob
-                    has_substantial_xml = content.count("<") > 5 and content.count(">") > 5
+                    # If so, skip markdown rendering as it turns XML into an unreadable blob.
+                    # Ignore markdown autolinks like <https://...>.
+                    xml_probe = re.sub(r"<(?:https?://|mailto:)[^>]+>", "", content)
+                    has_substantial_xml = (
+                        xml_probe.count("<") > 5 and xml_probe.count(">") > 5
+                    )
 
                     # Check if it looks like markdown
                     if self._looks_like_markdown(content) and not has_substantial_xml:
@@ -642,7 +651,9 @@ class ConsoleDisplay:
     ) -> None:
         self._tool_display.show_skybridge_summary(agent_name, configs)
 
-    def _extract_reasoning_content(self, message: "PromptMessageExtended") -> Text | None:
+    def _extract_reasoning_content(
+        self, message: "PromptMessageExtended"
+    ) -> Text | Group | None:
         """Extract reasoning channel content as dim text."""
         channels = message.channels or {}
         reasoning_blocks = channels.get(REASONING) or []
@@ -665,6 +676,21 @@ class ConsoleDisplay:
             return None
 
         # Render reasoning in dim italic and leave a blank line before main content
+        if self._looks_like_markdown(joined):
+            try:
+                prepared = prepare_markdown_content(joined, self._escape_xml)
+                markdown = Markdown(
+                    prepared,
+                    code_theme=self.code_style,
+                    style="dim italic",
+                )
+                return Group(markdown, Text("\n"))
+            except Exception as exc:
+                logger.exception(
+                    "Failed to render reasoning markdown",
+                    data={"error": str(exc)},
+                )
+
         text = joined
         if not text.endswith("\n"):
             text += "\n"
@@ -699,7 +725,7 @@ class ConsoleDisplay:
         # Extract text from PromptMessageExtended if needed
         from fast_agent.types import PromptMessageExtended
 
-        pre_content: Text | None = None
+        pre_content: Text | Group | None = None
 
         if isinstance(message_text, PromptMessageExtended):
             display_text = message_text.last_text() or ""
@@ -899,7 +925,7 @@ class ConsoleDisplay:
         right_info = f"[dim]{' '.join(right_parts)}[/dim]" if right_parts else ""
 
         # Build attachment indicator as pre_content
-        pre_content: Text | None = None
+        pre_content: Text | Group | None = None
         if attachments:
             pre_content = Text()
             pre_content.append("🔗 ", style="dim")

@@ -4,6 +4,7 @@ from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.ui import console
 from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
+from fast_agent.ui.stream_segments import StreamSegmentAssembler
 
 
 def _set_console_size(width: int = 80, height: int = 24) -> tuple[object | None, object | None]:
@@ -46,53 +47,33 @@ def _make_handle(
 
 
 def test_reasoning_stream_switches_back_to_markdown() -> None:
-    original_width, original_height = _set_console_size()
-    handle = _make_handle("markdown")
-    try:
-        handle._handle_stream_chunk(StreamChunk("Intro"))
-        assert handle._use_plain_text is False
+    assembler = StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
 
-        handle._handle_stream_chunk(StreamChunk("Thinking", is_reasoning=True))
-        assert handle._use_plain_text is True
-        assert handle._reasoning_active is True
+    assembler.handle_stream_chunk(StreamChunk("Intro"))
+    assembler.handle_stream_chunk(StreamChunk("Thinking", is_reasoning=True))
+    assembler.handle_stream_chunk(StreamChunk("Answer"))
 
-        handle._handle_stream_chunk(StreamChunk("Answer"))
-        assert handle._use_plain_text is False
-        assert handle._reasoning_active is False
-
-        text = "".join(handle._buffer)
-        intro_idx = text.find("Intro")
-        answer_idx = text.find("Answer")
-        assert intro_idx != -1
-        assert answer_idx != -1
-        assert text.find("Thinking") == -1
-        assert "\n" in text[intro_idx + len("Intro") : answer_idx]
-    finally:
-        _restore_console_size(original_width, original_height)
+    text = "".join(segment.text for segment in assembler.segments)
+    intro_idx = text.find("Intro")
+    thinking_idx = text.find("Thinking")
+    answer_idx = text.find("Answer")
+    assert intro_idx != -1
+    assert thinking_idx != -1
+    assert answer_idx != -1
+    assert "\n" in text[intro_idx + len("Intro") : thinking_idx]
+    assert "\n\n" in text[thinking_idx + len("Thinking") : answer_idx]
 
 
-def test_tool_mode_switches_back_to_markdown() -> None:
-    original_width, original_height = _set_console_size()
-    handle = _make_handle("markdown")
-    try:
-        handle._handle_chunk("Intro")
-        handle._begin_tool_mode()
-        assert handle._use_plain_text is True
+def test_reasoning_stream_handles_multiple_blocks() -> None:
+    assembler = StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
 
-        handle._handle_chunk("Calling tool")
-        handle._end_tool_mode()
-        assert handle._use_plain_text is False
+    assembler.handle_stream_chunk(StreamChunk("Think1", is_reasoning=True))
+    assembler.handle_stream_chunk(StreamChunk("Answer1"))
+    assembler.handle_stream_chunk(StreamChunk("Think2", is_reasoning=True))
+    assembler.handle_stream_chunk(StreamChunk("Answer2"))
 
-        handle._handle_chunk("Result")
-
-        text = "".join(handle._buffer)
-        intro_idx = text.find("Intro")
-        tool_idx = text.find("Calling tool")
-        result_idx = text.find("Result")
-        assert intro_idx != -1
-        assert tool_idx != -1
-        assert result_idx != -1
-        assert "\n" in text[intro_idx + len("Intro") : tool_idx]
-        assert "\n" in text[tool_idx + len("Calling tool") : result_idx]
-    finally:
-        _restore_console_size(original_width, original_height)
+    text = "".join(segment.text for segment in assembler.segments)
+    assert "Think1" in text
+    assert "Answer1" in text
+    assert "Think2" in text
+    assert "Answer2" in text

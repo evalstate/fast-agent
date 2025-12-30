@@ -1,11 +1,11 @@
 """Simple form API for elicitation schemas without MCP wrappers."""
 
-import asyncio
 from typing import Any, Union
 
 from mcp.types import ElicitRequestedSchema
 
 from fast_agent.human_input.form_fields import FormSchema
+from fast_agent.utils.async_utils import run_sync
 
 
 async def form(
@@ -76,7 +76,7 @@ def form_sync(
     Returns:
         Dict with form data if accepted, None if cancelled/declined
     """
-    return asyncio.run(form(schema, message, title))
+    return run_sync(form, schema, message, title)
 
 
 # Convenience function with a shorter name

@@ -201,6 +201,28 @@ async def test_slash_command_status_system() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_slash_command_status_system_prefers_session_instruction() -> None:
+    """Test /status system prefers session-resolved instructions when available."""
+
+    @dataclass
+    class AgentWithInstruction(StubAgent):
+        name: str = "test-agent"
+        instruction: str = "Template instruction with {{env}}."
+
+    stub_agent = AgentWithInstruction(message_history=[], llm=None)
+    instance = StubAgentInstance(agents={"test-agent": stub_agent})
+
+    resolved_instruction = "Resolved instruction with env."
+    handler = _handler(instance, session_instructions={"test-agent": resolved_instruction})
+
+    response = await handler.execute_command("status", "system")
+
+    assert resolved_instruction in response
+    assert stub_agent.instruction not in response
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_slash_command_status_system_without_instruction() -> None:
     """Test /status system when agent has no instruction attribute."""
     stub_agent = StubAgent(message_history=[], llm=None)

@@ -558,7 +558,15 @@ class SlashCommandHandler:
         if error:
             return error
 
-        system_prompt = agent.instruction if isinstance(agent, InstructionAwareAgent) else None
+        agent_name = (
+            agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
+        )
+
+        system_prompt = None
+        if agent_name in self._session_instructions:
+            system_prompt = self._session_instructions[agent_name]
+        elif isinstance(agent, InstructionAwareAgent):
+            system_prompt = agent.instruction
         if not system_prompt:
             return "\n".join(
                 [
@@ -569,9 +577,6 @@ class SlashCommandHandler:
             )
 
         # Format the response
-        agent_name = (
-            agent.name if isinstance(agent, InstructionAwareAgent) else self.current_agent_name
-        )
         lines = [
             heading,
             "",
