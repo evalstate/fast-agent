@@ -378,6 +378,44 @@ class StreamSegmentAssembler:
 
         return False
 
+    def compact(self, window_segments: list[StreamSegment]) -> None:
+        if not window_segments or self._tool_states:
+            return
+        segments = self._buffer.segments
+        if not segments:
+            return
+        filtered = [(idx, segment) for idx, segment in enumerate(segments) if segment.text]
+        if not filtered:
+            return
+        last_window = window_segments[-1]
+        last_pos = next(
+            (pos for pos, (_, segment) in enumerate(filtered) if segment is last_window),
+            None,
+        )
+        if last_pos is None:
+            last_pos = len(filtered) - 1
+            last_index = filtered[last_pos][0]
+            last_segment = segments[last_index]
+            if (
+                last_segment.kind != last_window.kind
+                or last_segment.tool_use_id != last_window.tool_use_id
+                or not last_segment.text.endswith(last_window.text)
+            ):
+                return
+        start_pos = last_pos - (len(window_segments) - 1)
+        if start_pos <= 0:
+            return
+        if start_pos >= len(filtered):
+            return
+        start_index = filtered[start_pos][0]
+        if start_index <= 0:
+            return
+        first_window = window_segments[0]
+        original_first = segments[start_index]
+        if first_window is not original_first:
+            original_first.text = first_window.text
+        del segments[:start_index]
+
     def _start_tool(self, tool_use_id: str, tool_name: str) -> ToolStreamState:
         self._buffer.consume_reasoning_gap()
         self._buffer.ensure_separator()

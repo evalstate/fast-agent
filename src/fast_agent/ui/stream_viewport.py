@@ -87,7 +87,7 @@ class StreamViewport:
         return window
 
     def _segment_height(self, segment: StreamSegment, *, console: Console, width: int) -> int:
-        if segment.kind == "markdown":
+        if segment.kind in ("markdown", "reasoning"):
             return self._markdown_truncator.measure_rendered_height(
                 segment.text, console, code_theme="monokai"
             )
@@ -103,7 +103,7 @@ class StreamViewport:
     ) -> StreamSegment:
         if terminal_height <= 0 or not segment.text:
             return segment.copy_with_text("")
-        if segment.kind == "markdown":
+        if segment.kind in ("markdown", "reasoning"):
             truncated = self._markdown_truncator.truncate_to_height(
                 segment.text,
                 terminal_height=terminal_height,

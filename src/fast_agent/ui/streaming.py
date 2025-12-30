@@ -28,12 +28,12 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-MARKDOWN_STREAM_TARGET_RATIO = 0.8
+MARKDOWN_STREAM_TARGET_RATIO = 0.85
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
-MARKDOWN_STREAM_HEIGHT_FUDGE = 1
+MARKDOWN_STREAM_HEIGHT_FUDGE = 2
 PLAIN_STREAM_TARGET_RATIO = 0.92
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
-PLAIN_STREAM_HEIGHT_FUDGE = 1
+PLAIN_STREAM_HEIGHT_FUDGE = 2
 
 
 @dataclass(frozen=True)
@@ -325,6 +325,7 @@ class StreamingMessageHandle:
         )
         if not window_segments:
             return
+        self._segment_assembler.compact(window_segments)
 
         renderables: list[RenderableType] = []
         content_height = 0
@@ -347,9 +348,7 @@ class StreamingMessageHandle:
                     renderables.append(Text(""))
             elif segment.kind == "reasoning":
                 if self._render_reasoning_markdown:
-                    prepared = prepare_markdown_content(
-                        segment.text, self._display._escape_xml
-                    )
+                    prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
                     prepared_for_display = self._close_incomplete_code_blocks(prepared)
                     markdown = Markdown(
                         prepared_for_display,
@@ -431,9 +430,7 @@ class StreamingMessageHandle:
                         should_render = self._handle_chunk(chunk) or should_render
                     elif isinstance(chunk, _ToolStreamEvent):
                         should_render = (
-                            self._segment_assembler.handle_tool_event(
-                                chunk.event_type, chunk.info
-                            )
+                            self._segment_assembler.handle_tool_event(chunk.event_type, chunk.info)
                             or should_render
                         )
 
