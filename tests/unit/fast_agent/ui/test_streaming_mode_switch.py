@@ -62,11 +62,13 @@ def test_reasoning_stream_switches_back_to_markdown() -> None:
 
         text = "".join(handle._buffer)
         intro_idx = text.find("Intro")
+        thinking_idx = text.find("Thinking")
         answer_idx = text.find("Answer")
         assert intro_idx != -1
+        assert thinking_idx != -1
         assert answer_idx != -1
-        assert text.find("Thinking") == -1
-        assert "\n" in text[intro_idx + len("Intro") : answer_idx]
+        assert "\n" in text[intro_idx + len("Intro") : thinking_idx]
+        assert "\n\n" in text[thinking_idx + len("Thinking") : answer_idx]
     finally:
         _restore_console_size(original_width, original_height)
 
@@ -94,5 +96,25 @@ def test_tool_mode_switches_back_to_markdown() -> None:
         assert result_idx != -1
         assert "\n" in text[intro_idx + len("Intro") : tool_idx]
         assert "\n" in text[tool_idx + len("Calling tool") : result_idx]
+    finally:
+        _restore_console_size(original_width, original_height)
+
+
+def test_reasoning_stream_handles_multiple_blocks() -> None:
+    original_width, original_height = _set_console_size()
+    handle = _make_handle("markdown")
+    try:
+        handle._handle_stream_chunk(StreamChunk("Think1", is_reasoning=True))
+        handle._handle_stream_chunk(StreamChunk("Answer1"))
+        handle._handle_stream_chunk(StreamChunk("Think2", is_reasoning=True))
+        handle._handle_stream_chunk(StreamChunk("Answer2"))
+
+        text = "".join(handle._buffer)
+        assert "Think1" in text
+        assert "Answer1" in text
+        assert "Think2" in text
+        assert "Answer2" in text
+        assert handle._use_plain_text is False
+        assert handle._reasoning_active is False
     finally:
         _restore_console_size(original_width, original_height)
