@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import math
+from dataclasses import dataclass
 import time
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -16,7 +16,8 @@ from fast_agent.ui import console
 from fast_agent.ui.markdown_helpers import prepare_markdown_content
 from fast_agent.ui.markdown_truncator import MarkdownTruncator
 from fast_agent.ui.plain_text_truncator import PlainTextTruncator
-from fast_agent.utils.reasoning_stream_parser import ReasoningSegment, ReasoningStreamParser
+from fast_agent.ui.stream_segments import StreamSegmentAssembler
+from fast_agent.ui.stream_viewport import StreamViewport, estimate_plain_text_height
 
 if TYPE_CHECKING:
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
@@ -31,6 +32,12 @@ MARKDOWN_STREAM_HEIGHT_FUDGE = 1
 PLAIN_STREAM_TARGET_RATIO = 0.9
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 1
+
+
+@dataclass(frozen=True)
+class _ToolStreamEvent:
+    event_type: str
+    info: dict[str, Any] | None
 
 
 class NullStreamingHandle:
@@ -72,16 +79,28 @@ class StreamingMessageHandle:
         self._highlight_index = highlight_index
         self._max_item_length = max_item_length
         self._use_plain_text = use_plain_text
-        self._preferred_plain_text = use_plain_text
-        self._plain_text_override_count = 0
         self._header_left = header_left
         self._header_right = header_right
         self._progress_display = progress_display
         self._progress_paused = False
-        self._buffer: list[str] = []
         self._plain_text_style: str | None = None
-        self._convert_literal_newlines = False
-        self._pending_literal_backslashes = ""
+        base_kind = "plain" if use_plain_text else "markdown"
+        self._segment_assembler = StreamSegmentAssembler(
+            base_kind=base_kind,
+            tool_prefix="→",
+        )
+        self._markdown_truncator = MarkdownTruncator(target_height_ratio=1.0)
+        self._plain_truncator = PlainTextTruncator(target_height_ratio=1.0)
+        self._viewport = StreamViewport(
+            markdown_truncator=self._markdown_truncator,
+            plain_truncator=self._plain_truncator,
+        )
+        self._stream_target_ratio = (
+            PLAIN_STREAM_TARGET_RATIO if use_plain_text else MARKDOWN_STREAM_TARGET_RATIO
+        )
+        self._height_fudge = (
+            PLAIN_STREAM_HEIGHT_FUDGE if use_plain_text else MARKDOWN_STREAM_HEIGHT_FUDGE
+        )
         initial_renderable = (
             Text("", style=self._plain_text_style or "") if self._use_plain_text else Markdown("")
         )
@@ -110,21 +129,7 @@ class StreamingMessageHandle:
         self._live_started = False
         self._active = True
         self._finalized = False
-        self._in_table = False
-        self._pending_table_row = ""
-        self._truncator = MarkdownTruncator(target_height_ratio=MARKDOWN_STREAM_TARGET_RATIO)
-        self._plain_truncator = (
-            PlainTextTruncator(target_height_ratio=PLAIN_STREAM_TARGET_RATIO)
-            if self._use_plain_text
-            else None
-        )
         self._max_render_height = 0
-        self._reasoning_parser = ReasoningStreamParser()
-        self._styled_buffer: list[tuple[str, bool]] = []
-        self._has_reasoning = False
-        self._reasoning_active = False
-        self._tool_active = False
-        self._reasoning_separator_pending = False
 
         if self._async_mode and self._loop and self._queue is not None:
             self._worker_task = self._loop.create_task(self._render_worker())
@@ -214,203 +219,14 @@ class StreamingMessageHandle:
 
         return text
 
-    def _trim_to_displayable(self, text: str) -> str:
-        if not text:
-            return text
-
-        terminal_height = console.console.size.height - 1
-
-        if self._use_plain_text and self._plain_truncator:
-            terminal_width = console.console.size.width
-            return self._plain_truncator.truncate(
-                text,
-                terminal_height=terminal_height,
-                terminal_width=terminal_width,
-            )
-
-        return self._truncator.truncate(
-            text,
-            terminal_height=terminal_height,
-            console=console.console,
-            code_theme=self._display.code_style,
-            prefer_recent=True,
-        )
-
-    def _switch_to_plain_text(self, style: str | None = "dim") -> None:
-        if not self._use_plain_text:
-            self._use_plain_text = True
-        if not self._plain_truncator:
-            self._plain_truncator = PlainTextTruncator(
-                target_height_ratio=PLAIN_STREAM_TARGET_RATIO
-            )
-        self._plain_text_style = style
-        self._convert_literal_newlines = True
-
-    def _switch_to_markdown(self) -> None:
-        self._use_plain_text = False
-        self._plain_text_style = None
-        self._convert_literal_newlines = False
-        self._pending_literal_backslashes = ""
-
-    def _insert_mode_switch_newline(self) -> None:
-        if self._pending_table_row:
-            return
-        if not self._buffer:
-            return
-        if self._buffer[-1].endswith("\n"):
-            return
-        self._buffer.append("\n")
-        if self._has_reasoning:
-            self._styled_buffer.append(("\n", False))
-
-    def _set_use_plain_text(self, use_plain_text: bool, *, insert_newline: bool) -> None:
-        if use_plain_text == self._use_plain_text:
-            return
-        if insert_newline:
-            self._insert_mode_switch_newline()
-        if use_plain_text:
-            self._switch_to_plain_text(style=None)
-        else:
-            self._switch_to_markdown()
-
-    def _begin_plain_text_override(self) -> None:
-        self._plain_text_override_count += 1
-        if self._plain_text_override_count == 1:
-            self._set_use_plain_text(True, insert_newline=True)
-
-    def _end_plain_text_override(self) -> None:
-        if self._plain_text_override_count == 0:
-            return
-        self._plain_text_override_count -= 1
-        if self._plain_text_override_count == 0:
-            self._set_use_plain_text(self._preferred_plain_text, insert_newline=True)
-
-    def _begin_reasoning_mode(self) -> None:
-        if self._reasoning_active:
-            return
-        self._reasoning_active = True
-        if self._buffer and not self._styled_buffer:
-            self._styled_buffer.append(("".join(self._buffer), False))
-        self._has_reasoning = True
-        self._begin_plain_text_override()
-
-    def _end_reasoning_mode(self) -> None:
-        if not self._reasoning_active:
-            return
-        self._reasoning_active = False
-        self._end_plain_text_override()
-        self._reasoning_separator_pending = True
-
-    def _begin_tool_mode(self) -> None:
-        if self._tool_active:
-            return
-        self._tool_active = True
-        self._begin_plain_text_override()
-
-    def _end_tool_mode(self) -> None:
-        if not self._tool_active:
-            return
-        self._tool_active = False
-        self._end_plain_text_override()
-
-    def _append_plain_text(self, text: str, *, is_reasoning: bool | None = None) -> bool:
-        processed = text
-        if self._convert_literal_newlines:
-            processed = self._decode_literal_newlines(processed)
-            if not processed:
-                return False
-        if not is_reasoning:
-            self._apply_reasoning_gap()
-        processed = self._wrap_plain_chunk(processed)
-        if self._pending_table_row:
-            self._buffer.append(self._pending_table_row)
-            if self._has_reasoning:
-                self._styled_buffer.append((self._pending_table_row, False))
-            self._pending_table_row = ""
-        self._buffer.append(processed)
-        if self._has_reasoning:
-            self._styled_buffer.append((processed, bool(is_reasoning)))
-        return True
-
-    def _append_text_in_current_mode(self, text: str) -> bool:
-        if not text:
-            return False
-        self._apply_reasoning_gap()
-        if self._use_plain_text:
-            return self._append_plain_text(text)
-
-        text_so_far = "".join(self._buffer)
-        ends_with_newline = text_so_far.endswith("\n")
-        lines = text_so_far.split("\n") if text_so_far else []
-        last_line = "" if ends_with_newline else (lines[-1] if lines else "")
-        currently_in_table = last_line.strip().startswith("|")
-        if self._pending_table_row:
-            if "\n" not in text:
-                self._pending_table_row += text
-                return False
-            text = self._pending_table_row + text
-            self._pending_table_row = ""
-
-        starts_table_row = text.lstrip().startswith("|")
-        if "\n" not in text and (currently_in_table or starts_table_row):
-            pending_seed = ""
-            if currently_in_table:
-                split_index = text_so_far.rfind("\n")
-                if split_index == -1:
-                    pending_seed = text_so_far
-                    self._buffer = []
-                else:
-                    pending_seed = text_so_far[split_index + 1 :]
-                    prefix = text_so_far[: split_index + 1]
-                    self._buffer = [prefix] if prefix else []
-            self._pending_table_row = pending_seed + text
-            return False
-
-        if self._pending_table_row:
-            self._buffer.append(self._pending_table_row)
-            self._pending_table_row = ""
-
-        self._buffer.append(text)
-        if self._has_reasoning:
-            self._styled_buffer.append((text, False))
-        return True
-
-    def _apply_reasoning_gap(self) -> None:
-        if not self._reasoning_separator_pending:
-            return
-        if self._pending_table_row:
-            self._reasoning_separator_pending = False
-            return
-        if not self._buffer:
-            self._reasoning_separator_pending = False
-            return
-        text_so_far = "".join(self._buffer)
-        if not text_so_far:
-            self._reasoning_separator_pending = False
-            return
-        last_line = text_so_far.split("\n")[-1]
-        if last_line.strip().startswith("|"):
-            self._reasoning_separator_pending = False
-            return
-        if text_so_far.endswith("\n\n"):
-            gap = ""
-        elif text_so_far.endswith("\n"):
-            gap = "\n"
-        else:
-            gap = "\n\n"
-        if gap:
-            self._buffer.append(gap)
-            if self._has_reasoning:
-                self._styled_buffer.append((gap, False))
-        self._reasoning_separator_pending = False
-
     def finalize(self, _message: "PromptMessageExtended | str") -> None:
         if not self._active or self._finalized:
             return
 
         # Flush any buffered reasoning content before closing the live view
-        self._process_reasoning_chunk("")
-        if self._buffer:
+        if self._segment_assembler.flush():
+            self._render_current_buffer()
+        elif self._segment_assembler.segments:
             self._render_current_buffer()
 
         self._finalized = True
@@ -450,108 +266,6 @@ class StreamingMessageHandle:
         self._shutdown_live_resources()
         self._max_render_height = 0
 
-    def _wrap_plain_chunk(self, chunk: str) -> str:
-        width = max(1, console.console.size.width)
-        if not chunk or width <= 1:
-            return chunk
-
-        result_segments: list[str] = []
-        start = 0
-        length = len(chunk)
-
-        while start < length:
-            newline_pos = chunk.find("\n", start)
-            if newline_pos == -1:
-                line = chunk[start:]
-                delimiter = ""
-                start = length
-            else:
-                line = chunk[start:newline_pos]
-                delimiter = "\n"
-                start = newline_pos + 1
-
-            if len(line.expandtabs()) > width:
-                wrapped = self._wrap_plain_line(line, width)
-                result_segments.append("\n".join(wrapped))
-            else:
-                result_segments.append(line)
-
-            result_segments.append(delimiter)
-
-        return "".join(result_segments)
-
-    @staticmethod
-    def _wrap_plain_line(line: str, width: int) -> list[str]:
-        if not line:
-            return [""]
-
-        segments: list[str] = []
-        remaining = line
-
-        while len(remaining) > width:
-            break_at = remaining.rfind(" ", 0, width)
-            if break_at == -1 or break_at < width // 2:
-                break_at = width
-                segments.append(remaining[:break_at])
-                remaining = remaining[break_at:]
-            else:
-                segments.append(remaining[:break_at])
-                remaining = remaining[break_at + 1 :]
-        segments.append(remaining)
-        return segments
-
-    def _decode_literal_newlines(self, chunk: str) -> str:
-        if not chunk:
-            return chunk
-
-        text = chunk
-        if self._pending_literal_backslashes:
-            text = self._pending_literal_backslashes + text
-            self._pending_literal_backslashes = ""
-
-        result: list[str] = []
-        length = len(text)
-        index = 0
-
-        while index < length:
-            char = text[index]
-            if char == "\\":
-                start = index
-                while index < length and text[index] == "\\":
-                    index += 1
-                count = index - start
-
-                if index >= length:
-                    self._pending_literal_backslashes = "\\" * count
-                    break
-
-                next_char = text[index]
-                if next_char == "n" and count % 2 == 1:
-                    if count > 1:
-                        result.append("\\" * (count - 1))
-                    result.append("\n")
-                    index += 1
-                else:
-                    result.append("\\" * count)
-                    continue
-            else:
-                result.append(char)
-                index += 1
-
-        return "".join(result)
-
-    def _estimate_plain_render_height(self, text: str) -> int:
-        if not text:
-            return 0
-
-        width = max(1, console.console.size.width)
-        lines = text.split("\n")
-        total = 0
-        for line in lines:
-            expanded_len = len(line.expandtabs())
-            total += max(1, math.ceil(expanded_len / width)) if expanded_len else 1
-        return total
-
     def _enqueue_chunk(self, chunk: object) -> None:
         if not self._queue or not self._loop:
             return
@@ -581,140 +295,16 @@ class StreamingMessageHandle:
                     data={"error": str(exc), "chunk_repr": repr(chunk)},
                 )
 
-    def _process_reasoning_chunk(self, chunk: str) -> bool:
-        """
-        Detect and style reasoning-tagged content (<think>...</think>) when present.
-
-        Returns True if the chunk was handled by reasoning-aware processing.
-        """
-        should_process = (
-            self._reasoning_parser.in_think or "<think>" in chunk or "</think>" in chunk
-        )
-        if not should_process and not self._has_reasoning:
-            return False
-        previous_in_think = self._reasoning_parser.in_think
-        segments: list[ReasoningSegment] = []
-        if chunk:
-            segments = self._reasoning_parser.feed(chunk)
-        elif self._reasoning_parser.in_think:
-            segments = self._reasoning_parser.flush()
-
-        if not segments:
-            return False
-        handled = False
-        emitted_non_thinking = False
-
-        for segment in segments:
-            if segment.is_thinking:
-                self._begin_reasoning_mode()
-                self._append_plain_text(segment.text, is_reasoning=True)
-                handled = True
-            else:
-                if self._reasoning_active:
-                    self._end_reasoning_mode()
-                emitted_non_thinking = True
-                self._append_text_in_current_mode(segment.text)
-                handled = True
-
-        if (
-            previous_in_think
-            and not self._reasoning_parser.in_think
-            and self._reasoning_active
-            and not emitted_non_thinking
-        ):
-            self._end_reasoning_mode()
-
-        return handled
-
     def _handle_stream_chunk(self, chunk: StreamChunk) -> bool:
         """Process a typed stream chunk with explicit reasoning flag."""
-        if not chunk.text:
-            return False
-        if not chunk.is_reasoning and self._process_reasoning_chunk(chunk.text):
-            return True
-
-        if chunk.is_reasoning:
-            self._begin_reasoning_mode()
-            return self._append_plain_text(chunk.text, is_reasoning=True)
-        if self._reasoning_active:
-            self._end_reasoning_mode()
-
-        return self._append_text_in_current_mode(chunk.text)
+        return self._segment_assembler.handle_stream_chunk(chunk)
 
     def _handle_chunk(self, chunk: str) -> bool:
-        if not chunk:
-            return False
-
-        if self._process_reasoning_chunk(chunk):
-            return True
-        return self._append_text_in_current_mode(chunk)
-
-    def _slice_styled_segments(self, target_text: str) -> list[tuple[str, bool]]:
-        """Trim styled buffer to the tail matching the provided text length."""
-        if not self._styled_buffer:
-            return []
-
-        remaining = len(target_text)
-        selected: list[tuple[str, bool]] = []
-
-        for text, is_thinking in reversed(self._styled_buffer):
-            if remaining <= 0:
-                break
-            if len(text) <= remaining:
-                selected.append((text, is_thinking))
-                remaining -= len(text)
-            else:
-                selected.append((text[-remaining:], is_thinking))
-                remaining = 0
-
-        selected.reverse()
-        return selected
-
-    def _build_styled_text(
-        self, text: str, segments: list[tuple[str, bool]] | None = None
-    ) -> Text:
-        """Build a Rich Text object with dim/italic styling for reasoning segments."""
-        if segments is None:
-            if not self._has_reasoning or not self._styled_buffer:
-                return (
-                    Text(text, style=self._plain_text_style)
-                    if self._plain_text_style
-                    else Text(text)
-                )
-            segments = self._slice_styled_segments(text)
-            self._styled_buffer = segments
-
-        if not segments:
-            return Text(text, style=self._plain_text_style) if self._plain_text_style else Text(text)
-
-        styled_text = Text()
-        for segment_text, is_thinking in segments:
-            style = "dim italic" if is_thinking else self._plain_text_style
-            styled_text.append(segment_text, style=style)
-        return styled_text
-
-    @staticmethod
-    def _split_reasoning_prefix(
-        segments: list[tuple[str, bool]],
-    ) -> tuple[str, str, bool]:
-        reasoning_parts: list[str] = []
-        remainder_parts: list[str] = []
-        saw_non_reasoning = False
-        reasoning_after_non = False
-
-        for text, is_reasoning in segments:
-            if is_reasoning:
-                if saw_non_reasoning:
-                    reasoning_after_non = True
-                reasoning_parts.append(text)
-            else:
-                saw_non_reasoning = True
-                remainder_parts.append(text)
-
-        return "".join(reasoning_parts), "".join(remainder_parts), reasoning_after_non
+        return self._segment_assembler.handle_text(chunk)
 
     def _render_current_buffer(self) -> None:
-        if not self._buffer:
+        segments = self._segment_assembler.segments
+        if not segments:
             return
 
         self._ensure_started()
@@ -722,89 +312,58 @@ class StreamingMessageHandle:
         if not self._live:
             return
 
-        text = "".join(self._buffer)
-        trimmed = self._trim_to_displayable(text)
-        if trimmed != text:
-            text = trimmed
-        self._buffer = [text]
-
-        segments: list[tuple[str, bool]] | None = None
-        has_visible_reasoning = False
-        reasoning_prefix = ""
-        remainder_text = text
-        reasoning_interleaved = False
-        reasoning_split = False
-        if self._has_reasoning:
-            segments = self._slice_styled_segments(text)
-            self._styled_buffer = segments
-            has_visible_reasoning = any(is_reasoning for _, is_reasoning in segments)
-            if has_visible_reasoning and not self._use_plain_text:
-                reasoning_prefix, remainder_text, reasoning_interleaved = (
-                    self._split_reasoning_prefix(segments)
-                )
-                reasoning_split = bool(reasoning_prefix) and not reasoning_interleaved
-
         header = self._build_header()
         max_allowed_height = max(1, console.console.size.height - 2)
-        self._max_render_height = min(self._max_render_height, max_allowed_height)
+        window_segments = self._viewport.slice_segments(
+            segments,
+            terminal_height=max_allowed_height,
+            console=console.console,
+            target_ratio=self._stream_target_ratio,
+        )
+        if not window_segments:
+            return
 
-        render_plain = self._use_plain_text or (has_visible_reasoning and not reasoning_split)
-        if render_plain:
-            content_height = self._estimate_plain_render_height(text)
-            budget_height = min(content_height + PLAIN_STREAM_HEIGHT_FUDGE, max_allowed_height)
+        renderables: list[object] = []
+        content_height = 0
+        width = console.console.size.width
 
-            if budget_height > self._max_render_height:
-                self._max_render_height = budget_height
-
-            padding_lines = max(0, self._max_render_height - content_height)
-            content = self._build_styled_text(text, segments)
-            if padding_lines:
-                content.append("\n" * padding_lines)
-        else:
-            if reasoning_split:
-                reasoning_text = Text(reasoning_prefix, style="dim italic")
-                reasoning_height = self._estimate_plain_render_height(reasoning_prefix)
-                markdown_text = remainder_text
-            else:
-                reasoning_text = None
-                reasoning_height = 0
-                markdown_text = text
-
-            prepared = prepare_markdown_content(markdown_text, self._display._escape_xml)
-            prepared_for_display = self._close_incomplete_code_blocks(prepared)
-
-            markdown_height = (
-                self._truncator.measure_rendered_height(
-                    prepared_for_display, console.console, self._display.code_style
-                )
-                if prepared_for_display
-                else 0
-            )
-            content_height = reasoning_height + markdown_height
-            budget_height = min(content_height + MARKDOWN_STREAM_HEIGHT_FUDGE, max_allowed_height)
-
-            if budget_height > self._max_render_height:
-                self._max_render_height = budget_height
-
-            padding_lines = max(0, self._max_render_height - content_height)
-            if padding_lines:
+        for segment in window_segments:
+            if segment.kind == "markdown":
+                prepared = prepare_markdown_content(segment.text, self._display._escape_xml)
+                prepared_for_display = self._close_incomplete_code_blocks(prepared)
                 if prepared_for_display:
-                    prepared_for_display = prepared_for_display + ("\n" * padding_lines)
-                elif reasoning_text is not None:
-                    reasoning_text.append("\n" * padding_lines)
-
-            markdown_renderable = (
-                Markdown(prepared_for_display, code_theme=self._display.code_style)
-                if prepared_for_display
-                else None
-            )
-
-            if reasoning_text is not None and markdown_renderable is not None:
-                content = Group(reasoning_text, markdown_renderable)
-            elif markdown_renderable is not None:
-                content = markdown_renderable
+                    renderables.append(
+                        Markdown(prepared_for_display, code_theme=self._display.code_style)
+                    )
+                    content_height += self._markdown_truncator.measure_rendered_height(
+                        prepared_for_display,
+                        console.console,
+                        self._display.code_style,
+                    )
+                else:
+                    renderables.append(Text(""))
+            elif segment.kind == "reasoning":
+                renderables.append(Text(segment.text, style="dim italic"))
+                content_height += estimate_plain_text_height(segment.text, width)
             else:
-                content = reasoning_text or Text("")
+                renderables.append(Text(segment.text))
+                content_height += estimate_plain_text_height(segment.text, width)
+
+        self._max_render_height = min(self._max_render_height, max_allowed_height)
+        budget_height = min(content_height + self._height_fudge, max_allowed_height)
+
+        if budget_height > self._max_render_height:
+            self._max_render_height = budget_height
+
+        padding_lines = max(0, self._max_render_height - content_height)
+        if padding_lines:
+            renderables.append(Text("\n" * padding_lines))
+
+        content = (
+            Group(*renderables)
+            if len(renderables) > 1
+            else (renderables[0] if renderables else Text(""))
+        )
 
         header_with_spacing = header.copy()
         header_with_spacing.append("\n", style="default")
@@ -850,6 +409,13 @@ class StreamingMessageHandle:
                         should_render = self._handle_stream_chunk(chunk) or should_render
                     elif isinstance(chunk, str):
                         should_render = self._handle_chunk(chunk) or should_render
+                    elif isinstance(chunk, _ToolStreamEvent):
+                        should_render = (
+                            self._segment_assembler.handle_tool_event(
+                                chunk.event_type, chunk.info
+                            )
+                            or should_render
+                        )
 
                 if should_render:
                     self._render_current_buffer()
@@ -883,21 +449,13 @@ class StreamingMessageHandle:
             if not self._active:
                 return
 
-            tool_name = info.get("tool_name", "unknown") if info else "unknown"
-
-            if event_type == "start":
-                self._begin_tool_mode()
-                self.update(f"→ Calling {tool_name}\n")
+            event = _ToolStreamEvent(event_type=event_type, info=info)
+            if self._async_mode and self._queue is not None:
+                self._enqueue_chunk(event)
                 return
-            if event_type == "delta":
-                if not self._tool_active:
-                    self._begin_tool_mode()
-                    self.update(f"→ Calling {tool_name}\n")
-                self.update(info.get("chunk", "") if info else "")
-            elif event_type == "stop":
-                if self._tool_active:
-                    self.update("\n")
-                self._end_tool_mode()
+
+            if self._segment_assembler.handle_tool_event(event_type, info):
+                self._render_current_buffer()
         except Exception as exc:
             logger.warning(
                 "Error handling tool event",

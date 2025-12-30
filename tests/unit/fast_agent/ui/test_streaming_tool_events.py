@@ -1,41 +1,21 @@
-from fast_agent.config import Settings
-from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
+from fast_agent.ui.stream_segments import StreamSegmentAssembler
 
 
-def _make_handle() -> _StreamingMessageHandle:
-    settings = Settings()
-    settings.logger.streaming = "markdown"
-    display = ConsoleDisplay(settings)
-    handle = _StreamingMessageHandle(
-        display=display,
-        bottom_items=None,
-        highlight_index=None,
-        max_item_length=None,
-        use_plain_text=False,
-        header_left="",
-        header_right="",
-        progress_display=None,
-    )
-    handle._async_mode = False
-    handle._queue = None
-    handle._live = None
-    handle._active = True
-    def _capture(chunk: str) -> None:
-        if chunk:
-            handle._buffer.append(chunk)
-    handle.update = _capture  # type: ignore[method-assign]
-    return handle
+def _make_assembler() -> StreamSegmentAssembler:
+    return StreamSegmentAssembler(base_kind="markdown", tool_prefix="->")
 
 
 def test_tool_stream_delta_bootstraps_mode() -> None:
-    handle = _make_handle()
+    assembler = _make_assembler()
 
-    handle.handle_tool_event("delta", {"tool_name": "search", "chunk": "{\"q\":1}"})
+    assembler.handle_tool_event(
+        "delta", {"tool_name": "search", "tool_use_id": "tool-1", "chunk": "{\"q\":1}"}
+    )
 
-    text = "".join(handle._buffer)
+    text = "".join(segment.text for segment in assembler.segments)
     assert "Calling search" in text
     assert "{\"q\":1}" in text
-    assert handle._tool_active is True
 
-    handle.handle_tool_event("stop", {"tool_name": "search"})
-    assert handle._tool_active is False
+    assembler.handle_tool_event("stop", {"tool_name": "search", "tool_use_id": "tool-1"})
+    text = "".join(segment.text for segment in assembler.segments)
+    assert "\"q\": 1" in text

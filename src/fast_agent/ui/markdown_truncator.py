@@ -61,6 +61,25 @@ class MarkdownTruncator:
             return len(text.split("\n"))
         return self._buffer.estimate_display_lines(text, width)
 
+    def truncate_to_height(
+        self,
+        text: str,
+        *,
+        terminal_height: int,
+        console: Console | None,
+    ) -> str:
+        """Truncate markdown to a specific display height."""
+        if not text:
+            return text
+        terminal_width = console.size.width if console else None
+        return self._buffer.truncate_text(
+            text,
+            terminal_height=terminal_height,
+            terminal_width=terminal_width,
+            add_closing_fence=False,
+            target_ratio=1.0,
+        )
+
     def _ensure_table_header_if_needed(self, original_text: str, truncated_text: str) -> str:
         """Ensure table header is prepended if truncation removed it."""
         if not truncated_text or truncated_text == original_text:
