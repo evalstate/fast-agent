@@ -1083,6 +1083,7 @@ async def get_enhanced_input(
         mouse_support=False,
         bottom_toolbar=get_toolbar,
         style=custom_style,
+        erase_when_done=True,
     )
 
     # Create key bindings with a reference to the app
