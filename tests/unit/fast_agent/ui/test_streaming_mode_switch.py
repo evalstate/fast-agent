@@ -1,5 +1,49 @@
+from typing import Literal
+
+from fast_agent.config import Settings
 from fast_agent.llm.stream_types import StreamChunk
+from fast_agent.ui import console
+from fast_agent.ui.console_display import ConsoleDisplay, _StreamingMessageHandle
 from fast_agent.ui.stream_segments import StreamSegmentAssembler
+
+
+def _set_console_size(width: int = 80, height: int = 24) -> tuple[object | None, object | None]:
+    original_width = getattr(console.console, "_width", None)
+    original_height = getattr(console.console, "_height", None)
+    console.console._width = width
+    console.console._height = height
+    return original_width, original_height
+
+
+def _restore_console_size(original_width: object | None, original_height: object | None) -> None:
+    if original_width is None:
+        if hasattr(console.console, "_width"):
+            delattr(console.console, "_width")
+    else:
+        console.console._width = original_width
+    if original_height is None:
+        if hasattr(console.console, "_height"):
+            delattr(console.console, "_height")
+    else:
+        console.console._height = original_height
+
+
+def _make_handle(
+    streaming_mode: Literal["markdown", "plain", "none"] = "markdown",
+) -> _StreamingMessageHandle:
+    settings = Settings()
+    settings.logger.streaming = streaming_mode
+    display = ConsoleDisplay(settings)
+    return _StreamingMessageHandle(
+        display=display,
+        bottom_items=None,
+        highlight_index=None,
+        max_item_length=None,
+        use_plain_text=streaming_mode == "plain",
+        header_left="",
+        header_right="",
+        progress_display=None,
+    )
 
 
 def test_reasoning_stream_switches_back_to_markdown() -> None:
