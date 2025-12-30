@@ -20,9 +20,10 @@ from fast_agent.ui.stream_segments import StreamSegmentAssembler
 from fast_agent.ui.stream_viewport import StreamViewport, estimate_plain_text_height
 
 if TYPE_CHECKING:
+    from rich.console import RenderableType
+
     from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
     from fast_agent.ui.console_display import ConsoleDisplay
-    from rich.console import RenderableType
 
 
 logger = get_logger(__name__)
