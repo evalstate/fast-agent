@@ -82,12 +82,19 @@ jobs:
         include:
           - name: acp
             path: tests/integration/acp
+            args: ""
           - name: api
             path: tests/integration/api
+            args: ""
           - name: prompt-server
             path: tests/integration/prompt-server
+            args: ""
           - name: other
-            path: tests/integration/async_tools tests/integration/elicitation tests/integration/history-architecture tests/integration/instruction_templates tests/integration/mcp_filtering tests/integration/mcp_ui tests/integration/prompt-state tests/integration/resources tests/integration/roots tests/integration/sampling tests/integration/sampling_with_tools tests/integration/server_instructions tests/integration/skybridge tests/integration/tool_loop tests/integration/workflow
+            path: tests/integration
+            args: >-
+              --ignore=tests/integration/acp
+              --ignore=tests/integration/api
+              --ignore=tests/integration/prompt-server
     steps:
       - uses: actions/checkout@v4
 
@@ -106,7 +113,7 @@ jobs:
           uv sync --group dev
 
       - name: Run integration tests
-        run: uv run pytest -m integration -v ${{ matrix.path }}
+        run: uv run pytest -m integration -v ${{ matrix.path }} ${{ matrix.args }}
 
   package-test:
     runs-on: ubuntu-latest
