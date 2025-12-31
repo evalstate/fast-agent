@@ -40,7 +40,7 @@ mcp:
       args: ["run", "integration_agent.py", "--transport", "stdio"]
     sse:
       transport: "sse"
-      url: "http://localhost:8723/sse"
+      url: "http://localhost:${FAST_AGENT_TEST_SSE_PORT:8723}/sse"
     card_test:
       command: "uv"
       args: ["run", "mcp_tools_server.py"]

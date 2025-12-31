@@ -28,7 +28,7 @@ mcp:
         ]
     prompt_sse:
       transport: "sse"
-      url: "http://localhost:8723/sse"
+      url: "http://localhost:${FAST_AGENT_TEST_SSE_PORT:8723}/sse"
     prompt_http:
       transport: "http"
-      url: "http://localhost:8724/mcp"
+      url: "http://localhost:${FAST_AGENT_TEST_HTTP_PORT:8724}/mcp"

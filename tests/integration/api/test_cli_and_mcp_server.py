@@ -1,4 +1,3 @@
-import asyncio
 import os
 import subprocess
 from typing import TYPE_CHECKING
@@ -151,7 +150,7 @@ async def test_agent_server_option_stdio_and_prompt_history(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_agent_transport_option_sse(fast_agent):
+async def test_agent_transport_option_sse(fast_agent, mcp_test_ports, wait_for_port):
     """Test that FastAgent enables server mode when --transport is provided (SSE)."""
 
     # Start the SSE server in a subprocess
@@ -163,7 +162,7 @@ async def test_agent_transport_option_sse(fast_agent):
     test_agent_path = os.path.join(test_dir, "integration_agent.py")
 
     # Port must match what's in the fastagent.config.yaml
-    port = 8723
+    port = mcp_test_ports["sse"]
 
     # Start the server process
     server_proc = subprocess.Popen(
@@ -184,8 +183,7 @@ async def test_agent_transport_option_sse(fast_agent):
     )
 
     try:
-        # Give the server a moment to start
-        await asyncio.sleep(2)
+        await wait_for_port("127.0.0.1", port, process=server_proc)
 
         # Now connect to it via the configured MCP server
         @fast_agent.agent(name="client", servers=["sse"])
@@ -210,7 +208,7 @@ async def test_agent_transport_option_sse(fast_agent):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_serve_request_scope_disables_session_header():
+async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_for_port):
     """Request-scoped instances should not advertise an MCP session id."""
 
     import os
@@ -219,7 +217,7 @@ async def test_serve_request_scope_disables_session_header():
     test_dir = os.path.dirname(os.path.abspath(__file__))
     config_path = os.path.join(test_dir, "fastagent.config.yaml")
 
-    port = 8731
+    port = mcp_test_ports["request_http"]
 
     server_proc = subprocess.Popen(
         [
@@ -245,20 +243,7 @@ async def test_serve_request_scope_disables_session_header():
     )
 
     try:
-        # Wait until the server is listening
-        for _ in range(40):
-            if server_proc.poll() is not None:
-                stdout, stderr = server_proc.communicate(timeout=1)
-                raise AssertionError(f"Server exited early. stdout={stdout} stderr={stderr}")
-            try:
-                reader, writer = await asyncio.open_connection("127.0.0.1", port)
-                writer.close()
-                await writer.wait_closed()
-                break
-            except OSError:
-                await asyncio.sleep(0.25)
-        else:
-            raise AssertionError("Server did not start listening in time")
+        await wait_for_port("127.0.0.1", port, process=server_proc, timeout=10.0)
 
         async with httpx.AsyncClient(timeout=5.0) as client:
             init_payload = {
@@ -293,7 +278,7 @@ async def test_serve_request_scope_disables_session_header():
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_agent_server_option_http(fast_agent):
+async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_port):
     """Test that FastAgent still accepts the legacy --server flag with HTTP transport."""
 
     # Start the SSE server in a subprocess
@@ -305,7 +290,7 @@ async def test_agent_server_option_http(fast_agent):
     test_agent_path = os.path.join(test_dir, "integration_agent.py")
 
     # Port must match what's in the fastagent.config.yaml
-    port = 8724
+    port = mcp_test_ports["http"]
 
     # Start the server process
     server_proc = subprocess.Popen(
@@ -327,8 +312,7 @@ async def test_agent_server_option_http(fast_agent):
     )
 
     try:
-        # Give the server a moment to start
-        await asyncio.sleep(2)
+        await wait_for_port("127.0.0.1", port, process=server_proc)
 
         # Now connect to it via the configured MCP server
         @fast_agent.agent(name="client", servers=["http"])
