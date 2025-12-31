@@ -47,7 +47,7 @@ from fast_agent.mcp.common import (
     is_namespaced_name,
 )
 from fast_agent.mcp.mcp_aggregator import MCPAggregator, NamespacedTool, ServerStatus
-from fast_agent.skills import SkillManifest
+from fast_agent.skills import SKILLS_DEFAULT, SkillManifest
 from fast_agent.skills.registry import SkillRegistry
 from fast_agent.tools.elicitation import (
     get_elicitation_tool,
@@ -114,7 +114,12 @@ class McpAgent(ABC, ToolAgent):
         self.executor = context.executor if context else None
         self.logger = get_logger(f"{__name__}.{self._name}")
         manifests: list[SkillManifest] = list(getattr(self.config, "skill_manifests", []) or [])
-        if not manifests and context and context.skill_registry:
+        if (
+            self.config.skills is SKILLS_DEFAULT
+            and not manifests
+            and context
+            and context.skill_registry
+        ):
             try:
                 manifests = list(context.skill_registry.load_manifests())  # type: ignore[assignment]
             except Exception:
@@ -127,7 +132,7 @@ class McpAgent(ABC, ToolAgent):
         self.skill_registry: SkillRegistry | None = None
         if isinstance(self.config.skills, SkillRegistry):
             self.skill_registry = self.config.skills
-        elif self.config.skills is None and context and context.skill_registry:
+        elif self.config.skills is SKILLS_DEFAULT and context and context.skill_registry:
             self.skill_registry = context.skill_registry
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()

@@ -8,6 +8,7 @@ from mcp.types import TextContent
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.mcp_agent import McpAgent
 from fast_agent.context import Context
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.skills.registry import SkillRegistry, format_skills_for_prompt
 from fast_agent.tools.skill_reader import SkillReader
 
@@ -60,6 +61,50 @@ async def test_mcp_agent_exposes_skill_tools(tmp_path: Path) -> None:
     assert "read_skill" in tool_names
     # Path should be absolute
     assert manifests[0].path.is_absolute()
+
+
+@pytest.mark.asyncio
+async def test_mcp_agent_skills_default_uses_context_registry(tmp_path: Path) -> None:
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    context = Context()
+    context.skill_registry = SkillRegistry(base_dir=tmp_path, directories=[skills_root])
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        skills=SKILLS_DEFAULT,
+    )
+
+    agent = McpAgent(config=config, context=context)
+
+    tools_result = await agent.list_tools()
+    tool_names = {tool.name for tool in tools_result.tools}
+    assert "read_skill" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_mcp_agent_skills_none_disables_context_registry(tmp_path: Path) -> None:
+    skills_root = tmp_path / "skills"
+    create_skill(skills_root, "alpha", body="Alpha body")
+
+    context = Context()
+    context.skill_registry = SkillRegistry(base_dir=tmp_path, directories=[skills_root])
+
+    config = AgentConfig(
+        name="test",
+        instruction="Instruction",
+        servers=[],
+        skills=None,
+    )
+
+    agent = McpAgent(config=config, context=context)
+
+    tools_result = await agent.list_tools()
+    tool_names = {tool.name for tool in tools_result.tools}
+    assert "read_skill" not in tool_names
 
 
 @pytest.mark.asyncio

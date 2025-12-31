@@ -19,13 +19,13 @@ from typing import (
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.agents.agent_types import AgentConfig, AgentType, SkillConfig
 from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
 )
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
-from fast_agent.skills import SkillManifest, SkillRegistry
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
 # Type variables for the decorated function
@@ -193,12 +193,7 @@ def _decorator_impl(
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
-    skills: SkillManifest
-    | SkillRegistry
-    | Path
-    | str
-    | list[SkillManifest | SkillRegistry | Path | str | None]
-    | None = None,
+    skills: SkillConfig = SKILLS_DEFAULT,
     **extra_kwargs,
 ) -> Callable[[Callable[P, Coroutine[Any, Any, R]]], Callable[P, Coroutine[Any, Any, R]]]:
     """
@@ -275,12 +270,7 @@ def agent(
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
-    skills: SkillManifest
-    | SkillRegistry
-    | Path
-    | str
-    | list[SkillManifest | SkillRegistry | Path | str | None]
-    | None = None,
+    skills: SkillConfig = SKILLS_DEFAULT,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -358,12 +348,7 @@ def custom(
     tools: dict[str, list[str]] | None = None,
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
-    skills: SkillManifest
-    | SkillRegistry
-    | Path
-    | str
-    | list[SkillManifest | SkillRegistry | Path | str | None]
-    | None = None,
+    skills: SkillConfig = SKILLS_DEFAULT,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
