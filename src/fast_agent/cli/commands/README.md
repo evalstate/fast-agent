@@ -97,6 +97,10 @@ fast-agent serve [OPTIONS]
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
 
+### Skills behavior
+
+When configuring agents in code, `skills=None` explicitly disables skills for that agent. If `skills` is omitted, the default skills registry is used.
+
 ### Examples
 
 ```bash
