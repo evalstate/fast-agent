@@ -1,13 +1,13 @@
 from typing import Any
 
-from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
-
 try:
-    from azure.identity import (
-        DefaultAzureCredential as _DefaultAzureCredential,  # ty: ignore[unresolved-import]
+    from azure.identity import (  # ty: ignore[unresolved-import]
+        DefaultAzureCredential as _DefaultAzureCredential,
     )
 except ImportError:
     _DefaultAzureCredential = None  # type: ignore[assignment]
+
+from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
