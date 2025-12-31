@@ -1,6 +1,7 @@
 import asyncio
 import importlib
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -124,12 +125,18 @@ def fast_agent(request, mcp_test_ports):
     # Explicitly create absolute path to the config file in the test directory
     config_file = os.path.join(test_dir, "fastagent.config.yaml")
 
-    # Create agent with local config using absolute path
-    agent = FastAgent(
-        "Test Agent",
-        config_path=config_file,  # Use absolute path to local config in test directory
-        ignore_unknown_args=True,
-    )
+    # Avoid pytest args being parsed as FastAgent CLI args.
+    original_argv = sys.argv
+    sys.argv = [sys.argv[0]]
+    try:
+        # Create agent with local config using absolute path
+        agent = FastAgent(
+            "Test Agent",
+            config_path=config_file,  # Use absolute path to local config in test directory
+            ignore_unknown_args=True,
+        )
+    finally:
+        sys.argv = original_argv
 
     # Provide the agent
     yield agent
@@ -158,12 +165,18 @@ def markup_fast_agent(request, mcp_test_ports):
     # Explicitly create absolute path to the config file in the test directory
     config_file = os.path.join(test_dir, "fastagent.config.markup.yaml")
 
-    # Create agent with local config using absolute path
-    agent = FastAgent(
-        "Test Agent",
-        config_path=config_file,  # Use absolute path to local config in test directory
-        ignore_unknown_args=True,
-    )
+    # Avoid pytest args being parsed as FastAgent CLI args.
+    original_argv = sys.argv
+    sys.argv = [sys.argv[0]]
+    try:
+        # Create agent with local config using absolute path
+        agent = FastAgent(
+            "Test Agent",
+            config_path=config_file,  # Use absolute path to local config in test directory
+            ignore_unknown_args=True,
+        )
+    finally:
+        sys.argv = original_argv
 
     # Provide the agent
     yield agent
@@ -191,12 +204,18 @@ def auto_sampling_off_fast_agent(request, mcp_test_ports):
     # Explicitly create absolute path to the config file in the test directory
     config_file = os.path.join(test_dir, "fastagent.config.auto_sampling_off.yaml")
 
-    # Create agent with local config using absolute path
-    agent = FastAgent(
-        "Test Agent",
-        config_path=config_file,
-        ignore_unknown_args=True,
-    )
+    # Avoid pytest args being parsed as FastAgent CLI args.
+    original_argv = sys.argv
+    sys.argv = [sys.argv[0]]
+    try:
+        # Create agent with local config using absolute path
+        agent = FastAgent(
+            "Test Agent",
+            config_path=config_file,
+            ignore_unknown_args=True,
+        )
+    finally:
+        sys.argv = original_argv
 
     # Provide the agent
     yield agent
