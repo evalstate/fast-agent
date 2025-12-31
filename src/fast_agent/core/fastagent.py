@@ -87,7 +87,7 @@ from fast_agent.core.validation import (
     validate_workflow_references,
 )
 from fast_agent.mcp.prompts.prompt_load import load_prompt
-from fast_agent.skills import SkillManifest, SkillRegistry
+from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 from fast_agent.ui.console import configure_console_stream
 from fast_agent.ui.usage_display import display_usage_report
 
@@ -103,6 +103,7 @@ if TYPE_CHECKING:
 F = TypeVar("F", bound=Callable[..., Any])  # For decorated functions
 logger = get_logger(__name__)
 SkillEntry: TypeAlias = SkillManifest | SkillRegistry | Path | str
+SkillConfig: TypeAlias = SkillEntry | list[SkillEntry | None] | None | SkillsDefault
 
 
 class FastAgent:
@@ -370,12 +371,7 @@ class FastAgent:
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
             prompts: dict[str, list[str]] | None = None,
-            skills: SkillManifest
-            | SkillRegistry
-            | Path
-            | str
-            | list[SkillManifest | SkillRegistry | Path | str | None]
-            | None = None,
+            skills: SkillConfig = SKILLS_DEFAULT,
             model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -402,12 +398,7 @@ class FastAgent:
             tools: dict[str, list[str]] | None = None,
             resources: dict[str, list[str]] | None = None,
             prompts: dict[str, list[str]] | None = None,
-            skills: SkillManifest
-            | SkillRegistry
-            | Path
-            | str
-            | list[SkillManifest | SkillRegistry | Path | str | None]
-            | None = None,
+            skills: SkillConfig = SKILLS_DEFAULT,
             model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
@@ -944,21 +935,22 @@ class FastAgent:
             if not config_obj:
                 continue
 
-            resolved = self._resolve_skills(config_obj.skills)
-            if config_obj.skills is None:
-                if not resolved:
-                    resolved = list(default_skills)
-                else:
-                    resolved = self._deduplicate_skills(resolved)
+            if config_obj.skills is SKILLS_DEFAULT:
+                resolved = list(default_skills)
+            elif config_obj.skills is None:
+                resolved = []
             else:
+                resolved = self._resolve_skills(config_obj.skills)
                 resolved = self._deduplicate_skills(resolved)
 
             config_obj.skill_manifests = resolved
 
     def _resolve_skills(
         self,
-        entry: SkillEntry | list[SkillEntry | None] | None,
+        entry: SkillConfig,
     ) -> list[SkillManifest]:
+        if entry is SKILLS_DEFAULT:
+            return []
         if entry is None:
             return []
         if isinstance(entry, list):
