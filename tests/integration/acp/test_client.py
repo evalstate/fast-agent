@@ -44,6 +44,15 @@ class TestClient(Client):
         self.terminals: dict[str, dict[str, Any]] = {}
         self._terminal_count: int = 0  # For generating terminal IDs like real clients
 
+    def reset(self) -> None:
+        self.permission_outcomes.clear()
+        self.files.clear()
+        self.notifications.clear()
+        self.ext_calls.clear()
+        self.ext_notes.clear()
+        self.terminals.clear()
+        self._terminal_count = 0
+
     def queue_permission_cancelled(self) -> None:
         self.permission_outcomes.append(
             RequestPermissionResponse(outcome=DeniedOutcome(outcome="cancelled"))
