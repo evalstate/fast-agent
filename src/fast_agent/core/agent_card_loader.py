@@ -14,7 +14,6 @@ from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.types import RequestParams
 
-
 _TYPE_MAP: dict[str, AgentType] = {
     "agent": AgentType.BASIC,
     "chain": AgentType.CHAIN,
