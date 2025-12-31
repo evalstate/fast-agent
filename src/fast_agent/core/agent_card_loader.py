@@ -742,16 +742,16 @@ def _build_card_dump(
         if child_agents:
             card["agents"] = list(child_agents)
         opts = agent_data.get("agents_as_tools_options") or {}
-        if "history_mode" in opts:
+        if "history_mode" in opts and opts["history_mode"] is not None:
             history_mode = opts["history_mode"]
             card["history_mode"] = (
                 history_mode.value if hasattr(history_mode, "value") else history_mode
             )
-        if "max_parallel" in opts:
+        if "max_parallel" in opts and opts["max_parallel"] is not None:
             card["max_parallel"] = opts["max_parallel"]
-        if "child_timeout_sec" in opts:
+        if "child_timeout_sec" in opts and opts["child_timeout_sec"] is not None:
             card["child_timeout_sec"] = opts["child_timeout_sec"]
-        if "max_display_instances" in opts:
+        if "max_display_instances" in opts and opts["max_display_instances"] is not None:
             card["max_display_instances"] = opts["max_display_instances"]
         function_tools = _serialize_string_list(agent_data.get("function_tools"))
         if function_tools is not None:

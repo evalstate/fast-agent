@@ -2,10 +2,6 @@
 type: agent
 name: evaluator
 model: o3-mini.medium
-history_mode: null
-max_parallel: null
-child_timeout_sec: null
-max_display_instances: null
 ---
 Evaluate the following response based on the criteria below:
     1. Clarity: Is the language clear, concise, and grammatically correct?
