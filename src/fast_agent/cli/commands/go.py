@@ -107,6 +107,7 @@ async def _run_agent(
     instruction: str = default_instruction,
     config_path: str | None = None,
     server_list: list[str] | None = None,
+    agent_cards: list[Path] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -122,6 +123,8 @@ async def _run_agent(
     tool_description: str | None = None,
     instance_scope: str = "shared",
     permissions_enabled: bool = True,
+    reload: bool = False,
+    watch: bool = False,
 ) -> None:
     """Async implementation to run an interactive agent."""
     from fast_agent import FastAgent
@@ -143,6 +146,8 @@ async def _run_agent(
     # Set model on args so model source detection works correctly
     if model:
         fast.args.model = model
+    fast.args.reload = reload
+    fast.args.watch = watch
 
     if shell_runtime:
         await fast.app.initialize()
@@ -154,8 +159,25 @@ async def _run_agent(
     if stdio_servers:
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
+    if agent_cards:
+        for card_path in agent_cards:
+            fast.load_agents(card_path)
+
+        async def cli_agent():
+            async with fast.run() as agent:
+                if message:
+                    response = await agent.send(message)
+                    print(response)
+                elif prompt_file:
+                    prompt = load_prompt(Path(prompt_file))
+                    agent_obj = agent._agent(None)
+                    await agent_obj.generate(prompt)
+                    print(f"\nLoaded {len(prompt)} messages from prompt file '{prompt_file}'")
+                    await agent.interactive()
+                else:
+                    await agent.interactive()
     # Check if we have multiple models (comma-delimited)
-    if model and "," in model:
+    elif model and "," in model:
         # Parse multiple models
         models = [m.strip() for m in model.split(",") if m.strip()]
 
@@ -258,6 +280,7 @@ def run_async_agent(
     servers: str | None = None,
     urls: str | None = None,
     auth: str | None = None,
+    agent_cards: list[Path] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -272,6 +295,8 @@ def run_async_agent(
     tool_description: str | None = None,
     instance_scope: str = "shared",
     permissions_enabled: bool = True,
+    reload: bool = False,
+    watch: bool = False,
 ):
     """Run the async agent function with proper loop handling."""
     configure_uvloop()
@@ -362,6 +387,7 @@ def run_async_agent(
                 instruction=instruction,
                 config_path=config_path,
                 server_list=server_list,
+                agent_cards=agent_cards,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -377,6 +403,8 @@ def run_async_agent(
                 tool_description=tool_description,
                 instance_scope=instance_scope,
                 permissions_enabled=permissions_enabled,
+                reload=reload,
+                watch=watch,
             )
         )
     finally:
@@ -405,6 +433,11 @@ def go(
     config_path: str | None = typer.Option(None, "--config-path", "-c", help="Path to config file"),
     servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
+    ),
+    agent_cards: list[Path] | None = typer.Option(
+        None,
+        "--agent-cards",
+        help="Path to an AgentCard file or directory (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -442,6 +475,8 @@ def go(
         "-x",
         help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
     ),
+    reload: bool = typer.Option(False, "--reload", help="Enable manual AgentCard reloads (/reload)"),
+    watch: bool = typer.Option(False, "--watch", help="Watch AgentCard paths and reload"),
 ) -> None:
     """
     Run an interactive agent directly from the command line.
@@ -451,6 +486,7 @@ def go(
         fast-agent go --instruction=https://raw.githubusercontent.com/user/repo/prompt.md
         fast-agent go --message="What is the weather today?" --model=haiku
         fast-agent go --prompt-file=my-prompt.txt --model=haiku
+        fast-agent go --agent-cards ./agents --watch
         fast-agent go --url=http://localhost:8001/mcp,http://api.example.com/sse
         fast-agent go --url=https://api.example.com/mcp --auth=YOUR_API_TOKEN
         fast-agent go --npx "@modelcontextprotocol/server-filesystem /path/to/data"
@@ -471,11 +507,14 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
+        --agent-cards         Load AgentCards from a file or directory
         --skills              Override the default skills folder
         --shell, -x           Enable local shell runtime
         --npx                 NPX package and args to run as MCP server (quoted)
         --uvx                 UVX package and args to run as MCP server (quoted)
         --stdio               Command to run as STDIO MCP server (quoted)
+        --reload              Enable manual AgentCard reloads (/reload)
+        --watch               Watch AgentCard paths and reload
     """
     # Collect all stdio commands from convenience options
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
@@ -491,6 +530,7 @@ def go(
         instruction=resolved_instruction,
         config_path=config_path,
         servers=servers,
+        agent_cards=agent_cards,
         urls=urls,
         auth=auth,
         model=model,
@@ -501,4 +541,6 @@ def go(
         skills_directory=skills_dir,
         shell_enabled=shell_enabled,
         instance_scope="shared",
+        reload=reload,
+        watch=watch,
     )

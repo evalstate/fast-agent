@@ -1,0 +1,1 @@
+/home/strato-space/fast-agent/examples/workflows/short_story.md

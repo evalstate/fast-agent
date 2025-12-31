@@ -272,10 +272,58 @@ You are a concise analyst.
 
 ## Loading API
 - `load_agents(path)` loads a file or a directory.
+- CLI: `fast-agent go --agent-cards <path>` loads cards before starting.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
 - If a subsequent `load_agents(path)` call does not include a previously loaded agent
   from that path, the agent is removed.
+
+### Example: export AgentCards from a Python workflow
+```bash
+cd examples/workflows
+
+uv run agents_as_tools_extended.py --dump-agents ../workflows-md/agents_as_tools_extended
+```
+
+### Example: run interactive with hot lazy swap
+```bash
+cd examples/workflows-md
+
+uv run fast-agent go --agent-cards agents_as_tools_extended --watch
+```
+
+Manual reload:
+```bash
+cd examples/workflows-md
+
+uv run fast-agent go --agent-cards agents_as_tools_extended --reload
+```
+
+One-shot message:
+```bash
+cd examples/workflows-md
+
+uv run fast-agent go --agent-cards agents_as_tools_extended --message "go"
+```
+
+### Example: load a directory in Python
+```python
+import asyncio
+
+from fast_agent import FastAgent
+
+fast = FastAgent("workflows-md")
+fast.load_agents("/home/strato-space/fast-agent/examples/workflows-md/agents_as_tools_extended")
+
+
+async def main() -> None:
+    async with fast.run() as app:
+        await app.interactive()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
 
 ## Export / Dump (CLI)
 - Default export format is Markdown (frontmatter + body), matching SKILL.md style.
@@ -287,6 +335,15 @@ You are a concise analyst.
   (default) to a file.
 - `--dump-agent-yaml`: export a single agent as YAML (used with `--dump-agent` and
   `--dump-agent-path`).
+ - Optional future enhancement: after dumping, print a ready-to-run CLI example
+   for the current directory (e.g. `fast-agent go --agent-cards <dir> --watch`).
+
+## Interactive vs One-Shot CLI
+- **Interactive**: `fast-agent go --agent-cards <dir>` launches the TUI, waits for
+  user input, and keeps session state (history, tools, prompts) in memory.
+- **One-shot**: `fast-agent go --agent-cards <dir> --message "..."` sends a single
+  request and exits. `--prompt-file` loads a prompt/history file, runs it, then
+  exits (or returns to interactive if explicitly invoked).
 
 ## Reload / Watch Behavior (Lazy Hot-Reload)
 Both `--reload` and `--watch` use the same **lazy hot-reload** semantics. The loader
