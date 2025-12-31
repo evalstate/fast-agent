@@ -54,6 +54,7 @@ from fast_agent.ui.command_payloads import (
     ListSkillsCommand,
     ListToolsCommand,
     LoadHistoryCommand,
+    ReloadAgentsCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
     ShowHistoryCommand,
@@ -346,6 +347,39 @@ class InteractivePrompt:
                                 rich_print(f"[red]File not found: {filename}[/red]")
                             except Exception as e:
                                 rich_print(f"[red]Error loading history: {e}[/red]")
+                            continue
+                        case ReloadAgentsCommand():
+                            if not prompt_provider.can_reload_agents():
+                                rich_print(
+                                    "[yellow]Reload is not available in this session.[/yellow]"
+                                )
+                                continue
+
+                            reloadable = prompt_provider.reload_agents
+                            try:
+                                changed = await reloadable()
+                            except Exception as exc:
+                                rich_print(f"[red]Reload failed: {exc}[/red]")
+                                continue
+
+                            if not changed:
+                                rich_print("[dim]No AgentCard changes detected.[/dim]")
+                                continue
+
+                            available_agents = list(prompt_provider.agent_names())
+                            available_agents_set = set(available_agents)
+                            self.agent_types = prompt_provider.agent_types()
+
+                            if agent not in available_agents_set:
+                                if available_agents:
+                                    agent = available_agents[0]
+                                else:
+                                    rich_print(
+                                        "[red]No agents available after reload.[/red]"
+                                    )
+                                    return result
+
+                            rich_print("[green]AgentCards reloaded.[/green]")
                             continue
                         case _:
                             pass

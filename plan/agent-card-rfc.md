@@ -52,6 +52,7 @@ optional/experimental and described in a separate spec.
   - If present, must be an integer.
   - Loader should default to `1` when omitted.
   - Parser/loader must remain backwards-compatible within a major series when feasible.
+  - Loader attaches `schema_version` to the in-memory agent entry for diagnostics/dumps.
 
 ---
 
@@ -69,9 +70,10 @@ instruction: |
   Given an object, respond only with an estimate of its size.
 ```
 
-### Markdown Card (`.md`)
+### Markdown Card (`.md` / `.markdown`)
 A Markdown card is YAML frontmatter followed by an optional body. The body is treated
 as the system instruction unless `instruction` is provided in frontmatter.
+UTF-8 BOM should be tolerated.
 
 Example:
 ```md
@@ -275,9 +277,54 @@ You are a concise analyst.
 - If a subsequent `load_agents(path)` call does not include a previously loaded agent
   from that path, the agent is removed.
 
-## Reload / Watch Behavior
-- `--watch`: enable OS file events (auto-reload on save).
-- `--reload`: manual re-scan on demand (explicit refresh).
+## Export / Dump (CLI)
+- Default export format is Markdown (frontmatter + body), matching SKILL.md style.
+- `--dump-agents <dir>`: after loading, export all loaded agents to `<dir>` as
+  Markdown AgentCards (`<agent_name>.md`). Instruction is written to the body.
+- `--dump-agents-yaml <dir>`: export all loaded agents as YAML AgentCards
+  (`<agent_name>.yaml`) with `instruction` in the YAML field.
+- `--dump-agent <name> --dump-agent-path <file>`: export a single agent as Markdown
+  (default) to a file.
+- `--dump-agent-yaml`: export a single agent as YAML (used with `--dump-agent` and
+  `--dump-agent-path`).
+
+## Reload / Watch Behavior (Lazy Hot-Reload)
+Both `--reload` and `--watch` use the same **lazy hot-reload** semantics. The loader
+tracks `registry_version` (monotonic counter) and a per-file cache:
+`path -> (mtime_ns, size, agent_name)`.
+
+On each reload pass, only **changed** files are re-read:
+- If `mtime_ns` or `size` differs, the file is re-parsed and its agents are updated.
+- If a file disappears, its agents are removed from the registry.
+- If a new file appears, its agents are added.
+
+After a reload pass, `registry_version` is bumped if any changes were applied.
+Runtime instances compare `instance_version` to the registry. If
+`registry_version > instance_version`, a new instance is created on the next
+eligible boundary.
+
+### `--reload` (manual)
+- No filesystem watcher.
+- Reload is triggered explicitly (e.g. `/reload` in TUI; ACP/tool hooks pending).
+- The loader performs an mtime-based incremental reload and updates the registry.
+
+### `--watch` (automatic)
+- OS file events trigger reload passes when `watchfiles` is available. Otherwise,
+  the watcher falls back to mtime/size polling.
+- Only changed files are re-read using the same mtime/size cache.
+- No immediate restart; the swap happens lazily on the next request/connection.
+
+### Instance scope behavior
+- `instance_scope=shared`: on the **next request**, if version changed, the shared
+  instance is recreated once (under lock), then reused for subsequent requests.
+- `instance_scope=connection`: version check occurs when a new connection is opened;
+  existing connections keep their old instance.
+- `instance_scope=request`: a new instance is created per request, so the latest
+  registry is always used.
+
+### Force reload
+- A “force” reload is a full runtime restart (process-level) to guarantee a clean
+  Python module state.
 
 ## Tools Exposure (fast-agent-mcp)
 Expose loader utilities via internal MCP tools:

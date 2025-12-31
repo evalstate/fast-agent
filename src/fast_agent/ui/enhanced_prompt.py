@@ -34,6 +34,7 @@ from fast_agent.ui.command_payloads import (
     CommandPayload,
     ListToolsCommand,
     LoadHistoryCommand,
+    ReloadAgentsCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
     ShowHistoryCommand,
@@ -108,6 +109,10 @@ def _save_history_cmd(filename: str | None) -> SaveHistoryCommand:
 
 def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCommand:
     return LoadHistoryCommand(filename=filename, error=error)
+
+
+def _reload_agents_cmd() -> ReloadAgentsCommand:
+    return ReloadAgentsCommand()
 
 
 def _select_prompt_cmd(
@@ -441,6 +446,7 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "load_history": "Load history from a file",
+            "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
@@ -807,6 +813,8 @@ def parse_special_input(text: str) -> str | CommandPayload:
             if not filename:
                 return _load_history_cmd(None, "Filename required for load_history")
             return _load_history_cmd(filename, None)
+        if cmd == "reload":
+            return _reload_agents_cmd()
         if cmd in ("mcpstatus", "mcp"):
             return _show_mcp_status_cmd()
         if cmd == "prompt":
@@ -1415,6 +1423,7 @@ async def handle_special_commands(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
         rich_print("  /load_history <filename> - Load chat history from a file")
+        rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")

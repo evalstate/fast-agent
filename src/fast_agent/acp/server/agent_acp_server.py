@@ -200,6 +200,7 @@ class AgentACPServer(ACPAgent):
         server_version: str | None = None,
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
+        get_registry_version: Callable[[], int] | None = None,
     ) -> None:
         """
         Initialize the ACP server.
@@ -220,6 +221,10 @@ class AgentACPServer(ACPAgent):
         self._create_instance_task = create_instance
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
+        self._get_registry_version = get_registry_version
+        self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
+        self._shared_reload_lock = asyncio.Lock()
+        self._stale_instances: list[AgentInstance] = []
         self.server_name = server_name
         self._skills_directory_override = skills_directory_override
         self._permissions_enabled = permissions_enabled
@@ -531,6 +536,122 @@ class AgentACPServer(ACPAgent):
                 return None
         return RequestParams(systemPrompt=resolved)
 
+    async def _maybe_refresh_shared_instance(self) -> None:
+        if self._instance_scope != "shared" or not self._get_registry_version:
+            return
+        if self._active_prompts:
+            return
+
+        latest_version = self._get_registry_version()
+        if latest_version <= self._primary_registry_version:
+            return
+
+        async with self._shared_reload_lock:
+            if self._active_prompts:
+                return
+            latest_version = self._get_registry_version()
+            if latest_version <= self._primary_registry_version:
+                return
+
+            new_instance = await self._create_instance_task()
+            old_instance = self.primary_instance
+            self.primary_instance = new_instance
+            self._primary_registry_version = getattr(
+                new_instance, "registry_version", latest_version
+            )
+            self._stale_instances.append(old_instance)
+            self.primary_agent_name = self._select_primary_agent(new_instance)
+            await self._refresh_sessions_for_instance(new_instance)
+
+    async def _refresh_sessions_for_instance(self, instance: AgentInstance) -> None:
+        async with self._session_lock:
+            for session_id, session_state in self._session_state.items():
+                self.sessions[session_id] = instance
+                session_state.instance = instance
+                self._refresh_session_state(session_state, instance)
+
+    def _refresh_session_state(
+        self, session_state: ACPSessionState, instance: AgentInstance
+    ) -> None:
+        prompt_context = session_state.prompt_context or {}
+        resolved_for_session: dict[str, str] = {}
+        for agent_name, agent in instance.agents.items():
+            template = getattr(agent, "instruction", None)
+            if not template:
+                continue
+            resolved = apply_template_variables(template, prompt_context)
+            if resolved:
+                resolved_for_session[agent_name] = resolved
+        session_state.resolved_instructions = resolved_for_session
+
+        for agent_name, agent in instance.agents.items():
+            if isinstance(agent, InstructionContextCapable):
+                try:
+                    agent.set_instruction_context(prompt_context)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to set instruction context on agent",
+                        name="acp_instruction_context_failed",
+                        session_id=session_state.session_id,
+                        agent_name=agent_name,
+                        error=str(exc),
+                    )
+
+        if session_state.terminal_runtime:
+            for agent_name, agent in instance.agents.items():
+                if (
+                    isinstance(agent, ShellRuntimeCapable)
+                    and agent._shell_runtime_enabled
+                ):
+                    agent.set_external_runtime(session_state.terminal_runtime)
+
+        if session_state.filesystem_runtime:
+            for agent_name, agent in instance.agents.items():
+                if isinstance(agent, FilesystemRuntimeCapable):
+                    agent.set_filesystem_runtime(session_state.filesystem_runtime)
+
+        slash_handler = SlashCommandHandler(
+            session_state.session_id,
+            instance,
+            self.primary_agent_name or "default",
+            client_info=self._client_info,
+            client_capabilities=self._client_capabilities,
+            protocol_version=self._protocol_version,
+            session_instructions=resolved_for_session,
+        )
+        session_state.slash_handler = slash_handler
+
+        current_agent = session_state.current_agent_name
+        if not current_agent or current_agent not in instance.agents:
+            current_agent = self.primary_agent_name or next(iter(instance.agents.keys()), None)
+            session_state.current_agent_name = current_agent
+        if current_agent and session_state.slash_handler:
+            session_state.slash_handler.set_current_agent(current_agent)
+
+        session_modes = self._build_session_modes(instance, session_state)
+        if current_agent and current_agent in instance.agents:
+            session_modes = SessionModeState(
+                available_modes=session_modes.available_modes,
+                current_mode_id=current_agent,
+            )
+
+        if session_state.acp_context:
+            session_state.acp_context.set_slash_handler(slash_handler)
+            session_state.acp_context.set_resolved_instructions(resolved_for_session)
+            session_state.acp_context.set_available_modes(session_modes.available_modes)
+            if current_agent:
+                session_state.acp_context.set_current_mode(current_agent)
+
+    async def _dispose_stale_instances_if_idle(self) -> None:
+        if self._active_prompts:
+            return
+        if not self._stale_instances:
+            return
+        stale = list(self._stale_instances)
+        self._stale_instances.clear()
+        for instance in stale:
+            await self._dispose_instance_task(instance)
+
     def _build_status_line_meta(
         self, agent: Any, turn_start_index: int | None
     ) -> dict[str, Any] | None:
@@ -573,6 +694,8 @@ class AgentACPServer(ACPAgent):
             cwd=cwd,
             mcp_server_count=len(mcp_servers),
         )
+
+        await self._maybe_refresh_shared_instance()
 
         async with self._session_lock:
             # Determine which instance to use based on scope
@@ -1001,6 +1124,8 @@ class AgentACPServer(ACPAgent):
             session_id=session_id,
         )
 
+        await self._maybe_refresh_shared_instance()
+
         # Check for overlapping prompt requests (per ACP protocol requirement)
         async with self._session_lock:
             if session_id in self._active_prompts:
@@ -1337,6 +1462,7 @@ class AgentACPServer(ACPAgent):
                 name="acp_prompt_complete",
                 session_id=session_id,
             )
+            await self._dispose_stale_instances_if_idle()
 
     async def cancel(self, session_id: str, **kwargs: Any) -> None:
         """
@@ -1524,6 +1650,17 @@ class AgentACPServer(ACPAgent):
                         f"Error disposing primary instance: {e}",
                         name="acp_cleanup_error",
                     )
+
+            if self._stale_instances:
+                for instance in list(self._stale_instances):
+                    try:
+                        await self._dispose_instance_task(instance)
+                    except Exception as e:
+                        logger.error(
+                            f"Error disposing stale instance: {e}",
+                            name="acp_cleanup_error",
+                        )
+                self._stale_instances.clear()
 
             self.sessions.clear()
 

@@ -2,7 +2,7 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Mapping, Union
+from typing import Awaitable, Callable, Mapping, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -30,16 +30,26 @@ class AgentApp:
     calls to the default agent (the first agent in the container).
     """
 
-    def __init__(self, agents: dict[str, AgentProtocol]) -> None:
+    def __init__(
+        self,
+        agents: dict[str, AgentProtocol],
+        *,
+        reload_callback: Callable[[], Awaitable[bool]] | None = None,
+        refresh_callback: Callable[[], Awaitable[bool]] | None = None,
+    ) -> None:
         """
         Initialize the DirectAgentApp.
 
         Args:
             agents: Dictionary of agent instances keyed by name
+            reload_callback: Optional callback for manual AgentCard reloads
+            refresh_callback: Optional callback for lazy instance refresh before requests
         """
         if len(agents) == 0:
             raise ValueError("No agents provided!")
         self._agents = agents
+        self._reload_callback = reload_callback
+        self._refresh_callback = refresh_callback
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
@@ -77,6 +87,7 @@ class AgentApp:
             The agent's response as a string or the result of the interactive session
         """
         if message:
+            await self._refresh_if_needed()
             return await self._agent(agent_name).send(message, request_params)
 
         return await self.interactive(
@@ -103,6 +114,7 @@ class AgentApp:
         Returns:
             The agent's response as a string
         """
+        await self._refresh_if_needed()
         return await self._agent(agent_name).send(message, request_params)
 
     def _agent(self, agent_name: str | None) -> AgentProtocol:
@@ -136,6 +148,7 @@ class AgentApp:
         Returns:
             The agent's response as a string
         """
+        await self._refresh_if_needed()
         return await self._agent(agent_name).apply_prompt(
             prompt, arguments, as_template=as_template
         )
@@ -151,6 +164,7 @@ class AgentApp:
         Returns:
             Dictionary mapping server names to lists of available prompts
         """
+        await self._refresh_if_needed()
         if not agent_name:
             results = {}
             for agent in self._agents.values():
@@ -178,6 +192,7 @@ class AgentApp:
         Returns:
             GetPromptResult containing the prompt information
         """
+        await self._refresh_if_needed()
         return await self._agent(agent_name).get_prompt(
             prompt_name=prompt_name, arguments=arguments, namespace=server_name
         )
@@ -201,6 +216,7 @@ class AgentApp:
         Returns:
             The agent's response as a string
         """
+        await self._refresh_if_needed()
         return await self._agent(agent_name).with_resource(
             prompt_content=prompt_content, resource_uri=resource_uri, namespace=server_name
         )
@@ -220,6 +236,7 @@ class AgentApp:
         Returns:
             Dictionary mapping server names to lists of resource URIs
         """
+        await self._refresh_if_needed()
         return await self._agent(agent_name).list_resources(namespace=server_name)
 
     async def get_resource(
@@ -239,9 +256,46 @@ class AgentApp:
         Returns:
             ReadResourceResult object containing the resource content
         """
+        await self._refresh_if_needed()
         return await self._agent(agent_name).get_resource(
             resource_uri=resource_uri, namespace=server_name
         )
+
+    async def reload_agents(self) -> bool:
+        """Reload AgentCards and refresh active instances when available."""
+        if not self._reload_callback:
+            return False
+        return await self._reload_callback()
+
+    def can_reload_agents(self) -> bool:
+        """Return True if manual reload is available."""
+        return self._reload_callback is not None
+
+    def set_agents(self, agents: dict[str, AgentProtocol]) -> None:
+        """Replace the active agent map (used after reload)."""
+        if not agents:
+            raise ValueError("No agents provided!")
+        self._agents = agents
+
+    def set_reload_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
+        """Update the reload callback for manual AgentCard refresh."""
+        self._reload_callback = callback
+
+    def set_refresh_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
+        """Update the refresh callback for lazy instance swaps."""
+        self._refresh_callback = callback
+
+    def agent_names(self) -> list[str]:
+        """Return available agent names."""
+        return list(self._agents.keys())
+
+    def agent_types(self) -> dict[str, AgentType]:
+        """Return mapping of agent names to agent types."""
+        return {name: agent.agent_type for name, agent in self._agents.items()}
+
+    async def _refresh_if_needed(self) -> None:
+        if self._refresh_callback:
+            await self._refresh_callback()
 
     @deprecated
     async def prompt(

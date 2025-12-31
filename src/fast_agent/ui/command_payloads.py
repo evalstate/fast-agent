@@ -86,6 +86,11 @@ class LoadHistoryCommand(CommandBase):
     kind: Literal["load_history"] = "load_history"
 
 
+@dataclass(frozen=True, slots=True)
+class ReloadAgentsCommand(CommandBase):
+    kind: Literal["reload_agents"] = "reload_agents"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
@@ -101,6 +106,7 @@ CommandPayload = (
     | SwitchAgentCommand
     | SaveHistoryCommand
     | LoadHistoryCommand
+    | ReloadAgentsCommand
 )
 
 
