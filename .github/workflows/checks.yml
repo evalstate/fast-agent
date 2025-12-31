@@ -51,7 +51,7 @@ jobs:
       - name: Run ty
         run: uv run scripts/typecheck.py
 
-  test:
+  unit-test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -70,10 +70,43 @@ jobs:
         run: |
           uv sync --group dev
 
-      - name: Run pytest
+      - name: Run unit tests
+        run: uv run pytest tests/unit -v
+
+  integration-test:
+    name: Integration (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: acp
+            path: tests/integration/acp
+          - name: api
+            path: tests/integration/api
+          - name: prompt-server
+            path: tests/integration/prompt-server
+          - name: other
+            path: tests/integration/async_tools tests/integration/elicitation tests/integration/history-architecture tests/integration/instruction_templates tests/integration/mcp_filtering tests/integration/mcp_ui tests/integration/prompt-state tests/integration/resources tests/integration/roots tests/integration/sampling tests/integration/sampling_with_tools tests/integration/server_instructions tests/integration/skybridge tests/integration/tool_loop tests/integration/workflow
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: "Set up Python"
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install the project
         run: |
-          uv run pytest tests/unit -v
-          uv run pytest tests/integration -v
+          uv sync --group dev
+
+      - name: Run integration tests
+        run: uv run pytest -m integration -v ${{ matrix.path }}
 
   package-test:
     runs-on: ubuntu-latest
