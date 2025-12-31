@@ -11,10 +11,10 @@ import asyncio
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import StopReason
 
 from fast_agent.mcp.common import create_namespaced_name
 
@@ -22,7 +22,11 @@ TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from acp.schema import InitializeResponse, StopReason
+    from test_client import TestClient
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -77,7 +81,7 @@ def _tool_was_denied(client: TestClient) -> bool:
 
 @pytest.mark.integration
 async def test_permission_request_sent_when_tool_called(
-    acp_permissions: tuple[object, TestClient, object],
+    acp_permissions: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that a permission request is sent when a tool is called."""
     connection, client, _init_response = acp_permissions
@@ -91,7 +95,9 @@ async def test_permission_request_sent_when_tool_called(
     # Send a prompt that will trigger a tool call
     tool_name = create_namespaced_name("progress_test", "progress_task")
     prompt_text = f'***CALL_TOOL {tool_name} {{"steps": 1}}'
-    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    prompt_response = await connection.prompt(
+        session_id=session_id, prompt=[text_block(prompt_text)]
+    )
 
     # The tool should have been denied (permission cancelled)
     assert _get_stop_reason(prompt_response) == END_TURN
@@ -107,7 +113,7 @@ async def test_permission_request_sent_when_tool_called(
 
 @pytest.mark.integration
 async def test_allow_once_permits_execution_without_persistence(
-    acp_permissions: tuple[object, TestClient, object],
+    acp_permissions: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that allow_once permits execution but doesn't persist."""
     connection, client, _init_response = acp_permissions
@@ -142,7 +148,7 @@ async def test_allow_once_permits_execution_without_persistence(
 
 @pytest.mark.integration
 async def test_allow_always_persists(
-    acp_permissions: tuple[object, TestClient, object],
+    acp_permissions: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that allow_always permits execution and persists."""
     connection, client, _init_response = acp_permissions
@@ -180,7 +186,7 @@ async def test_allow_always_persists(
 
 @pytest.mark.integration
 async def test_reject_once_blocks_without_persistence(
-    acp_permissions: tuple[object, TestClient, object],
+    acp_permissions: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that reject_once blocks execution but doesn't persist."""
     connection, client, _init_response = acp_permissions
@@ -217,7 +223,7 @@ async def test_reject_once_blocks_without_persistence(
 
 @pytest.mark.integration
 async def test_reject_always_blocks_and_persists(
-    acp_permissions: tuple[object, TestClient, object],
+    acp_permissions: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that reject_always blocks execution and persists."""
     connection, client, _init_response = acp_permissions
@@ -257,7 +263,7 @@ async def test_reject_always_blocks_and_persists(
 
 @pytest.mark.integration
 async def test_no_permissions_flag_disables_checks(
-    acp_permissions_no_perms: tuple[object, TestClient, object],
+    acp_permissions_no_perms: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that --no-permissions flag allows all tool executions."""
     connection, client, _init_response = acp_permissions_no_perms
@@ -281,4 +287,6 @@ async def test_no_permissions_flag_disables_checks(
     await _wait_for_notifications(client, count=3, timeout=3.0)
 
     # Tool should have executed successfully without needing permission
-    assert _tool_executed_successfully(client), "Tool should have executed with --no-permissions flag"
+    assert _tool_executed_successfully(client), (
+        "Tool should have executed with --no-permissions flag"
+    )

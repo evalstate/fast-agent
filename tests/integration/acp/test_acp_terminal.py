@@ -5,16 +5,20 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import StopReason
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from acp.schema import InitializeResponse, StopReason
+    from test_client import TestClient
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -31,18 +35,18 @@ def _get_stop_reason(response: object) -> str | None:
 
 @pytest.mark.integration
 async def test_acp_terminal_support_enabled(
-    acp_terminal_shell: tuple[object, TestClient, object],
+    acp_terminal_shell: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that terminal support is properly enabled when client advertises capability."""
     connection, client, init_response = acp_terminal_shell
 
-    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-        init_response, "protocolVersion", None
-    ) == 1
+    assert (
+        getattr(init_response, "protocol_version", None) == 1
+        or getattr(init_response, "protocolVersion", None) == 1
+    )
     assert (
         getattr(init_response, "agent_capabilities", None)
-        or getattr(init_response, "agentCapabilities", None)
-        is not None
+        or getattr(init_response, "agentCapabilities", None) is not None
     )
 
     # Create session
@@ -53,7 +57,9 @@ async def test_acp_terminal_support_enabled(
     # Send prompt that should trigger terminal execution
     # The passthrough model will echo our input, so we craft a tool call request
     prompt_text = 'use the execute tool to run: echo "test terminal"'
-    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    prompt_response = await connection.prompt(
+        session_id=session_id, prompt=[text_block(prompt_text)]
+    )
     assert _get_stop_reason(prompt_response) == END_TURN
 
     # Wait for any notifications
@@ -65,7 +71,7 @@ async def test_acp_terminal_support_enabled(
 
 @pytest.mark.integration
 async def test_acp_terminal_execution(
-    acp_terminal_shell: tuple[object, TestClient, object],
+    acp_terminal_shell: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test actual terminal command execution via ACP."""
     connection, client, _init_response = acp_terminal_shell
@@ -103,7 +109,7 @@ async def test_acp_terminal_execution(
 
 @pytest.mark.integration
 async def test_acp_terminal_disabled_when_no_shell_flag(
-    acp_terminal_no_shell: tuple[object, TestClient, object],
+    acp_terminal_no_shell: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that terminal runtime is not injected when --shell flag is not provided."""
     connection, _client, _init_response = acp_terminal_no_shell
@@ -120,7 +126,7 @@ async def test_acp_terminal_disabled_when_no_shell_flag(
 
 @pytest.mark.integration
 async def test_acp_terminal_disabled_when_client_unsupported(
-    acp_terminal_client_unsupported: tuple[object, TestClient, object],
+    acp_terminal_client_unsupported: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that terminal runtime is not used when client doesn't support terminals."""
     connection, _client, _init_response = acp_terminal_client_unsupported

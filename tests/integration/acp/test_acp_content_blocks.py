@@ -10,6 +10,7 @@ import asyncio
 import base64
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from acp.helpers import text_block
@@ -17,15 +18,19 @@ from acp.schema import (
     BlobResourceContents,
     EmbeddedResourceContentBlock,
     ImageContentBlock,
+    InitializeResponse,
     StopReason,
     TextResourceContents,
 )
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from test_client import TestClient
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -34,7 +39,7 @@ END_TURN: StopReason = "end_turn"
 
 @pytest.mark.integration
 async def test_acp_image_content_processing(
-    acp_content: tuple[object, TestClient, object],
+    acp_content: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that image content blocks are properly processed."""
     connection, client, init_response = acp_content
@@ -91,7 +96,7 @@ async def test_acp_image_content_processing(
 
 @pytest.mark.integration
 async def test_acp_embedded_text_resource_processing(
-    acp_content: tuple[object, TestClient, object],
+    acp_content: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that embedded text resource content blocks are properly processed."""
     connection, client, init_response = acp_content
@@ -151,7 +156,7 @@ async def test_acp_embedded_text_resource_processing(
 
 @pytest.mark.integration
 async def test_acp_embedded_blob_resource_processing(
-    acp_content: tuple[object, TestClient, object],
+    acp_content: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that embedded blob resource content blocks are properly processed."""
     connection, client, _init_response = acp_content
@@ -195,7 +200,7 @@ async def test_acp_embedded_blob_resource_processing(
 
 @pytest.mark.integration
 async def test_acp_mixed_content_blocks(
-    acp_content: tuple[object, TestClient, object],
+    acp_content: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that mixed content blocks (text, image, resource) work together."""
     connection, client, _init_response = acp_content
@@ -246,7 +251,7 @@ async def test_acp_mixed_content_blocks(
 
 @pytest.mark.integration
 async def test_acp_resource_only_prompt_not_slash_command(
-    acp_content: tuple[object, TestClient, object],
+    acp_content: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """
     Test that resource-only prompts with text starting with "/" are not treated as slash commands.

@@ -10,17 +10,20 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from acp.schema import InitializeResponse, StopReason
+    from test_client import TestClient
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -58,7 +61,7 @@ async def _wait_for_notifications(client: TestClient, count: int = 1, timeout: f
 
 @pytest.mark.integration
 async def test_acp_terminal_runtime_telemetry(
-    acp_runtime_telemetry_shell: tuple[object, TestClient, object],
+    acp_runtime_telemetry_shell: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that terminal execute operations trigger tool call notifications."""
     connection, client, init_response = acp_runtime_telemetry_shell
@@ -113,7 +116,7 @@ async def test_acp_terminal_runtime_telemetry(
 
 @pytest.mark.integration
 async def test_acp_filesystem_read_runtime_telemetry(
-    acp_runtime_telemetry: tuple[object, TestClient, object],
+    acp_runtime_telemetry: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that read_text_file operations trigger tool call notifications."""
     connection, client, _init_response = acp_runtime_telemetry
@@ -163,7 +166,7 @@ async def test_acp_filesystem_read_runtime_telemetry(
 
 @pytest.mark.integration
 async def test_acp_filesystem_write_runtime_telemetry(
-    acp_runtime_telemetry: tuple[object, TestClient, object],
+    acp_runtime_telemetry: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that write_text_file operations trigger tool call notifications."""
     connection, client, _init_response = acp_runtime_telemetry

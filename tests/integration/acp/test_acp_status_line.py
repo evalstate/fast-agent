@@ -4,17 +4,20 @@ import asyncio
 import re
 import sys
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from acp.schema import InitializeResponse, StopReason
+    from test_client import TestClient
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -54,7 +57,7 @@ async def _wait_for_status_line(client: TestClient, timeout: float = 2.0) -> str
 
 @pytest.mark.integration
 async def test_acp_status_line_meta_is_emitted(
-    acp_basic: tuple[object, TestClient, object],
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     connection, client, _init_response = acp_basic
 

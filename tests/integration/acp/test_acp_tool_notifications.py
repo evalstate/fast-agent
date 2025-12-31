@@ -10,11 +10,10 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import StopReason
 
 from fast_agent.mcp.common import create_namespaced_name
 
@@ -22,7 +21,11 @@ TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from acp.schema import InitializeResponse, StopReason
+    from test_client import TestClient
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -48,7 +51,7 @@ def _get_session_update_type(update: Any) -> str | None:
 
 @pytest.mark.integration
 async def test_acp_tool_call_notifications(
-    acp_tool_notifications: tuple[object, TestClient, object],
+    acp_tool_notifications: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that tool calls generate appropriate ACP notifications."""
     connection, client, init_response = acp_tool_notifications
@@ -108,7 +111,7 @@ async def test_acp_tool_call_notifications(
 
 @pytest.mark.integration
 async def test_acp_tool_progress_updates(
-    acp_tool_notifications: tuple[object, TestClient, object],
+    acp_tool_notifications: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that tool progress updates are sent via tool_call_update notifications."""
     connection, client, _init_response = acp_tool_notifications
@@ -147,7 +150,7 @@ async def test_acp_tool_progress_updates(
 
 @pytest.mark.integration
 async def test_acp_tool_kinds_inferred(
-    acp_tool_notifications: tuple[object, TestClient, object],
+    acp_tool_notifications: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that tool kinds are properly inferred from tool names."""
     connection, client, _init_response = acp_tool_notifications

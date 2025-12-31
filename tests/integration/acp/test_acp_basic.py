@@ -3,17 +3,20 @@ from __future__ import annotations
 import asyncio
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
     sys.path.append(str(TEST_DIR))
 
-from test_client import TestClient  # noqa: E402
+
+if TYPE_CHECKING:
+    from acp.client.connection import ClientSideConnection
+    from acp.schema import InitializeResponse, StopReason
+    from test_client import TestClient
 
 pytestmark = pytest.mark.asyncio(loop_scope="module")
 
@@ -22,14 +25,18 @@ END_TURN: StopReason = "end_turn"
 
 @pytest.mark.integration
 async def test_acp_initialize_and_prompt_roundtrip(
-    acp_basic: tuple[object, TestClient, object],
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Ensure the ACP transport initializes, creates a session, and echoes prompts."""
     connection, client, init_response = acp_basic
 
     assert init_response.protocol_version == 1
     assert init_response.agent_capabilities is not None
-    assert init_response.agent_info.name == "fast-agent-acp-test"
+    agent_info = getattr(init_response, "agent_info", None) or getattr(
+        init_response, "agentInfo", None
+    )
+    assert agent_info is not None
+    assert agent_info.name == "fast-agent-acp-test"
     # AgentCapabilities schema changed upstream; ensure we advertised prompt support.
     prompt_caps = getattr(init_response.agent_capabilities, "prompts", None) or getattr(
         init_response.agent_capabilities, "prompt_capabilities", None
@@ -84,14 +91,20 @@ async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> N
     raise AssertionError("Expected streamed session updates")
 
 
+def _get_stop_reason(response: object) -> str | None:
+    return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
+
+
 @pytest.mark.integration
 async def test_acp_session_modes_included_in_new_session(
-    acp_basic: tuple[object, TestClient, object],
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """Test that session/new response includes modes field."""
     connection, _client, init_response = acp_basic
 
-    assert init_response.protocolVersion == 1
+    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
+        init_response, "protocolVersion", None
+    ) == 1
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
@@ -116,7 +129,7 @@ async def test_acp_session_modes_included_in_new_session(
 
 @pytest.mark.integration
 async def test_acp_overlapping_prompts_are_refused(
-    acp_basic: tuple[object, TestClient, object],
+    acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """
     Test that overlapping prompt requests for the same session are refused.
@@ -127,7 +140,9 @@ async def test_acp_overlapping_prompts_are_refused(
     """
     connection, _client, init_response = acp_basic
 
-    assert init_response.protocolVersion == 1
+    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
+        init_response, "protocolVersion", None
+    ) == 1
 
     # Create session
     session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
@@ -150,7 +165,7 @@ async def test_acp_overlapping_prompts_are_refused(
 
     # One should succeed, one should be refused
     # (We don't know which one arrives first due to async scheduling)
-    responses = [prompt1_response.stopReason, prompt2_response.stopReason]
+    responses = [_get_stop_reason(prompt1_response), _get_stop_reason(prompt2_response)]
     assert "end_turn" in responses, "One prompt should succeed"
     assert "refusal" in responses, "One prompt should be refused"
 
@@ -158,4 +173,4 @@ async def test_acp_overlapping_prompts_are_refused(
     prompt3_response = await connection.prompt(
         session_id=session_id, prompt=[text_block("third prompt")]
     )
-    assert prompt3_response.stopReason == END_TURN
+    assert _get_stop_reason(prompt3_response) == END_TURN
