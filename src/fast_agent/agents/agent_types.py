@@ -5,11 +5,12 @@ Type definitions for agents and agent configurations.
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from pathlib import Path
+from typing import TypeAlias
 
 from mcp.client.session import ElicitationFnT
 
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
-from fast_agent.skills import SkillManifest, SkillRegistry
+from fast_agent.skills import SKILLS_DEFAULT, SkillManifest, SkillRegistry, SkillsDefault
 
 # Forward imports to avoid circular dependencies
 from fast_agent.types import RequestParams
@@ -30,6 +31,17 @@ class AgentType(StrEnum):
     MAKER = auto()
 
 
+SkillConfig: TypeAlias = (
+    SkillManifest
+    | SkillRegistry
+    | Path
+    | str
+    | list[SkillManifest | SkillRegistry | Path | str | None]
+    | None
+    | SkillsDefault
+)
+
+
 @dataclass
 class AgentConfig:
     """Configuration for an Agent instance"""
@@ -40,14 +52,7 @@ class AgentConfig:
     tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
     resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
     prompts: dict[str, list[str]] = field(default_factory=dict)  # filters for prompts
-    skills: (
-        SkillManifest
-        | SkillRegistry
-        | Path
-        | str
-        | list[SkillManifest | SkillRegistry | Path | str | None]
-        | None
-    ) = None
+    skills: SkillConfig = SKILLS_DEFAULT
     skill_manifests: list[SkillManifest] = field(default_factory=list, repr=False)
     model: str | None = None
     use_history: bool = True
