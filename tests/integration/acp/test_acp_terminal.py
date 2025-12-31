@@ -8,8 +8,7 @@ from pathlib import Path
 
 import pytest
 from acp.helpers import text_block
-from acp.schema import ClientCapabilities, FileSystemCapability, Implementation, StopReason
-from acp.stdio import spawn_agent_process
+from acp.schema import StopReason
 
 TEST_DIR = Path(__file__).parent
 if str(TEST_DIR) not in sys.path:
@@ -17,7 +16,8 @@ if str(TEST_DIR) not in sys.path:
 
 from test_client import TestClient  # noqa: E402
 
-CONFIG_PATH = TEST_DIR / "fastagent.config.yaml"
+pytestmark = pytest.mark.asyncio(loop_scope="module")
+
 END_TURN: StopReason = "end_turn"
 
 
@@ -29,182 +29,109 @@ def _get_stop_reason(response: object) -> str | None:
     return getattr(response, "stop_reason", None) or getattr(response, "stopReason", None)
 
 
-def get_fast_agent_cmd(with_shell: bool = True) -> tuple:
-    """Build the fast-agent command with appropriate flags."""
-    cmd = [
-        sys.executable,
-        "-m",
-        "fast_agent.cli",
-        "serve",
-        "--config-path",
-        str(CONFIG_PATH),
-        "--transport",
-        "acp",
-        "--model",
-        "passthrough",
-        "--name",
-        "fast-agent-acp-terminal-test",
-    ]
-    if with_shell:
-        cmd.append("--shell")
-    return tuple(cmd)
-
-
 @pytest.mark.integration
-@pytest.mark.asyncio
-async def test_acp_terminal_support_enabled() -> None:
+async def test_acp_terminal_support_enabled(
+    acp_terminal_shell: tuple[object, TestClient, object],
+) -> None:
     """Test that terminal support is properly enabled when client advertises capability."""
-    client = TestClient()
+    connection, client, init_response = acp_terminal_shell
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (
-        connection,
-        _process,
-    ):
-        # Initialize with terminal support enabled
-        init_response = await connection.initialize(
-            protocol_version=1,
-            client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
-                terminal=True,  # Enable terminal support
-            ),
-            client_info=Implementation(name="pytest-terminal-client", version="0.0.1"),
-        )
+    assert getattr(init_response, "protocol_version", None) == 1 or getattr(
+        init_response, "protocolVersion", None
+    ) == 1
+    assert (
+        getattr(init_response, "agent_capabilities", None)
+        or getattr(init_response, "agentCapabilities", None)
+        is not None
+    )
 
-        assert getattr(init_response, "protocol_version", None) == 1 or getattr(
-            init_response, "protocolVersion", None
-        ) == 1
-        assert (
-            getattr(init_response, "agent_capabilities", None)
-            or getattr(init_response, "agentCapabilities", None)
-            is not None
-        )
+    # Create session
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = _get_session_id(session_response)
+    assert session_id
 
-        # Create session
-        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-        session_id = _get_session_id(session_response)
-        assert session_id
+    # Send prompt that should trigger terminal execution
+    # The passthrough model will echo our input, so we craft a tool call request
+    prompt_text = 'use the execute tool to run: echo "test terminal"'
+    prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
+    assert _get_stop_reason(prompt_response) == END_TURN
 
-        # Send prompt that should trigger terminal execution
-        # The passthrough model will echo our input, so we craft a tool call request
-        prompt_text = 'use the execute tool to run: echo "test terminal"'
-        prompt_response = await connection.prompt(session_id=session_id, prompt=[text_block(prompt_text)])
-        assert _get_stop_reason(prompt_response) == END_TURN
+    # Wait for any notifications
+    await _wait_for_notifications(client)
 
-        # Wait for any notifications
-        await _wait_for_notifications(client)
-
-        # Verify we got notifications
-        assert len(client.notifications) > 0
+    # Verify we got notifications
+    assert len(client.notifications) > 0
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio
-async def test_acp_terminal_execution() -> None:
+async def test_acp_terminal_execution(
+    acp_terminal_shell: tuple[object, TestClient, object],
+) -> None:
     """Test actual terminal command execution via ACP."""
-    client = TestClient()
+    connection, client, _init_response = acp_terminal_shell
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (
-        connection,
-        _process,
-    ):
-        # Initialize with terminal support
-        await connection.initialize(
-            protocol_version=1,
-            client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
-                terminal=True,
-            ),
-            client_info=Implementation(name="pytest-terminal-client", version="0.0.1"),
-        )
+    # Directly test terminal methods are being called
+    # Since we're using passthrough model, we can't test actual LLM-driven tool calls
+    # but we can verify the terminal runtime is set up correctly
 
-        # Directly test terminal methods are being called
-        # Since we're using passthrough model, we can't test actual LLM-driven tool calls
-        # but we can verify the terminal runtime is set up correctly
+    # Create a session first to get a session ID
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = _get_session_id(session_response)
 
-        # Create a session first to get a session ID
-        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-        session_id = _get_session_id(session_response)
+    # The terminals dict should be empty initially
+    assert len(client.terminals) == 0
 
-        # The terminals dict should be empty initially
-        assert len(client.terminals) == 0
+    # Manually test terminal lifecycle (client creates ID)
+    create_result = await client.create_terminal(command="echo test", session_id=session_id)
+    terminal_id = create_result.terminal_id
 
-        # Manually test terminal lifecycle (client creates ID)
-        create_result = await client.create_terminal(command="echo test", session_id=session_id)
-        terminal_id = create_result.terminal_id
+    # Verify terminal was created with client-generated ID
+    assert terminal_id == "terminal-1"  # First terminal
+    assert terminal_id in client.terminals
+    assert client.terminals[terminal_id]["command"] == "echo test"
 
-        # Verify terminal was created with client-generated ID
-        assert terminal_id == "terminal-1"  # First terminal
-        assert terminal_id in client.terminals
-        assert client.terminals[terminal_id]["command"] == "echo test"
+    # Get output
+    output = await client.terminal_output(session_id=session_id, terminal_id=terminal_id)
+    assert "Executed: echo test" in output.output
+    exit_info = await client.wait_for_terminal_exit(session_id=session_id, terminal_id=terminal_id)
+    assert exit_info.exit_code == 0
 
-        # Get output
-        output = await client.terminal_output(session_id=session_id, terminal_id=terminal_id)
-        assert "Executed: echo test" in output.output
-        exit_info = await client.wait_for_terminal_exit(session_id=session_id, terminal_id=terminal_id)
-        assert exit_info.exit_code == 0
-
-        # Release terminal
-        await client.release_terminal(session_id=session_id, terminal_id=terminal_id)
-        assert terminal_id not in client.terminals
+    # Release terminal
+    await client.release_terminal(session_id=session_id, terminal_id=terminal_id)
+    assert terminal_id not in client.terminals
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio
-async def test_acp_terminal_disabled_when_no_shell_flag() -> None:
+async def test_acp_terminal_disabled_when_no_shell_flag(
+    acp_terminal_no_shell: tuple[object, TestClient, object],
+) -> None:
     """Test that terminal runtime is not injected when --shell flag is not provided."""
-    client = TestClient()
+    connection, _client, _init_response = acp_terminal_no_shell
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=False)) as (
-        connection,
-        _process,
-    ):
-        # Initialize with terminal support (client side)
-        await connection.initialize(
-            protocol_version=1,
-            client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
-                terminal=True,  # Client supports it
-            ),
-            client_info=Implementation(name="pytest-terminal-client", version="0.0.1"),
-        )
+    # Create session
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = _get_session_id(session_response)
+    assert session_id
 
-        # Create session
-        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-        session_id = _get_session_id(session_response)
-        assert session_id
-
-        # Terminal runtime should not be injected because --shell wasn't provided
-        # This test mainly ensures no errors occur when terminal capability is advertised
-        # but shell runtime isn't enabled
+    # Terminal runtime should not be injected because --shell wasn't provided
+    # This test mainly ensures no errors occur when terminal capability is advertised
+    # but shell runtime isn't enabled
 
 
 @pytest.mark.integration
-@pytest.mark.asyncio
-async def test_acp_terminal_disabled_when_client_unsupported() -> None:
+async def test_acp_terminal_disabled_when_client_unsupported(
+    acp_terminal_client_unsupported: tuple[object, TestClient, object],
+) -> None:
     """Test that terminal runtime is not used when client doesn't support terminals."""
-    client = TestClient()
+    connection, _client, _init_response = acp_terminal_client_unsupported
 
-    async with spawn_agent_process(lambda _: client, *get_fast_agent_cmd(with_shell=True)) as (
-        connection,
-        _process,
-    ):
-        # Initialize WITHOUT terminal support
-        await connection.initialize(
-            protocol_version=1,
-            client_capabilities=ClientCapabilities(
-                fs=FileSystemCapability(read_text_file=True, write_text_file=True),
-                terminal=False,  # Client doesn't support terminals
-            ),
-            client_info=Implementation(name="pytest-terminal-client", version="0.0.1"),
-        )
+    # Create session
+    session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
+    session_id = _get_session_id(session_response)
+    assert session_id
 
-        # Create session
-        session_response = await connection.new_session(mcp_servers=[], cwd=str(TEST_DIR))
-        session_id = _get_session_id(session_response)
-        assert session_id
-
-        # Agent will use local ShellRuntime instead of ACP terminals
-        # This test ensures graceful fallback
+    # Agent will use local ShellRuntime instead of ACP terminals
+    # This test ensures graceful fallback
 
 
 async def _wait_for_notifications(client: TestClient, timeout: float = 2.0) -> None:
