@@ -1261,9 +1261,9 @@ class FastAgent:
                 "Only one of --dump-agents or --dump-agents-yaml may be set"
             )
 
-        if dump_agent and not dump_agent_path:
+        if dump_agent and dump_agent_path is None:
             raise AgentConfigError("--dump-agent-path is required with --dump-agent")
-        if dump_agent_path and not dump_agent:
+        if dump_agent_path is not None and not dump_agent:
             raise AgentConfigError("--dump-agent is required with --dump-agent-path")
 
         if dump_agent and (dump_dir or dump_dir_yaml):
@@ -1275,11 +1275,16 @@ class FastAgent:
             return
 
         if dump_dir or dump_dir_yaml:
-            output_dir = Path(dump_dir or dump_dir_yaml)
+            output_dir_raw = dump_dir if dump_dir is not None else dump_dir_yaml
+            if output_dir_raw is None:
+                raise AgentConfigError("Missing output directory for agent dump")
+            output_dir = Path(output_dir_raw)
             self._dump_agents_to_dir(output_dir, as_yaml=bool(dump_dir_yaml))
             raise SystemExit(0)
 
         if dump_agent:
+            if dump_agent_path is None:
+                raise AgentConfigError("--dump-agent-path is required with --dump-agent")
             output_path = Path(dump_agent_path)
             self._dump_single_agent(dump_agent, output_path, as_yaml=dump_agent_yaml)
             raise SystemExit(0)

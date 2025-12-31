@@ -1,13 +1,19 @@
+from typing import Any
+
 from openai import AsyncAzureOpenAI, AsyncOpenAI, AuthenticationError
+
+try:
+    from azure.identity import (
+        DefaultAzureCredential as _DefaultAzureCredential,  # ty: ignore[unresolved-import]
+    )
+except ImportError:
+    _DefaultAzureCredential = None  # type: ignore[assignment]
 
 from fast_agent.core.exceptions import ProviderKeyError
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
 from fast_agent.llm.provider_types import Provider
 
-try:
-    from azure.identity import DefaultAzureCredential  # ty: ignore[unresolved-import]
-except ImportError:
-    DefaultAzureCredential = None
+DefaultAzureCredential: type[Any] | None = _DefaultAzureCredential
 
 
 def _extract_resource_name(url: str) -> str | None:

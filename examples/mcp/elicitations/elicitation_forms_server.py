@@ -51,7 +51,8 @@ def _create_enum_schema_options(data: dict[str, str]) -> list[TitledEnumOption]:
         >>> _create_enum_schema_options({"dark": "Dark Mode", "light": "Light Mode"})
         [{"const": "dark", "title": "Dark Mode"}, {"const": "light", "title": "Light Mode"}]
     """
-    return [{"const": k, "title": v} for k, v in data.items()]
+    options: list[TitledEnumOption] = [{"const": k, "title": v} for k, v in data.items()]
+    return options
 
 
 @mcp.resource(uri="elicitation://event-registration")

@@ -18,7 +18,7 @@ async def main():
     async with fast.run() as agent_app:
         agent_name = "default"
         print("\nStarting interactive session with template_vars set via decorator...")
-        await agent_app.interactive(agent=agent_name)
+        await agent_app.interactive(agent_name=agent_name)
 
 
 if __name__ == "__main__":
