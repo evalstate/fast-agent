@@ -24,6 +24,7 @@ GO_SPECIFIC_OPTIONS = {
     "--skills",
     "--skills-dir",
     "--agent-cards",
+    "--card",
     "--watch",
     "--reload",
 }

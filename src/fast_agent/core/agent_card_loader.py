@@ -415,6 +415,15 @@ def _build_agent_data(
     default = _ensure_bool(raw.get("default"), "default", path, default=False)
     api_key = raw.get("api_key")
 
+    # Parse function_tools - can be a string or list of strings
+    function_tools_raw = raw.get("function_tools")
+    function_tools = None
+    if function_tools_raw is not None:
+        if isinstance(function_tools_raw, str):
+            function_tools = [function_tools_raw]
+        elif isinstance(function_tools_raw, list):
+            function_tools = [str(t) for t in function_tools_raw]
+
     config = AgentConfig(
         name=name,
         instruction=instruction,
@@ -428,6 +437,7 @@ def _build_agent_data(
         human_input=human_input,
         default=default,
         api_key=api_key,
+        function_tools=function_tools,
     )
 
     if request_params is not None:

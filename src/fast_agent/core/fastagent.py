@@ -401,6 +401,57 @@ class FastAgent:
         if changed:
             self._agent_registry_version += 1
 
+    def load_agents_from_url(self, url: str) -> None:
+        """Load an AgentCard from a URL (markdown or YAML)."""
+        import tempfile
+
+        from fast_agent.core.agent_card_loader import load_agent_cards
+        from fast_agent.core.direct_decorators import _fetch_url_content
+
+        content = _fetch_url_content(url)
+
+        # Determine extension from URL
+        suffix = ".md"
+        url_lower = url.lower()
+        if url_lower.endswith((".yaml", ".yml")):
+            suffix = ".yaml"
+        elif url_lower.endswith((".md", ".markdown")):
+            suffix = ".md"
+
+        # Write to temp file and parse
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=suffix, delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            temp_path = Path(f.name)
+
+        try:
+            cards = load_agent_cards(temp_path)
+            for card in cards:
+                # Check for conflicts
+                if card.name in self.agents and card.name not in self._agent_card_sources:
+                    raise AgentConfigError(
+                        f"Agent '{card.name}' already exists and is not from AgentCard",
+                        f"URL: {url}",
+                    )
+                # Register the agent
+                self.agents[card.name] = card.agent_data
+                # Apply CLI model override if present
+                cli_model_override = getattr(self.args, "model", None)
+                if cli_model_override:
+                    config_obj = card.agent_data.get("config")
+                    if config_obj is not None:
+                        config_obj.model = None
+                # Note: URL-loaded cards don't track source path (no reload support)
+                if card.message_files:
+                    self._agent_card_histories[card.name] = card.message_files
+            # Apply skills
+            if cards:
+                self._apply_skills_to_agent_configs(self._default_skill_manifests)
+                self._agent_registry_version += 1
+        finally:
+            temp_path.unlink(missing_ok=True)
+
     async def reload_agents(self) -> bool:
         """Reload all previously registered AgentCard roots."""
         if not self._agent_card_roots:

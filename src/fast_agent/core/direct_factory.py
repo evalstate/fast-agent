@@ -4,6 +4,7 @@ Implements type-safe factories with improved error handling.
 """
 
 from functools import partial
+from pathlib import Path
 from typing import Any, Protocol, TypeVar, cast
 
 from fast_agent.agents import McpAgent
@@ -29,6 +30,7 @@ from fast_agent.interfaces import (
 )
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.mcp.ui_agent import McpAgentWithUI
+from fast_agent.tools.function_tool_loader import load_function_tools
 from fast_agent.types import RequestParams
 
 # Type aliases for improved readability and IDE support
@@ -44,6 +46,7 @@ def _create_agent_with_ui_if_needed(
     agent_class: type,
     config: Any,
     context: Any,
+    **kwargs: Any,
 ) -> Any:
     """
     Create an agent with UI support if MCP UI mode is enabled.
@@ -52,6 +55,7 @@ def _create_agent_with_ui_if_needed(
         agent_class: The agent class to potentially enhance with UI
         config: Agent configuration
         context: Application context
+        **kwargs: Additional arguments passed to agent constructor (e.g., tools)
 
     Returns:
         Either a UI-enhanced agent instance or the original agent instance
@@ -62,10 +66,10 @@ def _create_agent_with_ui_if_needed(
 
     if ui_mode != "disabled" and agent_class == McpAgent:
         # Use the UI-enhanced agent class instead of the base class
-        return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode)
+        return McpAgentWithUI(config=config, context=context, ui_mode=ui_mode, **kwargs)
     else:
         # Create the original agent instance
-        return agent_class(config=config, context=context)
+        return agent_class(config=config, context=context, **kwargs)
 
 
 class AgentCreatorProtocol(Protocol):
@@ -254,11 +258,22 @@ async def create_agents_by_type(
                         },
                     )
                 else:
+                    # Load function tools if configured
+                    function_tools = []
+                    if config.function_tools:
+                        # Use source_path from agent card for relative path resolution
+                        source_path = agent_data.get("source_path")
+                        base_path = Path(source_path).parent if source_path else None
+                        function_tools = load_function_tools(
+                            config.function_tools, base_path
+                        )
+
                     # Create agent with UI support if needed
                     agent = _create_agent_with_ui_if_needed(
                         McpAgent,
                         config,
                         app_instance.context,
+                        tools=function_tools,
                     )
 
                     await agent.initialize()

@@ -107,7 +107,7 @@ async def _run_agent(
     instruction: str = default_instruction,
     config_path: str | None = None,
     server_list: list[str] | None = None,
-    agent_cards: list[Path] | None = None,
+    agent_cards: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -160,8 +160,11 @@ async def _run_agent(
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
     if agent_cards:
-        for card_path in agent_cards:
-            fast.load_agents(card_path)
+        for card_source in agent_cards:
+            if card_source.startswith(("http://", "https://")):
+                fast.load_agents_from_url(card_source)
+            else:
+                fast.load_agents(card_source)
 
         async def cli_agent():
             async with fast.run() as agent:
@@ -280,7 +283,7 @@ def run_async_agent(
     servers: str | None = None,
     urls: str | None = None,
     auth: str | None = None,
-    agent_cards: list[Path] | None = None,
+    agent_cards: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -434,10 +437,11 @@ def go(
     servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
     ),
-    agent_cards: list[Path] | None = typer.Option(
+    agent_cards: list[str] | None = typer.Option(
         None,
         "--agent-cards",
-        help="Path to an AgentCard file or directory (repeatable)",
+        "--card",
+        help="Path or URL to an AgentCard file or directory (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
