@@ -10,7 +10,6 @@ This module provides shared console instances for consistent output handling:
 from __future__ import annotations
 
 import os
-import sys
 from typing import IO, Literal
 
 from rich.console import Console
