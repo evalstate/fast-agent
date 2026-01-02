@@ -210,7 +210,7 @@ controls child invocation and the initial context passed to child agents.
 - `history_source`: `none` | `messages` | `child` | `orchestrator` | `cumulative` *)
 - `history_merge_target`: `none` | `messages` **) | `child` | `orchestrator` | `cumulative` *)
 
-Defaults (hange current behaviortto more clean):
+Defaults (change current behavior to a cleaner baseline):
 - `history_source`: `none`
 - `history_merge_target`: `none`
 
@@ -226,9 +226,10 @@ Notes:
 - `history_merge_target=orchestrator`: merge back into the parent/orchestrator `message_history`.
 - `history_merge_target=cumulative`: merge back into the session-wide transcript (not yet implemented).
 
-MVP path:
+MVP path 1:
 - `/card --tool` starts in **stateless** mode (`history_source=none`, `history_merge_target=none`),
   i.e. fresh clone per call with no history load or merge.
+MVP path 2:
 - Advanced history modes should be exercised first in the Agents-as-Tools workflow
   before being applied to `/card --tool`.
 
@@ -240,15 +241,15 @@ requires a read/write lock and is deferred to a separate implementation.
 ### Python API (proposed)
 ```python
 AgentsAsToolsOptions(
-    history_source="child",
-    history_merge_target="child",
+    history_source="none",
+    history_merge_target="none",
 )
 ```
 
 ### CLI flags (proposed)
 ```
---child-history-source {none,child,orchestrator,cumulative,messages}
---child-history-merge-target {none,child,orchestrator,cumulative}
+--child-history-source {none,messages,child,orchestrator,cumulative}
+--child-history-merge-target {none,messages,child,orchestrator,cumulative}
 ```
 
 ### `/call` or tool invocation (proposed)
@@ -546,3 +547,9 @@ Proposed steps:
 ## Appendix: History Mode Removal
 `history_mode` is removed in this spec and replaced by the orthogonal pair
 `history_source` + `history_merge_target`.
+
+## Appendix: Open Questions / Remaining Work
+- Implement stateless `/card --tool` via detached clones (ToolAgent parity).
+- Decide whether `/card --subagent` is needed as a distinct primitive from tool injection.
+- Define how (or if) advanced history routing is exposed outside agents-as-tools.
+- Confirm whether a shared “cumulative” history across `@agent` switches is desired.
