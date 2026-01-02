@@ -12,7 +12,7 @@ Status: draft plan.
 - Added integration test `tests/integration/api/test_declarative_tools_and_hooks.py`.
 
 ### origin/feat/agent-card (current target)
-- Added AgentCard loader + CLI: `--agent-cards` / `--card`, supports URL cards.
+- Added AgentCard loader + CLI: `--card` / `--agent-cards`, supports URL cards.
 - Added `function_tools` to `AgentConfig` and loader for `module.py:function`.
 - Added `function_tool_loader.py` and integration tests for function tools.
 - **Removed** tool hook implementation and tests; `tool_hooks` module no longer exists.

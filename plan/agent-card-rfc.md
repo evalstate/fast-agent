@@ -272,9 +272,8 @@ You are a concise analyst.
 
 ## Loading API
 - `load_agents(path)` loads a file or a directory.
-- CLI: `fast-agent go --agent-cards <path>` loads cards before starting.
-- `--card` is a shorthand alias for `--agent-cards` and is intended for declarative
-  agent creation from the CLI.
+- CLI: `fast-agent go --card <path>` loads cards before starting.
+- `--agent-cards` remains as a legacy alias for `--card`.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
 - If a subsequent `load_agents(path)` call does not include a previously loaded agent
@@ -291,21 +290,21 @@ uv run agents_as_tools_extended.py --dump-agents ../workflows-md/agents_as_tools
 ```bash
 cd examples/workflows-md
 
-uv run fast-agent go --agent-cards agents_as_tools_extended --watch
+uv run fast-agent go --card agents_as_tools_extended --watch
 ```
 
 Manual reload:
 ```bash
 cd examples/workflows-md
 
-uv run fast-agent go --agent-cards agents_as_tools_extended --reload
+uv run fast-agent go --card agents_as_tools_extended --reload
 ```
 
 One-shot message:
 ```bash
 cd examples/workflows-md
 
-uv run fast-agent go --agent-cards agents_as_tools_extended --message "go"
+uv run fast-agent go --card agents_as_tools_extended --message "go"
 ```
 
 ### Example: load a directory in Python
@@ -338,12 +337,12 @@ if __name__ == "__main__":
 - `--dump-agent-yaml`: export a single agent as YAML (used with `--dump-agent` and
   `--dump-agent-path`).
  - Optional future enhancement: after dumping, print a ready-to-run CLI example
-   for the current directory (e.g. `fast-agent go --agent-cards <dir> --watch`).
+   for the current directory (e.g. `fast-agent go --card <dir> --watch`).
 
 ## Interactive vs One-Shot CLI
-- **Interactive**: `fast-agent go --agent-cards <dir>` launches the TUI, waits for
+- **Interactive**: `fast-agent go --card <dir>` launches the TUI, waits for
   user input, and keeps session state (history, tools, prompts) in memory.
-- **One-shot**: `fast-agent go --agent-cards <dir> --message "..."` sends a single
+- **One-shot**: `fast-agent go --card <dir> --message "..."` sends a single
   request and exits. `--prompt-file` loads a prompt/history file, runs it, then
   exits (or returns to interactive if explicitly invoked).
 
