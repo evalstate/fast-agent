@@ -12,6 +12,7 @@ from typing import Any
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -30,12 +31,10 @@ def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callabl
         The loaded callable function.
 
     Raises:
-        ValueError: If the spec format is invalid.
-        FileNotFoundError: If the module file doesn't exist.
-        AttributeError: If the function doesn't exist in the module.
+        AgentConfigError: If the spec format is invalid or the tool cannot be loaded.
     """
     if ":" not in spec:
-        raise ValueError(
+        raise AgentConfigError(
             f"Invalid function tool spec '{spec}'. Expected format: 'module.py:function_name'"
         )
 
@@ -50,7 +49,10 @@ def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callabl
             module_path = Path.cwd() / module_path
 
     if not module_path.exists():
-        raise FileNotFoundError(f"Module file not found: {module_path}")
+        raise AgentConfigError(
+            f"Function tool module file not found for '{spec}'",
+            f"Resolved path: {module_path}",
+        )
 
     # Generate a unique module name to avoid conflicts
     module_name = f"_function_tool_{module_path.stem}_{id(spec)}"
@@ -58,18 +60,33 @@ def load_function_from_spec(spec: str, base_path: Path | None = None) -> Callabl
     # Load the module dynamically
     spec_obj = importlib.util.spec_from_file_location(module_name, module_path)
     if spec_obj is None or spec_obj.loader is None:
-        raise ImportError(f"Failed to create module spec for: {module_path}")
+        raise AgentConfigError(
+            f"Failed to create module spec for '{spec}'",
+            f"Resolved path: {module_path}",
+        )
 
     module = importlib.util.module_from_spec(spec_obj)
-    spec_obj.loader.exec_module(module)
+    try:
+        spec_obj.loader.exec_module(module)
+    except Exception as exc:  # noqa: BLE001
+        raise AgentConfigError(
+            f"Failed to import function tool module for '{spec}'",
+            str(exc),
+        ) from exc
 
     # Get the function from the module
     if not hasattr(module, func_name):
-        raise AttributeError(f"Function '{func_name}' not found in module '{module_path}'")
+        raise AgentConfigError(
+            f"Function '{func_name}' not found for '{spec}'",
+            f"Module path: {module_path}",
+        )
 
     func = getattr(module, func_name)
     if not callable(func):
-        raise TypeError(f"'{func_name}' in '{module_path}' is not callable")
+        raise AgentConfigError(
+            f"Function '{func_name}' is not callable for '{spec}'",
+            f"Module path: {module_path}",
+        )
 
     return func
 

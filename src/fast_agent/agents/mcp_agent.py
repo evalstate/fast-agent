@@ -1309,6 +1309,7 @@ class McpAgent(ABC, ToolAgent):
         name: str | None = None,
         model: str | None = None,
         additional_message: Union["Text", None] = None,
+        render_markdown: bool | None = None,
     ) -> None:
         """
         Display an assistant message with MCP servers in the bottom bar.
@@ -1350,6 +1351,7 @@ class McpAgent(ABC, ToolAgent):
             name=name,
             model=model,
             additional_message=additional_message,
+            render_markdown=render_markdown,
         )
 
     def _extract_servers_from_message(self, message: PromptMessageExtended) -> list[str]:

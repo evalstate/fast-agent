@@ -12,6 +12,7 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
 app = typer.Typer(
@@ -160,11 +161,15 @@ async def _run_agent(
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
     if agent_cards:
-        for card_source in agent_cards:
-            if card_source.startswith(("http://", "https://")):
-                fast.load_agents_from_url(card_source)
-            else:
-                fast.load_agents(card_source)
+        try:
+            for card_source in agent_cards:
+                if card_source.startswith(("http://", "https://")):
+                    fast.load_agents_from_url(card_source)
+                else:
+                    fast.load_agents(card_source)
+        except AgentConfigError as exc:
+            fast._handle_error(exc)
+            raise typer.Exit(1) from exc
 
         async def cli_agent():
             async with fast.run() as agent:

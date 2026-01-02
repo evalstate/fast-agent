@@ -90,6 +90,7 @@ class LlmAgent(LlmDecorator):
         name: str | None = None,
         model: str | None = None,
         additional_message: Optional[Text] = None,
+        render_markdown: bool | None = None,
     ) -> None:
         """Display an assistant message with appropriate styling based on stop reason.
 
@@ -101,6 +102,7 @@ class LlmAgent(LlmDecorator):
             name: Optional agent name to display
             model: Optional model name to display
             additional_message: Optional additional message to display
+            render_markdown: Force markdown rendering (True) or plain rendering (False)
         """
 
         # Determine display content based on stop reason if not provided
@@ -227,6 +229,7 @@ class LlmAgent(LlmDecorator):
             name=display_name,
             model=display_model,
             additional_message=additional_message_text,
+            render_markdown=render_markdown,
         )
 
     def show_user_message(self, message: PromptMessageExtended) -> None:
@@ -295,6 +298,8 @@ class LlmAgent(LlmDecorator):
             llm = self._require_llm()
             display_name = self.name
             display_model = llm.model_name
+            _, streaming_mode = self.display.resolve_streaming_preferences()
+            render_markdown = True if streaming_mode == "markdown" else False
 
             remove_listener: Callable[[], None] | None = None
             remove_tool_listener: Callable[[], None] | None = None
@@ -327,7 +332,11 @@ class LlmAgent(LlmDecorator):
 
                 stream_handle.finalize(result)
 
-            await self.show_assistant_message(result, additional_message=summary_text)
+            await self.show_assistant_message(
+                result,
+                additional_message=summary_text,
+                render_markdown=render_markdown,
+            )
         else:
             result, summary = await self._generate_with_summary(
                 messages, request_params, tools

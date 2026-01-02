@@ -1153,5 +1153,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         name: str | None = None,
         model: str | None = None,
         additional_message: Union["Text", None] = None,
+        render_markdown: bool | None = None,
     ) -> None:
         pass
