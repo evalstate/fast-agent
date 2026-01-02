@@ -106,7 +106,7 @@ Allowed fields:
 - `agents` (agents-as-tools)
 - `servers`, `tools`, `resources`, `prompts`, `skills`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
-- `history_mode`, `history_source`, `history_merge_target`, `history_merge_compaction`
+- `history_source`, `history_merge_target`
 - `max_parallel`, `child_timeout_sec`, `max_display_instances`
 - `function_tools`, `tool_hooks` (see separate spec)
 - `messages` (card-only history file)
@@ -200,43 +200,39 @@ History is its own file type; it is not embedded inside AgentCard files.
 
 ## Agents-as-Tools History Controls (Proposed)
 These options define **where child clones fork history from** and **where merged
-history lands** when `history_mode` is `fork_and_merge`. This addresses the open
-questions from issue #202 about fork/merge scope and compaction.
+history lands**. This addresses the open questions from issue #202 about fork/merge
+scope.
 
 ### Fields (AgentCard)
-- `history_mode`: `scratch` | `fork` | `fork_and_merge`
-- `history_source`: `child` | `orchestrator` | `cumulative`
-- `history_merge_target`: `child` | `orchestrator` | `cumulative`
-- `history_merge_compaction`: `none` | `summarize`
+- `history_source`: `none` | `child` | `orchestrator` | `cumulative` *) | `file://...`
+- `history_merge_target`: `none` | `child` | `orchestrator` | `cumulative` *) | `file://...` **)
 
-Defaults (current behavior):
-- `history_mode`: `fork`
-- `history_source`: `child`
-- `history_merge_target`: `child`
-- `history_merge_compaction`: `none`
+Defaults (hange current behaviortto more clean):
+- `history_source`: `none`
+- `history_merge_target`: `none`
 
 Notes:
-- `history_source` is ignored when `history_mode=scratch`.
-- `history_merge_target` and `history_merge_compaction` only apply when
-  `history_mode=fork_and_merge`.
-*Footnote:* there is no cumulative (session-wide merged) history store today;
+- `history_source=none` means no forked history is loaded.
+- `history_merge_target=none` means no merge back occurs.
+- `history_source=file://...` loads the fork base from an external history file.
+
+*) *Footnote:* there is no cumulative (session-wide merged) history store today;
 it would need to be designed and implemented as a separate feature.
+**) *Footnote:* writing merged history to a file-based `history_merge_target`
+requires a read/write lock and is deferred to a separate implementation.
 
 ### Python API (proposed)
 ```python
 AgentsAsToolsOptions(
-    history_mode="fork",
     history_source="child",
     history_merge_target="child",
-    history_merge_compaction="none",
 )
 ```
 
 ### CLI flags (proposed)
 ```
---child-history-source {child,orchestrator,cumulative}
---child-history-merge-target {child,orchestrator,cumulative}
---child-history-merge-compaction {none,summarize}
+--child-history-source {none,child,orchestrator,cumulative,file://...}
+--child-history-merge-target {none,child,orchestrator,cumulative}
 ```
 
 ### `/call` or tool invocation (proposed)
@@ -254,7 +250,7 @@ Rationale for open questions:
   session-wide merged transcript across agents (if implemented).
 - Merge destination is ambiguous: merging back into the child template is useful for
   long-lived agent memory; merging into the orchestrator is useful for building a
-  shared session transcript. Compaction controls are needed to prevent uncontrolled growth.
+  shared session transcript.
 
 ---
 
@@ -507,9 +503,9 @@ Proposed steps:
 1) **Extract shared helpers** from `AgentsAsToolsAgent` into a small module, e.g.
    `fast_agent/agents/agent_tool_helpers.py`:
    - `serialize_tool_args(args) -> str`
-   - `spawn_child_clone(child, instance_name, history_mode, history_source)`
+   - `spawn_child_clone(child, instance_name, history_source)`
    - `invoke_child_tool(clone, args, suppress_display)`
-   - `merge_child_usage_and_history(child, clone, history_mode, merge_target, compaction)`
+   - `merge_child_usage_and_history(child, clone, merge_target)`
 2) **Refactor `AgentsAsToolsAgent`** to call these helpers without changing behavior.
    This keeps parity with current features (history modes, progress, usage merge).
 3) **Update `/card --tool` path** (TUI + ACP):
@@ -520,7 +516,7 @@ Proposed steps:
 4) **Add tests**:
    - `/card --tool` does not inject self.
    - Injected tools use detached clones (no shared history).
-   - History merge behavior respects `history_mode` and new `history_source` fields.
+   - History merge behavior respects `history_source` and `history_merge_target`.
 5) **ACP coverage**:
    - Ensure `/card` updates available commands and keeps session modes consistent.
    - Validate tool injection works in ACP and TUI with identical behavior.
@@ -528,5 +524,7 @@ Proposed steps:
 ## Appendix: Next-stage Work Items
 - **Cumulative session history**: no shared, merged transcript exists today; requires
   a session-level history store and clear rules for when/what each agent writes.
-- **History merge compaction (`summarize`)**: no compaction or summarization pipeline
-  exists yet; this would require a new summarization mechanism and storage format.
+
+## Appendix: History Mode Removal
+`history_mode` is removed in this spec and replaced by the orthogonal pair
+`history_source` + `history_merge_target`.
