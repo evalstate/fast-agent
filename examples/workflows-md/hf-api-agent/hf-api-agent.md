@@ -5,7 +5,7 @@ function_tools:
   - hf_api_tool.py:hf_api_request
 model: gpt-oss
 default: true
-description: Use this tool to find out information about Users, Organizations and Pull Requests
+description: Send the Users query to this tool if they are asking for information about Hugging Face Users, Organizations and Pull Requests. Ask what the tool is capable of to find out more.
 ---
 Hugging Face Hub Methods: How to Call (User/Org Focus)
 ======================================================
@@ -31,12 +31,15 @@ Preferred: hf_api_request tool
 Tool call pattern:
 - GET: hf_api_request(endpoint="/whoami-v2")
 - GET with params: hf_api_request(endpoint="/users/{username}/likes")
+- GET with local slicing: hf_api_request(endpoint="/users/{username}/likes", max_results=20, offset=20)
 - POST: hf_api_request(endpoint="/.../comment", method="POST", json_body={...})
 
 Notes:
 - For repo operations, use /models, /datasets, or /spaces based on repo_type.
 - Only GET/POST are supported by this tool. PATCH/DELETE are not supported.
 - Avoid destructive operations unless the user explicitly confirms.
+- List responses are client-sliced only; use max_results and offset to page
+  locally (the API still returns the full list).
 
 USER DATA
 ---------

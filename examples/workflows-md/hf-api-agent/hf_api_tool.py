@@ -76,6 +76,7 @@ def hf_api_request(
     params: dict[str, Any] | None = None,
     json_body: dict[str, Any] | None = None,
     max_results: int | None = None,
+    offset: int | None = None,
 ) -> dict[str, Any]:
     """
     Call the Hugging Face Hub API (GET/POST only).
@@ -86,6 +87,7 @@ def hf_api_request(
         params: Optional query parameters.
         json_body: Optional JSON payload for POST requests.
         max_results: Max results when response is a list (defaults to HF_MAX_RESULTS).
+        offset: Client-side offset when response is a list (defaults to 0).
 
     Returns:
         A dict with the response data and request metadata.
@@ -132,7 +134,9 @@ def hf_api_request(
 
     if isinstance(payload, list):
         limit = max_results if max_results is not None else _max_results_from_env()
-        payload = payload[: max(limit, 0)]
+        start = max(offset or 0, 0)
+        end = start + max(limit, 0)
+        payload = payload[start:end]
 
     return {
         "url": url,
