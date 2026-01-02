@@ -96,7 +96,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
     def add_agent_tool(
         self,
-        child: AgentProtocol,
+        child: LlmAgent,
         *,
         name: str | None = None,
         description: str | None = None,
