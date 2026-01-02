@@ -25,7 +25,7 @@ _TYPE_MAP: dict[str, AgentType] = {
     "maker": AgentType.MAKER,
 }
 
-_COMMON_FIELDS = {"type", "name", "instruction", "default", "schema_version"}
+_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "schema_version"}
 
 _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
     "agent": {
@@ -271,6 +271,7 @@ def _build_card_from_data(
 
     name = _resolve_name(raw.get("name"), path)
     instruction = _resolve_instruction_field(raw.get("instruction"), body, path)
+    description = _ensure_optional_str(raw.get("description"), "description", path)
 
     required_fields = _REQUIRED_FIELDS_BY_TYPE[type_key]
     missing = [field for field in required_fields if field not in raw or raw[field] is None]
@@ -289,6 +290,7 @@ def _build_card_from_data(
         type_key=type_key,
         name=name,
         instruction=instruction,
+        description=description,
         raw=raw,
         path=path,
     )
@@ -402,6 +404,7 @@ def _build_agent_data(
     type_key: str,
     name: str,
     instruction: str,
+    description: str | None,
     raw: dict[str, Any],
     path: Path,
 ) -> dict[str, Any]:
@@ -429,6 +432,7 @@ def _build_agent_data(
     config = AgentConfig(
         name=name,
         instruction=instruction,
+        description=description,
         servers=servers,
         tools=tools,
         resources=resources,
@@ -546,6 +550,14 @@ def _ensure_str(value: Any, field: str, path: Path) -> str:
     if not isinstance(value, str) or not value.strip():
         raise AgentConfigError(f"'{field}' must be a non-empty string in {path}")
     return value
+
+
+def _ensure_optional_str(value: Any, field: str, path: Path) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise AgentConfigError(f"'{field}' must be a non-empty string in {path}")
+    return value.strip()
 
 
 def _ensure_str_list(value: Any, field: str, path: Path) -> list[str]:
@@ -711,6 +723,9 @@ def _build_card_dump(
 
     if config.default and "default" in allowed_fields:
         card["default"] = True
+
+    if config.description and "description" in allowed_fields:
+        card["description"] = config.description
 
     if config.model and "model" in allowed_fields:
         card["model"] = config.model

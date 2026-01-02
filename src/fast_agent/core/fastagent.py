@@ -389,19 +389,23 @@ class FastAgent:
         """Access the application context"""
         return self.app.context
 
-    def load_agents(self, path: str | Path) -> None:
+    def load_agents(self, path: str | Path) -> list[str]:
         """
         Load AgentCards from a file or directory and register them as agents.
 
         Loading is idempotent for the provided path: any previously loaded agents
         from the same path that are no longer present are removed.
+
+        Returns:
+            Sorted list of agent names loaded from the provided path.
         """
         root = Path(path).expanduser().resolve()
         changed = self._load_agent_cards_from_root(root, incremental=False)
         if changed:
             self._agent_registry_version += 1
+        return sorted(self._agent_card_roots.get(root, set()))
 
-    def load_agents_from_url(self, url: str) -> None:
+    def load_agents_from_url(self, url: str) -> list[str]:
         """Load an AgentCard from a URL (markdown or YAML)."""
         import tempfile
 
@@ -427,6 +431,7 @@ class FastAgent:
 
         try:
             cards = load_agent_cards(temp_path)
+            loaded_names = [card.name for card in cards]
             for card in cards:
                 # Check for conflicts
                 if card.name in self.agents and card.name not in self._agent_card_sources:
@@ -449,6 +454,7 @@ class FastAgent:
             if cards:
                 self._apply_skills_to_agent_configs(self._default_skill_manifests)
                 self._agent_registry_version += 1
+            return loaded_names
         finally:
             temp_path.unlink(missing_ok=True)
 
@@ -1012,6 +1018,19 @@ class FastAgent:
                             return False
                         return await refresh_shared_instance()
 
+                    async def load_card_and_refresh(source: str) -> list[str]:
+                        if source.startswith(("http://", "https://")):
+                            loaded_names = self.load_agents_from_url(source)
+                        else:
+                            loaded_names = self.load_agents(source)
+                        await refresh_shared_instance()
+                        return loaded_names
+
+                    async def load_card_source(source: str) -> list[str]:
+                        if source.startswith(("http://", "https://")):
+                            return self.load_agents_from_url(source)
+                        return self.load_agents(source)
+
                     reload_enabled = bool(
                         getattr(self.args, "reload", False)
                         or getattr(self.args, "watch", False)
@@ -1020,6 +1039,7 @@ class FastAgent:
                     wrapper.set_refresh_callback(
                         refresh_shared_instance if reload_enabled else None
                     )
+                    wrapper.set_load_card_callback(load_card_and_refresh)
 
                     if getattr(self.args, "watch", False) and self._agent_card_roots:
                         self._agent_card_watch_task = asyncio.create_task(
@@ -1091,6 +1111,7 @@ class FastAgent:
                                     get_registry_version=self._get_registry_version,
                                     skills_directory_override=skills_override,
                                     permissions_enabled=permissions_enabled,
+                                    load_card_callback=load_card_source,
                                 )
 
                                 # Run the ACP server (this is a blocking call)

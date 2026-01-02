@@ -1130,7 +1130,7 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         return AgentCard(
             skills=[],
             name=self._name,
-            description=self.instruction,
+            description=self.config.description or self.instruction,
             url=f"fast-agent://agents/{self._name}/",
             version="0.1",
             capabilities=DEFAULT_CAPABILITIES,

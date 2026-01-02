@@ -11,12 +11,13 @@ ACPAwareProtocol.
 
 from __future__ import annotations
 
+import shlex
 import textwrap
 import time
 import uuid
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -116,6 +117,7 @@ class SlashCommandHandler:
         client_capabilities: dict | None = None,
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
+        card_loader: Callable[[str], Awaitable[tuple["AgentInstance", list[str]]]] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -145,6 +147,7 @@ class SlashCommandHandler:
         self.client_capabilities = client_capabilities
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
+        self._card_loader = card_loader
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -181,6 +184,13 @@ class SlashCommandHandler:
                 name="load",
                 description="Load conversation history from file",
                 input=AvailableCommandInput(root=UnstructuredCommandInput(hint="<filename>")),
+            ),
+            "card": AvailableCommand(
+                name="card",
+                description="Load an AgentCard from file or URL",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="<filename|url> [--tool]")
+                ),
             ),
         }
 
@@ -335,6 +345,8 @@ class SlashCommandHandler:
                 return await self._handle_clear(arguments)
             if command_name == "load":
                 return await self._handle_load(arguments)
+            if command_name == "card":
+                return await self._handle_card(arguments)
 
         # Check agent-specific commands
         agent = self._get_current_agent()
@@ -1253,6 +1265,71 @@ class SlashCommandHandler:
                 f"Messages: {message_count}",
             ]
         )
+
+    async def _handle_card(self, arguments: str | None = None) -> str:
+        """Handle the /card command by loading an AgentCard and refreshing agents."""
+        if not self._card_loader:
+            return "AgentCard loading is not available in this session."
+
+        args = (arguments or "").strip()
+        if not args:
+            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
+
+        try:
+            tokens = shlex.split(args)
+        except ValueError as exc:
+            return f"Invalid arguments: {exc}"
+
+        add_tool = False
+        filename = None
+        for token in tokens:
+            if token in {"tool", "--tool", "--as-tool", "-t"}:
+                add_tool = True
+                continue
+            if filename is None:
+                filename = token
+
+        if not filename:
+            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
+
+        try:
+            instance, loaded_names = await self._card_loader(filename)
+        except Exception as exc:
+            return f"AgentCard load failed: {exc}"
+
+        self.instance = instance
+
+        if not loaded_names:
+            summary = "AgentCard loaded."
+        else:
+            summary = "Loaded AgentCard(s): " + ", ".join(loaded_names)
+
+        if not add_tool:
+            return summary
+
+        parent_name = self.current_agent_name
+        if not parent_name or parent_name not in instance.agents:
+            parent_name = next(iter(instance.agents.keys()), None)
+            self.current_agent_name = parent_name or self.current_agent_name
+        if not parent_name:
+            return summary
+
+        parent = instance.agents.get(parent_name)
+        add_tool_fn = getattr(parent, "add_agent_tool", None)
+        if not callable(add_tool_fn):
+            return f"{summary}\nCurrent agent does not support tool injection."
+
+        added_tools: list[str] = []
+        for child_name in loaded_names:
+            child = instance.agents.get(child_name)
+            if child is None:
+                continue
+            tool_name = add_tool_fn(child)
+            added_tools.append(tool_name)
+
+        if not added_tools:
+            return summary
+        return f"{summary}\nAdded tool(s): {', '.join(added_tools)}"
 
     async def _handle_clear(self, arguments: str | None = None) -> str:
         """Handle /clear and /clear last commands."""

@@ -119,9 +119,17 @@ class AgentMCPServer:
             else self._tool_description
         )
 
+        agent = self.primary_instance.agents.get(agent_name)
+        agent_description = None
+        if agent is not None:
+            config = getattr(agent, "config", None)
+            agent_description = getattr(config, "description", None)
+
         @self.mcp_server.tool(
             name=f"{agent_name}_send",
-            description=tool_description or f"Send a message to the {agent_name} agent",
+            description=tool_description
+            or agent_description
+            or f"Send a message to the {agent_name} agent",
             structured_output=False,
             # MCP 1.10.1 turns every tool in to a structured output
         )

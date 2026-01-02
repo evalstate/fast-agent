@@ -60,7 +60,8 @@ optional/experimental and described in a separate spec.
 
 ### YAML Card (`.yaml` / `.yml`)
 A YAML card is a single YAML document whose keys map directly to the `AgentConfig`
-schema. Use `instruction: |` for multiline prompts.
+schema. `type` is optional and defaults to `agent`. Use `instruction: |` for
+multiline prompts.
 
 Example:
 ```yaml
@@ -72,7 +73,8 @@ instruction: |
 
 ### Markdown Card (`.md` / `.markdown`)
 A Markdown card is YAML frontmatter followed by an optional body. The body is treated
-as the system instruction unless `instruction` is provided in frontmatter.
+as the system instruction unless `instruction` is provided in frontmatter. `type`
+is optional and defaults to `agent`.
 UTF-8 BOM should be tolerated.
 
 Example:

@@ -36,6 +36,7 @@ class AgentApp:
         *,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
+        load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -50,6 +51,7 @@ class AgentApp:
         self._agents = agents
         self._reload_callback = reload_callback
         self._refresh_callback = refresh_callback
+        self._load_card_callback = load_card_callback
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
@@ -271,6 +273,16 @@ class AgentApp:
         """Return True if manual reload is available."""
         return self._reload_callback is not None
 
+    def can_load_agent_cards(self) -> bool:
+        """Return True if agent card loading is available."""
+        return self._load_card_callback is not None
+
+    async def load_agent_card(self, source: str) -> list[str]:
+        """Load an AgentCard source and refresh active instances when available."""
+        if not self._load_card_callback:
+            raise RuntimeError("Agent card loading is not available.")
+        return await self._load_card_callback(source)
+
     def set_agents(self, agents: dict[str, AgentProtocol]) -> None:
         """Replace the active agent map (used after reload)."""
         if not agents:
@@ -284,6 +296,12 @@ class AgentApp:
     def set_refresh_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
         """Update the refresh callback for lazy instance swaps."""
         self._refresh_callback = callback
+
+    def set_load_card_callback(
+        self, callback: Callable[[str], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for loading agent cards at runtime."""
+        self._load_card_callback = callback
 
     def agent_names(self) -> list[str]:
         """Return available agent names."""

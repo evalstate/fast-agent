@@ -1,3 +1,4 @@
+import json as json_module
 import time
 from typing import Any, Callable, Dict, List, Sequence
 
@@ -14,7 +15,7 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
-from fast_agent.interfaces import ToolRunnerHookCapable
+from fast_agent.interfaces import AgentProtocol, ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
@@ -75,6 +76,55 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     inputSchema=fast_tool.parameters,
                 )
             )
+
+    def add_tool(self, tool: FastMCPTool, *, replace: bool = True) -> None:
+        """Register a new execution tool and expose it to the LLM."""
+        name = tool.name
+        if not replace and name in self._execution_tools:
+            raise ValueError(f"Tool '{name}' already exists")
+
+        self._execution_tools[name] = tool
+        self._tool_schemas = [schema for schema in self._tool_schemas if schema.name != name]
+        self._tool_schemas.append(
+            Tool(
+                name=tool.name,
+                description=tool.description,
+                inputSchema=tool.parameters,
+            )
+        )
+
+    def add_agent_tool(
+        self,
+        child: AgentProtocol,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> str:
+        """Expose another agent as a tool on this agent."""
+        tool_name = name or f"agent__{child.name}"
+        if not description:
+            config = getattr(child, "config", None)
+            description = getattr(config, "description", None) or getattr(
+                child, "instruction", None
+            )
+        tool_description = description or f"Send a message to the {child.name} agent"
+
+        async def call_agent(text: str | None = None, json: dict | None = None) -> str:
+            if text is not None:
+                input_text = text
+            elif json is not None:
+                input_text = json_module.dumps(json, ensure_ascii=False)
+            else:
+                input_text = ""
+            return await child.send(input_text)
+
+        fast_tool = FastMCPTool.from_function(
+            call_agent,
+            name=tool_name,
+            description=tool_description,
+        )
+        self.add_tool(fast_tool)
+        return tool_name
 
     async def generate_impl(
         self,

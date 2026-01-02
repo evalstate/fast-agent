@@ -56,6 +56,7 @@ class AgentConfig:
 
     name: str
     instruction: str = DEFAULT_AGENT_INSTRUCTION
+    description: str | None = None
     servers: list[str] = field(default_factory=list)
     tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
     resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
