@@ -30,32 +30,26 @@ async def main():
     ...
 ```
 
-### AgentCard example
+### AgentCard example (agents_as_tools_extended)
 
+`PMO-orchestrator.md`
 ```md
 ---
 type: agent
 name: PMO-orchestrator
-servers:
-  - time
-  - github
-tools:
-  time: [get_time]
-  github: [search_*]
-function_tools:
-  - tools.py:local_summarize
-  - tools.py:local_redact
+default: true
 agents:
   - NY-Project-Manager
   - London-Project-Manager
 tool_hooks:
   - hooks.py:audit_hook
   - hooks.py:safety_guard
+history_mode: scratch
+max_parallel: 128
+child_timeout_sec: 120
+max_display_instances: 20
 ---
-Get reports. Always use one tool call per project/news.
-Responsibilities: NY projects: [OpenAI, Fast-Agent, Anthropic].
-London news: [Economics, Art, Culture].
-Aggregate results and add a one-line PMO summary.
+Get project updates from the New York and London project managers. Ask NY-Project-Manager three times about different projects: Anthropic, evalstate/fast-agent, and OpenAI, and London-Project-Manager for economics review. Return a brief, concise combined summary with clear city/time/topic labels.
 ```
 
 Notes:
@@ -185,6 +179,8 @@ Hooks can branch on `tool_source`, `server_name`, and `tool_name`.
 5) Examples + docs
 - Restore `examples/tool-hooks-declarative/mixed_tools_and_hooks.py`.
 - Add an AgentCard example mixing MCP + function_tools + hooks.
+- Extend `examples/workflows/agents_as_tools_extended.py` with hook usage.
+- Review `examples/workflows-md/hf-api-agent` before adding hook samples.
 - Update this spec and CLI README.
 
 ## Open question
@@ -214,5 +210,4 @@ async def main():
 
 - Function tools: `examples/new-api/simple_llm.py` and `examples/tool-use-agent/agent.py`
 - Tool runner hooks: `examples/tool-runner-hooks/tool_runner_hooks.py`
-- Agents-as-tools: `examples/workflows/agents_as_tools_simple.py` and
-  `examples/workflows/agents_as_tools_extended.py`
+- Agents-as-tools: `examples/workflows/agents_as_tools_extended.py`
