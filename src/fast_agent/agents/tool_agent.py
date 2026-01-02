@@ -52,6 +52,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
         self._execution_tools: dict[str, FastMCPTool] = {}
         self._tool_schemas: list[Tool] = []
+        self.tool_runner_hooks: ToolRunnerHooks | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
         working_tools: list[FastMCPTool | Callable] = list(tools) if tools else []
