@@ -83,7 +83,7 @@ fast-agent serve [OPTIONS]
 - `--instruction`, `-i TEXT`: Instruction for the agent (defaults to the standard FastAgent instruction)
 - `--config-path`, `-c TEXT`: Path to config file
 - `--servers TEXT`: Comma-separated list of server names to enable from config
-- `--agent-cards`, `--card TEXT`: Path or URL to an AgentCard file or directory (repeatable)
+- `--card`, `--agent-cards TEXT`: Path or URL to an AgentCard file or directory (repeatable)
 - `--url TEXT`: Comma-separated list of HTTP/SSE URLs to connect to
 - `--auth TEXT`: Bearer token for authorization with URL-based servers
 - `--model TEXT`: Override the default model (e.g., haiku, sonnet, gpt-4)
@@ -121,7 +121,7 @@ fast-agent serve --url=https://api.example.com/mcp --npx "@modelcontextprotocol/
 fast-agent serve --description "Interact with the {agent} workflow via MCP"
 
 # Load AgentCards from a file or directory
-fast-agent serve --agent-cards ./agents --transport=http
+fast-agent serve --card ./agents --transport=http
 
 # Use per-connection instances to isolate history between clients
 fast-agent serve --instance-scope=connection --transport=http
