@@ -226,6 +226,12 @@ Notes:
 - `history_merge_target=orchestrator`: merge back into the parent/orchestrator `message_history`.
 - `history_merge_target=cumulative`: merge back into the session-wide transcript (not yet implemented).
 
+MVP path:
+- `/card --tool` starts in **stateless** mode (`history_source=none`, `history_merge_target=none`),
+  i.e. fresh clone per call with no history load or merge.
+- Advanced history modes should be exercised first in the Agents-as-Tools workflow
+  before being applied to `/card --tool`.
+
 *) *Footnote:* there is no cumulative (session-wide merged) history store today;
 it would need to be designed and implemented as a separate feature.
 **) *Footnote:* writing merged history to a file-based `history_merge_target`
@@ -359,6 +365,8 @@ You are a concise analyst.
 - `/card --tool` exposes the loaded agent as a tool on the **current** agent.
 - Tool names default to `agent__{name}`.
 - Tool descriptions prefer `description`; fall back to the agent instruction.
+- Default behavior is **stateless**: fresh clone per call with no history load or merge
+  (`history_source=none`, `history_merge_target=none`).
 
 ### Example: export AgentCards from a Python workflow
 ```bash
