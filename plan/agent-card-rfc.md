@@ -215,9 +215,16 @@ Defaults (hange current behaviortto more clean):
 - `history_merge_target`: `none`
 
 Notes:
-- `history_source=none` means no forked history is loaded.
-- `history_merge_target=none` means no merge back occurs.
-- `history_source=messages` loads the fork base from an external history file.
+- `history_source=none`: no forked history is loaded (child starts empty).
+- `history_source=messages`: fork base is loaded from the `messages` history file.
+- `history_source=child`: fork base is the child template agent’s `message_history`.
+- `history_source=orchestrator`: fork base is the parent/orchestrator `message_history`.
+- `history_source=cumulative`: fork base is the session-wide merged transcript (not yet implemented).
+- `history_merge_target=none`: no merge back occurs.
+- `history_merge_target=messages`: merge back into the `messages` history file.
+- `history_merge_target=child`: merge back into the child template agent’s `message_history`.
+- `history_merge_target=orchestrator`: merge back into the parent/orchestrator `message_history`.
+- `history_merge_target=cumulative`: merge back into the session-wide transcript (not yet implemented).
 
 *) *Footnote:* there is no cumulative (session-wide merged) history store today;
 it would need to be designed and implemented as a separate feature.
