@@ -183,9 +183,8 @@ Hooks can branch on `tool_source`, `server_name`, and `tool_name`.
 - Integration: restore declarative hooks test and add AgentCard hook test.
 
 5) Examples + docs
-- Restore `examples/tool-hooks-declarative/mixed_tools_and_hooks.py`.
-- Add an AgentCard example mixing MCP + function_tools + hooks.
 - Extend `examples/workflows/agents_as_tools_extended.py` with hook usage.
+- Update `examples/workflows-md/agents_as_tools_extended` AgentCards to match.
 - Review `examples/workflows-md/hf-api-agent` before adding hook samples.
 - Update this spec and CLI README.
 
@@ -193,9 +192,6 @@ Hooks can branch on `tool_source`, `server_name`, and `tool_name`.
 - Do we want a strict signature check for hooks at load time?
 
 ## Examples (planned)
-
-Planned example file (from `feat/hook-tool-declarative`):
-- `examples/tool-hooks-declarative/mixed_tools_and_hooks.py`
 
 ### 1) Mixed MCP + function tools + agents + hooks
 
