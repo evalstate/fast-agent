@@ -273,6 +273,8 @@ You are a concise analyst.
 ## Loading API
 - `load_agents(path)` loads a file or a directory.
 - CLI: `fast-agent go --agent-cards <path>` loads cards before starting.
+- `--card` is a shorthand alias for `--agent-cards` and is intended for declarative
+  agent creation from the CLI.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
 - If a subsequent `load_agents(path)` call does not include a previously loaded agent
