@@ -16,7 +16,7 @@ from fast_agent.constants import (
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
-from fast_agent.interfaces import AgentProtocol, ToolRunnerHookCapable
+from fast_agent.interfaces import ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
