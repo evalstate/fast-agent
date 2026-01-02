@@ -52,7 +52,7 @@ def _create_enum_schema_options(data: dict[str, str]) -> list[TitledEnumOption]:
         [{"const": "dark", "title": "Dark Mode"}, {"const": "light", "title": "Light Mode"}]
     """
     options: list[TitledEnumOption] = [
-        cast(TitledEnumOption, {"const": k, "title": v}) for k, v in data.items()
+        cast("TitledEnumOption", {"const": k, "title": v}) for k, v in data.items()
     ]
     return options
 
