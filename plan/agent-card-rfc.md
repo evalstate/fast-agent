@@ -204,8 +204,11 @@ history lands**. This addresses the open questions from issue #202 about fork/me
 scope.
 
 ### Fields (AgentCard)
-- `history_source`: `none` | `child` | `orchestrator` | `cumulative` *) | `file://...`
-- `history_merge_target`: `none` | `child` | `orchestrator` | `cumulative` *) | `file://...` **)
+These fields are set on the **orchestrator** (parent) AgentCard because it
+controls child invocation and the initial context passed to child agents.
+
+- `history_source`: `none` | `child` | `orchestrator` | `cumulative` *) | `messages`
+- `history_merge_target`: `none` | `child` | `orchestrator` | `cumulative` *) | `messages` **)
 
 Defaults (hange current behaviortto more clean):
 - `history_source`: `none`
