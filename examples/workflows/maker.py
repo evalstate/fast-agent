@@ -60,6 +60,7 @@ Try modifying k (voting margin) and observe how it affects reliability vs cost.
 """
 
 import asyncio
+from typing import Any, cast
 
 from fast_agent import FastAgent
 
@@ -118,7 +119,7 @@ async def main():
         results = []
         for text in test_cases:
             result = await agent.reliable_classifier.send(text)
-            stats = agent.reliable_classifier.last_result
+            stats = cast("Any", agent.reliable_classifier).last_result
             results.append((text, result, stats))
 
         # Display all results together

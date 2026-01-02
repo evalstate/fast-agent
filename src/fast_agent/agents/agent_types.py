@@ -2,10 +2,11 @@
 Type definitions for agents and agent configurations.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum, auto
 from pathlib import Path
-from typing import TypeAlias
+from typing import Any, TypeAlias
 
 from mcp.client.session import ElicitationFnT
 
@@ -41,6 +42,13 @@ SkillConfig: TypeAlias = (
     | SkillsDefault
 )
 
+# Function tools can be:
+# - A callable (Python function)
+# - A string spec like "module.py:function_name" (for dynamic loading)
+FunctionToolConfig: TypeAlias = Callable[..., Any] | str
+
+FunctionToolsConfig: TypeAlias = list[FunctionToolConfig] | None
+
 
 @dataclass
 class AgentConfig:
@@ -48,6 +56,7 @@ class AgentConfig:
 
     name: str
     instruction: str = DEFAULT_AGENT_INSTRUCTION
+    description: str | None = None
     servers: list[str] = field(default_factory=list)
     tools: dict[str, list[str]] = field(default_factory=dict)  # filters for tools
     resources: dict[str, list[str]] = field(default_factory=dict)  # filters for resources
@@ -62,6 +71,7 @@ class AgentConfig:
     default: bool = False
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
+    function_tools: FunctionToolsConfig = None
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

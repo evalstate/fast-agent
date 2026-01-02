@@ -86,6 +86,19 @@ class LoadHistoryCommand(CommandBase):
     kind: Literal["load_history"] = "load_history"
 
 
+@dataclass(frozen=True, slots=True)
+class LoadAgentCardCommand(CommandBase):
+    filename: str | None
+    add_tool: bool
+    error: str | None
+    kind: Literal["load_agent_card"] = "load_agent_card"
+
+
+@dataclass(frozen=True, slots=True)
+class ReloadAgentsCommand(CommandBase):
+    kind: Literal["reload_agents"] = "reload_agents"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
@@ -101,6 +114,8 @@ CommandPayload = (
     | SwitchAgentCommand
     | SaveHistoryCommand
     | LoadHistoryCommand
+    | LoadAgentCardCommand
+    | ReloadAgentsCommand
 )
 
 

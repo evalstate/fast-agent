@@ -42,6 +42,12 @@ def serve(
     servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
     ),
+    agent_cards: list[str] | None = typer.Option(
+        None,
+        "--agent-cards",
+        "--card",
+        help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
     ),
@@ -113,6 +119,7 @@ def serve(
         fast-agent serve --stdio "python my_server.py --debug"
         fast-agent serve --npx "@modelcontextprotocol/server-filesystem /path/to/data"
         fast-agent serve --description "Interact with the {agent} assistant"
+        fast-agent serve --agent-cards ./agents --transport=http --port=8000
     """
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
@@ -124,6 +131,7 @@ def serve(
         instruction=resolved_instruction,
         config_path=config_path,
         servers=servers,
+        agent_cards=agent_cards,
         urls=urls,
         auth=auth,
         model=model,

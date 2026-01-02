@@ -168,6 +168,7 @@ class ConsoleDisplay:
         truncate_content: bool = True,
         additional_message: Text | None = None,
         pre_content: Text | Group | None = None,
+        render_markdown: bool | None = None,
     ) -> None:
         """
         Unified method to display formatted messages to the console.
@@ -184,6 +185,7 @@ class ConsoleDisplay:
             truncate_content: Whether to truncate long content
             additional_message: Optional Rich Text appended after the main content
             pre_content: Optional Rich Text shown before the main content
+            render_markdown: Force markdown rendering (True) or plain rendering (False)
         """
         # Get configuration for this message type
         config = MESSAGE_CONFIGS[message_type]
@@ -212,7 +214,12 @@ class ConsoleDisplay:
             else:
                 console.console.print(pre_content, markup=self._markup)
         self._display_content(
-            content, truncate_content, is_error, message_type, check_markdown_markers=False
+            content,
+            truncate_content,
+            is_error,
+            message_type,
+            check_markdown_markers=False,
+            render_markdown=render_markdown,
         )
         if additional_message:
             console.console.print(additional_message, markup=self._markup)
@@ -232,6 +239,7 @@ class ConsoleDisplay:
         is_error: bool = False,
         message_type: MessageType | None = None,
         check_markdown_markers: bool = False,
+        render_markdown: bool | None = None,
     ) -> None:
         """
         Display content in the appropriate format.
@@ -242,6 +250,7 @@ class ConsoleDisplay:
             is_error: Whether this is error content (affects styling)
             message_type: Type of message to determine appropriate styling
             check_markdown_markers: If True, only use markdown rendering when markers are present
+            render_markdown: If set, force markdown rendering (True) or plain rendering (False)
         """
         import json
         import re
@@ -263,6 +272,36 @@ class ConsoleDisplay:
 
         # Handle different content types
         if isinstance(content, str):
+            if render_markdown is not None:
+                try:
+                    json_obj = json.loads(content)
+                    if truncate and self.config and self.config.logger.truncate_tools:
+                        pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
+                    else:
+                        pretty_obj = Pretty(json_obj)
+                    if style:
+                        console.console.print(pretty_obj, style=style, markup=self._markup)
+                    else:
+                        console.console.print(pretty_obj, markup=self._markup)
+                    return
+                except (JSONDecodeError, TypeError, ValueError):
+                    if render_markdown:
+                        prepared_content = prepare_markdown_content(content, self._escape_xml)
+                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                        console.console.print(md, markup=self._markup)
+                    else:
+                        if (
+                            truncate
+                            and self.config
+                            and self.config.logger.truncate_tools
+                            and len(content) > 360
+                        ):
+                            content = content[:360] + "..."
+                        if style:
+                            console.console.print(content, style=style, markup=self._markup)
+                        else:
+                            console.console.print(content, markup=self._markup)
+                    return
             # Try to detect and handle different string formats
             try:
                 # Try as JSON first
@@ -338,6 +377,27 @@ class ConsoleDisplay:
                         else:
                             console.console.print(content, markup=self._markup)
         elif isinstance(content, Text):
+            if render_markdown is not None:
+                plain_text = content.plain
+                try:
+                    json_obj = json.loads(plain_text)
+                    if truncate and self.config and self.config.logger.truncate_tools:
+                        pretty_obj = Pretty(json_obj, max_length=10, max_string=50)
+                    else:
+                        pretty_obj = Pretty(json_obj)
+                    if style:
+                        console.console.print(pretty_obj, style=style, markup=self._markup)
+                    else:
+                        console.console.print(pretty_obj, markup=self._markup)
+                    return
+                except (JSONDecodeError, TypeError, ValueError):
+                    if render_markdown:
+                        prepared_content = prepare_markdown_content(plain_text, self._escape_xml)
+                        md = Markdown(prepared_content, code_theme=CODE_STYLE)
+                        console.console.print(md, markup=self._markup)
+                    else:
+                        console.console.print(content, markup=self._markup)
+                    return
             # Rich Text object - check if it contains markdown
             plain_text = content.plain
 
@@ -706,6 +766,7 @@ class ConsoleDisplay:
         name: str | None = None,
         model: str | None = None,
         additional_message: Text | None = None,
+        render_markdown: bool | None = None,
     ) -> None:
         """Display an assistant message in a formatted panel.
 
@@ -718,6 +779,7 @@ class ConsoleDisplay:
             name: Optional agent name
             model: Optional model name for right info
             additional_message: Optional additional styled message to append
+            render_markdown: Force markdown rendering (True) or plain rendering (False)
         """
         if self.config and not self.config.logger.show_chat:
             return
@@ -748,6 +810,7 @@ class ConsoleDisplay:
             truncate_content=False,  # Assistant messages shouldn't be truncated
             additional_message=additional_message,
             pre_content=pre_content,
+            render_markdown=render_markdown,
         )
 
         # Handle mermaid diagrams separately (after the main message)

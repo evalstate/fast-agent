@@ -146,6 +146,51 @@ def test_get_completions_for_load_shortcut():
             os.chdir(original_cwd)
 
 
+def test_complete_agent_card_files_finds_md_and_yaml():
+    """Test that _complete_agent_card_files finds AgentCard files."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "agent.md").touch()
+        (Path(tmpdir) / "agent.yaml").touch()
+        (Path(tmpdir) / "agent.yml").touch()
+        (Path(tmpdir) / "agent.txt").touch()
+
+        completer = AgentCompleter(agents=["agent1"])
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+
+            completions = list(completer._complete_agent_card_files(""))
+            names = [c.text for c in completions]
+
+            assert "agent.md" in names
+            assert "agent.yaml" in names
+            assert "agent.yml" in names
+            assert "agent.txt" not in names
+        finally:
+            os.chdir(original_cwd)
+
+
+def test_get_completions_for_card_command():
+    """Test get_completions provides file completions after /card."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        (Path(tmpdir) / "agent.md").touch()
+
+        completer = AgentCompleter(agents=["agent1"])
+
+        original_cwd = os.getcwd()
+        try:
+            os.chdir(tmpdir)
+
+            doc = Document("/card ", cursor_position=6)
+            completions = list(completer.get_completions(doc, None))
+            names = [c.text for c in completions]
+
+            assert "agent.md" in names
+        finally:
+            os.chdir(original_cwd)
+
+
 def test_get_completions_skips_hidden_files():
     """Test that hidden files are not included in completions."""
     with tempfile.TemporaryDirectory() as tmpdir:

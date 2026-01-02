@@ -23,6 +23,10 @@ GO_SPECIFIC_OPTIONS = {
     "-x",
     "--skills",
     "--skills-dir",
+    "--agent-cards",
+    "--card",
+    "--watch",
+    "--reload",
 }
 
 # Known subcommands that should not trigger auto-routing

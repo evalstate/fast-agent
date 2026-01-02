@@ -53,7 +53,9 @@ from fast_agent.ui.command_payloads import (
     ListPromptsCommand,
     ListSkillsCommand,
     ListToolsCommand,
+    LoadAgentCardCommand,
     LoadHistoryCommand,
+    ReloadAgentsCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
     ShowHistoryCommand,
@@ -346,6 +348,105 @@ class InteractivePrompt:
                                 rich_print(f"[red]File not found: {filename}[/red]")
                             except Exception as e:
                                 rich_print(f"[red]Error loading history: {e}[/red]")
+                            continue
+                        case LoadAgentCardCommand(
+                            filename=filename, add_tool=add_tool, error=error
+                        ):
+                            if error:
+                                rich_print(f"[red]{error}[/red]")
+                                continue
+
+                            if filename is None:
+                                rich_print("[red]Filename required for /card[/red]")
+                                continue
+
+                            if not prompt_provider.can_load_agent_cards():
+                                rich_print(
+                                    "[yellow]AgentCard loading is not available in this session.[/yellow]"
+                                )
+                                continue
+
+                            try:
+                                loaded_names = await prompt_provider.load_agent_card(
+                                    filename
+                                )
+                            except Exception as exc:
+                                rich_print(f"[red]AgentCard load failed: {exc}[/red]")
+                                continue
+
+                            available_agents = list(prompt_provider.agent_names())
+                            available_agents_set = set(available_agents)
+                            self.agent_types = prompt_provider.agent_types()
+
+                            if agent not in available_agents_set:
+                                if available_agents:
+                                    agent = available_agents[0]
+                                else:
+                                    rich_print("[red]No agents available after load.[/red]")
+                                    return result
+
+                            if not loaded_names:
+                                rich_print("[green]AgentCard loaded.[/green]")
+                            else:
+                                name_list = ", ".join(loaded_names)
+                                rich_print(f"[green]Loaded AgentCard(s): {name_list}[/green]")
+
+                            if add_tool:
+                                parent = prompt_provider._agent(agent)
+                                add_tool_fn = getattr(parent, "add_agent_tool", None)
+                                if not callable(add_tool_fn):
+                                    rich_print(
+                                        "[yellow]Current agent does not support tool injection.[/yellow]"
+                                    )
+                                    continue
+
+                                added_tools: list[str] = []
+                                for child_name in loaded_names:
+                                    try:
+                                        child = prompt_provider._agent(child_name)
+                                    except Exception:
+                                        continue
+                                    tool_name = add_tool_fn(child)
+                                    added_tools.append(tool_name)
+
+                                if added_tools:
+                                    tool_list = ", ".join(added_tools)
+                                    rich_print(
+                                        f"[green]Added tool(s): {tool_list}[/green]"
+                                    )
+                            continue
+                        case ReloadAgentsCommand():
+                            if not prompt_provider.can_reload_agents():
+                                rich_print(
+                                    "[yellow]Reload is not available in this session.[/yellow]"
+                                )
+                                continue
+
+                            reloadable = prompt_provider.reload_agents
+                            try:
+                                changed = await reloadable()
+                            except Exception as exc:
+                                rich_print(f"[red]Reload failed: {exc}[/red]")
+                                continue
+
+                            if not changed:
+                                rich_print("[dim]No AgentCard changes detected.[/dim]")
+                                continue
+
+                            available_agents = list(prompt_provider.agent_names())
+                            available_agents_set = set(available_agents)
+                            self.agent_types = prompt_provider.agent_types()
+
+                            if agent not in available_agents_set:
+                                if available_agents:
+                                    agent = available_agents[0]
+                                else:
+                                    rich_print(
+                                        "[red]No agents available after reload.[/red]"
+                                    )
+                                    return result
+
+                            rich_print("[green]AgentCards reloaded.[/green]")
                             continue
                         case _:
                             pass

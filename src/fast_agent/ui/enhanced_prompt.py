@@ -33,7 +33,9 @@ from fast_agent.ui.command_payloads import (
     ClearCommand,
     CommandPayload,
     ListToolsCommand,
+    LoadAgentCardCommand,
     LoadHistoryCommand,
+    ReloadAgentsCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
     ShowHistoryCommand,
@@ -108,6 +110,16 @@ def _save_history_cmd(filename: str | None) -> SaveHistoryCommand:
 
 def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCommand:
     return LoadHistoryCommand(filename=filename, error=error)
+
+
+def _load_agent_card_cmd(
+    filename: str | None, add_tool: bool, error: str | None
+) -> LoadAgentCardCommand:
+    return LoadAgentCardCommand(filename=filename, add_tool=add_tool, error=error)
+
+
+def _reload_agents_cmd() -> ReloadAgentsCommand:
+    return ReloadAgentsCommand()
 
 
 def _select_prompt_cmd(
@@ -441,6 +453,8 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "load_history": "Load history from a file",
+            "card": "Load an AgentCard (add --tool to expose as tool)",
+            "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
             "STOP": "Stop this prompting session and move to next workflow step",
@@ -512,6 +526,56 @@ class AgentCompleter(Completer):
         except PermissionError:
             pass  # Skip directories we can't read
 
+    def _complete_agent_card_files(self, partial: str):
+        """Generate completions for AgentCard files (.md/.markdown/.yaml/.yml)."""
+        from pathlib import Path
+
+        if partial:
+            partial_path = Path(partial)
+            if partial.endswith("/") or partial.endswith(os.sep):
+                search_dir = partial_path
+                prefix = ""
+            else:
+                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                prefix = partial_path.name
+        else:
+            search_dir = Path(".")
+            prefix = ""
+
+        if not search_dir.exists():
+            return
+
+        card_extensions = {".md", ".markdown", ".yaml", ".yml"}
+        try:
+            for entry in sorted(search_dir.iterdir()):
+                name = entry.name
+                if name.startswith("."):
+                    continue
+                if not name.lower().startswith(prefix.lower()):
+                    continue
+
+                if search_dir == Path("."):
+                    completion_text = name
+                else:
+                    completion_text = str(search_dir / name)
+
+                if entry.is_dir():
+                    yield Completion(
+                        completion_text + "/",
+                        start_position=-len(partial),
+                        display=name + "/",
+                        display_meta="directory",
+                    )
+                elif entry.is_file() and entry.suffix.lower() in card_extensions:
+                    yield Completion(
+                        completion_text,
+                        start_position=-len(partial),
+                        display=name,
+                        display_meta="AgentCard",
+                    )
+        except PermissionError:
+            pass  # Skip directories we can't read
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
@@ -526,6 +590,11 @@ class AgentCompleter(Completer):
                 partial = text[len("/load "):]
 
             yield from self._complete_history_files(partial)
+            return
+
+        if text_lower.startswith("/card "):
+            partial = text[len("/card "):]
+            yield from self._complete_agent_card_files(partial)
             return
 
         # Complete commands
@@ -807,6 +876,27 @@ def parse_special_input(text: str) -> str | CommandPayload:
             if not filename:
                 return _load_history_cmd(None, "Filename required for load_history")
             return _load_history_cmd(filename, None)
+        if cmd == "card":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _load_agent_card_cmd(None, False, "Filename required for /card")
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError as exc:
+                return _load_agent_card_cmd(None, False, f"Invalid arguments: {exc}")
+            add_tool = False
+            filename = None
+            for token in tokens:
+                if token in {"tool", "--tool", "--as-tool", "-t"}:
+                    add_tool = True
+                    continue
+                if filename is None:
+                    filename = token
+            if not filename:
+                return _load_agent_card_cmd(None, add_tool, "Filename required for /card")
+            return _load_agent_card_cmd(filename, add_tool, None)
+        if cmd == "reload":
+            return _reload_agents_cmd()
         if cmd in ("mcpstatus", "mcp"):
             return _show_mcp_status_cmd()
         if cmd == "prompt":
@@ -1415,6 +1505,8 @@ async def handle_special_commands(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
         rich_print("  /load_history <filename> - Load chat history from a file")
+        rich_print("  /card <filename> [--tool] - Load an AgentCard")
+        rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")

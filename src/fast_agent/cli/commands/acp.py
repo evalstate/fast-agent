@@ -39,6 +39,12 @@ def run_acp(
     servers: str | None = typer.Option(
         None, "--servers", help="Comma-separated list of server names to enable from config"
     ),
+    agent_cards: list[str] | None = typer.Option(
+        None,
+        "--agent-cards",
+        "--card",
+        help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
     ),
@@ -112,6 +118,7 @@ def run_acp(
         instruction=resolved_instruction,
         config_path=config_path,
         servers=servers,
+        agent_cards=agent_cards,
         urls=urls,
         auth=auth,
         model=model,

@@ -48,6 +48,7 @@ class StubAgent:
         name: str | None = None,
         model: str | None = None,
         additional_message: Text | None = None,
+        render_markdown: bool | None = None,
     ) -> None:
         """Stub implementation with correct signature."""
         pass

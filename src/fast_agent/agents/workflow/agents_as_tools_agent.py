@@ -340,6 +340,13 @@ class AgentsAsToolsAgent(McpAgent):
             if tool_name in existing_names:
                 continue
 
+            description = None
+            config = getattr(agent, "config", None)
+            if config is not None:
+                description = getattr(config, "description", None)
+            if not description:
+                description = agent.instruction
+
             input_schema: dict[str, Any] = {
                 "type": "object",
                 "properties": {
@@ -351,7 +358,7 @@ class AgentsAsToolsAgent(McpAgent):
             tools.append(
                 Tool(
                     name=tool_name,
-                    description=agent.instruction,
+                    description=description,
                     inputSchema=input_schema,
                 )
             )

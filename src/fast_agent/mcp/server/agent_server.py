@@ -50,12 +50,18 @@ class AgentMCPServer:
         server_name: str = "FastAgent-MCP-Server",
         server_description: str | None = None,
         tool_description: str | None = None,
+        get_registry_version: Callable[[], int] | None = None,
     ) -> None:
         """Initialize the server with the provided agent app."""
         self.primary_instance = primary_instance
         self._create_instance_task = create_instance
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
+        self._get_registry_version = get_registry_version
+        self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
+        self._shared_instance_lock = asyncio.Lock()
+        self._shared_active_requests = 0
+        self._stale_instances: list[AgentInstance] = []
         self.mcp_server: FastMCP = FastMCP(
             name=server_name,
             instructions=server_description
@@ -66,6 +72,7 @@ class AgentMCPServer:
             self.mcp_server.settings.stateless_http = True
         self._tool_description = tool_description
         self._shared_instance_active = True
+        self._registered_agents: set[str] = set(primary_instance.agents.keys())
         # Shutdown coordination
         self._graceful_shutdown_event = asyncio.Event()
         self._force_shutdown_event = asyncio.Event()
@@ -103,6 +110,7 @@ class AgentMCPServer:
 
     def register_agent_tools(self, agent_name: str) -> None:
         """Register tools for a specific agent."""
+        self._registered_agents.add(agent_name)
 
         # Basic send message tool
         tool_description = (
@@ -111,9 +119,17 @@ class AgentMCPServer:
             else self._tool_description
         )
 
+        agent = self.primary_instance.agents.get(agent_name)
+        agent_description = None
+        if agent is not None:
+            config = getattr(agent, "config", None)
+            agent_description = getattr(config, "description", None)
+
         @self.mcp_server.tool(
             name=f"{agent_name}_send",
-            description=tool_description or f"Send a message to the {agent_name} agent",
+            description=tool_description
+            or agent_description
+            or f"Send a message to the {agent_name} agent",
             structured_output=False,
             # MCP 1.10.1 turns every tool in to a structured output
         )
@@ -187,6 +203,8 @@ class AgentMCPServer:
 
     async def _acquire_instance(self, ctx: MCPContext | None) -> AgentInstance:
         if self._instance_scope == "shared":
+            await self._maybe_refresh_shared_instance()
+            self._shared_active_requests += 1
             return self.primary_instance
 
         if self._instance_scope == "request":
@@ -210,7 +228,11 @@ class AgentMCPServer:
         *,
         reuse_connection: bool = False,
     ) -> None:
-        if self._instance_scope == "request":
+        if self._instance_scope == "shared":
+            if self._shared_active_requests > 0:
+                self._shared_active_requests -= 1
+            await self._dispose_stale_instances_if_idle()
+        elif self._instance_scope == "request":
             await self._dispose_instance_task(instance)
         elif self._instance_scope == "connection" and reuse_connection is False:
             # Connection-scoped instances persist until session cleanup
@@ -239,12 +261,54 @@ class AgentMCPServer:
             return request.headers.get("mcp-session-id")
         return None
 
+    async def _maybe_refresh_shared_instance(self) -> None:
+        if not self._get_registry_version:
+            return
+        latest_version = self._get_registry_version()
+        if latest_version <= self._primary_registry_version:
+            return
+
+        async with self._shared_instance_lock:
+            latest_version = self._get_registry_version()
+            if latest_version <= self._primary_registry_version:
+                return
+
+            new_instance = await self._create_instance_task()
+            old_instance = self.primary_instance
+            self.primary_instance = new_instance
+            self._primary_registry_version = getattr(new_instance, "registry_version", latest_version)
+            self._stale_instances.append(old_instance)
+
+            new_agents = set(new_instance.agents.keys())
+            missing = new_agents - self._registered_agents
+            for agent_name in sorted(missing):
+                self.register_agent_tools(agent_name)
+
+    async def _dispose_stale_instances_if_idle(self) -> None:
+        if self._shared_active_requests:
+            return
+        if not self._stale_instances:
+            return
+
+        stale = list(self._stale_instances)
+        self._stale_instances.clear()
+        for instance in stale:
+            await self._dispose_instance_task(instance)
+
     async def _dispose_primary_instance(self) -> None:
         if self._shared_instance_active:
             try:
                 await self._dispose_instance_task(self.primary_instance)
             finally:
                 self._shared_instance_active = False
+
+    async def _dispose_all_stale_instances(self) -> None:
+        if not self._stale_instances:
+            return
+        stale = list(self._stale_instances)
+        self._stale_instances.clear()
+        for instance in stale:
+            await self._dispose_instance_task(instance)
 
     async def _dispose_all_connection_instances(self) -> None:
         pending_cleanups = list(self._connection_cleanup_tasks.values())
@@ -589,6 +653,7 @@ class AgentMCPServer:
         logger.info("Performing minimal STDIO cleanup")
 
         await self._dispose_primary_instance()
+        await self._dispose_all_stale_instances()
         await self._dispose_all_connection_instances()
 
         logger.info("STDIO cleanup complete")
@@ -616,6 +681,7 @@ class AgentMCPServer:
 
             # Dispose shared instance if still active
             await self._dispose_primary_instance()
+            await self._dispose_all_stale_instances()
         except Exception as e:
             # Log any errors but don't let them prevent shutdown
             logger.error(f"Error during shutdown: {e}", exc_info=True)

@@ -207,6 +207,41 @@ class FastAgent:
                 "--skills",
                 help="Path to skills directory to use instead of default skills directories",
             )
+            parser.add_argument(
+                "--dump",
+                "--dump-agents",
+                dest="dump_agents",
+                help="Export all loaded agents as Markdown AgentCards into a directory",
+            )
+            parser.add_argument(
+                "--dump-yaml",
+                "--dump-agents-yaml",
+                dest="dump_agents_yaml",
+                help="Export all loaded agents as YAML AgentCards into a directory",
+            )
+            parser.add_argument(
+                "--dump-agent",
+                help="Export a single agent by name",
+            )
+            parser.add_argument(
+                "--dump-agent-path",
+                help="Output file path for --dump-agent",
+            )
+            parser.add_argument(
+                "--dump-agent-yaml",
+                action="store_true",
+                help="Export a single agent as YAML (default: Markdown)",
+            )
+            parser.add_argument(
+                "--reload",
+                action="store_true",
+                help="Enable manual AgentCard reloads (/reload)",
+            )
+            parser.add_argument(
+                "--watch",
+                action="store_true",
+                help="Watch AgentCard paths and reload when files change",
+            )
 
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -309,6 +344,16 @@ class FastAgent:
 
         # Dictionary to store agent configurations from decorators
         self.agents: dict[str, dict[str, Any]] = {}
+        # Tracking for AgentCard-loaded agents
+        self._agent_card_sources: dict[str, Path] = {}
+        self._agent_card_roots: dict[Path, set[str]] = {}
+        self._agent_card_root_files: dict[Path, set[Path]] = {}
+        self._agent_card_file_cache: dict[Path, tuple[int, int]] = {}
+        self._agent_card_name_by_path: dict[Path, str] = {}
+        self._agent_card_histories: dict[str, list[Path]] = {}
+        self._agent_registry_version: int = 0
+        self._agent_card_watch_task: asyncio.Task[None] | None = None
+        self._agent_card_reload_lock: asyncio.Lock | None = None
 
     @staticmethod
     def _normalize_skill_directories(
@@ -347,6 +392,255 @@ class FastAgent:
     def context(self) -> Context:
         """Access the application context"""
         return self.app.context
+
+    def load_agents(self, path: str | Path) -> list[str]:
+        """
+        Load AgentCards from a file or directory and register them as agents.
+
+        Loading is idempotent for the provided path: any previously loaded agents
+        from the same path that are no longer present are removed.
+
+        Returns:
+            Sorted list of agent names loaded from the provided path.
+        """
+        root = Path(path).expanduser().resolve()
+        changed = self._load_agent_cards_from_root(root, incremental=False)
+        if changed:
+            self._agent_registry_version += 1
+        return sorted(self._agent_card_roots.get(root, set()))
+
+    def load_agents_from_url(self, url: str) -> list[str]:
+        """Load an AgentCard from a URL (markdown or YAML)."""
+        import tempfile
+
+        from fast_agent.core.agent_card_loader import load_agent_cards
+        from fast_agent.core.direct_decorators import _fetch_url_content
+
+        content = _fetch_url_content(url)
+
+        # Determine extension from URL
+        suffix = ".md"
+        url_lower = url.lower()
+        if url_lower.endswith((".yaml", ".yml")):
+            suffix = ".yaml"
+        elif url_lower.endswith((".md", ".markdown")):
+            suffix = ".md"
+
+        # Write to temp file and parse
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=suffix, delete=False, encoding="utf-8"
+        ) as f:
+            f.write(content)
+            temp_path = Path(f.name)
+
+        try:
+            cards = load_agent_cards(temp_path)
+            loaded_names = [card.name for card in cards]
+            for card in cards:
+                # Check for conflicts
+                if card.name in self.agents and card.name not in self._agent_card_sources:
+                    raise AgentConfigError(
+                        f"Agent '{card.name}' already exists and is not from AgentCard",
+                        f"URL: {url}",
+                    )
+                # Register the agent
+                self.agents[card.name] = card.agent_data
+                # Note: URL-loaded cards don't track source path (no reload support)
+                if card.message_files:
+                    self._agent_card_histories[card.name] = card.message_files
+            # Apply skills
+            if cards:
+                self._apply_skills_to_agent_configs(self._default_skill_manifests)
+                self._agent_registry_version += 1
+            return loaded_names
+        finally:
+            temp_path.unlink(missing_ok=True)
+
+    async def reload_agents(self) -> bool:
+        """Reload all previously registered AgentCard roots."""
+        if not self._agent_card_roots:
+            return False
+
+        if self._agent_card_reload_lock is None:
+            self._agent_card_reload_lock = asyncio.Lock()
+
+        async with self._agent_card_reload_lock:
+            changed = False
+            for root in sorted(self._agent_card_roots.keys()):
+                if self._load_agent_cards_from_root(root, incremental=True):
+                    changed = True
+
+            if changed:
+                self._agent_registry_version += 1
+            return changed
+
+    def _load_agent_cards_from_root(self, root: Path, *, incremental: bool) -> bool:
+        from fast_agent.core.agent_card_loader import load_agent_cards
+
+        if not root.exists():
+            if incremental:
+                current_files: set[Path] = set()
+            else:
+                raise AgentConfigError(f"AgentCard path not found: {root}")
+        else:
+            current_files = self._collect_agent_card_files(root)
+
+        previous_files = self._agent_card_root_files.get(root, set())
+        removed_files = previous_files - current_files
+
+        current_stats: dict[Path, tuple[int, int]] = {}
+        for path_entry in list(current_files):
+            try:
+                stat = path_entry.stat()
+            except FileNotFoundError:
+                current_files.discard(path_entry)
+                continue
+            current_stats[path_entry] = (stat.st_mtime_ns, stat.st_size)
+
+        if incremental:
+            changed_files = {
+                path_entry
+                for path_entry, signature in current_stats.items()
+                if self._agent_card_file_cache.get(path_entry) != signature
+            }
+        else:
+            changed_files = set(current_stats.keys())
+
+        cards: list[Any] = []
+        for path_entry in sorted(changed_files):
+            cards.extend(load_agent_cards(path_entry))
+
+        self._apply_agent_card_updates(
+            root,
+            current_files=current_files,
+            removed_files=removed_files,
+            changed_cards=cards,
+            current_stats=current_stats,
+        )
+
+        return bool(removed_files or changed_files)
+
+    @staticmethod
+    def _agent_card_extensions() -> set[str]:
+        return {".md", ".markdown", ".yaml", ".yml"}
+
+    def _collect_agent_card_files(self, root: Path) -> set[Path]:
+        if root.is_dir():
+            extensions = self._agent_card_extensions()
+            return {
+                entry
+                for entry in root.iterdir()
+                if entry.is_file() and entry.suffix.lower() in extensions
+            }
+
+        if root.suffix.lower() not in self._agent_card_extensions():
+            raise AgentConfigError(f"Unsupported AgentCard file extension: {root}")
+        return {root}
+
+    def _apply_agent_card_updates(
+        self,
+        root: Path,
+        *,
+        current_files: set[Path],
+        removed_files: set[Path],
+        changed_cards: list[Any],
+        current_stats: dict[Path, tuple[int, int]],
+    ) -> None:
+        removed_names = {
+            self._agent_card_name_by_path[path]
+            for path in removed_files
+            if path in self._agent_card_name_by_path
+        }
+
+        new_names_by_path: dict[Path, str] = {}
+        seen_names: dict[str, Path] = {}
+        for card in changed_cards:
+            if not hasattr(card, "name") or not hasattr(card, "path"):
+                raise AgentConfigError("Invalid AgentCard payload during reload")
+            if card.name in seen_names:
+                raise AgentConfigError(
+                    f"Duplicate agent name '{card.name}' during reload",
+                    f"Conflicts: {seen_names[card.name]} and {card.path}",
+                )
+            seen_names[card.name] = card.path
+            new_names_by_path[card.path] = card.name
+
+            existing_source = self._agent_card_sources.get(card.name)
+            if card.name in self.agents and existing_source is None:
+                raise AgentConfigError(
+                    f"Agent '{card.name}' already exists and is not loaded from AgentCard",
+                    f"Path: {root}",
+                )
+            if existing_source is not None and existing_source != card.path:
+                if existing_source in removed_files:
+                    continue
+                raise AgentConfigError(
+                    f"Agent '{card.name}' already loaded from {existing_source}",
+                    f"Path: {card.path}",
+                )
+
+            previous_name = self._agent_card_name_by_path.get(card.path)
+            if previous_name and previous_name != card.name:
+                removed_names.add(previous_name)
+
+        for name in sorted(removed_names):
+            self.agents.pop(name, None)
+            self._agent_card_sources.pop(name, None)
+            self._agent_card_histories.pop(name, None)
+
+        for path_entry in removed_files:
+            self._agent_card_name_by_path.pop(path_entry, None)
+            self._agent_card_file_cache.pop(path_entry, None)
+
+        for card in changed_cards:
+            self.agents[card.name] = card.agent_data
+
+            self._agent_card_sources[card.name] = card.path
+            self._agent_card_name_by_path[card.path] = card.name
+
+            if card.message_files:
+                self._agent_card_histories[card.name] = card.message_files
+            else:
+                self._agent_card_histories.pop(card.name, None)
+
+        for path_entry, signature in current_stats.items():
+            self._agent_card_file_cache[path_entry] = signature
+
+        self._agent_card_root_files[root] = set(current_files)
+        self._agent_card_roots[root] = {
+            self._agent_card_name_by_path[path_entry]
+            for path_entry in current_files
+            if path_entry in self._agent_card_name_by_path
+        }
+
+        if changed_cards or removed_files:
+            self._apply_skills_to_agent_configs(self._default_skill_manifests)
+
+    def _get_registry_version(self) -> int:
+        return self._agent_registry_version
+
+    async def _watch_agent_cards(self) -> None:
+        roots = sorted(self._agent_card_roots.keys())
+        if not roots:
+            return
+
+        try:
+            from watchfiles import awatch  # type: ignore[import-not-found]
+
+            async for _changes in awatch(*roots):
+                await self.reload_agents()
+        except ImportError:
+            logger.info(
+                "watchfiles not available; falling back to polling for AgentCard reloads"
+            )
+            try:
+                while True:
+                    await asyncio.sleep(1.0)
+                    await self.reload_agents()
+            except asyncio.CancelledError:
+                return
+        except asyncio.CancelledError:
+            return
 
     # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
@@ -625,6 +919,7 @@ class FastAgent:
                         )
                     validate_server_references(self.context, self.agents)
                     validate_workflow_references(self.agents)
+                    self._handle_dump_requests()
 
                     # Get a model factory function
                     # Now cli_model_override is guaranteed to be defined
@@ -661,7 +956,9 @@ class FastAgent:
                         if context_variables:
                             global_prompt_context = context_variables
 
-                    async def instantiate_agent_instance() -> AgentInstance:
+                    async def instantiate_agent_instance(
+                        app_override: AgentApp | None = None,
+                    ) -> AgentInstance:
                         async with instance_lock:
                             agents_map = await create_agents_in_dependency_order(
                                 self.app,
@@ -669,8 +966,18 @@ class FastAgent:
                                 model_factory_func,
                             )
                             validate_provider_keys_post_creation(agents_map)
-                            instance = AgentInstance(AgentApp(agents_map), agents_map)
+                            if app_override is None:
+                                app = AgentApp(agents_map)
+                            else:
+                                app_override.set_agents(agents_map)
+                                app = app_override
+                            instance = AgentInstance(
+                                app,
+                                agents_map,
+                                registry_version=self._agent_registry_version,
+                            )
                             managed_instances.append(instance)
+                            self._apply_agent_card_histories(instance.agents)
                             if global_prompt_context:
                                 self._apply_instruction_context(instance, global_prompt_context)
                             return instance
@@ -684,6 +991,52 @@ class FastAgent:
                     primary_instance = await instantiate_agent_instance()
                     wrapper = primary_instance.app
                     active_agents = primary_instance.agents
+
+                    async def refresh_shared_instance() -> bool:
+                        nonlocal primary_instance, active_agents
+                        if self._agent_registry_version <= primary_instance.registry_version:
+                            return False
+
+                        new_instance = await instantiate_agent_instance(app_override=wrapper)
+                        old_instance = primary_instance
+                        primary_instance = new_instance
+                        active_agents = new_instance.agents
+                        await dispose_agent_instance(old_instance)
+                        return True
+
+                    async def reload_and_refresh() -> bool:
+                        changed = await self.reload_agents()
+                        if not changed:
+                            return False
+                        return await refresh_shared_instance()
+
+                    async def load_card_and_refresh(source: str) -> list[str]:
+                        if source.startswith(("http://", "https://")):
+                            loaded_names = self.load_agents_from_url(source)
+                        else:
+                            loaded_names = self.load_agents(source)
+                        await refresh_shared_instance()
+                        return loaded_names
+
+                    async def load_card_source(source: str) -> list[str]:
+                        if source.startswith(("http://", "https://")):
+                            return self.load_agents_from_url(source)
+                        return self.load_agents(source)
+
+                    reload_enabled = bool(
+                        getattr(self.args, "reload", False)
+                        or getattr(self.args, "watch", False)
+                    )
+                    wrapper.set_reload_callback(reload_and_refresh if reload_enabled else None)
+                    wrapper.set_refresh_callback(
+                        refresh_shared_instance if reload_enabled else None
+                    )
+                    wrapper.set_load_card_callback(load_card_and_refresh)
+
+                    if getattr(self.args, "watch", False) and self._agent_card_roots:
+                        self._agent_card_watch_task = asyncio.create_task(
+                            self._watch_agent_cards()
+                        )
 
                     self._server_instance_factory = instantiate_agent_instance
                     self._server_instance_dispose = dispose_agent_instance
@@ -747,8 +1100,10 @@ class FastAgent:
                                     dispose_instance=self._server_instance_dispose,
                                     instance_scope=instance_scope,
                                     server_name=server_name or f"{self.name}",
+                                    get_registry_version=self._get_registry_version,
                                     skills_directory_override=skills_override,
                                     permissions_enabled=permissions_enabled,
+                                    load_card_callback=load_card_source,
                                 )
 
                                 # Run the ACP server (this is a blocking call)
@@ -769,6 +1124,7 @@ class FastAgent:
                                     server_name=server_name or f"{self.name}-MCP-Server",
                                     server_description=server_description,
                                     tool_description=tool_description,
+                                    get_registry_version=self._get_registry_version,
                                 )
 
                                 # Run the server directly (this is a blocking call)
@@ -875,6 +1231,14 @@ class FastAgent:
                 except:  # noqa: E722
                     pass
 
+                if self._agent_card_watch_task is not None:
+                    self._agent_card_watch_task.cancel()
+                    try:
+                        await self._agent_card_watch_task
+                    except asyncio.CancelledError:
+                        pass
+                    self._agent_card_watch_task = None
+
                 # Print usage report before cleanup (show for user exits too)
                 if (
                     getattr(self, "_server_managed_instances", None)
@@ -926,6 +1290,86 @@ class FastAgent:
 
             # Use set_instruction() which handles syncing request_params and LLM
             agent.set_instruction(resolved)
+
+    def _apply_agent_card_histories(self, agents: dict[str, "AgentProtocol"]) -> None:
+        if not self._agent_card_histories:
+            return
+        for name, history_files in self._agent_card_histories.items():
+            agent = agents.get(name)
+            if agent is None:
+                continue
+            messages: list[PromptMessageExtended] = []
+            for history_file in history_files:
+                messages.extend(load_prompt(history_file))
+            agent.clear(clear_prompts=True)
+            agent.message_history.extend(messages)
+
+    def _handle_dump_requests(self) -> None:
+        dump_dir = getattr(self.args, "dump_agents", None)
+        dump_dir_yaml = getattr(self.args, "dump_agents_yaml", None)
+        dump_agent = getattr(self.args, "dump_agent", None)
+        dump_agent_path = getattr(self.args, "dump_agent_path", None)
+        dump_agent_yaml = getattr(self.args, "dump_agent_yaml", False)
+
+        if dump_dir and dump_dir_yaml:
+            raise AgentConfigError(
+                "Only one of --dump or --dump-yaml may be set"
+            )
+
+        if dump_agent and dump_agent_path is None:
+            raise AgentConfigError("--dump-agent-path is required with --dump-agent")
+        if dump_agent_path is not None and not dump_agent:
+            raise AgentConfigError("--dump-agent is required with --dump-agent-path")
+
+        if dump_agent and (dump_dir or dump_dir_yaml):
+            raise AgentConfigError(
+                "Use either --dump-agent or --dump/--dump-yaml, not both"
+            )
+
+        if not (dump_dir or dump_dir_yaml or dump_agent):
+            return
+
+        if dump_dir or dump_dir_yaml:
+            output_dir_raw = dump_dir if dump_dir is not None else dump_dir_yaml
+            if output_dir_raw is None:
+                raise AgentConfigError("Missing output directory for agent dump")
+            output_dir = Path(output_dir_raw)
+            self._dump_agents_to_dir(output_dir, as_yaml=bool(dump_dir_yaml))
+            raise SystemExit(0)
+
+        if dump_agent:
+            if dump_agent_path is None:
+                raise AgentConfigError("--dump-agent-path is required with --dump-agent")
+            output_path = Path(dump_agent_path)
+            self._dump_single_agent(dump_agent, output_path, as_yaml=dump_agent_yaml)
+            raise SystemExit(0)
+
+    def _dump_agents_to_dir(self, output_dir: Path, *, as_yaml: bool) -> None:
+        from fast_agent.core.agent_card_loader import dump_agents_to_dir
+
+        dump_agents_to_dir(
+            self.agents,
+            output_dir,
+            as_yaml=as_yaml,
+            message_map=self._agent_card_histories,
+        )
+
+    def _dump_single_agent(self, name: str, output_path: Path, *, as_yaml: bool) -> None:
+        from fast_agent.core.agent_card_loader import dump_agent_to_path
+
+        if name not in self.agents:
+            raise AgentConfigError(
+                f"Agent '{name}' not found for dump",
+                f"Available agents: {', '.join(self.agents.keys())}",
+            )
+        message_paths = self._agent_card_histories.get(name)
+        dump_agent_to_path(
+            name,
+            self.agents[name],
+            output_path,
+            as_yaml=as_yaml,
+            message_paths=message_paths,
+        )
 
     def _apply_skills_to_agent_configs(self, default_skills: list[SkillManifest]) -> None:
         self._default_skill_manifests = list(default_skills)
@@ -1206,6 +1650,7 @@ class FastAgent:
 class AgentInstance:
     app: AgentApp
     agents: dict[str, "AgentProtocol"]
+    registry_version: int = 0
 
     async def shutdown(self) -> None:
         for agent in self.agents.values():

@@ -9,6 +9,7 @@ from rich.progress import Progress, SpinnerColumn, TaskID, TextColumn
 
 from fast_agent.event_progress import ProgressAction, ProgressEvent
 from fast_agent.ui.console import console as default_console
+from fast_agent.ui.console import ensure_blocking_console
 
 
 class RichProgressDisplay:
@@ -33,11 +34,12 @@ class RichProgressDisplay:
 
     def start(self) -> None:
         """start"""
-
+        ensure_blocking_console()
         self._progress.start()
 
     def stop(self) -> None:
         """Stop and clear the progress display."""
+        ensure_blocking_console()
         # Set paused first to prevent race with incoming updates
         self._paused = True
         # Hide all tasks before stopping (like pause does)
@@ -48,6 +50,7 @@ class RichProgressDisplay:
     def pause(self) -> None:
         """Pause the progress display."""
         if not self._paused:
+            ensure_blocking_console()
             self._paused = True
             for task in self._progress.tasks:
                 task.visible = False
@@ -56,6 +59,7 @@ class RichProgressDisplay:
     def resume(self) -> None:
         """Resume the progress display."""
         if self._paused:
+            ensure_blocking_console()
             for task in self._progress.tasks:
                 task.visible = True
             self._paused = False
