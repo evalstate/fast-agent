@@ -1,4 +1,4 @@
-# FastAgent Configuration File
+# fast-agent configuration File
 
 # Default Model Configuration:
 #
@@ -10,38 +10,45 @@
 # If not specified, defaults to "gpt-5-mini.low".
 # Can be overriden with a command line switch --model=<model>, or within the Agent constructor.
 
-# default_model: gpt-5-mini.low
-# mcp-ui support: disabled, enabled or auto. "auto" opens the web browser on the asset automatically
-# mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
-# mcp_ui_mode: enabled
+#default_model: gpt-5-mini.low
+
+# Number of times to retry transient LLM API errors (falls back to FAST_AGENT_RETRIES env var)
+# llm_retries: 0
 
 # otel:
 #   enabled: true
 
+# mcp-ui support: disabled, enabled or auto. "auto" opens the web browser on the asset automatically
+# mcp_ui_output_dir: ".fast-agent/ui"  # Where to write MCP-UI HTML files (relative to CWD if not absolute)
+# mcp_ui_mode: enabled
 
-anthropic:
-  thinking_enabled: true
-  thinking_budget_tokens: 10000
+# MCP timeline display (adjust activity window/intervals in MCP UI + fast-agent check)
+mcp_timeline:
+  steps: 20 # number of timeline buckets to render
+  step_seconds: 15 # seconds per bucket (accepts values like "45s", "2m")
+
+#shell_execution:
+# length of time before terminating subprocess
+#  timeout_seconds: 20
+# warning interval if no output seen
+#  warning_seconds: 5
 
 # Logging and Console Configuration:
 logger:
   # level: "debug" | "info" | "warning" | "error"
   # type: "none" | "console" | "file" | "http"
   # path: "/path/to/logfile.jsonl"
-
-  level: debug
+  level : debug
   type: file
-
   # Switch the progress display on or off
   progress_display: true
-
   # Show chat User/Assistant messages on the console
   show_chat: true
   # Show tool calls on the console
   show_tools: true
   # Truncate long tool responses on the console
   truncate_tools: true
-
+  # Streaming renderer for assistant responses: "markdown", "plain", or "none"
   streaming: markdown
 
 # MCP Servers
@@ -55,7 +62,11 @@ mcp:
       args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
     huggingface:
       url: "https://huggingface.co/mcp?login"
-    everything:
-      url: "http://localhost:3001/mcp"
-      elicitation:
-        mode: "auto-cancel"
+      # headers:
+      # "Authorization": "Bearer ${ENV_VAR}"
+
+# Skills configuration
+skills:
+  marketplace_urls:
+    - "https://github.com/huggingface/skills"
+    - "https://github.com/anthropics/skills"
