@@ -208,11 +208,15 @@ class FastAgent:
                 help="Path to skills directory to use instead of default skills directories",
             )
             parser.add_argument(
+                "--dump",
                 "--dump-agents",
+                dest="dump_agents",
                 help="Export all loaded agents as Markdown AgentCards into a directory",
             )
             parser.add_argument(
+                "--dump-yaml",
                 "--dump-agents-yaml",
+                dest="dump_agents_yaml",
                 help="Export all loaded agents as YAML AgentCards into a directory",
             )
             parser.add_argument(
@@ -1300,7 +1304,7 @@ class FastAgent:
 
         if dump_dir and dump_dir_yaml:
             raise AgentConfigError(
-                "Only one of --dump-agents or --dump-agents-yaml may be set"
+                "Only one of --dump or --dump-yaml may be set"
             )
 
         if dump_agent and dump_agent_path is None:
@@ -1310,7 +1314,7 @@ class FastAgent:
 
         if dump_agent and (dump_dir or dump_dir_yaml):
             raise AgentConfigError(
-                "Use either --dump-agent or --dump-agents/--dump-agents-yaml, not both"
+                "Use either --dump-agent or --dump/--dump-yaml, not both"
             )
 
         if not (dump_dir or dump_dir_yaml or dump_agent):

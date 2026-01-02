@@ -283,7 +283,7 @@ You are a concise analyst.
 ```bash
 cd examples/workflows
 
-uv run agents_as_tools_extended.py --dump-agents ../workflows-md/agents_as_tools_extended
+uv run agents_as_tools_extended.py --dump ../workflows-md/agents_as_tools_extended
 ```
 
 ### Example: run interactive with hot lazy swap
@@ -328,9 +328,9 @@ if __name__ == "__main__":
 
 ## Export / Dump (CLI)
 - Default export format is Markdown (frontmatter + body), matching SKILL.md style.
-- `--dump-agents <dir>`: after loading, export all loaded agents to `<dir>` as
+- `--dump <dir>` (alias: `--dump-agents`): after loading, export all loaded agents to `<dir>` as
   Markdown AgentCards (`<agent_name>.md`). Instruction is written to the body.
-- `--dump-agents-yaml <dir>`: export all loaded agents as YAML AgentCards
+- `--dump-yaml <dir>` (alias: `--dump-agents-yaml`): export all loaded agents as YAML AgentCards
   (`<agent_name>.yaml`) with `instruction` in the YAML field.
 - `--dump-agent <name> --dump-agent-path <file>`: export a single agent as Markdown
   (default) to a file.
