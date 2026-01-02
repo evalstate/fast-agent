@@ -1,5 +1,6 @@
 import json as json_module
 import time
+from contextvars import ContextVar
 from typing import Any, Callable, Dict, List, Sequence
 
 from mcp.server.fastmcp.tools.base import Tool as FastMCPTool
@@ -16,13 +17,20 @@ from fast_agent.constants import (
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
+from fast_agent.event_progress import ProgressAction
 from fast_agent.interfaces import AgentProtocol, ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
 from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
 from fast_agent.utils.async_utils import gather_with_cancel
 
 logger = get_logger(__name__)
+
+_tool_progress_context: ContextVar[tuple[ToolExecutionHandler, str] | None] = ContextVar(
+    "tool_progress_context",
+    default=None,
+)
 
 
 class ToolAgent(LlmAgent, _ToolLoopAgent):
@@ -78,6 +86,12 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 )
             )
 
+    def _clone_constructor_kwargs(self) -> dict[str, Any]:
+        """Carry local tool definitions into detached clones."""
+        if not self._execution_tools:
+            return {}
+        return {"tools": list(self._execution_tools.values())}
+
     def add_tool(self, tool: FastMCPTool, *, replace: bool = True) -> None:
         """Register a new execution tool and expose it to the LLM."""
         name = tool.name
@@ -118,7 +132,65 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             else:
                 input_text = ""
             clone = await child.spawn_detached_instance(name=f"{child.name}[tool]")
+            progress_step = 0
+
+            async def emit_progress(label: str | None = None) -> None:
+                nonlocal progress_step
+                progress_step += 1
+                message = f"{child.name} step {progress_step}"
+                if label:
+                    message = f"{message} ({label})"
+
+                ctx = _tool_progress_context.get()
+                if ctx:
+                    handler, tool_call_id = ctx
+                    try:
+                        await handler.on_tool_progress(
+                            tool_call_id, float(progress_step), None, message
+                        )
+                    except Exception:
+                        pass
+
+                logger.info(
+                    "Agent tool progress",
+                    data={
+                        "progress_action": ProgressAction.TOOL_PROGRESS,
+                        "agent_name": self.name,
+                        "progress": progress_step,
+                        "total": None,
+                        "details": message,
+                    },
+                )
+
+            hooks_set = False
+            if isinstance(clone, ToolAgent):
+                existing_hooks = getattr(clone, "tool_runner_hooks", None)
+                before_llm_call = existing_hooks.before_llm_call if existing_hooks else None
+                before_tool_call = existing_hooks.before_tool_call if existing_hooks else None
+                after_llm_call = existing_hooks.after_llm_call if existing_hooks else None
+                after_tool_call = existing_hooks.after_tool_call if existing_hooks else None
+
+                async def handle_before_llm_call(runner, messages):
+                    if before_llm_call:
+                        await before_llm_call(runner, messages)
+                    await emit_progress("llm")
+
+                async def handle_before_tool_call(runner, message):
+                    if before_tool_call:
+                        await before_tool_call(runner, message)
+                    await emit_progress("tool")
+
+                clone.tool_runner_hooks = ToolRunnerHooks(
+                    before_llm_call=handle_before_llm_call,
+                    after_llm_call=after_llm_call,
+                    before_tool_call=handle_before_tool_call,
+                    after_tool_call=after_tool_call,
+                )
+                hooks_set = True
+
             try:
+                if not hooks_set:
+                    await emit_progress("run")
                 clone.load_message_history([])
                 response = await clone.generate([Prompt.user(input_text)], None)
                 return response.last_text() or ""
@@ -126,15 +198,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 try:
                     await clone.shutdown()
                 except Exception as exc:
-                    logger.warning(
-                        f"Error shutting down tool clone for {child.name}: {exc}"
-                    )
+                    logger.warning(f"Error shutting down tool clone for {child.name}: {exc}")
                 try:
                     child.merge_usage_from(clone)
                 except Exception as exc:
-                    logger.warning(
-                        f"Failed to merge tool clone usage for {child.name}: {exc}"
-                    )
+                    logger.warning(f"Failed to merge tool clone usage for {child.name}: {exc}")
 
         fast_tool = FastMCPTool.from_function(
             call_agent,
@@ -370,15 +438,49 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 isError=True,
             )
 
+        tool_handler = self._get_tool_handler()
+        tool_call_id = None
+        if tool_handler:
+            try:
+                tool_call_id = await tool_handler.on_tool_start(name, "local", arguments, None)
+            except Exception:
+                tool_call_id = None
+
+        token = None
+        if tool_handler and tool_call_id:
+            token = _tool_progress_context.set((tool_handler, tool_call_id))
+
         try:
             result = await fast_tool.run(arguments or {}, convert_result=False)
-            return CallToolResult(
+            tool_result = CallToolResult(
                 content=[text_content(str(result))],
                 isError=False,
             )
+            if tool_handler and tool_call_id:
+                try:
+                    await tool_handler.on_tool_complete(
+                        tool_call_id, True, tool_result.content, None
+                    )
+                except Exception:
+                    pass
+            return tool_result
         except Exception as e:
             logger.error(f"Tool {name} failed: {e}")
-            return CallToolResult(
+            tool_result = CallToolResult(
                 content=[text_content(f"Error: {str(e)}")],
                 isError=True,
             )
+            if tool_handler and tool_call_id:
+                try:
+                    await tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
+                except Exception:
+                    pass
+            return tool_result
+        finally:
+            if token is not None:
+                _tool_progress_context.reset(token)
+
+    def _get_tool_handler(self) -> ToolExecutionHandler | None:
+        context = getattr(self, "_context", None)
+        acp = getattr(context, "acp", None) if context else None
+        return getattr(acp, "progress_manager", None)
