@@ -445,12 +445,6 @@ class FastAgent:
                     )
                 # Register the agent
                 self.agents[card.name] = card.agent_data
-                # Apply CLI model override if present
-                cli_model_override = getattr(self.args, "model", None)
-                if cli_model_override:
-                    config_obj = card.agent_data.get("config")
-                    if config_obj is not None:
-                        config_obj.model = None
                 # Note: URL-loaded cards don't track source path (no reload support)
                 if card.message_files:
                     self._agent_card_histories[card.name] = card.message_files
@@ -600,12 +594,6 @@ class FastAgent:
 
         for card in changed_cards:
             self.agents[card.name] = card.agent_data
-
-            cli_model_override = getattr(self.args, "model", None)
-            if cli_model_override:
-                config_obj = card.agent_data.get("config")
-                if config_obj is not None:
-                    config_obj.model = None
 
             self._agent_card_sources[card.name] = card.path
             self._agent_card_name_by_path[card.path] = card.name
