@@ -207,8 +207,8 @@ scope.
 These fields are set on the **orchestrator** (parent) AgentCard because it
 controls child invocation and the initial context passed to child agents.
 
-- `history_source`: `none` | `child` | `orchestrator` | `cumulative` *) | `messages`
-- `history_merge_target`: `none` | `child` | `orchestrator` | `cumulative` *) | `messages` **)
+- `history_source`: `none` | `messages` | `child` | `orchestrator` | `cumulative` *)
+- `history_merge_target`: `none` | `messages` **) | `child` | `orchestrator` | `cumulative` *)
 
 Defaults (hange current behaviortto more clean):
 - `history_source`: `none`
@@ -217,7 +217,7 @@ Defaults (hange current behaviortto more clean):
 Notes:
 - `history_source=none` means no forked history is loaded.
 - `history_merge_target=none` means no merge back occurs.
-- `history_source=file://...` loads the fork base from an external history file.
+- `history_source=messages` loads the fork base from an external history file.
 
 *) *Footnote:* there is no cumulative (session-wide merged) history store today;
 it would need to be designed and implemented as a separate feature.
@@ -234,7 +234,7 @@ AgentsAsToolsOptions(
 
 ### CLI flags (proposed)
 ```
---child-history-source {none,child,orchestrator,cumulative,file://...}
+--child-history-source {none,child,orchestrator,cumulative,messages}
 --child-history-merge-target {none,child,orchestrator,cumulative}
 ```
 
