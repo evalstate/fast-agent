@@ -15,22 +15,22 @@ Status: experimental (intended for maintainer review).
 - Hooks apply uniformly to all tool types (MCP, function, agent, built-ins).
 - Hooks can inspect agent/tool identity, mutate args/results, or short-circuit execution.
 
-## Declarative API (proposed)
+## Declarative API (proposed, examples/workflows/agents_as_tools_extended)
 
+`agents_as_tools_extended.py`
 ```python
 @fast.agent(
     name="PMO-orchestrator",
-    servers=["time", "github"],
-    tools={"time": ["get_time"], "github": ["search_*"]},  # MCP filters
-    function_tools=[local_summarize, "tools.py:local_redact"],  # local Python tools
-    agents=["NY-Project-Manager", "London-Project-Manager"],    # agents-as-tools
-    tool_hooks=[audit_hook, safety_guard],                      # applies to all tools
+    servers=["time"],
+    tools={"time": ["get_time"]},  # MCP filters
+    function_tools=[add_one],  # local Python tools
+    agents=["NY-Project-Manager", "London-Project-Manager"],  # agents-as-tools
+    tool_hooks=[audit_hook],  # applies to all tools
+    instruction="Get project updates from the New York and London project managers and include the current time. Ask NY-Project-Manager three times about different projects: Anthropic, evalstate/fast-agent, and OpenAI, and London-Project-Manager for economics review. Return a brief, concise combined summary with clear city/time/topic labels.",
 )
-async def main():
-    ...
 ```
 
-### AgentCard example (agents_as_tools_extended)
+### AgentCard example (proposed, examples/workflows-md/agents_as_tools_extended)
 
 `PMO-orchestrator.md`
 ```md
@@ -38,18 +38,23 @@ async def main():
 type: agent
 name: PMO-orchestrator
 default: true
+servers:
+  - time
+tools:
+  time: [get_time]
+function_tools:
+  - tools.py:add_one
 agents:
   - NY-Project-Manager
   - London-Project-Manager
 tool_hooks:
   - hooks.py:audit_hook
-  - hooks.py:safety_guard
 history_mode: scratch
 max_parallel: 128
 child_timeout_sec: 120
 max_display_instances: 20
 ---
-Get project updates from the New York and London project managers. Ask NY-Project-Manager three times about different projects: Anthropic, evalstate/fast-agent, and OpenAI, and London-Project-Manager for economics review. Return a brief, concise combined summary with clear city/time/topic labels.
+Get project updates from the New York and London project managers and include the current time. Ask NY-Project-Manager three times about different projects: Anthropic, evalstate/fast-agent, and OpenAI, and London-Project-Manager for economics review. Return a brief, concise combined summary with clear city/time/topic labels.
 ```
 
 Notes:
@@ -73,7 +78,8 @@ function tools as follows:
 - The module name is generated uniquely (`_function_tool_<stem>_<id>`) to avoid collisions.
 
 Implication for hooks: hook loaders should mirror this behavior to keep string specs
-consistent across function_tools and tool_hooks.
+consistent across function_tools and tool_hooks. Hook loading is based on the same
+Function tool loading implementation.
 
 ## Hook signature and behavior (nginx-style)
 
@@ -188,22 +194,47 @@ Hooks can branch on `tool_source`, `server_name`, and `tool_name`.
 
 ## Examples (planned)
 
-Planned example file:
+Planned example file (from `feat/hook-tool-declarative`):
 - `examples/tool-hooks-declarative/mixed_tools_and_hooks.py`
 
 ### 1) Mixed MCP + function tools + agents + hooks
 
 ```python
+def add_one(x: int) -> int:
+    return x + 1
+
+
+async def audit_hook(ctx, args, call_next):
+    # before: enforce limits
+    if ctx.tool_name.endswith("add_one"):
+        args = dict(args or {})
+        args["x"] = min(int(args.get("x", 0)), 10)
+
+    # instead: block unsafe tools
+    if ctx.tool_source == "runtime" and ctx.tool_name == "shell.execute":
+        return CallToolResult(isError=True, content=[text_content("blocked")])
+
+    # call original tool
+    result = await call_next(args)
+
+    # after: log or modify result
+    result.content.append(text_content("[audit]"))
+    return result
+
+
 @fast.agent(
-    name="coordinator",
+    name="PMO-orchestrator",
+    instruction="Get project updates from the New York and London project managers and include the current time. Ask NY-Project-Manager three times about different projects: Anthropic, evalstate/fast-agent, and OpenAI, and London-Project-Manager for economics review. Return a brief, concise combined summary with clear city/time/topic labels.",
+    agents=["NY-Project-Manager", "London-Project-Manager"],
     servers=["time"],
     tools={"time": ["get_time"]},
-    function_tools=[summarize_text, "tools.py:redact_text"],
-    agents=["NY-Project-Manager", "London-Project-Manager"],
+    function_tools=[add_one],
     tool_hooks=[audit_hook],
+    default=True,
 )
-async def main():
-    ...
+async def main() -> None:
+    async with fast.run() as agent:
+        await agent("Run PMO report and add 1 to 3")
 ```
 
 ## Related examples (existing)
