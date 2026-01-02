@@ -241,10 +241,12 @@ def _build_card_from_data(
 ) -> LoadedAgentCard:
     raw = dict(raw)
     card_type_raw = raw.get("type")
-    if not isinstance(card_type_raw, str) or not card_type_raw.strip():
-        raise AgentConfigError(f"AgentCard missing required field 'type' in {path}")
-
-    card_type_key = card_type_raw.strip()
+    if card_type_raw is None:
+        card_type_key = "agent"
+    elif isinstance(card_type_raw, str):
+        card_type_key = card_type_raw.strip() or "agent"
+    else:
+        raise AgentConfigError(f"'type' must be a string in {path}")
     card_type_key_norm = card_type_key.lower()
     if card_type_key_norm == "maker":
         type_key = "MAKER"
