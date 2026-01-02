@@ -5,6 +5,7 @@ function_tools:
   - hf_api_tool.py:hf_api_request
 model: gpt-oss
 default: true
+description: Use this tool to find out information about Users, Organizations and Pull Requests
 ---
 Hugging Face Hub Methods: How to Call (User/Org Focus)
 ======================================================

@@ -5,6 +5,8 @@ AgentCard is a text-first format (`.md` / `.yaml`) that compiles into `AgentConf
 A loader validates fields based on `type` and loads a single file or a directory via
 `load_agents(path)`. The default path is **one card per file**. Multi-card files are
 optional/experimental and described in a separate spec.
+AgentCards now support an optional `description` field used for tool descriptions when
+agents are exposed as tools (MCP or agent-as-tool wiring).
 
 ## Agent vs Skill
 - **Skill**: a reusable prompt fragment or capability description.
@@ -39,6 +41,7 @@ optional/experimental and described in a separate spec.
   - If a file contains a **single** card and `name` is omitted, it defaults to the
     filename (no extension).
   - Multi-card files are optional/experimental; in that case `name` is required.
+- `description`: optional. Used as the tool description when exposing agents as tools.
 - `instruction`: required, and can be provided **either** in the body **or** as an
   `instruction` attribute (short one-line shortcut). If both are present, it is an error.
 
@@ -99,7 +102,7 @@ Code-only decorator args that are **not** representable in AgentCard:
 
 ### type: `agent` (maps to `@fast.agent`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `agents` (agents-as-tools)
 - `servers`, `tools`, `resources`, `prompts`, `skills`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
@@ -109,24 +112,24 @@ Allowed fields:
 
 ### type: `chain` (maps to `@fast.chain`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `sequence`, `cumulative`
 
 ### type: `parallel` (maps to `@fast.parallel`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `fan_out`, `fan_in`, `include_request`
 
 ### type: `evaluator_optimizer` (maps to `@fast.evaluator_optimizer`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `generator`, `evaluator`
 - `min_rating`, `max_refinements`, `refinement_instruction`
 - `messages` (card-only history file)
 
 ### type: `router` (maps to `@fast.router`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `agents`
 - `servers`, `tools`, `resources`, `prompts`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
@@ -134,7 +137,7 @@ Allowed fields:
 
 ### type: `orchestrator` (maps to `@fast.orchestrator`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `agents`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
 - `plan_type`, `plan_iterations`
@@ -142,7 +145,7 @@ Allowed fields:
 
 ### type: `iterative_planner` (maps to `@fast.iterative_planner`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `agents`
 - `model`, `request_params`, `api_key`
 - `plan_iterations`
@@ -150,7 +153,7 @@ Allowed fields:
 
 ### type: `MAKER` (maps to `@fast.maker`)
 Allowed fields:
-- `name`, `instruction`, `default`
+- `name`, `instruction`, `description`, `default`
 - `worker`
 - `k`, `max_samples`, `match_strategy`, `red_flag_max_length`
 - `messages` (card-only history file)
@@ -224,7 +227,7 @@ This applies to model selection, request params, servers, and other overlapping 
 
 ## Function Tools and Hooks (Separate Spec)
 Function tool and hook wiring is evolving and documented separately.
-See: `plan/hook-tool-declarative.md` (current branch changes live there).
+See: [plan/hook-tool-declarative.md](plan/hook-tool-declarative.md) (current branch changes live there).
 
 ---
 
@@ -273,13 +276,22 @@ You are a concise analyst.
 ---
 
 ## Loading API
-- `load_agents(path)` loads a file or a directory.
+- `load_agents(path)` loads a file or a directory and returns the loaded agent names.
 - CLI: `fast-agent go --card <path>` loads cards before starting.
 - `--agent-cards` remains as a legacy alias for `--card`.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
 - If a subsequent `load_agents(path)` call does not include a previously loaded agent
   from that path, the agent is removed.
+- TUI: `/card <path|url> [--tool]` loads cards at runtime. Autocomplete filters for
+  AgentCard file extensions.
+- ACP slash commands: `/card <path|url> [--tool]` loads cards at runtime and refreshes
+  modes for the current session.
+
+### Runtime tool injection (optional)
+- `/card --tool` exposes the loaded agent as a tool on the **current** agent.
+- Tool names default to `agent__{name}`.
+- Tool descriptions prefer `description`; fall back to the agent instruction.
 
 ### Example: export AgentCards from a Python workflow
 ```bash
@@ -393,7 +405,7 @@ Expose loader utilities via internal MCP tools:
 ---
 
 ## Appendix: Multi-card Spec (Experimental)
-See `plan/agent-card-rfc-multicard.md`.
+See [plan/agent-card-rfc-multicard.md](plan/agent-card-rfc-multicard.md).
 
 ## Appendix: Current History Preload (Code)
 - `save_messages(...)` and `load_messages(...)` in
@@ -406,4 +418,4 @@ See `plan/agent-card-rfc-multicard.md`.
 ---
 
 ## Appendix: AgentCard Samples
-See `plan/agent-card-rfc-sample.md`.
+See [plan/agent-card-rfc-sample.md](plan/agent-card-rfc-sample.md).
