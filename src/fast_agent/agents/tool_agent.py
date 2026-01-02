@@ -15,6 +15,7 @@ from fast_agent.constants import (
 )
 from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.core.prompt import Prompt
 from fast_agent.interfaces import AgentProtocol, ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
@@ -116,7 +117,24 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 input_text = json_module.dumps(json, ensure_ascii=False)
             else:
                 input_text = ""
-            return await child.send(input_text)
+            clone = await child.spawn_detached_instance(name=f"{child.name}[tool]")
+            try:
+                clone.load_message_history([])
+                response = await clone.generate([Prompt.user(input_text)], None)
+                return response.last_text() or ""
+            finally:
+                try:
+                    await clone.shutdown()
+                except Exception as exc:
+                    logger.warning(
+                        f"Error shutting down tool clone for {child.name}: {exc}"
+                    )
+                try:
+                    child.merge_usage_from(clone)
+                except Exception as exc:
+                    logger.warning(
+                        f"Failed to merge tool clone usage for {child.name}: {exc}"
+                    )
 
         fast_tool = FastMCPTool.from_function(
             call_agent,
