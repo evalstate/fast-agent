@@ -18,7 +18,7 @@ from fast_agent.context import Context
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.event_progress import ProgressAction
-from fast_agent.interfaces import AgentProtocol, ToolRunnerHookCapable
+from fast_agent.interfaces import ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
@@ -110,7 +110,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
     def add_agent_tool(
         self,
-        child: AgentProtocol,
+        child: LlmAgent,
         *,
         name: str | None = None,
         description: str | None = None,
