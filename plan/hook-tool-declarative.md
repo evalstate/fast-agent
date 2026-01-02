@@ -1,13 +1,17 @@
 # Hook Tool Declarative Spec (Experimental)
 
-This spec adds a declarative API so any agent can mix MCP servers/tools, local Python function tools, child agents-as-tools, and tool hooks in one place. The hook design is nginx-style middleware: it can run before, instead, or after the original tool, and can mutate args/results or skip execution.
+This spec adds a declarative API so any agent can mix MCP servers/tools, local Python
+function tools, child agents-as-tools, and tool hooks in one place. The hook design is
+nginx-style middleware: it can run before, instead, or after the original tool, and can
+mutate args/results or skip execution.
 
 Status: experimental (intended for maintainer review).
 
 ## Goals
 
 - Declarative tools + hooks on `@fast.agent` (no custom ToolAgent subclass required).
-- Mix in one declaration: `servers`, MCP `tools` filters, `function_tools`, `agents` (agents-as-tools), and `tool_hooks`.
+- Mix in one declaration: `servers`, MCP `tools` filters, `function_tools`, `agents`
+  (agents-as-tools), and `tool_hooks`.
 - Hooks apply uniformly to all tool types (MCP, function, agent, built-ins).
 - Hooks can inspect agent/tool identity, mutate args/results, or short-circuit execution.
 
@@ -19,23 +23,52 @@ Status: experimental (intended for maintainer review).
     servers=["time", "github"],
     tools={"time": ["get_time"], "github": ["search_*"]},  # MCP filters
     function_tools=[local_summarize, "tools.py:local_redact"],  # local Python tools
-    agents=["NY-Project-Manager", "London-Project-Manager"], # agents-as-tools
-    tool_hooks=[audit_hook, safety_guard],                    # applies to all tools
+    agents=["NY-Project-Manager", "London-Project-Manager"],    # agents-as-tools
+    tool_hooks=[audit_hook, safety_guard],                      # applies to all tools
 )
 async def main():
     ...
+```
+
+### AgentCard example
+
+```md
+---
+type: agent
+name: PMO-orchestrator
+servers:
+  - time
+  - github
+tools:
+  time: [get_time]
+  github: [search_*]
+function_tools:
+  - tools.py:local_summarize
+  - tools.py:local_redact
+agents:
+  - NY-Project-Manager
+  - London-Project-Manager
+tool_hooks:
+  - hooks.py:audit_hook
+  - hooks.py:safety_guard
+---
+Get reports. Always use one tool call per project/news.
+Responsibilities: NY projects: [OpenAI, Fast-Agent, Anthropic].
+London news: [Economics, Art, Culture].
+Aggregate results and add a one-line PMO summary.
 ```
 
 Notes:
 - `tools={...}` remains MCP tool filtering only.
 - `function_tools=[...]` accepts callables or `"module.py:function"` strings.
 - When loaded from an AgentCard, relative paths are resolved against the card directory.
+- AgentCard supports **string specs only**; callables are only valid in Python decorators.
 - `tool_hooks=[...]` is a new middleware layer around every tool call.
 
 ## Function tool loading (implemented)
 
-The current implementation in `src/fast_agent/tools/function_tool_loader.py` loads function
-tools as follows:
+The current implementation in `src/fast_agent/tools/function_tool_loader.py` loads
+function tools as follows:
 
 - `callable` entries are wrapped via `FastMCPTool.from_function`.
 - String specs must be `module.py:function_name` and are loaded dynamically from file.
@@ -54,10 +87,10 @@ consistent across function_tools and tool_hooks.
 
 ```python
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Literal
+from typing import Any, Awaitable, Callable, Literal
 from mcp.types import CallToolResult
 
-ToolCallArgs = dict
+ToolCallArgs = dict[str, Any] | None
 ToolCallFn = Callable[[ToolCallArgs], Awaitable[CallToolResult]]
 
 @dataclass(frozen=True)
@@ -101,6 +134,9 @@ async def safety_guard(ctx, args, call_next):
 
 Multiple hooks compose like middleware; order is the order declared.
 
+Error handling:
+- If a hook raises, the exception bubbles; the tool loop records an error result.
+
 ## Tool identity mapping
 
 `tool_hooks` must apply uniformly. Proposed mapping:
@@ -108,62 +144,55 @@ Multiple hooks compose like middleware; order is the order declared.
 - MCP tools: `tool_source="mcp"`, `server_name=<mcp server>`, `tool_name=<namespaced tool>`
 - Local function tools: `tool_source="function"`, `server_name=None` (or "local")
 - Agents-as-tools: `tool_source="agent"`, `server_name="agent"`, `tool_name=agent__Child`
-- Built-in runtimes (shell, filesystem, human-input, skill reader): `tool_source="runtime"`, `server_name="runtime"` (or specific runtime name)
+- Built-in runtimes (shell, filesystem, human-input, skill reader):
+  `tool_source="runtime"`, `server_name="runtime"` (or specific runtime name)
 
 Hooks can branch on `tool_source`, `server_name`, and `tool_name`.
 
-## What changes in `function_tools` vs previous
+## Current state (AgentCard branch)
 
-Previous:
-- Local Python tools were attached via ToolAgent or custom subclasses.
-- Standard `@fast.agent` did not accept local function tools.
+- AgentCard loader + CLI: `--card` / `--agent-cards`, supports URL cards.
+- `function_tools` supported in `@fast.agent`, `@fast.custom`, and AgentCards.
+- `function_tool_loader.py` supports callable or `module.py:function` specs.
+- `tool_hooks` implementation and tests were removed; hooks are currently missing.
 
-Current (AgentCard branch):
-- `function_tools=[...]` is supported by `@fast.agent`, `@fast.custom`, and AgentCards.
-- Tools can be callables or `module.py:function` strings.
-- Local tools are registered alongside MCP tools automatically.
-- Allows mixing MCP servers + local tools + agents-as-tools in a single agent.
+## Implementation plan (compact)
 
-## What changes in hooks vs current
+1) Data model + parsing
+- Add `ToolHookConfig` type alias in `src/fast_agent/agents/agent_types.py`.
+- Extend AgentConfig with `tool_hooks: ToolHooksConfig | None`.
+- Update `@fast.agent` and `@fast.custom` signatures to accept `tool_hooks`.
+- Update `agent_card_loader.py` to parse `tool_hooks` from YAML/MD.
+  - AgentCard supports **string specs only**; callables are only allowed in decorators.
 
-Current:
-- ToolRunnerHooks exist but are only accessible via ToolAgent subclassing.
-- Hooks operate at the tool loop level (before/after tool call messages), not the tool execution function itself.
+2) Loader reuse
+- Prefer reusing `function_tool_loader.py` with a generic callable loader.
+- Load hook functions from `module.py:function` specs.
+- Validate callability; raise with clear error on mismatch.
 
-Proposed:
-- New declarative `tool_hooks` applied to any agent type.
-- Hooks wrap actual tool execution and apply to all tool sources.
-- Hooks can skip execution, mutate args/results, or call the original tool directly.
+3) Runtime wiring
+- Restore `ToolHookContext` + `run_tool_with_hooks` (module `agents/tool_hooks.py`).
+- Reapply hook execution around tool calls:
+  - `ToolAgent.call_tool` wraps local function tools.
+  - `McpAgent.call_tool` wraps MCP tools, runtime tools, and agents-as-tools.
+- Preserve `tool_use_id` and `correlation_id` in context.
+- Keep ToolRunnerHooks unchanged; tool_hooks is independent middleware.
 
-Why:
-- Enables nginx-style middleware around tool calls (auth, redaction, retries, telemetry, policy).
-- Consistent control plane for MCP tools, local tools, and agent tools.
+4) Tests
+- Unit: hook chain order, before/instead/after behavior, skip execution.
+- Integration: restore declarative hooks test and add AgentCard hook test.
 
-## Implementation sketch (high level)
+5) Examples + docs
+- Restore `examples/tool-hooks-declarative/mixed_tools_and_hooks.py`.
+- Add an AgentCard example mixing MCP + function_tools + hooks.
+- Update this spec and CLI README.
 
-1) Decorator/API
-- `function_tools` already implemented for `@fast.agent` / `@fast.custom` / AgentCard.
-- Add `tool_hooks` alongside `function_tools` and pass through factory/constructor.
-- For `@fast.custom`, `function_tools` / `tool_hooks` only apply if the custom class
-  implements `ToolHookCapable` or subclasses `ToolAgent`; otherwise they are ignored.
+## Open question
+- Do we want a strict signature check for hooks at load time?
 
-2) Execution wiring
-- Build a `ToolHookChain` around each tool call in the tool runner loop.
-- Construct `ToolHookContext` with agent/tool identity and `original_tool_func`.
-- The last `call_next` invokes the real tool implementation.
+## Examples (planned)
 
-3) Apply to all tool types
-- MCP tool calls wrap aggregator execution.
-- Local function tools wrap FastMCPTool execution.
-- Agents-as-tools wrap child agent call (detached instance).
-- Built-ins (shell/filesystem/human-input/skills) go through the same hook chain.
-
-4) Experimental note
-- Keep docs labeled experimental; no config gate required.
-
-## Examples (new, declarative)
-
-Implemented example file:
+Planned example file:
 - `examples/tool-hooks-declarative/mixed_tools_and_hooks.py`
 
 ### 1) Mixed MCP + function tools + agents + hooks
@@ -181,32 +210,9 @@ async def main():
     ...
 ```
 
-### 2) Policy enforcement and redaction
-
-```python
-async def audit_hook(ctx, args, call_next):
-    log_call(ctx.agent_name, ctx.server_name, ctx.tool_name)
-    result = await call_next(args)
-    return redact_result(result)
-```
-
-### 3) Timeout or bypass
-
-```python
-async def timeout_hook(ctx, args, call_next):
-    if ctx.tool_source == "agent":
-        return await asyncio.wait_for(call_next(args), timeout=5)
-    return await call_next(args)
-```
-
 ## Related examples (existing)
 
 - Function tools: `examples/new-api/simple_llm.py` and `examples/tool-use-agent/agent.py`
 - Tool runner hooks: `examples/tool-runner-hooks/tool_runner_hooks.py`
-- Agents-as-tools: `examples/workflows/agents_as_tools_simple.py` and `examples/workflows/agents_as_tools_extended.py`
-
-These should be referenced from the new declarative examples to show the evolution from current patterns.
-
-## Still Missing in This Spec
-- Explicit test plan / coverage checklist for tool hook middleware behavior.
-- Detailed failure-mode guidance (e.g., hook exceptions, timeouts, cancellation).
+- Agents-as-tools: `examples/workflows/agents_as_tools_simple.py` and
+  `examples/workflows/agents_as_tools_extended.py`
