@@ -7,7 +7,7 @@ different form types and validation patterns.
 
 import logging
 import sys
-from typing import Optional, TypedDict
+from typing import Optional, TypedDict, cast
 
 from mcp import ReadResourceResult
 from mcp.server.elicitation import (
@@ -51,7 +51,9 @@ def _create_enum_schema_options(data: dict[str, str]) -> list[TitledEnumOption]:
         >>> _create_enum_schema_options({"dark": "Dark Mode", "light": "Light Mode"})
         [{"const": "dark", "title": "Dark Mode"}, {"const": "light", "title": "Light Mode"}]
     """
-    options: list[TitledEnumOption] = [{"const": k, "title": v} for k, v in data.items()]
+    options: list[TitledEnumOption] = [
+        cast(TitledEnumOption, {"const": k, "title": v}) for k, v in data.items()
+    ]
     return options
 
 
