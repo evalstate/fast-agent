@@ -1,4 +1,5 @@
 import pytest
+from mcp import Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -28,10 +29,11 @@ class DummyChild(LlmAgent):
         self.spawned.append(clone)
         return clone
 
-    async def generate(
+    async def generate_impl(
         self,
         messages: list[PromptMessageExtended],
         request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
     ) -> PromptMessageExtended:
         self.generated.append(messages)
         return Prompt.assistant("ok")
