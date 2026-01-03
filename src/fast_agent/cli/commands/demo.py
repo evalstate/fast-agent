@@ -448,6 +448,11 @@ def streaming(
         0.01, "--delay", "-d", help="Delay (seconds) between streamed chunks."
     ),
     plain: bool = typer.Option(False, "--plain", help="Render using plain text streaming."),
+    cache_stats: bool = typer.Option(
+        False,
+        "--cache-stats",
+        help="Print markdown cache sizes after streaming.",
+    ),
 ) -> None:
     """Stream a synthetic markdown document without any model calls."""
     if chunk_size <= 0:
@@ -473,6 +478,7 @@ def streaming(
         for scenario in scenario_list
     ]
     content = "\n\n---\n\n".join(sections)
+    cache_snapshots: list[tuple[str, dict[str, int]]] = []
     metrics_writer = None
     if metrics_path:
         metrics_writer = MetricsWriter(metrics_path, metrics_interval)
@@ -518,6 +524,10 @@ def streaming(
                         await asyncio.sleep(0)
                 if metrics_writer:
                     metrics_writer.finalize_context()
+                if cache_stats:
+                    cache_snapshots.append(
+                        (scenario_name, handle._markdown_truncator.cache_sizes())
+                    )
                 if idx < len(sections) - 1:
                     for chunk in _chunk_text("\n\n---\n\n", chunk_size):
                         handle.update(chunk)
@@ -572,6 +582,10 @@ def streaming(
                         time.sleep(delay)
                 if metrics_writer:
                     metrics_writer.finalize_context()
+                if cache_stats:
+                    cache_snapshots.append(
+                        (scenario_name, handle._markdown_truncator.cache_sizes())
+                    )
                 if idx < len(sections) - 1:
                     for chunk in _chunk_text("\n\n---\n\n", chunk_size):
                         handle.update(chunk)
@@ -589,3 +603,11 @@ def streaming(
         asyncio.run(_run_stream())
     else:
         _run_sync()
+
+    if cache_stats and cache_snapshots:
+        typer.echo("cache stats (entries):")
+        for scenario_name, stats in cache_snapshots:
+            typer.echo(
+                f"{scenario_name}: height={stats['height_entries']} "
+                f"truncate={stats['truncate_entries']}"
+            )

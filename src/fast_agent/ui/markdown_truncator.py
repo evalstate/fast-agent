@@ -8,6 +8,7 @@ requiring expensive render passes.
 from __future__ import annotations
 
 from collections import OrderedDict
+from hashlib import blake2b
 from typing import TYPE_CHECKING
 
 from fast_agent.ui.streaming_buffer import StreamBuffer
@@ -24,9 +25,11 @@ class MarkdownTruncator:
             raise ValueError("target_height_ratio must be between 0 and 1")
         self.target_height_ratio = target_height_ratio
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
-        self._height_cache: OrderedDict[tuple[int, int, str, str], int] = OrderedDict()
+        self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
         self._height_cache_limit = 128
-        self._truncate_cache: OrderedDict[tuple[int, int, int, str], str] = OrderedDict()
+        self._truncate_cache: OrderedDict[tuple[int, int, int, int, str], str] = (
+            OrderedDict()
+        )
         self._truncate_cache_limit = 32
 
     def truncate(
@@ -66,7 +69,8 @@ class MarkdownTruncator:
         width = console.size.width
         if width <= 0:
             return len(text.split("\n"))
-        cache_key = (id(console), width, code_theme, text)
+        text_len, text_digest = self._fingerprint(text)
+        cache_key = (id(console), width, code_theme, text_len, text_digest)
         cached = self._height_cache.get(cache_key)
         if cached is not None:
             self._height_cache.move_to_end(cache_key)
@@ -100,9 +104,10 @@ class MarkdownTruncator:
         if not text:
             return text
         terminal_width = console.size.width if console else None
-        cache_key: tuple[int, int, int, str] | None = None
+        cache_key: tuple[int, int, int, int, str] | None = None
         if console and terminal_width:
-            cache_key = (id(console), terminal_width, terminal_height, text)
+            text_len, text_digest = self._fingerprint(text)
+            cache_key = (id(console), terminal_width, terminal_height, text_len, text_digest)
             cached = self._truncate_cache.get(cache_key)
             if cached is not None:
                 self._truncate_cache.move_to_end(cache_key)
@@ -150,6 +155,16 @@ class MarkdownTruncator:
             if len(self._truncate_cache) > self._truncate_cache_limit:
                 self._truncate_cache.popitem(last=False)
         return result
+
+    def _fingerprint(self, text: str) -> tuple[int, str]:
+        digest = blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
+        return len(text), digest
+
+    def cache_sizes(self) -> dict[str, int]:
+        return {
+            "height_entries": len(self._height_cache),
+            "truncate_entries": len(self._truncate_cache),
+        }
 
     def _ensure_table_header_if_needed(self, original_text: str, truncated_text: str) -> str:
         """Ensure table header is prepended if truncation removed it."""
