@@ -365,17 +365,27 @@ class StreamBuffer:
                 data_start_line = table_start_line + len(table.header_lines)
                 data_start_pos = sum(len(line) + 1 for line in lines[:data_start_line])
 
-                # If we truncated in the data section, restore header
-                if truncation_pos >= data_start_pos:
-                    header_text = "\n".join(table.header_lines) + "\n"
-                    if truncated_text.startswith(header_text):
+                header_text = "\n".join(table.header_lines) + "\n"
+                if truncated_text.startswith(header_text):
+                    return truncated_text
+
+                truncated_lines = truncated_text.splitlines()
+                header_lines = [line.rstrip() for line in table.header_lines]
+                if len(truncated_lines) >= len(header_lines):
+                    candidate = [line.rstrip() for line in truncated_lines[: len(header_lines)]]
+                    if candidate == header_lines:
                         return truncated_text
-                    truncated_lines = truncated_text.splitlines()
-                    header_lines = [line.rstrip() for line in table.header_lines]
-                    if len(truncated_lines) >= len(header_lines):
-                        candidate = [line.rstrip() for line in truncated_lines[: len(header_lines)]]
-                        if candidate == header_lines:
-                            return truncated_text
+
+                first_non_empty = next(
+                    (line.rstrip() for line in truncated_lines if line.strip()), ""
+                )
+                separator_line = header_lines[-1] if header_lines else ""
+
+                # If we truncated in the data section, or we see the separator row
+                # without the header row, prepend the header.
+                if truncation_pos >= data_start_pos or (
+                    first_non_empty and first_non_empty == separator_line
+                ):
                     return header_text + truncated_text
 
                 # Found the relevant table, no need to check others

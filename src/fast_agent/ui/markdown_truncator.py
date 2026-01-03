@@ -7,6 +7,8 @@ requiring expensive render passes.
 
 from __future__ import annotations
 
+from collections import OrderedDict
+from hashlib import blake2b
 from typing import TYPE_CHECKING
 
 from fast_agent.ui.streaming_buffer import StreamBuffer
@@ -23,6 +25,12 @@ class MarkdownTruncator:
             raise ValueError("target_height_ratio must be between 0 and 1")
         self.target_height_ratio = target_height_ratio
         self._buffer = StreamBuffer(target_height_ratio=target_height_ratio)
+        self._height_cache: OrderedDict[tuple[int, int, str, int, str], int] = OrderedDict()
+        self._height_cache_limit = 128
+        self._truncate_cache: OrderedDict[tuple[int, int, int, int, str], str] = (
+            OrderedDict()
+        )
+        self._truncate_cache_limit = 32
 
     def truncate(
         self,
@@ -55,14 +63,35 @@ class MarkdownTruncator:
     def measure_rendered_height(
         self, text: str, console: Console, code_theme: str = "monokai"
     ) -> int:
-        """Estimate how many terminal rows the markdown will occupy."""
-        del code_theme
+        """Measure how many terminal rows the markdown will occupy."""
         if not text:
             return 0
         width = console.size.width
         if width <= 0:
             return len(text.split("\n"))
-        return self._buffer.estimate_display_lines(text, width)
+        text_len, text_digest = self._fingerprint(text)
+        cache_key = (id(console), width, code_theme, text_len, text_digest)
+        cached = self._height_cache.get(cache_key)
+        if cached is not None:
+            self._height_cache.move_to_end(cache_key)
+            return cached
+        try:
+            from rich.markdown import Markdown
+
+            options = console.options.update(width=width)
+            lines = console.render_lines(
+                Markdown(text, code_theme=code_theme),
+                options=options,
+                pad=False,
+            )
+        except Exception:
+            height = self._buffer.estimate_display_lines(text, width)
+        else:
+            height = len(lines)
+        self._height_cache[cache_key] = height
+        if len(self._height_cache) > self._height_cache_limit:
+            self._height_cache.popitem(last=False)
+        return height
 
     def truncate_to_height(
         self,
@@ -75,13 +104,67 @@ class MarkdownTruncator:
         if not text:
             return text
         terminal_width = console.size.width if console else None
-        return self._buffer.truncate_text(
+        cache_key: tuple[int, int, int, int, str] | None = None
+        if console and terminal_width:
+            text_len, text_digest = self._fingerprint(text)
+            cache_key = (id(console), terminal_width, terminal_height, text_len, text_digest)
+            cached = self._truncate_cache.get(cache_key)
+            if cached is not None:
+                self._truncate_cache.move_to_end(cache_key)
+                return cached
+        truncated = self._buffer.truncate_text(
             text,
             terminal_height=terminal_height,
             terminal_width=terminal_width,
             add_closing_fence=False,
             target_ratio=1.0,
         )
+        if not console or terminal_height <= 0:
+            return truncated
+        if self.measure_rendered_height(truncated, console) <= terminal_height:
+            if cache_key:
+                self._truncate_cache[cache_key] = truncated
+                if len(self._truncate_cache) > self._truncate_cache_limit:
+                    self._truncate_cache.popitem(last=False)
+            return truncated
+
+        best = ""
+        low = 1
+        high = max(1, terminal_height - 1)
+        while low <= high:
+            mid = (low + high) // 2
+            candidate = self._buffer.truncate_text(
+                text,
+                terminal_height=mid,
+                terminal_width=terminal_width,
+                add_closing_fence=False,
+                target_ratio=1.0,
+            )
+            if not candidate:
+                high = mid - 1
+                continue
+            candidate_height = self.measure_rendered_height(candidate, console)
+            if candidate_height <= terminal_height:
+                best = candidate
+                low = mid + 1
+            else:
+                high = mid - 1
+        result = best or truncated
+        if cache_key:
+            self._truncate_cache[cache_key] = result
+            if len(self._truncate_cache) > self._truncate_cache_limit:
+                self._truncate_cache.popitem(last=False)
+        return result
+
+    def _fingerprint(self, text: str) -> tuple[int, str]:
+        digest = blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
+        return len(text), digest
+
+    def cache_sizes(self) -> dict[str, int]:
+        return {
+            "height_entries": len(self._height_cache),
+            "truncate_entries": len(self._truncate_cache),
+        }
 
     def _ensure_table_header_if_needed(self, original_text: str, truncated_text: str) -> str:
         """Ensure table header is prepended if truncation removed it."""
