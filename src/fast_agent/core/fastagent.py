@@ -249,6 +249,13 @@ class FastAgent:
                 action="append",
                 help="Path or URL to AgentCard file or directory to load as tools (repeatable)",
             )
+            parser.add_argument(
+                "--card-tool-shell",
+                "--agent-card-tools-shell",
+                dest="card_tool_shell",
+                action="append",
+                help="Path to AgentCard to load as tool with shell enabled. Use :cwd=/path for custom working dir (repeatable)",
+            )
 
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -363,6 +370,9 @@ class FastAgent:
         self._agent_card_reload_lock: asyncio.Lock | None = None
         # Names of agents loaded via --card-tool to be injected as tools
         self._card_tool_agent_names: list[str] = []
+        # Agents loaded via --card-tool-shell with shell enabled
+        # Maps agent name -> optional custom working directory
+        self._card_tool_shell_agents: dict[str, Path | None] = {}
 
         # Load card tools if provided via CLI
         card_tool_sources = getattr(self.args, "card_tool", None)
@@ -372,6 +382,30 @@ class FastAgent:
                     self._card_tool_agent_names.extend(self.load_agents_from_url(card_source))
                 else:
                     self._card_tool_agent_names.extend(self.load_agents(card_source))
+
+        # Load card tools with shell enabled if provided via CLI
+        card_tool_shell_sources = getattr(self.args, "card_tool_shell", None)
+        if card_tool_shell_sources:
+            for card_spec in card_tool_shell_sources:
+                # Parse optional :cwd= suffix
+                cwd_path: Path | None = None
+                card_source = card_spec
+                if ":cwd=" in card_spec:
+                    parts = card_spec.rsplit(":cwd=", 1)
+                    card_source = parts[0]
+                    cwd_path = Path(parts[1]).expanduser().resolve()
+
+                # Load the card
+                if card_source.startswith(("http://", "https://")):
+                    loaded_names = self.load_agents_from_url(card_source)
+                else:
+                    loaded_names = self.load_agents(card_source)
+
+                # Track each loaded agent with its shell config
+                for agent_name_loaded in loaded_names:
+                    self._card_tool_shell_agents[agent_name_loaded] = cwd_path
+                    # Also add to regular tool list for injection
+                    self._card_tool_agent_names.append(agent_name_loaded)
 
     @staticmethod
     def _normalize_skill_directories(
@@ -1009,6 +1043,22 @@ class FastAgent:
                     primary_instance = await instantiate_agent_instance()
                     wrapper = primary_instance.app
                     active_agents = primary_instance.agents
+
+                    # Inject shell runtime into card-tool-shell agents before adding as tools
+                    if self._card_tool_shell_agents:
+                        from fast_agent.tools.shell_runtime import ShellRuntime
+
+                        for shell_agent_name, shell_cwd in self._card_tool_shell_agents.items():
+                            shell_agent = active_agents.get(shell_agent_name)
+                            if shell_agent is not None and hasattr(shell_agent, "_shell_runtime"):
+                                shell_rt = ShellRuntime(
+                                    activation_reason=f"via --card-tool-shell for {shell_agent_name}",
+                                    logger=getattr(shell_agent, "logger", logger),
+                                    working_directory=shell_cwd,
+                                )
+                                shell_agent._shell_runtime = shell_rt
+                                shell_agent._bash_tool = shell_rt.tool
+                                shell_rt.announce()
 
                     # Inject card tools into the default agent if any were loaded
                     if self._card_tool_agent_names:

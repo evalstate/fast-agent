@@ -110,6 +110,7 @@ async def _run_agent(
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
     agent_card_tools: list[str] | None = None,
+    agent_card_tools_shell: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -170,6 +171,39 @@ async def _run_agent(
                     card_tool_agent_names.extend(fast.load_agents_from_url(card_source))
                 else:
                     card_tool_agent_names.extend(fast.load_agents(card_source))
+        except AgentConfigError as exc:
+            fast._handle_error(exc)
+            raise typer.Exit(1) from exc
+
+    # Load agent cards to expose as tools with shell enabled
+    # Format: <path>[:cwd=<working_directory>]
+    # Maps agent name -> optional custom working directory (None = use default cwd)
+    card_tool_shell_agents: dict[str, Path | None] = {}
+    if agent_card_tools_shell:
+        try:
+            for card_spec in agent_card_tools_shell:
+                # Parse optional :cwd= suffix
+                cwd_path: Path | None = None
+                card_source = card_spec
+                if ":cwd=" in card_spec:
+                    parts = card_spec.rsplit(":cwd=", 1)
+                    card_source = parts[0]
+                    cwd_path = Path(parts[1]).expanduser().resolve()
+                    if not cwd_path.is_dir():
+                        typer.echo(f"Error: Working directory does not exist: {cwd_path}", err=True)
+                        raise typer.Exit(1)
+
+                # Load the card
+                if card_source.startswith(("http://", "https://")):
+                    loaded_names = fast.load_agents_from_url(card_source)
+                else:
+                    loaded_names = fast.load_agents(card_source)
+
+                # Track each loaded agent with its shell config
+                for agent_name_loaded in loaded_names:
+                    card_tool_shell_agents[agent_name_loaded] = cwd_path
+                    # Also add to regular tool list for injection
+                    card_tool_agent_names.append(agent_name_loaded)
         except AgentConfigError as exc:
             fast._handle_error(exc)
             raise typer.Exit(1) from exc
@@ -268,7 +302,26 @@ async def _run_agent(
             model=model,
         )
         async def cli_agent():
+            from fast_agent.tools.shell_runtime import ShellRuntime
+
             async with fast.run() as agent:
+                # Inject shell runtime into card-tool-shell agents
+                if card_tool_shell_agents:
+                    for shell_agent_name, shell_cwd in card_tool_shell_agents.items():
+                        shell_agent = agent._agents.get(shell_agent_name)
+                        if shell_agent is not None:
+                            # Create and inject ShellRuntime
+                            shell_rt = ShellRuntime(
+                                activation_reason=f"via --card-tool-shell for {shell_agent_name}",
+                                logger=getattr(shell_agent, "logger", None) or logging.getLogger(__name__),
+                                working_directory=shell_cwd,
+                            )
+                            # Inject the runtime into the agent
+                            if hasattr(shell_agent, "_shell_runtime"):
+                                shell_agent._shell_runtime = shell_rt
+                                shell_agent._bash_tool = shell_rt.tool
+                                shell_rt.announce()
+
                 # Inject card tools into the primary agent if any were loaded
                 if card_tool_agent_names:
                     primary_agent = agent._agent(None)
@@ -314,6 +367,7 @@ def run_async_agent(
     auth: str | None = None,
     agent_cards: list[str] | None = None,
     agent_card_tools: list[str] | None = None,
+    agent_card_tools_shell: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -422,6 +476,7 @@ def run_async_agent(
                 server_list=server_list,
                 agent_cards=agent_cards,
                 agent_card_tools=agent_card_tools,
+                agent_card_tools_shell=agent_card_tools_shell,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -479,6 +534,12 @@ def go(
         "--agent-card-tools",
         "--card-tool",
         help="Path or URL to AgentCard file or directory to load as tools (repeatable)",
+    ),
+    agent_card_tools_shell: list[str] | None = typer.Option(
+        None,
+        "--agent-card-tools-shell",
+        "--card-tool-shell",
+        help="Path to AgentCard to load as tool with shell enabled. Use :cwd=/path for custom working dir (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -573,6 +634,7 @@ def go(
         servers=servers,
         agent_cards=agent_cards,
         agent_card_tools=agent_card_tools,
+        agent_card_tools_shell=agent_card_tools_shell,
         urls=urls,
         auth=auth,
         model=model,
