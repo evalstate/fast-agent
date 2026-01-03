@@ -19,6 +19,7 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
     "auth": "fast_agent.cli.commands.auth:app",
     "quickstart": "fast_agent.cli.commands.quickstart:app",
     "bootstrap": "fast_agent.cli.commands.quickstart:app",
+    "demo": "fast_agent.cli.commands.demo:app",
 }
 
 
@@ -96,6 +97,7 @@ def show_welcome() -> None:
     table.add_row("auth", "Manage OAuth tokens and keyring")
     table.add_row("setup", "Create agent template and configuration")
     table.add_row("quickstart", "Create example applications (workflow, researcher, etc.)")
+    table.add_row("demo", "Run local UI demos (no model calls)")
 
     console.print(table)
 

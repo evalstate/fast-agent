@@ -403,18 +403,17 @@ class StreamSegmentAssembler:
             ):
                 return
         start_pos = last_pos - (len(window_segments) - 1)
-        if start_pos <= 0:
+        if start_pos < 0:
             return
         if start_pos >= len(filtered):
             return
         start_index = filtered[start_pos][0]
-        if start_index <= 0:
-            return
         first_window = window_segments[0]
         original_first = segments[start_index]
         if first_window is not original_first:
             original_first.text = first_window.text
-        del segments[:start_index]
+        if start_index > 0:
+            del segments[:start_index]
 
     def _start_tool(self, tool_use_id: str, tool_name: str) -> ToolStreamState:
         self._buffer.consume_reasoning_gap()

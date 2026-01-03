@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from rich.console import Group
 from rich.live import Live
@@ -28,18 +28,26 @@ if TYPE_CHECKING:
 
 logger = get_logger(__name__)
 
-MARKDOWN_STREAM_TARGET_RATIO = 0.85
+MARKDOWN_STREAM_TARGET_RATIO = 0.9
 MARKDOWN_STREAM_REFRESH_PER_SECOND = 4
 MARKDOWN_STREAM_HEIGHT_FUDGE = 2
 PLAIN_STREAM_TARGET_RATIO = 0.92
 PLAIN_STREAM_REFRESH_PER_SECOND = 20
 PLAIN_STREAM_HEIGHT_FUDGE = 2
+STREAM_BATCH_PERIOD = 1 / 100
+STREAM_BATCH_MAX_DURATION = 1 / 60
 
 
 @dataclass(frozen=True)
 class _ToolStreamEvent:
     event_type: str
     info: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class _QueuedItem:
+    payload: object
+    enqueued_at: float
 
 
 class NullStreamingHandle:
@@ -75,6 +83,7 @@ class StreamingMessageHandle:
         header_left: str = "",
         header_right: str = "",
         progress_display: Any = None,
+        performance_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self._display = display
         self._bottom_items = bottom_items
@@ -114,6 +123,12 @@ class StreamingMessageHandle:
         )
         self._min_render_interval = 1.0 / refresh_rate if refresh_rate else None
         self._last_render_time = 0.0
+        self._performance_hook = performance_hook
+        self._batch_period = STREAM_BATCH_PERIOD
+        self._batch_max_duration = STREAM_BATCH_MAX_DURATION
+        self._pending_batch_meta: dict[str, Any] | None = None
+        self._scrolling_started = False
+        self._scroll_start_time: float | None = None
         try:
             self._loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
@@ -146,6 +161,14 @@ class StreamingMessageHandle:
             return
 
         if self._handle_chunk(chunk):
+            now = time.perf_counter()
+            self._pending_batch_meta = {
+                "batch_size": 1,
+                "queue_depth": 0,
+                "oldest_enqueued_at": now,
+                "newest_enqueued_at": now,
+                "batch_chars": len(chunk),
+            }
             self._render_current_buffer()
 
     def update_chunk(self, chunk: StreamChunk) -> None:
@@ -158,6 +181,14 @@ class StreamingMessageHandle:
             return
 
         if self._handle_stream_chunk(chunk):
+            now = time.perf_counter()
+            self._pending_batch_meta = {
+                "batch_size": 1,
+                "queue_depth": 0,
+                "oldest_enqueued_at": now,
+                "newest_enqueued_at": now,
+                "batch_chars": len(chunk.text),
+            }
             self._render_current_buffer()
 
     def _build_header(self) -> Text:
@@ -278,14 +309,17 @@ class StreamingMessageHandle:
         except RuntimeError:
             current_loop = None
 
+        queued = chunk if isinstance(chunk, _QueuedItem) else _QueuedItem(
+            payload=chunk, enqueued_at=time.perf_counter()
+        )
         if current_loop is self._loop:
             try:
-                self._queue.put_nowait(chunk)
+                self._queue.put_nowait(queued)
             except asyncio.QueueFull:
                 pass
         else:
             try:
-                self._loop.call_soon_threadsafe(self._queue.put_nowait, chunk)
+                self._loop.call_soon_threadsafe(self._queue.put_nowait, queued)
             except RuntimeError as exc:
                 logger.debug(
                     "RuntimeError while enqueuing chunk (expected during shutdown)",
@@ -325,11 +359,18 @@ class StreamingMessageHandle:
         )
         if not window_segments:
             return
+        is_truncated = len(window_segments) < len(segments) or (
+            window_segments and segments and window_segments[0] is not segments[0]
+        )
+        if is_truncated and not self._scrolling_started:
+            self._scrolling_started = True
+            self._scroll_start_time = time.monotonic()
         self._segment_assembler.compact(window_segments)
 
         renderables: list[RenderableType] = []
         content_height = 0
         width = console.console.size.width
+        render_start = time.perf_counter()
 
         for segment in window_segments:
             if segment.kind == "markdown":
@@ -376,7 +417,8 @@ class StreamingMessageHandle:
 
         padding_lines = max(0, self._max_render_height - content_height)
         if padding_lines:
-            renderables.append(Text("\n" * padding_lines))
+            # Text("\n" * n) renders n+1 lines, so subtract one for exact padding.
+            renderables.append(Text("\n" * max(0, padding_lines - 1)))
 
         content = (
             Group(*renderables)
@@ -388,6 +430,10 @@ class StreamingMessageHandle:
         header_with_spacing.append("\n", style="default")
 
         combined = Group(header_with_spacing, content)
+        now = time.monotonic()
+        render_interval_ms = (
+            (now - self._last_render_time) * 1000 if self._last_render_time else None
+        )
         try:
             self._live.update(combined)
             self._last_render_time = time.monotonic()
@@ -397,6 +443,54 @@ class StreamingMessageHandle:
                 exc_info=True,
                 data={"error": str(exc)},
             )
+        finally:
+            if self._performance_hook:
+                render_ms = (time.perf_counter() - render_start) * 1000
+                batch_meta = self._pending_batch_meta or {}
+                oldest_enqueued = batch_meta.get("oldest_enqueued_at")
+                newest_enqueued = batch_meta.get("newest_enqueued_at")
+                queue_age_ms = (
+                    (render_start - oldest_enqueued) * 1000
+                    if isinstance(oldest_enqueued, (int, float))
+                    else None
+                )
+                batch_span_ms = (
+                    (newest_enqueued - oldest_enqueued) * 1000
+                    if isinstance(oldest_enqueued, (int, float))
+                    and isinstance(newest_enqueued, (int, float))
+                    else None
+                )
+                scroll_age_ms = (
+                    (now - self._scroll_start_time) * 1000
+                    if self._scroll_start_time is not None
+                    else None
+                )
+                try:
+                    self._performance_hook(
+                        {
+                            "render_ms": render_ms,
+                            "content_height": content_height,
+                            "max_allowed_height": max_allowed_height,
+                            "max_render_height": self._max_render_height,
+                            "segment_count": len(segments),
+                            "window_segment_count": len(window_segments),
+                            "width": width,
+                            "height": console.console.size.height,
+                            "batch_size": batch_meta.get("batch_size"),
+                            "queue_depth": batch_meta.get("queue_depth"),
+                            "queue_age_ms": queue_age_ms,
+                            "batch_span_ms": batch_span_ms,
+                            "batch_window_ms": batch_meta.get("batch_window_ms"),
+                            "batch_chars": batch_meta.get("batch_chars"),
+                            "render_interval_ms": render_interval_ms,
+                            "phase": "scrolling" if self._scrolling_started else "pre_scroll",
+                            "is_truncated": is_truncated,
+                            "scroll_age_ms": scroll_age_ms,
+                        }
+                    )
+                except Exception:
+                    pass
+                self._pending_batch_meta = None
 
     async def _render_worker(self) -> None:
         assert self._queue is not None
@@ -412,29 +506,63 @@ class StreamingMessageHandle:
 
                 stop_requested = False
                 chunks = [item]
+                batch_start = time.monotonic()
                 while True:
                     try:
                         next_item = self._queue.get_nowait()
                     except asyncio.QueueEmpty:
-                        break
+                        elapsed = time.monotonic() - batch_start
+                        if elapsed >= self._batch_max_duration:
+                            break
+                        try:
+                            timeout = min(self._batch_period, self._batch_max_duration - elapsed)
+                            next_item = await asyncio.wait_for(
+                                self._queue.get(), timeout=timeout
+                            )
+                        except asyncio.TimeoutError:
+                            break
                     if next_item is self._stop_sentinel:
                         stop_requested = True
                         break
                     chunks.append(next_item)
 
                 should_render = False
+                queued_items: list[_QueuedItem] = []
+                batch_chars = 0
                 for chunk in chunks:
-                    if isinstance(chunk, StreamChunk):
-                        should_render = self._handle_stream_chunk(chunk) or should_render
-                    elif isinstance(chunk, str):
-                        should_render = self._handle_chunk(chunk) or should_render
-                    elif isinstance(chunk, _ToolStreamEvent):
+                    payload = chunk
+                    if isinstance(chunk, _QueuedItem):
+                        queued_items.append(chunk)
+                        payload = chunk.payload
+                    if isinstance(payload, StreamChunk):
+                        if payload.text:
+                            batch_chars += len(payload.text)
+                        should_render = self._handle_stream_chunk(payload) or should_render
+                    elif isinstance(payload, str):
+                        batch_chars += len(payload)
+                        should_render = self._handle_chunk(payload) or should_render
+                    elif isinstance(payload, _ToolStreamEvent):
                         should_render = (
-                            self._segment_assembler.handle_tool_event(chunk.event_type, chunk.info)
+                            self._segment_assembler.handle_tool_event(
+                                payload.event_type, payload.info
+                            )
                             or should_render
                         )
 
                 if should_render:
+                    oldest_enqueued_at = None
+                    newest_enqueued_at = None
+                    if queued_items:
+                        oldest_enqueued_at = min(item.enqueued_at for item in queued_items)
+                        newest_enqueued_at = max(item.enqueued_at for item in queued_items)
+                    self._pending_batch_meta = {
+                        "batch_size": len(chunks),
+                        "queue_depth": self._queue.qsize() if self._queue else 0,
+                        "oldest_enqueued_at": oldest_enqueued_at,
+                        "newest_enqueued_at": newest_enqueued_at,
+                        "batch_window_ms": (time.monotonic() - batch_start) * 1000,
+                        "batch_chars": batch_chars,
+                    }
                     self._render_current_buffer()
                     if self._min_render_interval:
                         try:
@@ -472,6 +600,14 @@ class StreamingMessageHandle:
                 return
 
             if self._segment_assembler.handle_tool_event(event_type, info):
+                now = time.perf_counter()
+                self._pending_batch_meta = {
+                    "batch_size": 1,
+                    "queue_depth": 0,
+                    "oldest_enqueued_at": now,
+                    "newest_enqueued_at": now,
+                    "batch_chars": 0,
+                }
                 self._render_current_buffer()
         except Exception as exc:
             logger.warning(
