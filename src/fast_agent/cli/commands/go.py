@@ -109,6 +109,7 @@ async def _run_agent(
     config_path: str | None = None,
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
+    agent_card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -159,6 +160,19 @@ async def _run_agent(
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", url_servers))
     if stdio_servers:
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
+
+    # Load agent cards to expose as tools (names tracked for later injection)
+    card_tool_agent_names: list[str] = []
+    if agent_card_tools:
+        try:
+            for card_source in agent_card_tools:
+                if card_source.startswith(("http://", "https://")):
+                    card_tool_agent_names.extend(fast.load_agents_from_url(card_source))
+                else:
+                    card_tool_agent_names.extend(fast.load_agents(card_source))
+        except AgentConfigError as exc:
+            fast._handle_error(exc)
+            raise typer.Exit(1) from exc
 
     if agent_cards:
         try:
@@ -255,6 +269,16 @@ async def _run_agent(
         )
         async def cli_agent():
             async with fast.run() as agent:
+                # Inject card tools into the primary agent if any were loaded
+                if card_tool_agent_names:
+                    primary_agent = agent._agent(None)
+                    add_tool_fn = getattr(primary_agent, "add_agent_tool", None)
+                    if callable(add_tool_fn):
+                        for card_agent_name in card_tool_agent_names:
+                            card_agent = agent._agents.get(card_agent_name)
+                            if card_agent is not None:
+                                add_tool_fn(card_agent)
+
                 if message:
                     response = await agent.send(message)
                     # Print the response and exit
@@ -289,6 +313,7 @@ def run_async_agent(
     urls: str | None = None,
     auth: str | None = None,
     agent_cards: list[str] | None = None,
+    agent_card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -396,6 +421,7 @@ def run_async_agent(
                 config_path=config_path,
                 server_list=server_list,
                 agent_cards=agent_cards,
+                agent_card_tools=agent_card_tools,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -447,6 +473,12 @@ def go(
         "--agent-cards",
         "--card",
         help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
+    agent_card_tools: list[str] | None = typer.Option(
+        None,
+        "--agent-card-tools",
+        "--card-tool",
+        help="Path or URL to AgentCard file or directory to load as tools (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -540,6 +572,7 @@ def go(
         config_path=config_path,
         servers=servers,
         agent_cards=agent_cards,
+        agent_card_tools=agent_card_tools,
         urls=urls,
         auth=auth,
         model=model,

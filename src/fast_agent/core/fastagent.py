@@ -242,6 +242,13 @@ class FastAgent:
                 action="store_true",
                 help="Watch AgentCard paths and reload when files change",
             )
+            parser.add_argument(
+                "--card-tool",
+                "--agent-card-tools",
+                dest="card_tool",
+                action="append",
+                help="Path or URL to AgentCard file or directory to load as tools (repeatable)",
+            )
 
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -354,6 +361,17 @@ class FastAgent:
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
+        # Names of agents loaded via --card-tool to be injected as tools
+        self._card_tool_agent_names: list[str] = []
+
+        # Load card tools if provided via CLI
+        card_tool_sources = getattr(self.args, "card_tool", None)
+        if card_tool_sources:
+            for card_source in card_tool_sources:
+                if card_source.startswith(("http://", "https://")):
+                    self._card_tool_agent_names.extend(self.load_agents_from_url(card_source))
+                else:
+                    self._card_tool_agent_names.extend(self.load_agents(card_source))
 
     @staticmethod
     def _normalize_skill_directories(
@@ -991,6 +1009,26 @@ class FastAgent:
                     primary_instance = await instantiate_agent_instance()
                     wrapper = primary_instance.app
                     active_agents = primary_instance.agents
+
+                    # Inject card tools into the default agent if any were loaded
+                    if self._card_tool_agent_names:
+                        # Find the default agent
+                        default_agent = None
+                        for agent in active_agents.values():
+                            if agent.config.default:
+                                default_agent = agent
+                                break
+                        if default_agent is None and active_agents:
+                            # Use the first agent if no default is marked
+                            default_agent = next(iter(active_agents.values()))
+
+                        if default_agent is not None:
+                            add_tool_fn = getattr(default_agent, "add_agent_tool", None)
+                            if callable(add_tool_fn):
+                                for card_agent_name in self._card_tool_agent_names:
+                                    card_agent = active_agents.get(card_agent_name)
+                                    if card_agent is not None:
+                                        add_tool_fn(card_agent)
 
                     async def refresh_shared_instance() -> bool:
                         nonlocal primary_instance, active_agents
