@@ -26,6 +26,8 @@ GO_SPECIFIC_OPTIONS = {
     "--agent-cards",
     "--card",
     "--card-tool",
+    "--card-tool-shell",
+    "--card-tool-cwd",
     "--watch",
     "--reload",
 }

@@ -27,12 +27,14 @@ class ShellRuntime:
         timeout_seconds: int = 90,
         warning_interval_seconds: int = 30,
         skills_directory: Path | None = None,
+        working_directory: Path | None = None,
     ) -> None:
         self._activation_reason = activation_reason
         self._logger = logger
         self._timeout_seconds = timeout_seconds
         self._warning_interval_seconds = warning_interval_seconds
         self._skills_directory = skills_directory
+        self._working_directory = working_directory
         self.enabled: bool = activation_reason is not None
         self._tool: Tool | None = None
 
@@ -71,6 +73,8 @@ class ShellRuntime:
 
     def working_directory(self) -> Path:
         """Return the working directory used for shell execution."""
+        if self._working_directory is not None:
+            return self._working_directory
         # Skills now show their location relative to cwd in the system prompt
         return Path.cwd()
 
