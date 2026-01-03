@@ -248,17 +248,6 @@ class FastAgent:
                 dest="card_tools",
                 help="Path or URL to an AgentCard file to load as a tool (repeatable)",
             )
-            parser.add_argument(
-                "--card-tool-shell",
-                action="store_true",
-                dest="card_tool_shell",
-                help="Enable shell access for agents loaded via --card-tool",
-            )
-            parser.add_argument(
-                "--card-tool-cwd",
-                dest="card_tool_cwd",
-                help="Working directory for shell commands in card-tool agents",
-            )
 
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
@@ -1248,24 +1237,20 @@ class FastAgent:
                             default_agent_name = next(iter(active_agents.keys()))
                             default_agent = active_agents[default_agent_name]
 
-                        # Get shell options for card-tool agents
-                        card_tool_shell = getattr(self.args, "card_tool_shell", False)
-                        card_tool_cwd_str = getattr(self.args, "card_tool_cwd", None)
-                        card_tool_cwd = Path(card_tool_cwd_str) if card_tool_cwd_str else None
-
                         if default_agent:
                             add_tool_fn = getattr(default_agent, "add_agent_tool", None)
                             if callable(add_tool_fn):
                                 for tool_agent_name in card_tool_agent_names:
                                     tool_agent = active_agents.get(tool_agent_name)
                                     if tool_agent:
-                                        # Enable shell on card-tool agent if requested
-                                        if card_tool_shell:
+                                        # Enable shell if configured in the agent card
+                                        config = getattr(tool_agent, "config", None)
+                                        if config and getattr(config, "shell", False):
                                             enable_shell_fn = getattr(
                                                 tool_agent, "enable_shell", None
                                             )
                                             if callable(enable_shell_fn):
-                                                enable_shell_fn(card_tool_cwd)
+                                                enable_shell_fn(getattr(config, "cwd", None))
                                         add_tool_fn(tool_agent)
 
                     yield wrapper

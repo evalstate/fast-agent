@@ -110,8 +110,6 @@ async def _run_agent(
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
     card_tools: list[str] | None = None,
-    card_tool_shell: bool = False,
-    card_tool_cwd: Path | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -280,11 +278,12 @@ async def _run_agent(
                         for tool_agent_name in card_tool_agent_names:
                             tool_agent = agent._agent(tool_agent_name)
                             if tool_agent:
-                                # Enable shell on card-tool agent if requested
-                                if card_tool_shell:
+                                # Enable shell if configured in the agent card
+                                config = getattr(tool_agent, "config", None)
+                                if config and getattr(config, "shell", False):
                                     enable_shell_fn = getattr(tool_agent, "enable_shell", None)
                                     if callable(enable_shell_fn):
-                                        enable_shell_fn(card_tool_cwd)
+                                        enable_shell_fn(getattr(config, "cwd", None))
                                 add_tool_fn(tool_agent)
 
                 if message:
@@ -322,8 +321,6 @@ def run_async_agent(
     auth: str | None = None,
     agent_cards: list[str] | None = None,
     card_tools: list[str] | None = None,
-    card_tool_shell: bool = False,
-    card_tool_cwd: Path | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -432,8 +429,6 @@ def run_async_agent(
                 server_list=server_list,
                 agent_cards=agent_cards,
                 card_tools=card_tools,
-                card_tool_shell=card_tool_shell,
-                card_tool_cwd=card_tool_cwd,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -490,16 +485,6 @@ def go(
         None,
         "--card-tool",
         help="Path or URL to an AgentCard file to load as a tool (repeatable)",
-    ),
-    card_tool_shell: bool = typer.Option(
-        False,
-        "--card-tool-shell",
-        help="Enable shell access for agents loaded via --card-tool",
-    ),
-    card_tool_cwd: Path | None = typer.Option(
-        None,
-        "--card-tool-cwd",
-        help="Working directory for shell commands in card-tool agents",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -594,8 +579,6 @@ def go(
         servers=servers,
         agent_cards=agent_cards,
         card_tools=card_tools,
-        card_tool_shell=card_tool_shell,
-        card_tool_cwd=card_tool_cwd,
         urls=urls,
         auth=auth,
         model=model,
