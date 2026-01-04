@@ -1,14 +1,12 @@
 import asyncio
 
-from fast_agent import FastAgent
-from fast_agent.config import get_settings
-
+import google.auth
+import vertexai
+from googleapiclient.discovery import build
 from vertexai import rag
 
-# from vertexai.generative_models import GenerativeModel, Tool
-import vertexai
-import google.auth
-from googleapiclient.discovery import build
+from fast_agent import FastAgent
+from fast_agent.config import get_settings
 
 # RAG quickstart: Required roles, Prepare your Google Cloud console, Run Vertex AI RAG Engine
 # https://docs.cloud.google.com/vertex-ai/generative-ai/docs/rag-engine/rag-quickstart
@@ -52,9 +50,6 @@ if not PROJECT_ID or not LOCATION:
 
 def _drive_folder_name(folder_id: str) -> str:
     credentials, _ = google.auth.default(scopes=SCOPES)
-    service_account_email = getattr(credentials, "service_account_email", None)
-    # if service_account_email:
-    #    print(f"Drive lookup using service account: {service_account_email}")
     drive_service = build("drive", "v3", credentials=credentials)
     payload = (
         drive_service.files()
