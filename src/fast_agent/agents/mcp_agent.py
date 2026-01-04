@@ -9,6 +9,7 @@ import asyncio
 import fnmatch
 import time
 from abc import ABC
+from pathlib import Path
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -137,17 +138,23 @@ class McpAgent(ABC, ToolAgent):
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()
         shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
+        shell_config_requested = bool(self.config.shell)
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
 
-        if shell_flag_requested and skills_configured:
-            self._shell_runtime_activation_reason = (
-                "via --shell flag and agent skills configuration"
-            )
-        elif shell_flag_requested:
-            self._shell_runtime_activation_reason = "via --shell flag"
-        elif skills_configured:
-            self._shell_runtime_activation_reason = "because agent skills are configured"
+        reasons: list[str] = []
+        if shell_flag_requested:
+            reasons.append("--shell flag")
+        if shell_config_requested:
+            reasons.append("agent config")
+        if skills_configured:
+            reasons.append("agent skills configuration")
+
+        if reasons:
+            if reasons == ["agent skills configuration"]:
+                self._shell_runtime_activation_reason = "because agent skills are configured"
+            else:
+                self._shell_runtime_activation_reason = "via " + " and ".join(reasons)
 
         # Get timeout configuration from context
         timeout_seconds = 90  # default
@@ -174,6 +181,7 @@ class McpAgent(ABC, ToolAgent):
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
             skills_directory=skills_directory,
+            working_directory=self.config.cwd,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
@@ -262,6 +270,46 @@ class McpAgent(ABC, ToolAgent):
         NOTE: This method is called automatically when the agent is used as an async context manager.
         """
         await self._aggregator.close()
+
+    def enable_shell(self, working_directory: Path | None = None) -> None:
+        """
+        Enable shell runtime on this agent after creation.
+
+        This allows adding shell access to agents loaded from cards or created dynamically.
+
+        Args:
+            working_directory: Optional custom working directory for shell commands.
+                              If not specified, uses the current working directory.
+        """
+        if self._shell_runtime_enabled:
+            # Already enabled, but update working directory if specified
+            if working_directory is not None:
+                self._shell_runtime._working_directory = working_directory
+            return
+
+        # Get timeout configuration from context
+        timeout_seconds = 90
+        warning_interval_seconds = 30
+        if self.context and self.context.config:
+            shell_config = getattr(self.context.config, "shell_execution", None)
+            if shell_config:
+                timeout_seconds = getattr(shell_config, "timeout_seconds", 90)
+                warning_interval_seconds = getattr(shell_config, "warning_interval_seconds", 30)
+
+        # Create a new shell runtime with the activation reason
+        self._shell_runtime_activation_reason = "via enable_shell() call"
+        self._shell_runtime = ShellRuntime(
+            self._shell_runtime_activation_reason,
+            self.logger,
+            timeout_seconds=timeout_seconds,
+            warning_interval_seconds=warning_interval_seconds,
+            working_directory=working_directory,
+        )
+        self._shell_runtime_enabled = self._shell_runtime.enabled
+        self._bash_tool = self._shell_runtime.tool
+        self._shell_access_modes = ("[red]direct[/red]",)
+        if self._shell_runtime_enabled:
+            self._shell_runtime.announce()
 
     async def get_server_status(self) -> dict[str, ServerStatus]:
         """Expose server status details for UI and diagnostics consumers."""

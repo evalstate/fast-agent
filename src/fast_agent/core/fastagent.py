@@ -34,6 +34,7 @@ from opentelemetry import trace
 from fast_agent import config
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.direct_decorators import (
     agent as agent_decorator,
 )
@@ -241,6 +242,12 @@ class FastAgent:
                 "--watch",
                 action="store_true",
                 help="Watch AgentCard paths and reload when files change",
+            )
+            parser.add_argument(
+                "--card-tool",
+                action="append",
+                dest="card_tools",
+                help="Path or URL to an AgentCard file to load as a tool (repeatable)",
             )
 
             if ignore_unknown_args:
@@ -1203,6 +1210,42 @@ class FastAgent:
                         except Exception as e:
                             print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
                             raise SystemExit(1)
+
+                    # Handle --card-tool: load card agents and add them as tools to the default agent
+                    card_tools = getattr(self.args, "card_tools", None)
+                    if card_tools:
+                        card_tool_agent_names: list[str] = []
+                        try:
+                            for card_source in card_tools:
+                                if card_source.startswith(("http://", "https://")):
+                                    names = self.load_agents_from_url(card_source)
+                                else:
+                                    names = self.load_agents(card_source)
+                                card_tool_agent_names.extend(names)
+                        except AgentConfigError as exc:
+                            self._handle_error(exc)
+                            raise SystemExit(1) from exc
+
+                        # Refresh the instance to include newly loaded agents
+                        await refresh_shared_instance()
+
+                        # Get the default agent to add tools to
+                        default_agent_name = getattr(self.args, "agent", "default")
+                        default_agent = active_agents.get(default_agent_name)
+
+                        # If default agent not found, try the first available agent
+                        if default_agent is None and active_agents:
+                            default_agent_name = next(iter(active_agents.keys()))
+                            default_agent = active_agents[default_agent_name]
+
+                        if default_agent:
+                            add_tool_fn = getattr(default_agent, "add_agent_tool", None)
+                            if callable(add_tool_fn):
+                                tool_agents = [
+                                    active_agents.get(tool_agent_name)
+                                    for tool_agent_name in card_tool_agent_names
+                                ]
+                                add_tools_for_agents(add_tool_fn, tool_agents)
 
                     yield wrapper
 

@@ -48,6 +48,8 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
         "function_tools",
         "tool_hooks",
         "messages",
+        "shell",
+        "cwd",
     },
     "chain": {
         *_COMMON_FIELDS,
@@ -429,6 +431,15 @@ def _build_agent_data(
         elif isinstance(function_tools_raw, list):
             function_tools = [str(t) for t in function_tools_raw]
 
+    # Parse shell and cwd for sub-agent shell access
+    shell = _ensure_bool(raw.get("shell"), "shell", path, default=False)
+    cwd_str = raw.get("cwd")
+    cwd: Path | None = None
+    if cwd_str is not None:
+        if not isinstance(cwd_str, str):
+            raise AgentConfigError(f"'cwd' must be a string in {path}")
+        cwd = Path(cwd_str).expanduser()
+
     config = AgentConfig(
         name=name,
         instruction=instruction,
@@ -444,6 +455,8 @@ def _build_agent_data(
         default=default,
         api_key=api_key,
         function_tools=function_tools,
+        shell=shell,
+        cwd=cwd,
     )
 
     if request_params is not None:

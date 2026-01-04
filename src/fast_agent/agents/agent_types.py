@@ -72,6 +72,8 @@ class AgentConfig:
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None
+    shell: bool = False
+    cwd: Path | None = None
 
     def __post_init__(self):
         """Ensure default_request_params exists with proper history setting"""

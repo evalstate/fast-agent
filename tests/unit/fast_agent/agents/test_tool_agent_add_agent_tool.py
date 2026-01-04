@@ -49,13 +49,13 @@ async def test_add_agent_tool_uses_stateless_clone_history() -> None:
     tool_name = parent.add_agent_tool(child)
     tool = parent._execution_tools[tool_name]
 
-    assert await tool.run({"text": "hello"}) == "ok"
+    assert await tool.run({"message": "hello"}) == "ok"
     assert len(child.spawned) == 1
     clone_one = child.spawned[0]
     assert clone_one.history_loads == [[]]
     assert clone_one.message_history == []
 
-    assert await tool.run({"text": "again"}) == "ok"
+    assert await tool.run({"message": "again"}) == "ok"
     assert len(child.spawned) == 2
     clone_two = child.spawned[1]
     assert clone_two.history_loads == [[]]

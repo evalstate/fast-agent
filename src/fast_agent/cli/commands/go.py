@@ -12,6 +12,7 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
@@ -109,6 +110,7 @@ async def _run_agent(
     config_path: str | None = None,
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
+    card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -160,7 +162,21 @@ async def _run_agent(
     if stdio_servers:
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
-    if agent_cards:
+    # Load card_tools agents first if provided (these will be added as tools to the default agent)
+    card_tool_agent_names: list[str] = []
+    if card_tools:
+        try:
+            for card_source in card_tools:
+                if card_source.startswith(("http://", "https://")):
+                    names = fast.load_agents_from_url(card_source)
+                else:
+                    names = fast.load_agents(card_source)
+                card_tool_agent_names.extend(names)
+        except AgentConfigError as exc:
+            fast._handle_error(exc)
+            raise typer.Exit(1) from exc
+
+    if agent_cards and not card_tools:
         try:
             for card_source in agent_cards:
                 if card_source.startswith(("http://", "https://")):
@@ -185,7 +201,7 @@ async def _run_agent(
                 else:
                     await agent.interactive()
     # Check if we have multiple models (comma-delimited)
-    elif model and "," in model:
+    elif model and "," in model and not card_tools:
         # Parse multiple models
         models = [m.strip() for m in model.split(",") if m.strip()]
 
@@ -252,9 +268,21 @@ async def _run_agent(
             instruction=instruction,
             servers=server_list or [],
             model=model,
+            default=True,
         )
         async def cli_agent():
             async with fast.run() as agent:
+                # Add card_tool agents as tools to the default agent
+                if card_tool_agent_names:
+                    default_agent = agent._agent(agent_name or "agent")
+                    add_tool_fn = getattr(default_agent, "add_agent_tool", None)
+                    if callable(add_tool_fn):
+                        tool_agents = [
+                            agent._agent(tool_agent_name)
+                            for tool_agent_name in card_tool_agent_names
+                        ]
+                        add_tools_for_agents(add_tool_fn, tool_agents)
+
                 if message:
                     response = await agent.send(message)
                     # Print the response and exit
@@ -289,6 +317,7 @@ def run_async_agent(
     urls: str | None = None,
     auth: str | None = None,
     agent_cards: list[str] | None = None,
+    card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -396,6 +425,7 @@ def run_async_agent(
                 config_path=config_path,
                 server_list=server_list,
                 agent_cards=agent_cards,
+                card_tools=card_tools,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -447,6 +477,11 @@ def go(
         "--agent-cards",
         "--card",
         help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
+    card_tools: list[str] | None = typer.Option(
+        None,
+        "--card-tool",
+        help="Path or URL to an AgentCard file to load as a tool (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -540,6 +575,7 @@ def go(
         config_path=config_path,
         servers=servers,
         agent_cards=agent_cards,
+        card_tools=card_tools,
         urls=urls,
         auth=auth,
         model=model,

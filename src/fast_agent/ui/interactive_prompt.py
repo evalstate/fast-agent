@@ -27,6 +27,7 @@ from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
@@ -400,14 +401,14 @@ class InteractivePrompt:
                                     )
                                     continue
 
-                                added_tools: list[str] = []
+                                tool_agents: list[Any] = []
                                 for child_name in loaded_names:
                                     try:
                                         child = prompt_provider._agent(child_name)
                                     except Exception:
                                         continue
-                                    tool_name = add_tool_fn(child)
-                                    added_tools.append(tool_name)
+                                    tool_agents.append(child)
+                                added_tools = add_tools_for_agents(add_tool_fn, tool_agents)
 
                                 if added_tools:
                                     tool_list = ", ".join(added_tools)
