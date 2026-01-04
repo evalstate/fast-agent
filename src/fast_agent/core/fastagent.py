@@ -1615,6 +1615,10 @@ class FastAgent:
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
+        if original_args is not None and hasattr(original_args, "card_tools"):
+            self.args.card_tools = original_args.card_tools
+        if original_args is not None and hasattr(original_args, "agent"):
+            self.args.agent = original_args.agent
 
         # Run the application, which will detect the server flag and start server mode
         async with self.run():

@@ -12,7 +12,6 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
-from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
@@ -22,6 +21,33 @@ app = typer.Typer(
 )
 
 default_instruction = DEFAULT_AGENT_INSTRUCTION
+
+CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
+DEFAULT_TOOL_CARDS_DIR = Path(".fast-agent/tool-cards")
+DEFAULT_AGENT_CARDS_DIR = Path(".fast-agent/agent-cards")
+
+
+def _merge_card_sources(
+    sources: list[str] | None,
+    default_dir: Path,
+) -> list[str] | None:
+    merged: list[str] = []
+    seen: set[str] = set()
+    if sources:
+        for entry in sources:
+            if entry not in seen:
+                merged.append(entry)
+                seen.add(entry)
+    if default_dir.is_dir():
+        has_cards = any(
+            entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
+            for entry in default_dir.iterdir()
+        )
+        if has_cards:
+            default_entry = str(default_dir)
+            if default_entry not in seen:
+                merged.append(default_entry)
+    return merged or None
 
 
 def resolve_instruction_option(instruction: str | None) -> tuple[str, str]:
@@ -151,6 +177,9 @@ async def _run_agent(
         fast.args.model = model
     fast.args.reload = reload
     fast.args.watch = watch
+    if card_tools:
+        fast.args.card_tools = card_tools
+    fast.args.agent = agent_name or "agent"
 
     if shell_runtime:
         await fast.app.initialize()
@@ -162,21 +191,7 @@ async def _run_agent(
     if stdio_servers:
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
-    # Load card_tools agents first if provided (these will be added as tools to the default agent)
-    card_tool_agent_names: list[str] = []
-    if card_tools:
-        try:
-            for card_source in card_tools:
-                if card_source.startswith(("http://", "https://")):
-                    names = fast.load_agents_from_url(card_source)
-                else:
-                    names = fast.load_agents(card_source)
-                card_tool_agent_names.extend(names)
-        except AgentConfigError as exc:
-            fast._handle_error(exc)
-            raise typer.Exit(1) from exc
-
-    if agent_cards and not card_tools:
+    if agent_cards:
         try:
             for card_source in agent_cards:
                 if card_source.startswith(("http://", "https://")):
@@ -272,17 +287,6 @@ async def _run_agent(
         )
         async def cli_agent():
             async with fast.run() as agent:
-                # Add card_tool agents as tools to the default agent
-                if card_tool_agent_names:
-                    default_agent = agent._agent(agent_name or "agent")
-                    add_tool_fn = getattr(default_agent, "add_agent_tool", None)
-                    if callable(add_tool_fn):
-                        tool_agents = [
-                            agent._agent(tool_agent_name)
-                            for tool_agent_name in card_tool_agent_names
-                        ]
-                        add_tools_for_agents(add_tool_fn, tool_agents)
-
                 if message:
                     response = await agent.send(message)
                     # Print the response and exit
@@ -408,6 +412,9 @@ def run_async_agent(
             except ValueError as e:
                 print(f"Error parsing stdio command '{stdio_cmd}': {e}", file=sys.stderr)
                 continue
+
+    agent_cards = _merge_card_sources(agent_cards, DEFAULT_AGENT_CARDS_DIR)
+    card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
 
     # Check if we're already in an event loop
     loop = ensure_event_loop()
