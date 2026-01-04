@@ -1,0 +1,17 @@
+[project]
+name = "fast-agent-rag"
+version = "0.1.0"
+description = "fast-agent Vertex RAG example"
+readme = "README.md"
+requires-python = ">=3.13.5"
+dependencies = [
+  "fast-agent-mcp",
+  "google-cloud-aiplatform",
+  "google-api-python-client",
+]
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+fast-agent-mcp = { path = "../..", editable = true }
