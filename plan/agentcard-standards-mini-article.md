@@ -1,5 +1,5 @@
-# AgentCard at the Summit: The Multi-Agent Standardization Revolution 
-github.com/evalstate, github.com/iqdoctor 
+# AgentCard at the Summit: The Multi-Agent Standardization Revolution
+By github.com/evalstate, github.com/iqdoctor
 Draft
 
 LLM platforms have been climbing a clear ladder: plain text completions, chat completions, tool invocations, and then the MCP revolution. Each step widened what models could do, but also revealed a new bottleneck. Tools brought power, and MCP brought connectivity, yet we still struggle with large, brittle wrappers, heavy context costs, and inconsistent packaging. The next plateau is not just more tools. It is standardization: skills that can move, compose, and scale. AgentCard is a credible summit for that climb.
@@ -10,10 +10,10 @@ MCP made it easy to plug in any tool server, but the price shows up immediately 
 
 That perspective reframes the problem: a tool surface should be thin and dynamic. A proxy or runtime can expose only a minimal meta-tool interface (discover, learn, execute), and load full schemas only when required. This reduces context bloat, improves correctness, and aligns with least-privilege configuration using AgentCard-style allowlists.
 
-# AgentCard RFC 
+## AgentCard RFC
 RFC reference: <https://github.com/evalstate/fast-agent/blob/main/plan/agent-card-rfc.md>
 
-This direction tracks real-world practice: many platforms and developers already store prompts in Markdown files, and many of those pair the prompt body with a metadata frontmatter to instantiate an agent. The RFC is based on the well-tested fast-agent.ai workflow system, and because of that it aligns with the full set of workflow types from Anthropic’s foundational piece, “Building Effective Agents” (<https://www.anthropic.com/engineering/building-effective-agents>), and incorporates the OpenAI “Agents as Tools” paradigm (<https://openai.github.io/openai-agents-python/tools/#agents-as-tools>), allowing user defined agents to call each other. That combination is why the spec aims not just for simplicity, but also for completeness. The spec also requires full support for MCP and python function tools. Tool filtering methods for saving context are also described.
+This direction tracks real-world practice: many platforms and developers already store prompts in Markdown files, and many of those pair the prompt body with YAML frontmatter to instantiate an agent. The RFC is grounded in the fast-agent.ai workflow system and is informed by Anthropic’s “Building Effective Agents” (<https://www.anthropic.com/engineering/building-effective-agents>) and the OpenAI “Agents as Tools” paradigm (<https://openai.github.io/openai-agents-python/tools/#agents-as-tools>), allowing user-defined agents to call each other. That combination is why the spec aims not just for simplicity, but also for completeness. The RFC documents MCP integration and notes function tools in a separate spec. Tool filtering methods for saving context are also described.
 
 ## What the RFC nails down (concrete, not vibes)
 
@@ -25,11 +25,7 @@ AgentCard is a text-first format (`.md` or `.yaml`) that compiles into a single 
 - `description` is optional and becomes the tool description when agents are exposed as tools.
 - `instruction` is either the body or the `instruction` field (never both).
 - `schema_version` is optional (int); defaults to 1.
-- Runtime wiring fields are explicit: 
-- `servers` select MCP endpoints by name, 
- - `tools` allowlist tools per server, 
- - `agents` declares child agents for routing/orchestration, and 
- - `messages` points to external history files.
+- Runtime wiring fields are explicit: `servers` select MCP endpoints by name, `tools` allowlist tools per server, `agents` declare child agents for routing/orchestration, and `messages` point to external history files.
 - History preload formats are defined (JSON PromptMessageExtended, or delimited text/Markdown with role markers).
 - Supported types: `agent`, `chain`, `parallel`, `evaluator_optimizer`, `router`, `orchestrator`, `iterative_planner`, `MAKER`, which define the base agent or specialized workflows.
 
@@ -127,6 +123,7 @@ If SKILL.md makes expertise portable, AgentCard makes multi-agent systems intero
 ## References
 
 - AgentCard RFC: <https://github.com/evalstate/fast-agent/blob/main/plan/agent-card-rfc.md>
+- Model Context Protocol: <https://modelcontextprotocol.io>
 - Anthropic: Building Effective Agents: <https://www.anthropic.com/engineering/building-effective-agents>
 - OpenAI Agents SDK: Agents as Tools: <https://openai.github.io/openai-agents-python/tools/#agents-as-tools>
 - Video: "Don't Build Agents, Build Skills Instead" <https://www.youtube.com/watch?v=CEvIs9y1uog>
