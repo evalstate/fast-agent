@@ -101,6 +101,8 @@ def run_acp(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking)",
     ),
+    reload: bool = typer.Option(False, "--reload", help="Enable manual AgentCard reloads"),
+    watch: bool = typer.Option(False, "--watch", help="Watch AgentCard paths and reload"),
 ) -> None:
     """
     Run FastAgent with ACP transport defaults.
@@ -135,6 +137,8 @@ def run_acp(
         tool_description=description,
         instance_scope=instance_scope.value,
         permissions_enabled=not no_permissions,
+        reload=reload,
+        watch=watch,
     )
 
 

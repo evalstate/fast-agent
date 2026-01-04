@@ -706,7 +706,10 @@ class AgentACPServer(ACPAgent):
         if not self._reload_callback:
             return False
         if session_id in self._active_prompts:
-            raise RuntimeError("Cannot reload while a prompt is active for this session.")
+            current_task = asyncio.current_task()
+            session_task = self._session_tasks.get(session_id)
+            if current_task != session_task:
+                raise RuntimeError("Cannot reload while a prompt is active for this session.")
 
         changed = await self._reload_callback()
         if not changed:
