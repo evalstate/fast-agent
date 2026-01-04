@@ -110,23 +110,10 @@ def should_add_hf_auth(
     if not is_huggingface_url(url):
         return False
 
+    # Don't add auth if Authorization or X-HF-Authorization already present
     if existing_headers:
-        # Check if this is a .hf.space domain
-        try:
-            parsed = urlparse(url)
-            hostname = parsed.hostname
-            if hostname and hostname.endswith(".hf.space"):
-                # For .hf.space, check for X-HF-Authorization header
-                if "X-HF-Authorization" in existing_headers:
-                    return False
-            else:
-                # For other HF domains, check for Authorization header
-                if "Authorization" in existing_headers:
-                    return False
-        except Exception:
-            # Fallback to checking Authorization header
-            if "Authorization" in existing_headers:
-                return False
+        if "Authorization" in existing_headers or "X-HF-Authorization" in existing_headers:
+            return False
 
     return get_hf_token_from_env(hub_token_provider) is not None
 
@@ -158,15 +145,17 @@ def add_hf_auth_header(
     # Create new headers dict or copy existing one
     result_headers = dict(headers) if headers else {}
 
-    # Check if this is a .hf.space domain
     try:
         parsed = urlparse(url)
         hostname = parsed.hostname
         if hostname and hostname.endswith(".hf.space"):
-            # Use X-HF-Authorization for .hf.space domains
+            # For .hf.space domains, send BOTH headers:
+            # - Authorization: for the app's OAuth (HF infra doesn't consume this)
+            # - X-HF-Authorization: for HF infrastructure (inference credit tracking)
+            result_headers["Authorization"] = f"Bearer {hf_token}"
             result_headers["X-HF-Authorization"] = f"Bearer {hf_token}"
         else:
-            # Use standard Authorization header for other HF domains
+            # For other HF domains, use standard Authorization header
             result_headers["Authorization"] = f"Bearer {hf_token}"
     except Exception:
         # Fallback to standard Authorization header

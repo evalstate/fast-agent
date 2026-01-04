@@ -203,11 +203,15 @@ class TestAddHfAuthHeader:
             _restore_hf_token(original)
 
     def test_adds_x_hf_auth_header_for_hf_space(self):
-        """Test that .hf.space domains get the X-HF-Authorization header."""
+        """Test that .hf.space domains get both Authorization and X-HF-Authorization headers."""
         original = _set_hf_token("test_token_123")
         try:
             result = add_hf_auth_header("https://myspace.hf.space/api", None)
-            expected = {"X-HF-Authorization": "Bearer test_token_123"}
+            # Both headers are needed: Authorization for the app, X-HF-Authorization for HF infra
+            expected = {
+                "Authorization": "Bearer test_token_123",
+                "X-HF-Authorization": "Bearer test_token_123",
+            }
             assert result == expected
         finally:
             _restore_hf_token(original)
@@ -233,9 +237,11 @@ class TestAddHfAuthHeader:
         try:
             existing = {"Content-Type": "application/json", "User-Agent": "test"}
             result = add_hf_auth_header("https://myspace.hf.space/api", existing)
+            # Both headers are needed: Authorization for the app, X-HF-Authorization for HF infra
             expected = {
                 "Content-Type": "application/json",
                 "User-Agent": "test",
+                "Authorization": "Bearer test_token_123",
                 "X-HF-Authorization": "Bearer test_token_123",
             }
             assert result == expected
@@ -430,12 +436,12 @@ class TestSecurityAndLeakagePrevention:
             for url in valid_urls:
                 result = add_hf_auth_header(url, None)
                 assert result is not None, f"Should add auth to: {url}"
+                # Both headers are needed: Authorization for the app, X-HF-Authorization for HF infra
                 assert result["X-HF-Authorization"] == "Bearer test_token_123", (
-                    f"Incorrect auth for: {url}"
+                    f"Incorrect X-HF-Authorization for: {url}"
                 )
-                # Ensure Authorization header is NOT set for .hf.space domains
-                assert "Authorization" not in result, (
-                    f"Should not set Authorization header for: {url}"
+                assert result["Authorization"] == "Bearer test_token_123", (
+                    f"Incorrect Authorization for: {url}"
                 )
         finally:
             _restore_hf_token(original)
