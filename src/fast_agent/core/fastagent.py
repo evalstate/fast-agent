@@ -1036,6 +1036,7 @@ class FastAgent:
                         getattr(self.args, "reload", False)
                         or getattr(self.args, "watch", False)
                     )
+                    reload_callback = self.reload_agents if reload_enabled else None
                     wrapper.set_reload_callback(reload_and_refresh if reload_enabled else None)
                     wrapper.set_refresh_callback(
                         refresh_shared_instance if reload_enabled else None
@@ -1113,6 +1114,7 @@ class FastAgent:
                                     skills_directory_override=skills_override,
                                     permissions_enabled=permissions_enabled,
                                     load_card_callback=load_card_source,
+                                    reload_callback=reload_callback,
                                 )
 
                                 # Run the ACP server (this is a blocking call)
@@ -1134,6 +1136,7 @@ class FastAgent:
                                     server_description=server_description,
                                     tool_description=tool_description,
                                     get_registry_version=self._get_registry_version,
+                                    reload_callback=reload_callback,
                                 )
 
                                 # Run the server directly (this is a blocking call)

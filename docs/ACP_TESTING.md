@@ -13,9 +13,10 @@ The Agent Client Protocol (ACP) support in fast-agent allows it to act as an ACP
    export OPENAI_API_KEY="your-key-here"
    ```
 
-2. **Instruction File**: Create a simple instruction file
+2. **AgentCards**: Provide a directory of AgentCards
    ```bash
-   echo "You are a helpful AI assistant." > /tmp/instruction.md
+   mkdir -p ./agents
+   # Drop one or more AgentCard .md/.yaml files into ./agents
    ```
 
 ### Running the Server
@@ -23,7 +24,7 @@ The Agent Client Protocol (ACP) support in fast-agent allows it to act as an ACP
 Start the ACP server:
 
 ```bash
-fast-agent serve --transport acp --instruction /tmp/instruction.md --model haiku
+fast-agent serve --transport acp --card ./agents --model haiku --watch
 ```
 
 The server will:
@@ -61,8 +62,8 @@ async def test():
     async with spawn_agent_process(
         lambda agent: SimpleClient(agent),
         'fast-agent', 'serve', '--transport', 'acp',
-        '--instruction', '/tmp/instruction.md',
-        '--model', 'haiku',
+        '--card', './agents',
+        '--model', 'haiku', '--watch',
     ) as (connection, process):
 
         # 1. Initialize
