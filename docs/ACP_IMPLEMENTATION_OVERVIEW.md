@@ -395,6 +395,14 @@ fast-agent serve --transport acp \
   --model haiku
 ```
 
+### With AgentCards + Auto-Reload
+```bash
+fast-agent serve --transport acp \
+  --card ./agents \
+  --model haiku \
+  --watch  # Auto-reload AgentCards on change
+```
+
 ### With Instance Scoping
 ```bash
 fast-agent serve --transport acp \
@@ -410,6 +418,8 @@ fast-agent serve --transport acp \
   --model haiku \
   --servers filesystem,github  # Expose MCP tools to agent
 ```
+
+Note: `--reload` enables the `/reload` slash command in ACP sessions.
 
 ---
 

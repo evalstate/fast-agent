@@ -1036,6 +1036,7 @@ class FastAgent:
                         getattr(self.args, "reload", False)
                         or getattr(self.args, "watch", False)
                     )
+                    reload_callback = self.reload_agents if reload_enabled else None
                     wrapper.set_reload_callback(reload_and_refresh if reload_enabled else None)
                     wrapper.set_refresh_callback(
                         refresh_shared_instance if reload_enabled else None
@@ -1113,6 +1114,7 @@ class FastAgent:
                                     skills_directory_override=skills_override,
                                     permissions_enabled=permissions_enabled,
                                     load_card_callback=load_card_source,
+                                    reload_callback=reload_callback,
                                 )
 
                                 # Run the ACP server (this is a blocking call)
@@ -1135,6 +1137,7 @@ class FastAgent:
                                     tool_description=tool_description,
                                     host=self.args.host,
                                     get_registry_version=self._get_registry_version,
+                                    reload_callback=reload_callback,
                                 )
 
                                 # Run the server directly (this is a blocking call)
@@ -1622,6 +1625,10 @@ class FastAgent:
             self.args.card_tools = original_args.card_tools
         if original_args is not None and hasattr(original_args, "agent"):
             self.args.agent = original_args.agent
+        if original_args is not None and hasattr(original_args, "reload"):
+            self.args.reload = original_args.reload
+        if original_args is not None and hasattr(original_args, "watch"):
+            self.args.watch = original_args.watch
 
         # Run the application, which will detect the server flag and start server mode
         async with self.run():
