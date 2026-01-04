@@ -202,6 +202,7 @@ class AgentACPServer(ACPAgent):
         permissions_enabled: bool = True,
         get_registry_version: Callable[[], int] | None = None,
         load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         """
         Initialize the ACP server.
@@ -216,6 +217,7 @@ class AgentACPServer(ACPAgent):
             skills_directory_override: Optional skills directory override (relative to session cwd)
             permissions_enabled: Whether to request tool permissions from client (default: True)
             load_card_callback: Optional callback to load AgentCards at runtime
+            reload_callback: Optional callback to reload AgentCards from disk
         """
         super().__init__()
 
@@ -225,6 +227,7 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self._get_registry_version = get_registry_version
         self._load_card_callback = load_card_callback
+        self._reload_callback = reload_callback
         self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
         self._shared_reload_lock = asyncio.Lock()
         self._stale_instances: list[AgentInstance] = []
@@ -616,6 +619,9 @@ class AgentACPServer(ACPAgent):
         async def load_card(source: str) -> tuple[AgentInstance, list[str]]:
             return await self._load_agent_card_for_session(session_state, source)
 
+        async def reload_cards() -> bool:
+            return await self._reload_agent_cards_for_session(session_state.session_id)
+
         slash_handler = SlashCommandHandler(
             session_state.session_id,
             instance,
@@ -625,6 +631,7 @@ class AgentACPServer(ACPAgent):
             protocol_version=self._protocol_version,
             session_instructions=resolved_for_session,
             card_loader=load_card if self._load_card_callback else None,
+            reload_callback=reload_cards if self._reload_callback else None,
         )
         session_state.slash_handler = slash_handler
 
@@ -694,6 +701,47 @@ class AgentACPServer(ACPAgent):
             await session_state.acp_context.send_available_commands_update()
 
         return instance, loaded_names
+
+    async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
+        if not self._reload_callback:
+            return False
+        if session_id in self._active_prompts:
+            raise RuntimeError("Cannot reload while a prompt is active for this session.")
+
+        changed = await self._reload_callback()
+        if not changed:
+            return False
+
+        if self._instance_scope == "shared":
+            await self._maybe_refresh_shared_instance()
+            return True
+
+        async with self._session_lock:
+            session_state = self._session_state.get(session_id)
+        if not session_state:
+            return True
+
+        instance = await self._create_instance_task()
+        old_instance = session_state.instance
+        session_state.instance = instance
+        async with self._session_lock:
+            self.sessions[session_id] = instance
+        self._refresh_session_state(session_state, instance)
+        if old_instance != self.primary_instance:
+            try:
+                await self._dispose_instance_task(old_instance)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to dispose old session instance after reload",
+                    name="acp_reload_dispose_error",
+                    session_id=session_id,
+                    error=str(exc),
+                )
+
+        if session_state.acp_context:
+            await session_state.acp_context.send_available_commands_update()
+
+        return True
 
     async def _dispose_stale_instances_if_idle(self) -> None:
         if self._active_prompts:
@@ -965,6 +1013,9 @@ class AgentACPServer(ACPAgent):
         async def load_card(source: str) -> tuple[AgentInstance, list[str]]:
             return await self._load_agent_card_for_session(session_state, source)
 
+        async def reload_cards() -> bool:
+            return await self._reload_agent_cards_for_session(session_id)
+
         slash_handler = SlashCommandHandler(
             session_id,
             instance,
@@ -974,6 +1025,7 @@ class AgentACPServer(ACPAgent):
             protocol_version=self._protocol_version,
             session_instructions=resolved_prompts,
             card_loader=load_card if self._load_card_callback else None,
+            reload_callback=reload_cards if self._reload_callback else None,
         )
         session_state.slash_handler = slash_handler
 

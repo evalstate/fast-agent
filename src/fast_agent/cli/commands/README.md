@@ -91,12 +91,14 @@ fast-agent serve [OPTIONS]
 - `--npx TEXT`: NPX package and args to run as an MCP server (quoted)
 - `--uvx TEXT`: UVX package and args to run as an MCP server (quoted)
 - `--stdio TEXT`: Command to run as STDIO MCP server (quoted)
-- `--transport [http|sse|stdio]`: Transport protocol to expose (default: http)
+- `--transport [http|sse|stdio|acp]`: Transport protocol to expose (default: http)
 - `--host TEXT`: Host address when using HTTP or SSE transport (default: 0.0.0.0)
 - `--port INTEGER`: Port when using HTTP or SSE transport (default: 8000)
 - `--shell`, `-x`: Enable a local shell runtime and expose the execute tool
 - `--description`, `-d TEXT`: Description used for each send tool (supports `{agent}` placeholder)
 - `--instance-scope [shared|connection|request]`: Control how MCP clients receive isolated agent instances (default: shared)
+- `--reload`: Enable manual AgentCard reloads (ACP: `/reload`, MCP: `reload_agent_cards`)
+- `--watch`: Watch AgentCard paths and reload
 
 ### Skills behavior
 
@@ -122,6 +124,9 @@ fast-agent serve --description "Interact with the {agent} workflow via MCP"
 
 # Load AgentCards from a file or directory
 fast-agent serve --card ./agents --transport=http
+
+# Watch AgentCard directory for changes
+fast-agent serve --card ./agents --watch --transport=http
 
 # Use per-connection instances to isolate history between clients
 fast-agent serve --instance-scope=connection --transport=http

@@ -109,6 +109,8 @@ def serve(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking) - ACP only",
     ),
+    reload: bool = typer.Option(False, "--reload", help="Enable manual AgentCard reloads"),
+    watch: bool = typer.Option(False, "--watch", help="Watch AgentCard paths and reload"),
 ) -> None:
     """
     Run FastAgent as an MCP server.
@@ -148,4 +150,6 @@ def serve(
         tool_description=description,
         instance_scope=instance_scope.value,
         permissions_enabled=not no_permissions,
+        reload=reload,
+        watch=watch,
     )

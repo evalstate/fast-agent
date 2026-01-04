@@ -51,6 +51,7 @@ class AgentMCPServer:
         server_description: str | None = None,
         tool_description: str | None = None,
         get_registry_version: Callable[[], int] | None = None,
+        reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         """Initialize the server with the provided agent app."""
         self.primary_instance = primary_instance
@@ -58,6 +59,7 @@ class AgentMCPServer:
         self._dispose_instance_task = dispose_instance
         self._instance_scope = instance_scope
         self._get_registry_version = get_registry_version
+        self._reload_callback = reload_callback
         self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
         self._shared_instance_lock = asyncio.Lock()
         self._shared_active_requests = 0
@@ -107,6 +109,8 @@ class AgentMCPServer:
         """Register all agents as MCP tools."""
         for agent_name in self.primary_instance.agents.keys():
             self.register_agent_tools(agent_name)
+        if self._reload_callback is not None:
+            self._register_reload_tool()
 
     def register_agent_tools(self, agent_name: str) -> None:
         """Register tools for a specific agent."""
@@ -200,6 +204,49 @@ class AgentMCPServer:
                 return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
             finally:
                 await self._release_instance(ctx, instance, reuse_connection=True)
+
+    def _register_missing_agents(self, instance: AgentInstance) -> None:
+        new_agents = set(instance.agents.keys())
+        missing = new_agents - self._registered_agents
+        for agent_name in sorted(missing):
+            self.register_agent_tools(agent_name)
+
+    def _register_reload_tool(self) -> None:
+        @self.mcp_server.tool(
+            name="reload_agent_cards",
+            description="Reload AgentCards from disk",
+            structured_output=False,
+        )
+        async def reload_agent_cards(ctx: MCPContext) -> str:
+            if not self._reload_callback:
+                return "Reload not available."
+            changed = await self._reload_callback()
+            if not changed:
+                return "No AgentCard changes detected."
+
+            if self._instance_scope == "shared":
+                await self._maybe_refresh_shared_instance()
+                return "Reloaded AgentCards."
+
+            if self._instance_scope == "connection":
+                session_key = self._connection_key(ctx)
+                new_instance = await self._create_instance_task()
+                old_instance = None
+                async with self._connection_lock:
+                    old_instance = self._connection_instances.get(session_key)
+                    self._connection_instances[session_key] = new_instance
+                self._register_missing_agents(new_instance)
+                if old_instance is not None:
+                    await self._dispose_instance_task(old_instance)
+                return "Reloaded AgentCards."
+
+            # request scope: register tools from a fresh instance, then dispose it
+            new_instance = await self._create_instance_task()
+            try:
+                self._register_missing_agents(new_instance)
+            finally:
+                await self._dispose_instance_task(new_instance)
+            return "Reloaded AgentCards."
 
     async def _acquire_instance(self, ctx: MCPContext | None) -> AgentInstance:
         if self._instance_scope == "shared":

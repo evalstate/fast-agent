@@ -119,6 +119,7 @@ class SlashCommandHandler:
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
         card_loader: Callable[[str], Awaitable[tuple["AgentInstance", list[str]]]] | None = None,
+        reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ):
         """
         Initialize the slash command handler.
@@ -149,6 +150,7 @@ class SlashCommandHandler:
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
         self._card_loader = card_loader
+        self._reload_callback = reload_callback
 
         # Session-level commands (always available, operate on current agent)
         self._session_commands: dict[str, AvailableCommand] = {
@@ -194,6 +196,12 @@ class SlashCommandHandler:
                 ),
             ),
         }
+        if self._reload_callback is not None:
+            self._session_commands["reload"] = AvailableCommand(
+                name="reload",
+                description="Reload AgentCards from disk",
+                input=None,
+            )
 
     def get_available_commands(self) -> list[AvailableCommand]:
         """Get combined session commands and current agent's commands."""
@@ -348,6 +356,8 @@ class SlashCommandHandler:
                 return await self._handle_load(arguments)
             if command_name == "card":
                 return await self._handle_card(arguments)
+            if command_name == "reload":
+                return await self._handle_reload()
 
         # Check agent-specific commands
         agent = self._get_current_agent()
@@ -1326,6 +1336,17 @@ class SlashCommandHandler:
         if not added_tools:
             return summary
         return f"{summary}\nAdded tool(s): {', '.join(added_tools)}"
+
+    async def _handle_reload(self) -> str:
+        if not self._reload_callback:
+            return "AgentCard reload is not available in this session."
+        try:
+            changed = await self._reload_callback()
+        except Exception as exc:  # noqa: BLE001
+            return f"# reload\n\nFailed to reload AgentCards: {exc}"
+        if not changed:
+            return "# reload\n\nNo AgentCard changes detected."
+        return "# reload\n\nReloaded AgentCards."
 
     async def _handle_clear(self, arguments: str | None = None) -> str:
         """Handle /clear and /clear last commands."""
