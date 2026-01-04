@@ -7,6 +7,8 @@ A loader validates fields based on `type` and loads a single file or a directory
 optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
+AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
+CLI `--card-tool` loads AgentCards and exposes them as tools on the default agent.
 
 ## Agent vs Skill
 - **Skill**: a reusable prompt fragment or capability description.
@@ -106,9 +108,10 @@ Allowed fields:
 - `agents` (agents-as-tools)
 - `servers`, `tools`, `resources`, `prompts`, `skills`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
-- `history_source`, `history_merge_target`
+- `history_mode`
 - `max_parallel`, `child_timeout_sec`, `max_display_instances`
 - `function_tools`, `tool_hooks` (see separate spec)
+- `shell`, `cwd`
 - `messages` (card-only history file)
 
 ### type: `chain` (maps to `@fast.chain`)
@@ -206,6 +209,7 @@ scope.
 ### Fields (AgentCard)
 These fields are set on the **orchestrator** (parent) AgentCard because it
 controls child invocation and the initial context passed to child agents.
+They are **proposed** and not yet part of the validator or loader.
 
 - `history_source`: `none` | `messages` | `child` | `orchestrator` | `cumulative` *)
 - `history_merge_target`: `none` | `messages` **) | `child` | `orchestrator` | `cumulative` *)
@@ -364,8 +368,10 @@ You are a concise analyst.
 
 ### Runtime tool injection (optional)
 - `/card --tool` exposes the loaded agent as a tool on the **current** agent.
+- CLI: `fast-agent go --card-tool <path>` loads cards and exposes them as tools on the default agent.
 - Tool names default to `agent__{name}`.
 - Tool descriptions prefer `description`; fall back to the agent instruction.
+- Tool calls use a single `message` argument.
 - Default behavior is **stateless**: fresh clone per call with no history load or merge
   (`history_source=none`, `history_merge_target=none`).
 
@@ -501,10 +507,6 @@ See [plan/agent-card-rfc-sample.md](plan/agent-card-rfc-sample.md).
   set includes it. This creates a self-referential tool and can recurse if the
   model calls it. Filter out the current agent and dedupe tool names.
   (`src/fast_agent/ui/interactive_prompt.py`, `src/fast_agent/acp/slash_commands.py`)
-- `add_agent_tool` forwards to the **live child instance** (`child.send`) rather
-  than a detached clone. This diverges from Agents-as-Tools isolation semantics
-  and can leak history/usage across parallel calls.
-  (`src/fast_agent/agents/tool_agent.py`)
 - AgentCard `type` currently defaults to `agent` when missing. If strict validation
   is expected, this should be an error (otherwise unrelated frontmatter files are
   accepted silently).
@@ -514,31 +516,14 @@ See [plan/agent-card-rfc-sample.md](plan/agent-card-rfc-sample.md).
   (`src/fast_agent/ui/interactive_prompt.py`, `src/fast_agent/acp/slash_commands.py`)
 
 ## Appendix: Code Review Fix Plan
-General plan: extract the child-tool execution helpers from `AgentsAsToolsAgent`
-and reuse them in the `/card --tool` flow so injected agent tools behave the same
-as agents-as-tools (detached clones, optional history merge, usage rollup).
+Current status:
+- Tool injection uses detached clones (ToolAgent parity).
+- `/card --tool` and `--card-tool` share tool-registration wiring.
 
-Proposed steps:
-1) **Extract shared helpers** from `AgentsAsToolsAgent` into a small module, e.g.
-   `fast_agent/agents/agent_tool_helpers.py`:
-   - `serialize_tool_args(args) -> str`
-   - `spawn_child_clone(child, instance_name, history_source)`
-   - `invoke_child_tool(clone, args, suppress_display)`
-   - `merge_child_usage_and_history(child, clone, merge_target)`
-2) **Refactor `AgentsAsToolsAgent`** to call these helpers without changing behavior.
-   This keeps parity with current features (history modes, progress, usage merge).
-3) **Update `/card --tool` path** (TUI + ACP):
-   - Filter out the current agent from `loaded_names` to avoid self-tools.
-   - Use the shared helpers to create a tool wrapper that spawns detached clones
-     per call (not the live child instance).
-   - Deduplicate tools by name and surface a warning if a tool already exists.
-4) **Add tests**:
-   - `/card --tool` does not inject self.
-   - Injected tools use detached clones (no shared history).
-   - History merge behavior respects `history_source` and `history_merge_target`.
-5) **ACP coverage**:
-   - Ensure `/card` updates available commands and keeps session modes consistent.
-   - Validate tool injection works in ACP and TUI with identical behavior.
+Remaining work:
+1) Filter out the current agent from `/card --tool` to avoid self-tools.
+2) Deduplicate tool names on injection and surface a warning if a tool already exists.
+3) Align `/card --tool` with Agents-as-Tools helpers if advanced history merge modes are implemented.
 
 ## Appendix: Next-stage Work Items
 - **Cumulative session history**: no shared, merged transcript exists today; requires
