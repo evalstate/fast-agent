@@ -138,17 +138,23 @@ class McpAgent(ABC, ToolAgent):
         self._warnings: list[str] = []
         self._warning_messages_seen: set[str] = set()
         shell_flag_requested = bool(context and getattr(context, "shell_runtime", False))
+        shell_config_requested = bool(self.config.shell)
         skills_configured = bool(self._skill_manifests)
         self._shell_runtime_activation_reason: str | None = None
 
-        if shell_flag_requested and skills_configured:
-            self._shell_runtime_activation_reason = (
-                "via --shell flag and agent skills configuration"
-            )
-        elif shell_flag_requested:
-            self._shell_runtime_activation_reason = "via --shell flag"
-        elif skills_configured:
-            self._shell_runtime_activation_reason = "because agent skills are configured"
+        reasons: list[str] = []
+        if shell_flag_requested:
+            reasons.append("--shell flag")
+        if shell_config_requested:
+            reasons.append("agent config")
+        if skills_configured:
+            reasons.append("agent skills configuration")
+
+        if reasons:
+            if reasons == ["agent skills configuration"]:
+                self._shell_runtime_activation_reason = "because agent skills are configured"
+            else:
+                self._shell_runtime_activation_reason = "via " + " and ".join(reasons)
 
         # Get timeout configuration from context
         timeout_seconds = 90  # default
@@ -175,6 +181,7 @@ class McpAgent(ABC, ToolAgent):
             timeout_seconds=timeout_seconds,
             warning_interval_seconds=warning_interval_seconds,
             skills_directory=skills_directory,
+            working_directory=self.config.cwd,
         )
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()

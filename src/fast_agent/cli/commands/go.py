@@ -12,6 +12,7 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
@@ -267,6 +268,7 @@ async def _run_agent(
             instruction=instruction,
             servers=server_list or [],
             model=model,
+            default=True,
         )
         async def cli_agent():
             async with fast.run() as agent:
@@ -275,16 +277,11 @@ async def _run_agent(
                     default_agent = agent._agent(agent_name or "agent")
                     add_tool_fn = getattr(default_agent, "add_agent_tool", None)
                     if callable(add_tool_fn):
-                        for tool_agent_name in card_tool_agent_names:
-                            tool_agent = agent._agent(tool_agent_name)
-                            if tool_agent:
-                                # Enable shell if configured in the agent card
-                                config = getattr(tool_agent, "config", None)
-                                if config and getattr(config, "shell", False):
-                                    enable_shell_fn = getattr(tool_agent, "enable_shell", None)
-                                    if callable(enable_shell_fn):
-                                        enable_shell_fn(getattr(config, "cwd", None))
-                                add_tool_fn(tool_agent)
+                        tool_agents = [
+                            agent._agent(tool_agent_name)
+                            for tool_agent_name in card_tool_agent_names
+                        ]
+                        add_tools_for_agents(add_tool_fn, tool_agents)
 
                 if message:
                     response = await agent.send(message)

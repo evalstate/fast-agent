@@ -31,6 +31,7 @@ from acp.schema import (
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
@@ -1319,13 +1320,8 @@ class SlashCommandHandler:
         if not callable(add_tool_fn):
             return f"{summary}\nCurrent agent does not support tool injection."
 
-        added_tools: list[str] = []
-        for child_name in loaded_names:
-            child = instance.agents.get(child_name)
-            if child is None:
-                continue
-            tool_name = add_tool_fn(child)
-            added_tools.append(tool_name)
+        tool_agents = [instance.agents.get(child_name) for child_name in loaded_names]
+        added_tools = add_tools_for_agents(add_tool_fn, tool_agents)
 
         if not added_tools:
             return summary

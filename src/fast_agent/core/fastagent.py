@@ -34,6 +34,7 @@ from opentelemetry import trace
 from fast_agent import config
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.direct_decorators import (
     agent as agent_decorator,
 )
@@ -1240,18 +1241,11 @@ class FastAgent:
                         if default_agent:
                             add_tool_fn = getattr(default_agent, "add_agent_tool", None)
                             if callable(add_tool_fn):
-                                for tool_agent_name in card_tool_agent_names:
-                                    tool_agent = active_agents.get(tool_agent_name)
-                                    if tool_agent:
-                                        # Enable shell if configured in the agent card
-                                        config = getattr(tool_agent, "config", None)
-                                        if config and getattr(config, "shell", False):
-                                            enable_shell_fn = getattr(
-                                                tool_agent, "enable_shell", None
-                                            )
-                                            if callable(enable_shell_fn):
-                                                enable_shell_fn(getattr(config, "cwd", None))
-                                        add_tool_fn(tool_agent)
+                                tool_agents = [
+                                    active_agents.get(tool_agent_name)
+                                    for tool_agent_name in card_tool_agent_names
+                                ]
+                                add_tools_for_agents(add_tool_fn, tool_agents)
 
                     yield wrapper
 

@@ -214,6 +214,7 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                 skill_count = len(list(skill_manifests))
             except TypeError:
                 skill_count = 0
+        tool_children = _collect_tool_children(agent)
 
         # Handle different agent types
         if isinstance(agent, ParallelAgent):
@@ -242,6 +243,11 @@ async def _display_agent_info_helper(agent_name: str, agent_provider: "AgentApp 
                 )
         else:
             content_parts = []
+
+            if tool_children:
+                child_count = len(tool_children)
+                child_word = "child agent" if child_count == 1 else "child agents"
+                content_parts.append(f"{child_count:,}[dim] {child_word}[/dim]")
 
             if server_count > 0:
                 sub_parts = []
@@ -322,6 +328,12 @@ async def _display_all_agents_with_hierarchy(
                     for child_agent in agent.agents:
                         if child_agent.name:
                             child_agents.add(child_agent.name)
+            else:
+                tool_children = _collect_tool_children(agent)
+                for child_agent in tool_children:
+                    child_name = getattr(child_agent, "name", None)
+                    if child_name:
+                        child_agents.add(child_name)
         except Exception:
             continue
 
@@ -344,6 +356,10 @@ async def _display_all_agents_with_hierarchy(
                 await _display_parallel_children(agent, agent_provider)
             elif agent.agent_type == AgentType.ROUTER:
                 await _display_router_children(agent, agent_provider)
+            else:
+                tool_children = _collect_tool_children(agent)
+                if tool_children:
+                    await _display_tool_children(tool_children, agent_provider)
 
         except Exception:
             continue
@@ -383,6 +399,36 @@ async def _display_router_children(router_agent, agent_provider: "AgentApp | Non
         prefix = "└─" if is_last else "├─"
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
+
+async def _display_tool_children(
+    tool_children, agent_provider: "AgentApp | None"
+) -> None:
+    """Display tool-exposed child agents in tree format."""
+    for i, child_agent in enumerate(tool_children):
+        is_last = i == len(tool_children) - 1
+        prefix = "└─" if is_last else "├─"
+        await _display_child_agent_info(child_agent, prefix, agent_provider)
+
+
+def _collect_tool_children(agent) -> list[Any]:
+    """Collect child agents exposed as tools."""
+    children: list[Any] = []
+    child_map = getattr(agent, "_child_agents", None)
+    if isinstance(child_map, dict):
+        children.extend(child_map.values())
+    agent_tools = getattr(agent, "_agent_tools", None)
+    if isinstance(agent_tools, dict):
+        children.extend(agent_tools.values())
+
+    seen: set[str] = set()
+    unique_children: list[Any] = []
+    for child in children:
+        name = getattr(child, "name", None)
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        unique_children.append(child)
+    return unique_children
 
 async def _display_child_agent_info(
     child_agent, prefix: str, agent_provider: "AgentApp | None"
@@ -1189,6 +1235,7 @@ async def get_enhanced_input(
     shell_enabled = False
     shell_access_modes: tuple[str, ...] = ()
     shell_name: str | None = None
+    shell_runtime = None
     if agent_provider:
         try:
             shell_agent = agent_provider._agent(agent_name)
@@ -1196,19 +1243,35 @@ async def get_enhanced_input(
             shell_agent = None
 
     if shell_agent:
-        shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
+        direct_shell_enabled = bool(getattr(shell_agent, "_shell_runtime_enabled", False))
         modes_attr = getattr(shell_agent, "_shell_access_modes", ())
         if isinstance(modes_attr, (list, tuple)):
             shell_access_modes = tuple(str(mode) for mode in modes_attr)
         elif modes_attr:
             shell_access_modes = (str(modes_attr),)
 
-        # Get the detected shell name from the runtime
-        if shell_enabled:
+        sub_agent_shells = [
+            child
+            for child in _collect_tool_children(shell_agent)
+            if getattr(child, "_shell_runtime_enabled", False)
+        ]
+        if sub_agent_shells:
+            if direct_shell_enabled:
+                if "sub-agent" not in shell_access_modes:
+                    shell_access_modes = (*shell_access_modes, "sub-agent")
+            else:
+                shell_access_modes = ("sub-agent",)
+                if len(sub_agent_shells) == 1:
+                    shell_runtime = getattr(sub_agent_shells[0], "_shell_runtime", None)
+
+        shell_enabled = direct_shell_enabled or bool(sub_agent_shells)
+        if direct_shell_enabled:
             shell_runtime = getattr(shell_agent, "_shell_runtime", None)
-            if shell_runtime:
-                runtime_info = shell_runtime.runtime_info()
-                shell_name = runtime_info.get("name")
+
+        # Get the detected shell name from the runtime
+        if shell_enabled and shell_runtime:
+            runtime_info = shell_runtime.runtime_info()
+            shell_name = runtime_info.get("name")
 
     # Create formatted prompt text
     arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
@@ -1313,7 +1376,6 @@ async def get_enhanced_input(
             shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
 
             # Add working directory info
-            shell_runtime = getattr(shell_agent, "_shell_runtime", None)
             if shell_runtime:
                 working_dir = shell_runtime.working_directory()
                 try:
