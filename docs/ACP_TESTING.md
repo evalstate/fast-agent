@@ -13,15 +13,24 @@ The Agent Client Protocol (ACP) support in fast-agent allows it to act as an ACP
    export OPENAI_API_KEY="your-key-here"
    ```
 
-2. **AgentCards**: Provide a directory of AgentCards
+2. **Agent instructions**: Use either an instruction file *or* AgentCards
    ```bash
+   # Option A: instruction file
+   echo "You are a helpful AI assistant." > /tmp/instruction.md
+   ```
+   ```bash
+   # Option B: AgentCards directory
    mkdir -p ./agents
    # Drop one or more AgentCard .md/.yaml files into ./agents
    ```
 
 ### Running the Server
 
-Start the ACP server:
+Start the ACP server (pick one):
+
+```bash
+fast-agent serve --transport acp --instruction /tmp/instruction.md --model haiku --watch
+```
 
 ```bash
 fast-agent serve --transport acp --card ./agents --model haiku --watch
@@ -58,11 +67,11 @@ class SimpleClient:
     # Add other required methods...
 
 async def test():
-    # Spawn fast-agent as ACP server
+    # Spawn fast-agent as ACP server (pick one)
     async with spawn_agent_process(
         lambda agent: SimpleClient(agent),
         'fast-agent', 'serve', '--transport', 'acp',
-        '--card', './agents',
+        '--instruction', '/tmp/instruction.md',
         '--model', 'haiku', '--watch',
     ) as (connection, process):
 
@@ -98,13 +107,16 @@ if __name__ == "__main__":
     asyncio.run(test())
 ```
 
+Note: replace `--instruction /tmp/instruction.md` with `--card ./agents` if you want to run from AgentCards.
+
 ### Testing with Manual JSON-RPC
 
 You can also test by sending raw JSON-RPC messages:
 
 ```bash
-# Terminal 1: Start server
+# Terminal 1: Start server (pick one)
 fast-agent serve --transport acp --instruction /tmp/instruction.md --model haiku
+fast-agent serve --transport acp --card ./agents --model haiku
 
 # Terminal 2: Send messages
 # Initialize
