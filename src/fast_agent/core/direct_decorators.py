@@ -19,7 +19,12 @@ from typing import (
 from mcp.client.session import ElicitationFnT
 from pydantic import AnyUrl
 
-from fast_agent.agents.agent_types import AgentConfig, AgentType, SkillConfig
+from fast_agent.agents.agent_types import (
+    AgentConfig,
+    AgentType,
+    FunctionToolsConfig,
+    SkillConfig,
+)
 from fast_agent.agents.workflow.iterative_planner import ITERATIVE_PLAN_SYSTEM_PROMPT_TEMPLATE
 from fast_agent.agents.workflow.router_agent import (
     ROUTING_SYSTEM_INSTRUCTION,
@@ -228,6 +233,7 @@ def _decorator_impl(
             default=default,
             elicitation_handler=extra_kwargs.get("elicitation_handler"),
             api_key=extra_kwargs.get("api_key"),
+            function_tools=extra_kwargs.get("function_tools"),
         )
 
         # Update request params if provided
@@ -271,6 +277,7 @@ def agent(
     resources: dict[str, list[str]] | None = None,
     prompts: dict[str, list[str]] | None = None,
     skills: SkillConfig = SKILLS_DEFAULT,
+    function_tools: FunctionToolsConfig = None,
     model: str | None = None,
     use_history: bool = True,
     request_params: RequestParams | None = None,
@@ -294,6 +301,7 @@ def agent(
         tools: Optional list of tool names or patterns to include
         resources: Optional list of resource names or patterns to include
         prompts: Optional list of prompt names or patterns to include
+        function_tools: Optional list of Python function tools to include
         model: Model specification string
         use_history: Whether to maintain conversation history
         request_params: Additional request parameters for the LLM
@@ -327,6 +335,7 @@ def agent(
         resources=resources,
         prompts=prompts,
         skills=skills,
+        function_tools=function_tools,
         api_key=api_key,
         agents_as_tools_options={
             "history_mode": history_mode,

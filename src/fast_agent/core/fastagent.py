@@ -655,6 +655,7 @@ class FastAgent:
         from collections.abc import Coroutine
         from pathlib import Path
 
+        from fast_agent.agents.agent_types import FunctionToolsConfig
         from fast_agent.skills import SkillManifest, SkillRegistry
         from fast_agent.types import RequestParams
 
@@ -673,6 +674,7 @@ class FastAgent:
             resources: dict[str, list[str]] | None = None,
             prompts: dict[str, list[str]] | None = None,
             skills: SkillConfig = SKILLS_DEFAULT,
+            function_tools: FunctionToolsConfig = None,
             model: str | None = None,
             use_history: bool = True,
             request_params: RequestParams | None = None,
