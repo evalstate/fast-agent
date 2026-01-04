@@ -22,6 +22,33 @@ app = typer.Typer(
 
 default_instruction = DEFAULT_AGENT_INSTRUCTION
 
+CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
+DEFAULT_TOOL_CARDS_DIR = Path(".fast-agent/tool-cards")
+DEFAULT_AGENT_CARDS_DIR = Path(".fast-agent/agent-cards")
+
+
+def _merge_card_sources(
+    sources: list[str] | None,
+    default_dir: Path,
+) -> list[str] | None:
+    merged: list[str] = []
+    seen: set[str] = set()
+    if sources:
+        for entry in sources:
+            if entry not in seen:
+                merged.append(entry)
+                seen.add(entry)
+    if default_dir.is_dir():
+        has_cards = any(
+            entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
+            for entry in default_dir.iterdir()
+        )
+        if has_cards:
+            default_entry = str(default_dir)
+            if default_entry not in seen:
+                merged.append(default_entry)
+    return merged or None
+
 
 def resolve_instruction_option(instruction: str | None) -> tuple[str, str]:
     """
@@ -109,6 +136,7 @@ async def _run_agent(
     config_path: str | None = None,
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
+    card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -149,6 +177,9 @@ async def _run_agent(
         fast.args.model = model
     fast.args.reload = reload
     fast.args.watch = watch
+    if card_tools:
+        fast.args.card_tools = card_tools
+    fast.args.agent = agent_name or "agent"
 
     if shell_runtime:
         await fast.app.initialize()
@@ -185,7 +216,7 @@ async def _run_agent(
                 else:
                     await agent.interactive()
     # Check if we have multiple models (comma-delimited)
-    elif model and "," in model:
+    elif model and "," in model and not card_tools:
         # Parse multiple models
         models = [m.strip() for m in model.split(",") if m.strip()]
 
@@ -252,6 +283,7 @@ async def _run_agent(
             instruction=instruction,
             servers=server_list or [],
             model=model,
+            default=True,
         )
         async def cli_agent():
             async with fast.run() as agent:
@@ -289,6 +321,7 @@ def run_async_agent(
     urls: str | None = None,
     auth: str | None = None,
     agent_cards: list[str] | None = None,
+    card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -380,6 +413,9 @@ def run_async_agent(
                 print(f"Error parsing stdio command '{stdio_cmd}': {e}", file=sys.stderr)
                 continue
 
+    agent_cards = _merge_card_sources(agent_cards, DEFAULT_AGENT_CARDS_DIR)
+    card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
+
     # Check if we're already in an event loop
     loop = ensure_event_loop()
     if loop.is_running():
@@ -396,6 +432,7 @@ def run_async_agent(
                 config_path=config_path,
                 server_list=server_list,
                 agent_cards=agent_cards,
+                card_tools=card_tools,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -447,6 +484,11 @@ def go(
         "--agent-cards",
         "--card",
         help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
+    card_tools: list[str] | None = typer.Option(
+        None,
+        "--card-tool",
+        help="Path or URL to an AgentCard file to load as a tool (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -540,6 +582,7 @@ def go(
         config_path=config_path,
         servers=servers,
         agent_cards=agent_cards,
+        card_tools=card_tools,
         urls=urls,
         auth=auth,
         model=model,

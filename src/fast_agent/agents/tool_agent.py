@@ -1,4 +1,3 @@
-import json as json_module
 import time
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, List, Sequence
@@ -52,6 +51,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
         self._execution_tools: dict[str, FastMCPTool] = {}
         self._tool_schemas: list[Tool] = []
+        self._agent_tools: dict[str, LlmAgent] = {}
         self.tool_runner_hooks: ToolRunnerHooks | None = None
 
         # Build a working list of tools and auto-inject human-input tool if missing
@@ -124,14 +124,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 child, "instruction", None
             )
         tool_description = description or f"Send a message to the {child.name} agent"
+        self._agent_tools[tool_name] = child
 
-        async def call_agent(text: str | None = None, json: dict | None = None) -> str:
-            if text is not None:
-                input_text = text
-            elif json is not None:
-                input_text = json_module.dumps(json, ensure_ascii=False)
-            else:
-                input_text = ""
+        async def call_agent(message: str) -> str:
+            """Message to send to the child agent."""
+            input_text = message
             clone = await child.spawn_detached_instance(name=f"{child.name}[tool]")
             progress_step = 0
 
