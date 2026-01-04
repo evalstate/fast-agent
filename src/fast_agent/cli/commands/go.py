@@ -156,6 +156,11 @@ async def _run_agent(
     watch: bool = False,
 ) -> None:
     """Async implementation to run an interactive agent."""
+    if mode == "serve" and transport in ["stdio", "acp"]:
+        from fast_agent.ui.console import configure_console_stream
+
+        configure_console_stream("stderr")
+
     from fast_agent import FastAgent
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.mcp.prompts.prompt_load import load_prompt
