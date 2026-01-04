@@ -8,6 +8,7 @@ import os
 import signal
 import time
 from contextlib import AsyncExitStack, asynccontextmanager
+from importlib.metadata import version as get_version
 from typing import Any, AsyncContextManager, Awaitable, Callable, Literal, Protocol, cast
 
 from mcp.server.fastmcp import Context as MCPContext
@@ -20,6 +21,32 @@ from fast_agent.core.logging.logger import get_logger
 from fast_agent.utils.async_utils import run_sync
 
 logger = get_logger(__name__)
+
+
+def _get_oauth_config() -> tuple[str | None, list[str], str]:
+    """
+    Read OAuth configuration from environment variables.
+
+    Returns:
+        Tuple of (provider, scopes, resource_url).
+        provider is None if OAuth is not enabled.
+    """
+    oauth_provider = os.environ.get("FAST_AGENT_SERVE_OAUTH", "").lower()
+
+    # Normalize provider aliases
+    if oauth_provider in ("hf", "huggingface"):
+        oauth_provider = "huggingface"
+    elif not oauth_provider:
+        oauth_provider = None
+
+    # Parse scopes from comma-separated string
+    oauth_scopes_str = os.environ.get("FAST_AGENT_OAUTH_SCOPES", "")
+    oauth_scopes = [s.strip() for s in oauth_scopes_str.split(",") if s.strip()] or ["access"]
+
+    # Resource URL defaults to localhost:8000
+    resource_url = os.environ.get("FAST_AGENT_OAUTH_RESOURCE_URL", "http://localhost:8000")
+
+    return oauth_provider, oauth_scopes, resource_url
 
 
 TransportMode = Literal["http", "sse", "stdio"]
@@ -50,6 +77,7 @@ class AgentMCPServer:
         server_name: str = "FastAgent-MCP-Server",
         server_description: str | None = None,
         tool_description: str | None = None,
+        host: str = "0.0.0.0",
         get_registry_version: Callable[[], int] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
@@ -64,11 +92,51 @@ class AgentMCPServer:
         self._shared_instance_lock = asyncio.Lock()
         self._shared_active_requests = 0
         self._stale_instances: list[AgentInstance] = []
+
+        # Check for OAuth configuration
+        oauth_provider, oauth_scopes, resource_url = _get_oauth_config()
+        token_verifier = None
+        auth_settings = None
+
+        if oauth_provider == "huggingface":
+            from mcp.server.auth.settings import AuthSettings
+            from pydantic import AnyHttpUrl
+
+            from fast_agent.mcp.auth.presence import PresenceTokenVerifier
+
+            token_verifier = PresenceTokenVerifier(provider="huggingface", scopes=oauth_scopes)
+            auth_settings = AuthSettings(
+                issuer_url=AnyHttpUrl("https://huggingface.co"),
+                resource_server_url=AnyHttpUrl(resource_url),
+                required_scopes=oauth_scopes,
+            )
+            logger.info(
+                f"OAuth enabled for provider '{oauth_provider}'",
+                name="oauth_enabled",
+                provider=oauth_provider,
+                scopes=oauth_scopes,
+                resource_url=resource_url,
+            )
+
         self.mcp_server: FastMCP = FastMCP(
             name=server_name,
             instructions=server_description
             or f"This server provides access to {len(primary_instance.agents)} agents",
+            token_verifier=token_verifier,
+            auth=auth_settings,
+            host=host,
         )
+
+        # Register root route for HTTP/SSE transport info
+        @self.mcp_server.custom_route("/", methods=["GET"])
+        async def root_info(request):
+            from starlette.responses import PlainTextResponse
+
+            version = get_version("fast-agent-mcp")
+            return PlainTextResponse(
+                f"fast-agent mcp server (v{version}) - see https://fast-agent.ai for more information."
+            )
+
         if self._instance_scope == "request":
             # Ensure FastMCP does not attempt to maintain sessions for stateless mode
             self.mcp_server.settings.stateless_http = True
@@ -139,50 +207,70 @@ class AgentMCPServer:
         )
         async def send_message(message: str, ctx: MCPContext) -> str:
             """Send a message to the agent and return its response."""
-            instance = await self._acquire_instance(ctx)
-            agent = instance.app[agent_name]
-            agent_context = getattr(agent, "context", None)
+            # Extract bearer token from auth context for token passthrough
+            from fast_agent.mcp.auth.context import request_bearer_token
 
-            # Define the function to execute
-            async def execute_send():
-                start = time.perf_counter()
-                logger.info(
-                    f"MCP request received for agent '{agent_name}'",
-                    name="mcp_request_start",
-                    agent=agent_name,
-                    session=self._session_identifier(ctx),
-                )
-                self.std_logger.info(
-                    "MCP request received for agent '%s' (scope=%s)",
-                    agent_name,
-                    self._instance_scope,
-                )
-
-                response = await agent.send(message)
-                duration = time.perf_counter() - start
-
-                logger.info(
-                    f"Agent '{agent_name}' completed MCP request",
-                    name="mcp_request_complete",
-                    agent=agent_name,
-                    duration=duration,
-                    session=self._session_identifier(ctx),
-                )
-                self.std_logger.info(
-                    "Agent '%s' completed MCP request in %.2fs (scope=%s)",
-                    agent_name,
-                    duration,
-                    self._instance_scope,
-                )
-                return response
-
+            bearer_token = None
             try:
-                # Execute with bridged context
-                if agent_context and ctx:
-                    return await self.with_bridged_context(agent_context, ctx, execute_send)
-                return await execute_send()
+                from mcp.server.auth.middleware.auth_context import get_access_token
+
+                access_token = get_access_token()
+                if access_token:
+                    bearer_token = access_token.token
+            except Exception:
+                # Auth context not available (e.g., no auth configured)
+                pass
+
+            # Set the token in our contextvar for LLM provider access
+            saved_token = request_bearer_token.set(bearer_token)
+            try:
+                instance = await self._acquire_instance(ctx)
+                agent = instance.app[agent_name]
+                agent_context = getattr(agent, "context", None)
+
+                # Define the function to execute
+                async def execute_send():
+                    start = time.perf_counter()
+                    logger.info(
+                        f"MCP request received for agent '{agent_name}'",
+                        name="mcp_request_start",
+                        agent=agent_name,
+                        session=self._session_identifier(ctx),
+                    )
+                    self.std_logger.info(
+                        "MCP request received for agent '%s' (scope=%s)",
+                        agent_name,
+                        self._instance_scope,
+                    )
+
+                    response = await agent.send(message)
+                    duration = time.perf_counter() - start
+
+                    logger.info(
+                        f"Agent '{agent_name}' completed MCP request",
+                        name="mcp_request_complete",
+                        agent=agent_name,
+                        duration=duration,
+                        session=self._session_identifier(ctx),
+                    )
+                    self.std_logger.info(
+                        "Agent '%s' completed MCP request in %.2fs (scope=%s)",
+                        agent_name,
+                        duration,
+                        self._instance_scope,
+                    )
+                    return response
+
+                try:
+                    # Execute with bridged context
+                    if agent_context and ctx:
+                        return await self.with_bridged_context(agent_context, ctx, execute_send)
+                    return await execute_send()
+                finally:
+                    await self._release_instance(ctx, instance)
             finally:
-                await self._release_instance(ctx, instance)
+                # Always reset the contextvar
+                request_bearer_token.reset(saved_token)
 
         # Register a history prompt for this agent
         @self.mcp_server.prompt(
@@ -323,7 +411,9 @@ class AgentMCPServer:
             new_instance = await self._create_instance_task()
             old_instance = self.primary_instance
             self.primary_instance = new_instance
-            self._primary_registry_version = getattr(new_instance, "registry_version", latest_version)
+            self._primary_registry_version = getattr(
+                new_instance, "registry_version", latest_version
+            )
             self._stale_instances.append(old_instance)
 
             new_agents = set(new_instance.agents.keys())
@@ -476,9 +566,7 @@ class AgentMCPServer:
                 http_transport = "sse"
             else:
                 raise ValueError("HTTP/SSE handler received stdio transport")
-            self._server_task = asyncio.create_task(
-                self._run_server_with_shutdown(http_transport)
-            )
+            self._server_task = asyncio.create_task(self._run_server_with_shutdown(http_transport))
 
             try:
                 # Wait for the server task to complete
@@ -554,7 +642,12 @@ class AgentMCPServer:
             if transport == "sse":
                 await self.mcp_server.run_sse_async()
             elif transport == "http":
-                await self.mcp_server.run_streamable_http_async()
+                # Check if HF OAuth is enabled - if so, wrap app with header middleware
+                oauth_provider = os.environ.get("FAST_AGENT_SERVE_OAUTH", "").lower()
+                if oauth_provider in ("hf", "huggingface"):
+                    await self._run_http_with_hf_middleware()
+                else:
+                    await self.mcp_server.run_streamable_http_async()
         finally:
             # Cancel the monitor when the server exits
             shutdown_monitor.cancel()
@@ -562,6 +655,32 @@ class AgentMCPServer:
                 await shutdown_monitor
             except asyncio.CancelledError:
                 pass
+
+    async def _run_http_with_hf_middleware(self) -> None:
+        """Run HTTP server with HuggingFace header normalization middleware.
+
+        This wraps the Starlette app with middleware that copies X-HF-Authorization
+        to Authorization header, enabling HuggingFace Spaces authentication.
+        """
+        import uvicorn
+
+        from fast_agent.mcp.auth.middleware import HFAuthHeaderMiddleware
+
+        # Get the Starlette app from FastMCP
+        starlette_app = self.mcp_server.streamable_http_app()
+
+        # Wrap with our header normalization middleware
+        wrapped_app = HFAuthHeaderMiddleware(starlette_app)
+
+        # Run uvicorn with the wrapped app
+        config = uvicorn.Config(
+            wrapped_app,
+            host=self.mcp_server.settings.host,
+            port=self.mcp_server.settings.port,
+            log_level=self.mcp_server.settings.log_level.lower(),
+        )
+        server = uvicorn.Server(config)
+        await server.serve()
 
     async def _monitor_shutdown(self):
         """Monitor for shutdown signals and coordinate proper shutdown sequence."""
@@ -620,7 +739,6 @@ class AgentMCPServer:
         mcp_ext = cast("_FastMCPLocalExtensions", self.mcp_server)
         sse = getattr(mcp_ext, "_sse_transport", None)
         if sse is not None:
-
             # Close all read stream writers
             writers = list(sse._read_stream_writers.items())
             for session_id, writer in writers:
@@ -743,7 +861,6 @@ class AgentMCPServer:
         mcp_ext = cast("_FastMCPLocalExtensions", self.mcp_server)
         sse = getattr(mcp_ext, "_sse_transport", None)
         if sse is not None:
-
             # Close all read stream writers
             for session_id, writer in list(sse._read_stream_writers.items()):
                 try:

@@ -1135,6 +1135,7 @@ class FastAgent:
                                     server_name=server_name or f"{self.name}-MCP-Server",
                                     server_description=server_description,
                                     tool_description=tool_description,
+                                    host=self.args.host,
                                     get_registry_version=self._get_registry_version,
                                     reload_callback=reload_callback,
                                 )

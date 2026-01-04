@@ -91,11 +91,22 @@ class ProviderKeyManager:
         if provider_name == "fast-agent":
             return ""
 
+        # Check for request-scoped token first (token passthrough from MCP server)
+        # This allows clients to pass their own HF token via Authorization header
+        if provider_name in {"hf", "huggingface"}:
+            from fast_agent.mcp.auth.context import request_bearer_token
+
+            ctx_token = request_bearer_token.get()
+            if ctx_token:
+                return ctx_token
+
         # Google Vertex AI uses ADC/IAM and does not require an API key.
         if provider_name == "google":
             try:
                 cfg = config.model_dump() if isinstance(config, BaseModel) else config
-                if isinstance(cfg, dict) and bool((cfg.get("google") or {}).get("vertex_ai", {}).get("enabled")):
+                if isinstance(cfg, dict) and bool(
+                    (cfg.get("google") or {}).get("vertex_ai", {}).get("enabled")
+                ):
                     return ""
             except Exception:
                 pass
