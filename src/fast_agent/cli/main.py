@@ -94,7 +94,7 @@ def show_welcome() -> None:
     table.add_row("go -x", "Start an interactive session with a local shell tool")
     table.add_row("[bold]serve[/bold]", "Start fast-agent as an MCP server")
     table.add_row("check", "Show current configuration")
-    table.add_row("auth", "Manage OAuth tokens and keyring")
+    table.add_row("auth", "Manage OAuth tokens in the OS keyring for MCP servers")
     table.add_row("setup", "Create agent template and configuration")
     table.add_row("quickstart", "Create example applications (workflow, researcher, etc.)")
     table.add_row("demo", "Run local UI demos (no model calls)")

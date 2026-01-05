@@ -13,10 +13,24 @@ DEFAULT_TIMEOUT_SEC = 30
 
 
 def _load_token() -> str | None:
+    # Check for request-scoped token first (when running as MCP server)
+    # This allows clients to pass their own HF token via Authorization header
+    try:
+        from fast_agent.mcp.auth.context import request_bearer_token
+
+        ctx_token = request_bearer_token.get()
+        if ctx_token:
+            return ctx_token
+    except ImportError:
+        # fast_agent.mcp.auth.context not available
+        pass
+
+    # Fall back to HF_TOKEN environment variable
     token = os.getenv("HF_TOKEN")
     if token:
         return token
 
+    # Fall back to cached huggingface token file
     token_path = Path.home() / ".cache" / "huggingface" / "token"
     if token_path.exists():
         token_value = token_path.read_text(encoding="utf-8").strip()
