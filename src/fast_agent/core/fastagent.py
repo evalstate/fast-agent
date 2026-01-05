@@ -19,6 +19,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
+    Awaitable,
     Callable,
     Literal,
     ParamSpec,
@@ -363,6 +364,7 @@ class FastAgent:
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
+        self._agent_card_watch_reload: Callable[[], Awaitable[bool]] | None = None
 
     @staticmethod
     def _normalize_skill_directories(
@@ -739,7 +741,7 @@ class FastAgent:
             from watchfiles import awatch  # type: ignore[import-not-found]
 
             async for _changes in awatch(*roots):
-                await self.reload_agents()
+                await self._reload_agent_cards_from_watch()
         except ImportError:
             logger.info(
                 "watchfiles not available; falling back to polling for AgentCard reloads"
@@ -747,11 +749,17 @@ class FastAgent:
             try:
                 while True:
                     await asyncio.sleep(1.0)
-                    await self.reload_agents()
+                    await self._reload_agent_cards_from_watch()
             except asyncio.CancelledError:
                 return
         except asyncio.CancelledError:
             return
+
+    async def _reload_agent_cards_from_watch(self) -> bool:
+        reload_callback = self._agent_card_watch_reload
+        if reload_callback is None:
+            return await self.reload_agents()
+        return await reload_callback()
 
     # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
@@ -1146,6 +1154,7 @@ class FastAgent:
                         refresh_shared_instance if reload_enabled else None
                     )
                     wrapper.set_load_card_callback(load_card_and_refresh)
+                    self._agent_card_watch_reload = reload_and_refresh if reload_enabled else None
 
                     if getattr(self.args, "watch", False) and self._agent_card_roots:
                         self._agent_card_watch_task = asyncio.create_task(
@@ -1391,6 +1400,7 @@ class FastAgent:
                     except asyncio.CancelledError:
                         pass
                     self._agent_card_watch_task = None
+                self._agent_card_watch_reload = None
 
                 # Print usage report before cleanup (show for user exits too)
                 if (

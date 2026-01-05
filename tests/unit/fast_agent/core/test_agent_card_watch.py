@@ -79,7 +79,7 @@ async def test_watch_agent_cards_triggers_reload(monkeypatch, tmp_path: Path) ->
     fast.load_agents(agents_dir)
 
     reload_mock = AsyncMock(return_value=True)
-    monkeypatch.setattr(fast, "reload_agents", reload_mock)
+    fast._agent_card_watch_reload = reload_mock
 
     async def fake_awatch(*_paths: Path, **_kwargs):
         yield {("modified", card_path)}
