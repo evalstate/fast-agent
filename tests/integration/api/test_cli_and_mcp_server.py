@@ -1,5 +1,7 @@
+import asyncio
 import os
 import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import httpx
@@ -328,6 +330,75 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
     finally:
         # Terminate the server process
         if server_proc.poll() is None:  # If still running
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port, tmp_path):
+    """Server mode should start cleanly with --watch enabled."""
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    card_path = agents_dir / "watcher.md"
+    card_path.write_text(
+        "---\n"
+        "type: agent\n"
+        "name: watcher\n"
+        "---\n"
+        "Echo test.\n",
+        encoding="utf-8",
+    )
+
+    port = mcp_test_ports["http"]
+
+    server_proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "fast_agent.cli",
+            "serve",
+            "--config-path",
+            str(config_path),
+            "--transport",
+            "http",
+            "--port",
+            str(port),
+            "--model",
+            "passthrough",
+            "--name",
+            "fast-agent-watch-test",
+            "--card",
+            str(agents_dir),
+            "--watch",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    try:
+        await wait_for_port("127.0.0.1", port, process=server_proc)
+        card_path.write_text(
+            "---\n"
+            "type: agent\n"
+            "name: watcher\n"
+            "---\n"
+            "Echo test updated.\n",
+            encoding="utf-8",
+        )
+        await asyncio.sleep(0.25)
+        assert server_proc.poll() is None
+    finally:
+        if server_proc.poll() is None:
             server_proc.terminate()
             try:
                 server_proc.wait(timeout=2)

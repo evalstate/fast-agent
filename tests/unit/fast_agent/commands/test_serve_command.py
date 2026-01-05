@@ -60,6 +60,7 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
         instruction=None,
         config_path=None,
         servers=None,
+        agent_cards=["./agents"],
         urls=None,
         auth=None,
         model=None,
@@ -73,6 +74,8 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
         port=7010,
         shell=False,
         instance_scope=serve_command.InstanceScope.CONNECTION,
+        reload=True,
+        watch=True,
     )
 
     assert captured["mode"] == "serve"
@@ -82,3 +85,6 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
     assert captured["stdio_commands"] == ["python tool_server.py"]
     assert captured["tool_description"] == "Chat with {agent}"
     assert captured["instance_scope"] == "connection"
+    assert captured["agent_cards"] == ["./agents"]
+    assert captured["reload"] is True
+    assert captured["watch"] is True
