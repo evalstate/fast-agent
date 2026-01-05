@@ -68,6 +68,16 @@ available_agents = set()
 in_multiline_mode = False
 
 
+def _format_model_display(model: str | None) -> str | None:
+    if not model:
+        return model
+    trimmed = model.rstrip("/")
+    if "/" in trimmed:
+        last = trimmed.split("/")[-1]
+        return last or trimmed
+    return model
+
+
 def _show_system_cmd() -> ShowSystemCommand:
     return ShowSystemCommand()
 
@@ -1085,9 +1095,12 @@ async def get_enhanced_input(
                     model_name = context.config.default_model
 
             if model_name:
+                display_name = _format_model_display(model_name) or model_name
                 max_len = 25
                 model_display = (
-                    model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+                    display_name[: max_len - 1] + "…"
+                    if len(display_name) > max_len
+                    else display_name
                 )
             else:
                 print(f"[toolbar debug] no model resolved for agent '{agent_name}'")

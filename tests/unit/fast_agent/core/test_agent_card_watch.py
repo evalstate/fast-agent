@@ -11,11 +11,16 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def _write_agent_card(path: Path, *, function_tools: list[str] | None = None) -> None:
+def _write_agent_card(
+    path: Path,
+    *,
+    name: str = "watcher",
+    function_tools: list[str] | None = None,
+) -> None:
     lines = [
         "---",
         "type: agent",
-        "name: watcher",
+        f"name: {name}",
     ]
     if function_tools:
         lines.append("function_tools:")
@@ -91,3 +96,33 @@ async def test_watch_agent_cards_triggers_reload(monkeypatch, tmp_path: Path) ->
     await fast._watch_agent_cards()
 
     reload_mock.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_reload_agents_skips_invalid_new_card(tmp_path: Path) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+
+    card_path = agents_dir / "watcher.md"
+    _write_agent_card(card_path)
+
+    fast = FastAgent(
+        "watch-test",
+        config_path=str(config_path),
+        parse_cli_args=False,
+        quiet=True,
+    )
+    fast.load_agents(agents_dir)
+
+    invalid_path = agents_dir / "sizer.md"
+    invalid_path.write_text("", encoding="utf-8")
+
+    await fast.reload_agents()
+    assert "sizer" not in fast.agents
+
+    _write_agent_card(invalid_path, name="sizer")
+    await fast.reload_agents()
+    assert "sizer" in fast.agents

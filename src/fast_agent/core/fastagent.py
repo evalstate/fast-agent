@@ -519,10 +519,23 @@ class FastAgent:
         else:
             changed_card_files = set(current_card_stats.keys())
 
+        def _load_cards(path_entry: Path) -> list[Any]:
+            try:
+                return load_agent_cards(path_entry)
+            except Exception as exc:
+                if not incremental:
+                    raise
+                logger.warning(
+                    "Skipping invalid AgentCard during reload",
+                    path=str(path_entry),
+                    error=str(exc),
+                )
+                return []
+
         cards: list[Any] = []
         loaded_card_files: set[Path] = set()
         for path_entry in sorted(changed_card_files):
-            loaded_cards = load_agent_cards(path_entry)
+            loaded_cards = _load_cards(path_entry)
             cards.extend(loaded_cards)
             loaded_card_files.add(path_entry)
             for card in loaded_cards:
@@ -538,7 +551,7 @@ class FastAgent:
             if path_entry not in self._agent_card_tool_files
         }
         for path_entry in sorted(missing_tool_cards):
-            loaded_cards = load_agent_cards(path_entry)
+            loaded_cards = _load_cards(path_entry)
             cards.extend(loaded_cards)
             loaded_card_files.add(path_entry)
             for card in loaded_cards:
@@ -589,7 +602,7 @@ class FastAgent:
                 if self._agent_card_tool_files.get(card_path, set()) & changed_tool_files
             }
             for path_entry in sorted(affected_card_files - loaded_card_files):
-                loaded_cards = load_agent_cards(path_entry)
+                loaded_cards = _load_cards(path_entry)
                 cards.extend(loaded_cards)
                 loaded_card_files.add(path_entry)
                 for card in loaded_cards:

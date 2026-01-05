@@ -103,6 +103,16 @@ class ConsoleDisplay:
         return enabled, streaming_mode
 
     @staticmethod
+    def _format_model_display(model: str | None) -> str | None:
+        if not model:
+            return model
+        trimmed = model.rstrip("/")
+        if "/" in trimmed:
+            last = trimmed.split("/")[-1]
+            return last or trimmed
+        return model
+
+    @staticmethod
     def _looks_like_markdown(text: str) -> bool:
         """
         Heuristic to detect markdown-ish content.
@@ -796,7 +806,8 @@ class ConsoleDisplay:
             display_text = message_text
 
         # Build right info
-        right_info = f"[dim]{model}[/dim]" if model else ""
+        display_model = self._format_model_display(model)
+        right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Display main message using unified method
         self.display_message(
@@ -852,7 +863,8 @@ class ConsoleDisplay:
         if name:
             left += f"[{block_color}]{name}[/{block_color}]"
 
-        right_info = f"[dim]{model}[/dim]" if model else ""
+        display_model = self._format_model_display(model)
+        right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Determine renderer based on streaming mode
         use_plain_text = streaming_mode == "plain"
@@ -979,9 +991,10 @@ class ConsoleDisplay:
             return
 
         # Build right side with model and turn
+        display_model = self._format_model_display(model)
         right_parts = []
-        if model:
-            right_parts.append(model)
+        if display_model:
+            right_parts.append(display_model)
         if chat_turn > 0:
             right_parts.append(f"turn {chat_turn}")
 
@@ -1126,7 +1139,7 @@ class ConsoleDisplay:
             # Get model name
             model = "unknown"
             if agent.llm:
-                model = agent.llm.model_name or "unknown"
+                model = self._format_model_display(agent.llm.model_name) or "unknown"
 
             # Get usage information
             tokens = 0
