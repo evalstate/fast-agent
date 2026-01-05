@@ -2,13 +2,18 @@
 Request parameters definitions for LLM interactions.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp import SamplingMessage
 from mcp.types import CreateMessageRequestParams
 from pydantic import Field
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS
+
+if TYPE_CHECKING:
+    from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
+else:
+    ToolExecutionHandler = Any
 
 
 class RequestParams(CreateMessageRequestParams):
@@ -58,4 +63,14 @@ class RequestParams(CreateMessageRequestParams):
     mcp_metadata: dict[str, Any] | None = None
     """
     Metadata to pass through to MCP tool calls via the _meta field.
+    """
+
+    tool_execution_handler: ToolExecutionHandler | None = Field(default=None, repr=False)
+    """
+    Internal per-request tool execution handler (not sent to LLM providers).
+    """
+
+    emit_loop_progress: bool = False
+    """
+    Emit monotonic progress updates for the internal tool loop when supported.
     """

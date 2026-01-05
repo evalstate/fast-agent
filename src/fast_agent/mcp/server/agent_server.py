@@ -18,6 +18,8 @@ import fast_agent.core
 import fast_agent.core.prompt
 from fast_agent.core.fastagent import AgentInstance
 from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.tool_progress import MCPToolProgressManager
+from fast_agent.types import RequestParams
 from fast_agent.utils.async_utils import run_sync
 
 logger = get_logger(__name__)
@@ -120,12 +122,13 @@ class AgentMCPServer:
 
         self.mcp_server: FastMCP = FastMCP(
             name=server_name,
-            instructions=server_description
-            or f"This server provides access to {len(primary_instance.agents)} agents",
+            instructions=self._build_instructions(server_description),
             token_verifier=token_verifier,
             auth=auth_settings,
             host=host,
         )
+        self._set_mcp_version()
+        self._configure_capabilities()
 
         # Register root route for HTTP/SSE transport info
         @self.mcp_server.custom_route("/", methods=["GET"])
@@ -223,6 +226,11 @@ class AgentMCPServer:
 
             # Set the token in our contextvar for LLM provider access
             saved_token = request_bearer_token.set(bearer_token)
+            report_progress = self._build_progress_reporter(ctx)
+            request_params = RequestParams(
+                tool_execution_handler=MCPToolProgressManager(report_progress),
+                emit_loop_progress=True,
+            )
             try:
                 instance = await self._acquire_instance(ctx)
                 agent = instance.app[agent_name]
@@ -243,7 +251,7 @@ class AgentMCPServer:
                         self._instance_scope,
                     )
 
-                    response = await agent.send(message)
+                    response = await agent.send(message, request_params=request_params)
                     duration = time.perf_counter() - start
 
                     logger.info(
@@ -272,26 +280,29 @@ class AgentMCPServer:
                 # Always reset the contextvar
                 request_bearer_token.reset(saved_token)
 
-        # Register a history prompt for this agent
-        @self.mcp_server.prompt(
-            name=f"{agent_name}_history",
-            description=f"Conversation history for the {agent_name} agent",
-        )
-        async def get_history_prompt(ctx: MCPContext) -> list:
-            """Return the conversation history as MCP messages."""
-            instance = await self._acquire_instance(ctx)
-            agent = instance.app[agent_name]
-            try:
-                multipart_history = agent.message_history
-                if not multipart_history:
-                    return []
+        if self._instance_scope != "request":
+            # Register a history prompt for this agent
+            @self.mcp_server.prompt(
+                name=f"{agent_name}_history",
+                description=f"Conversation history for the {agent_name} agent",
+            )
+            async def get_history_prompt(ctx: MCPContext) -> list:
+                """Return the conversation history as MCP messages."""
+                instance = await self._acquire_instance(ctx)
+                agent = instance.app[agent_name]
+                try:
+                    multipart_history = agent.message_history
+                    if not multipart_history:
+                        return []
 
-                # Convert the multipart message history to standard PromptMessages
-                prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(multipart_history)
-                # In FastMCP, we need to return the raw list of messages
-                return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
-            finally:
-                await self._release_instance(ctx, instance, reuse_connection=True)
+                    # Convert the multipart message history to standard PromptMessages
+                    prompt_messages = fast_agent.core.prompt.Prompt.from_multipart(
+                        multipart_history
+                    )
+                    # In FastMCP, we need to return the raw list of messages
+                    return [{"role": msg.role, "content": msg.content} for msg in prompt_messages]
+                finally:
+                    await self._release_instance(ctx, instance, reuse_connection=True)
 
     def _register_missing_agents(self, instance: AgentInstance) -> None:
         new_agents = set(instance.agents.keys())
@@ -335,6 +346,85 @@ class AgentMCPServer:
             finally:
                 await self._dispose_instance_task(new_instance)
             return "Reloaded AgentCards."
+
+    def _set_mcp_version(self) -> None:
+        try:
+            self.mcp_server._mcp_server.version = get_version("fast-agent-mcp")
+            return
+        except Exception:
+            pass
+        try:
+            self.mcp_server._mcp_server.version = get_version("fast-agent")
+        except Exception:
+            pass
+
+    def _configure_capabilities(self) -> None:
+        from mcp import types
+
+        handlers = self.mcp_server._mcp_server.request_handlers
+        for request_type in (
+            types.ListResourcesRequest,
+            types.ReadResourceRequest,
+            types.ListResourceTemplatesRequest,
+        ):
+            handlers.pop(request_type, None)
+
+        if self._instance_scope == "request":
+            for request_type in (
+                types.ListPromptsRequest,
+                types.GetPromptRequest,
+            ):
+                handlers.pop(request_type, None)
+
+    def _build_instructions(self, server_description: str | None) -> str:
+        agent_count = len(self.primary_instance.agents)
+        base = server_description or f"This server provides access to {agent_count} agents."
+        if self._instance_scope == "request":
+            scope_info = "do not retain history between your requests"
+        elif self._instance_scope == "connection":
+            scope_info = "retain history between tool calls."
+        else:
+            scope_info = "retain history between tool calls."
+        return (
+            f"{base} Use the  `{self._name_for_send_tool()}` tools to send messages to agents."
+            f"Agents {self._instance_scope} "
+            f"({scope_info})"
+        )
+
+    def _name_for_send_tool(self) -> str:
+        return "<agent>_send"
+
+    def _build_progress_reporter(
+        self, ctx: MCPContext
+    ) -> Callable[[float, float | None, str | None], Awaitable[None]]:
+        async def report_progress(
+            progress: float, total: float | None = None, message: str | None = None
+        ) -> None:
+            try:
+                meta = ctx.request_context.meta
+                progress_token = meta.progressToken if meta else None
+                if progress_token is None:
+                    return
+
+                from mcp import types
+
+                await ctx.request_context.session.send_notification(
+                    types.ServerNotification(
+                        types.ProgressNotification(
+                            params=types.ProgressNotificationParams(
+                                progressToken=progress_token,
+                                progress=progress,
+                                total=total,
+                                message=message,
+                            )
+                        )
+                    ),
+                    related_request_id=ctx.request_context.request_id,
+                )
+            except Exception:
+                pass
+
+        return report_progress
 
     async def _acquire_instance(self, ctx: MCPContext | None) -> AgentInstance:
         if self._instance_scope == "shared":
