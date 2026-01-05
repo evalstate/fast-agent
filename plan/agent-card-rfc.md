@@ -545,3 +545,13 @@ Remaining work:
 - Decide whether `/card --subagent` is needed as a distinct primitive from tool injection.
 - Define how (or if) advanced history routing is exposed outside agents-as-tools.
 - Confirm whether a shared “cumulative” history across `@agent` switches is desired.
+
+## Appendix: Minimal Incremental Refresh Plan
+- Scope: apply to `--watch` for AgentCard roots.
+- Detect changes using `mtime+size`; reload only changed card files.
+- If a card fails to parse (empty/partial write), log a warning and skip; retry on the next change.
+- If a tool file changes, reload only cards that reference that tool file.
+- Handle removals by unregistering the agent and updating available agents without restarting the session.
+- Refresh only the affected agent instances (no full app rebuild); for `instance_scope=shared`, swap updated
+  agents; for `request/connection`, bump the registry version so new instances see the update.
+- UX: emit a short “AgentCards reloaded” line and refresh the available agent list.
