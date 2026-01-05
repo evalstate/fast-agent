@@ -459,7 +459,7 @@ def run_async_agent(
             )
         )
     except SystemExit as exc:
-        exit_code = exc.code
+        exit_code = exc.code if isinstance(exc.code, int) else None
     finally:
         try:
             # Clean up the loop
