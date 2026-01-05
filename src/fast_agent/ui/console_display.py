@@ -21,6 +21,7 @@ from fast_agent.ui.mermaid_utils import (
     extract_mermaid_diagrams,
 )
 from fast_agent.ui.message_primitives import MESSAGE_CONFIGS, MessageType
+from fast_agent.ui.model_display import format_model_display
 from fast_agent.ui.streaming import (
     NullStreamingHandle as _NullStreamingHandle,
 )
@@ -101,16 +102,6 @@ class ConsoleDisplay:
 
         enabled = show_chat and streaming_display and streaming_mode != "none"
         return enabled, streaming_mode
-
-    @staticmethod
-    def _format_model_display(model: str | None) -> str | None:
-        if not model:
-            return model
-        trimmed = model.rstrip("/")
-        if "/" in trimmed:
-            last = trimmed.split("/")[-1]
-            return last or trimmed
-        return model
 
     @staticmethod
     def _looks_like_markdown(text: str) -> bool:
@@ -806,7 +797,7 @@ class ConsoleDisplay:
             display_text = message_text
 
         # Build right info
-        display_model = self._format_model_display(model)
+        display_model = format_model_display(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Display main message using unified method
@@ -863,7 +854,7 @@ class ConsoleDisplay:
         if name:
             left += f"[{block_color}]{name}[/{block_color}]"
 
-        display_model = self._format_model_display(model)
+        display_model = format_model_display(model)
         right_info = f"[dim]{display_model}[/dim]" if display_model else ""
 
         # Determine renderer based on streaming mode
@@ -991,7 +982,7 @@ class ConsoleDisplay:
             return
 
         # Build right side with model and turn
-        display_model = self._format_model_display(model)
+        display_model = format_model_display(model)
         right_parts = []
         if display_model:
             right_parts.append(display_model)
@@ -1139,7 +1130,7 @@ class ConsoleDisplay:
             # Get model name
             model = "unknown"
             if agent.llm:
-                model = self._format_model_display(agent.llm.model_name) or "unknown"
+                model = format_model_display(agent.llm.model_name) or "unknown"
 
             # Get usage information
             tokens = 0

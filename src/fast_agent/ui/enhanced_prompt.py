@@ -48,6 +48,7 @@ from fast_agent.ui.command_payloads import (
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
+from fast_agent.ui.model_display import format_model_display
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -66,16 +67,6 @@ available_agents = set()
 
 # Keep track of multi-line mode state
 in_multiline_mode = False
-
-
-def _format_model_display(model: str | None) -> str | None:
-    if not model:
-        return model
-    trimmed = model.rstrip("/")
-    if "/" in trimmed:
-        last = trimmed.split("/")[-1]
-        return last or trimmed
-    return model
 
 
 def _show_system_cmd() -> ShowSystemCommand:
@@ -1095,7 +1086,7 @@ async def get_enhanced_input(
                     model_name = context.config.default_model
 
             if model_name:
-                display_name = _format_model_display(model_name) or model_name
+                display_name = format_model_display(model_name) or model_name
                 max_len = 25
                 model_display = (
                     display_name[: max_len - 1] + "…"
