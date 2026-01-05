@@ -1141,7 +1141,11 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             documentation_url=None,
         )
 
-    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
+    async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
         return request
 
     async def show_assistant_message(
