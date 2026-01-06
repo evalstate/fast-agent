@@ -44,6 +44,78 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         super().__init__(url)
         self._channel_hook = channel_hook
 
+    async def post_writer(  # type: ignore[override]
+        self,
+        client: httpx.AsyncClient,
+        write_stream_reader: "ObjectReceiveStream[SessionMessage]",
+        read_stream_writer: StreamWriter,
+        write_stream: "ObjectSendStream[SessionMessage]",
+        start_get_stream: Callable[[], None],
+        tg: anyio.abc.TaskGroup,
+    ) -> None:
+        """
+        Override to dispatch all outbound messages asynchronously.
+
+        The base transport awaits non-request messages, which can block elicitation
+        responses behind a long-lived tools/call POST. Running everything in the
+        task group ensures elicitation/create replies are sent immediately.
+        """
+        try:
+            async with write_stream_reader:
+                async for session_message in write_stream_reader:
+                    message = session_message.message
+                    metadata = (
+                        session_message.metadata
+                        if isinstance(session_message.metadata, ClientMessageMetadata)
+                        else None
+                    )
+                    root = message.root if isinstance(message, JSONRPCMessage) else None
+
+                    # For responses/errors, use a short-lived client to avoid blocking behind long POSTs.
+                    response_client: httpx.AsyncClient | None = None
+                    if isinstance(root, (JSONRPCResponse, JSONRPCError)):
+                        response_client = httpx.AsyncClient(
+                            headers=client.headers,
+                            timeout=client.timeout,
+                            limits=httpx.Limits(
+                                max_connections=10,
+                                max_keepalive_connections=0,
+                            ),
+                            http2=False,
+                        )
+
+                    is_resumption = bool(metadata and metadata.resumption_token)
+
+                    # Handle initialized notification
+                    if self._is_initialized_notification(message):
+                        start_get_stream()
+
+                    ctx = RequestContext(
+                        client=response_client or client,
+                        session_id=self.session_id,
+                        session_message=session_message,
+                        metadata=metadata,
+                        read_stream_writer=read_stream_writer,
+                    )
+
+                    async def handle_request_async() -> None:
+                        if is_resumption:
+                            await self._handle_resumption_request(ctx)
+                        else:
+                            await self._handle_post_request(ctx)
+                        if response_client:
+                            await response_client.aclose()
+
+                    # Always dispatch asynchronously so responses are not gated by
+                    # any in-flight POST (e.g., tools/call).
+                    tg.start_soon(handle_request_async)
+
+        except Exception:
+            logger.exception("Error in post_writer")  # pragma: no cover
+        finally:
+            await read_stream_writer.aclose()
+            await write_stream.aclose()
+
     def _emit_channel_event(
         self,
         channel: ChannelName,
@@ -205,63 +277,6 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             )
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
             await anyio.sleep(delay_ms / 1000.0)
-
-    async def post_writer(  # type: ignore[override]
-        self,
-        client: httpx.AsyncClient,
-        write_stream_reader,
-        read_stream_writer: StreamWriter,
-        write_stream,
-        start_get_stream: Callable[[], None],
-        tg,
-    ) -> None:
-        try:
-            async with write_stream_reader:
-                async for session_message in write_stream_reader:
-                    message = session_message.message
-                    metadata = (
-                        session_message.metadata
-                        if isinstance(session_message.metadata, ClientMessageMetadata)
-                        else None
-                    )
-
-                    is_resumption = bool(metadata and metadata.resumption_token)
-
-                    if self._is_initialized_notification(message):
-                        start_get_stream()
-
-                    ctx = RequestContext(
-                        client=client,
-                        session_id=self.session_id,
-                        session_message=session_message,
-                        metadata=metadata,
-                        read_stream_writer=read_stream_writer,
-                    )
-
-                    async def handle_request_async(request_ctx: RequestContext) -> None:
-                        if is_resumption:
-                            await self._handle_resumption_request(request_ctx)
-                        else:
-                            await self._handle_post_request(request_ctx)
-
-                    if isinstance(message.root, JSONRPCRequest):
-                        tg.start_soon(handle_request_async, ctx)
-                        continue
-
-                    response_ctx = RequestContext(
-                        client=client,
-                        session_id=self.session_id,
-                        session_message=session_message,
-                        metadata=metadata,
-                        read_stream_writer=read_stream_writer,
-                    )
-                    await handle_request_async(response_ctx)
-
-        except Exception:
-            logger.exception("Error in post_writer")  # pragma: no cover
-        finally:
-            await read_stream_writer.aclose()
-            await write_stream.aclose()
 
     async def _handle_resumption_request(  # type: ignore[override]
         self,
