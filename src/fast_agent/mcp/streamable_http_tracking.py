@@ -17,8 +17,12 @@ from mcp.client.streamable_http import (
     StreamableHTTPTransport,
     StreamWriter,
 )
-from mcp.shared._httpx_utils import create_mcp_http_client
-from mcp.shared.message import SessionMessage
+from mcp.shared._httpx_utils import (
+    MCP_DEFAULT_SSE_READ_TIMEOUT,
+    MCP_DEFAULT_TIMEOUT,
+    create_mcp_http_client,
+)
+from mcp.shared.message import ClientMessageMetadata, SessionMessage
 from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
@@ -30,6 +34,28 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
+
+_POST_LIMITS = httpx.Limits(max_connections=100, max_keepalive_connections=0)
+
+
+def _create_concurrent_post_client(
+    base_client: httpx.AsyncClient | None = None,
+) -> httpx.AsyncClient:
+    timeout = (
+        base_client.timeout
+        if base_client is not None
+        else httpx.Timeout(MCP_DEFAULT_TIMEOUT, read=MCP_DEFAULT_SSE_READ_TIMEOUT)
+    )
+    headers = dict(base_client.headers) if base_client is not None else None
+    auth = base_client.auth if base_client is not None else None
+    follow_redirects = base_client.follow_redirects if base_client is not None else True
+    return httpx.AsyncClient(
+        follow_redirects=follow_redirects,
+        timeout=timeout,
+        headers=headers,
+        auth=auth,
+        limits=_POST_LIMITS,
+    )
 
 
 class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
@@ -206,6 +232,64 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
             await anyio.sleep(delay_ms / 1000.0)
 
+    async def post_writer(  # type: ignore[override]
+        self,
+        client: httpx.AsyncClient,
+        write_stream_reader,
+        read_stream_writer: StreamWriter,
+        write_stream,
+        start_get_stream: Callable[[], None],
+        tg,
+    ) -> None:
+        try:
+            async with write_stream_reader:
+                async for session_message in write_stream_reader:
+                    message = session_message.message
+                    metadata = (
+                        session_message.metadata
+                        if isinstance(session_message.metadata, ClientMessageMetadata)
+                        else None
+                    )
+
+                    is_resumption = bool(metadata and metadata.resumption_token)
+
+                    if self._is_initialized_notification(message):
+                        start_get_stream()
+
+                    ctx = RequestContext(
+                        client=client,
+                        session_id=self.session_id,
+                        session_message=session_message,
+                        metadata=metadata,
+                        read_stream_writer=read_stream_writer,
+                    )
+
+                    async def handle_request_async(request_ctx: RequestContext) -> None:
+                        if is_resumption:
+                            await self._handle_resumption_request(request_ctx)
+                        else:
+                            await self._handle_post_request(request_ctx)
+
+                    if isinstance(message.root, JSONRPCRequest):
+                        tg.start_soon(handle_request_async, ctx)
+                        continue
+
+                    async with _create_concurrent_post_client(client) as response_client:
+                        response_ctx = RequestContext(
+                            client=response_client,
+                            session_id=self.session_id,
+                            session_message=session_message,
+                            metadata=metadata,
+                            read_stream_writer=read_stream_writer,
+                        )
+                        await handle_request_async(response_ctx)
+
+        except Exception:
+            logger.exception("Error in post_writer")  # pragma: no cover
+        finally:
+            await read_stream_writer.aclose()
+            await write_stream.aclose()
+
     async def _handle_resumption_request(  # type: ignore[override]
         self,
         ctx: RequestContext,
@@ -375,19 +459,21 @@ async def tracking_streamablehttp_client(
 
     client_provided = http_client is not None
     client = http_client or create_mcp_http_client()
+    post_client = _create_concurrent_post_client(client)
 
     async with anyio.create_task_group() as tg:
         try:
             async with AsyncExitStack() as stack:
                 if not client_provided:
                     await stack.enter_async_context(client)
+                await stack.enter_async_context(post_client)
 
                 def start_get_stream() -> None:
                     tg.start_soon(transport.handle_get_stream, client, read_stream_writer)
 
                 tg.start_soon(
                     transport.post_writer,
-                    client,
+                    post_client,
                     write_stream_reader,
                     read_stream_writer,
                     write_stream,
