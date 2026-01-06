@@ -25,7 +25,7 @@ from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
 
-    from anyio.abc import ObjectReceiveStream, ObjectSendStream
+    from anyio.abc import ObjectReceiveStream, ObjectSendStream, TaskGroup
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         read_stream_writer: StreamWriter,
         write_stream: "ObjectSendStream[SessionMessage]",
         start_get_stream: Callable[[], None],
-        tg: anyio.abc.TaskGroup,
+        tg: "TaskGroup",
     ) -> None:
         """
         Override to dispatch all outbound messages asynchronously.
