@@ -1,6 +1,7 @@
 import asyncio
 import os
 import subprocess
+import sys
 from typing import TYPE_CHECKING
 
 import httpx
@@ -271,9 +272,11 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
                 assert response.status_code == 200
                 assert "mcp-session-id" not in response.headers
 
-        async with streamable_http_client(
-            f"http://127.0.0.1:{port}/mcp"
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 init_result = await session.initialize()
                 assert init_result.capabilities.prompts is None
@@ -347,6 +350,67 @@ async def test_agent_server_option_http(fast_agent, mcp_test_ports, wait_for_por
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port, tmp_path):
+    """Server mode should start cleanly with --watch enabled."""
+
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    card_path = agents_dir / "watcher.md"
+    card_path.write_text(
+        "---\ntype: agent\nname: watcher\n---\nEcho test.\n",
+        encoding="utf-8",
+    )
+
+    port = mcp_test_ports["http"]
+
+    server_proc = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "fast_agent.cli",
+            "serve",
+            "--config-path",
+            str(config_path),
+            "--transport",
+            "http",
+            "--port",
+            str(port),
+            "--model",
+            "passthrough",
+            "--name",
+            "fast-agent-watch-test",
+            "--card",
+            str(agents_dir),
+            "--watch",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=tmp_path,
+    )
+
+    try:
+        await wait_for_port("127.0.0.1", port, process=server_proc)
+        card_path.write_text(
+            "---\ntype: agent\nname: watcher\n---\nEcho test updated.\n",
+            encoding="utf-8",
+        )
+        await asyncio.sleep(0.25)
+        assert server_proc.poll() is None
+    finally:
+        if server_proc.poll() is None:
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 async def test_agent_server_emits_mcp_progress_notifications(
     fast_agent, mcp_test_ports, wait_for_port
 ):
@@ -383,14 +447,14 @@ async def test_agent_server_emits_mcp_progress_notifications(
 
         progress_events: list[tuple[float, float | None, str | None]] = []
 
-        async def on_progress(
-            progress: float, total: float | None, message: str | None
-        ) -> None:
+        async def on_progress(progress: float, total: float | None, message: str | None) -> None:
             progress_events.append((progress, total, message))
 
-        async with streamable_http_client(
-            f"http://127.0.0.1:{port}/mcp"
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 params = types.CallToolRequestParams(
@@ -412,9 +476,9 @@ async def test_agent_server_emits_mcp_progress_notifications(
             await asyncio.sleep(0.1)
 
         assert progress_events
-        assert any(
-            message and "step" in message for _, _, message in progress_events
-        ), f"Unexpected progress messages: {progress_events}"
+        assert any(message and "step" in message for _, _, message in progress_events), (
+            f"Unexpected progress messages: {progress_events}"
+        )
     finally:
         if server_proc.poll() is None:
             server_proc.terminate()

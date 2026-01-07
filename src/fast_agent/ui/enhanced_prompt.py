@@ -48,6 +48,7 @@ from fast_agent.ui.command_payloads import (
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
+from fast_agent.ui.model_display import format_model_display
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -1082,9 +1083,12 @@ async def get_enhanced_input(
                     model_name = context.config.default_model
 
             if model_name:
+                display_name = format_model_display(model_name) or model_name
                 max_len = 25
                 model_display = (
-                    model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+                    display_name[: max_len - 1] + "…"
+                    if len(display_name) > max_len
+                    else display_name
                 )
             else:
                 print(f"[toolbar debug] no model resolved for agent '{agent_name}'")

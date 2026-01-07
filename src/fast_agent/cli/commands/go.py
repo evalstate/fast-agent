@@ -429,6 +429,7 @@ def run_async_agent(
         loop = create_event_loop()
     _set_asyncio_exception_handler(loop)
 
+    exit_code: int | None = None
     try:
         loop.run_until_complete(
             _run_agent(
@@ -457,6 +458,8 @@ def run_async_agent(
                 watch=watch,
             )
         )
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else None
     finally:
         try:
             # Clean up the loop
@@ -471,6 +474,9 @@ def run_async_agent(
             loop.close()
         except Exception:
             pass
+
+    if exit_code not in (None, 0):
+        raise SystemExit(exit_code)
 
 
 @app.callback(invoke_without_command=True, no_args_is_help=False)
