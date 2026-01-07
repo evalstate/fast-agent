@@ -151,7 +151,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         try:
             response_stream = await client.aio.models.generate_content_stream(
                 model=model,
-                contents=cast(types.ContentListUnion, contents),
+                contents=cast("types.ContentListUnion", contents),
                 config=config,
             )
         except AttributeError:
@@ -410,7 +410,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             if api_response is None:
                 api_response = await client.aio.models.generate_content(
                     model=model_name,
-                    contents=cast(types.ContentListUnion, conversation_history),
+                    contents=cast("types.ContentListUnion", conversation_history),
                     config=generate_content_config,
                 )
             self.logger.debug("Google generate_content response:", data=api_response)
