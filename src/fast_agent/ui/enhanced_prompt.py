@@ -123,9 +123,7 @@ def _reload_agents_cmd() -> ReloadAgentsCommand:
     return ReloadAgentsCommand()
 
 
-def _select_prompt_cmd(
-    prompt_index: int | None, prompt_name: str | None
-) -> SelectPromptCommand:
+def _select_prompt_cmd(prompt_index: int | None, prompt_name: str | None) -> SelectPromptCommand:
     return SelectPromptCommand(prompt_index=prompt_index, prompt_name=prompt_name)
 
 
@@ -401,9 +399,7 @@ async def _display_router_children(router_agent, agent_provider: "AgentApp | Non
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-async def _display_tool_children(
-    tool_children, agent_provider: "AgentApp | None"
-) -> None:
+async def _display_tool_children(tool_children, agent_provider: "AgentApp | None") -> None:
     """Display tool-exposed child agents in tree format."""
     for i, child_agent in enumerate(tool_children):
         is_last = i == len(tool_children) - 1
@@ -430,6 +426,7 @@ def _collect_tool_children(agent) -> list[Any]:
         seen.add(name)
         unique_children.append(child)
     return unique_children
+
 
 async def _display_child_agent_info(
     child_agent, prefix: str, agent_provider: "AgentApp | None"
@@ -490,7 +487,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
             "tools": "List available MCP Tools",
-            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
+            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
@@ -524,7 +521,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -583,7 +582,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -632,15 +633,15 @@ class AgentCompleter(Completer):
         if text_lower.startswith("/load_history ") or text_lower.startswith("/load "):
             # Extract the partial path after the command
             if text_lower.startswith("/load_history "):
-                partial = text[len("/load_history "):]
+                partial = text[len("/load_history ") :]
             else:
-                partial = text[len("/load "):]
+                partial = text[len("/load ") :]
 
             yield from self._complete_history_files(partial)
             return
 
         if text_lower.startswith("/card "):
-            partial = text[len("/card "):]
+            partial = text[len("/card ") :]
             yield from self._complete_agent_card_files(partial)
             return
 
@@ -912,14 +913,10 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "markdown":
             return _show_markdown_cmd()
         if cmd in ("save_history", "save"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             return _save_history_cmd(filename)
         if cmd in ("load_history", "load"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             if not filename:
                 return _load_history_cmd(None, "Filename required for load_history")
             return _load_history_cmd(filename, None)
@@ -1369,9 +1366,7 @@ async def get_enhanced_input(
                                     hf_info = get_hf_info()
                                     model = hf_info.get("model", "unknown")
                                     provider = hf_info.get("provider", "auto-routing")
-                                    rich_print(
-                                        f"[dim]HuggingFace: {model} via {provider}[/dim]"
-                                    )
+                                    rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
 
@@ -1409,6 +1404,10 @@ async def get_enhanced_input(
     # Get the input - using async version
     try:
         result = await session.prompt_async(HTML(prompt_text), default=default)
+        # Echo slash command input since erase_when_done clears it
+        stripped = result.lstrip()
+        if stripped.startswith("/"):
+            rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
         return parse_special_input(result)
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
