@@ -399,6 +399,11 @@ def _parse_marketplace_payload(
         parsed = _parse_github_url(source_url)
         if parsed:
             repo_url, repo_ref, _ = parsed
+        else:
+            # Check if source_url is a local path and derive repo root
+            local_repo = _derive_local_repo_root(source_url)
+            if local_repo:
+                repo_url = local_repo
     try:
         model = MarketplacePayloadModel.model_validate(
             payload,
@@ -730,6 +735,45 @@ def _resolve_local_repo(repo_url: str) -> Path | None:
         repo_path = repo_path.resolve()
     if repo_path.exists():
         return repo_path
+    return None
+
+
+def _derive_local_repo_root(source_url: str) -> str | None:
+    """Derive the local repo root from a marketplace.json source URL.
+
+    For a local path like `/path/to/repo/.claude-plugin/marketplace.json`,
+    returns `/path/to/repo` so skills can be installed from the local repo.
+    """
+    parsed = urlparse(source_url)
+    if parsed.scheme in {"http", "https", "ssh"}:
+        return None
+
+    if parsed.scheme == "file":
+        path = Path(parsed.path)
+    else:
+        path = Path(source_url)
+
+    path = path.expanduser()
+    if not path.is_absolute():
+        path = path.resolve()
+
+    if not path.exists():
+        return None
+
+    # If it's a marketplace.json file, find the repo root
+    if path.is_file() and path.name == "marketplace.json":
+        # Check if inside .claude-plugin directory
+        if path.parent.name == ".claude-plugin":
+            repo_root = path.parent.parent
+        else:
+            repo_root = path.parent
+        if repo_root.exists():
+            return str(repo_root)
+
+    # If it's a directory, use it directly
+    if path.is_dir():
+        return str(path)
+
     return None
 
 

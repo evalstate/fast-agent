@@ -33,6 +33,7 @@ from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
     format_marketplace_display_url,
@@ -1192,30 +1193,59 @@ class InteractivePrompt:
         rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
 
     async def _set_skills_registry(self, argument: str | None) -> None:
+        settings = get_settings()
+        configured_urls = (
+            settings.skills.marketplace_urls if settings.skills else None
+        ) or list(DEFAULT_SKILL_REGISTRIES)
+
         if not argument:
-            current = get_marketplace_url(get_settings())
-            rich_print(f"[dim]Current registry:[/dim] {current}")
-            rich_print("[dim]Usage: /skills registry <url>[/dim]")
+            current = get_marketplace_url(settings)
+            rich_print(f"[dim]Current registry:[/dim] {format_marketplace_display_url(current)}")
+
+            # Show numbered list of configured registries
+            if configured_urls:
+                rich_print("\n[dim]Available registries:[/dim]")
+                for i, reg_url in enumerate(configured_urls, 1):
+                    display = format_marketplace_display_url(reg_url)
+                    rich_print(f"  [cyan][{i}][/cyan] {display}")
+
+            rich_print("\n[dim]Usage: /skills registry <number|url|path>[/dim]")
             return
 
-        url = str(argument).strip()
+        arg = str(argument).strip()
+
+        # Check if argument is a number (select from configured registries)
+        if arg.isdigit():
+            index = int(arg)
+            if not configured_urls:
+                rich_print("[yellow]No registries configured.[/yellow]")
+                return
+            if 1 <= index <= len(configured_urls):
+                url = configured_urls[index - 1]
+            else:
+                rich_print(
+                    f"[yellow]Invalid registry number. Use 1-{len(configured_urls)}.[/yellow]"
+                )
+                return
+        else:
+            url = arg
+
         try:
             marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
         except Exception as exc:  # noqa: BLE001
             rich_print(f"[red]Failed to load registry: {exc}[/red]")
             return
 
-        settings = get_settings()
+        # Update only the active registry, preserve the configured list
         skills_settings = getattr(settings, "skills", None)
         if skills_settings is not None:
-            skills_settings.marketplace_urls = [resolved_url]
             skills_settings.marketplace_url = resolved_url
 
         if resolved_url != url:
             rich_print(f"[dim]Resolved from:[/dim] {url}")
-            rich_print(
-                f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
-            )
+        rich_print(
+            f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
+        )
         rich_print(f"[dim]Skills discovered:[/dim] {len(marketplace)}")
 
     async def _add_skill(

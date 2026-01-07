@@ -40,6 +40,7 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
     MarketplaceSkill,
     candidate_marketplace_urls,
     fetch_marketplace_skills,
@@ -757,7 +758,7 @@ class SlashCommandHandler:
 
         # Get configured registries from settings
         settings = get_settings()
-        configured_urls = settings.skills.marketplace_urls or []
+        configured_urls = settings.skills.marketplace_urls or list(DEFAULT_SKILL_REGISTRIES)
 
         if not argument:
             current = get_marketplace_url(settings)
