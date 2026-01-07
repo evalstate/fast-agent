@@ -154,6 +154,17 @@ class InteractivePrompt:
 
                 rich_print("[green]AgentCards reloaded.[/green]")
 
+            current_agents = list(prompt_provider.agent_names())
+            if current_agents and set(current_agents) != available_agents_set:
+                available_agents = current_agents
+                available_agents_set = set(available_agents)
+            if agent not in available_agents_set:
+                if available_agents:
+                    agent = available_agents[0]
+                else:
+                    rich_print("[red]No agents available.[/red]")
+                    return result
+
             with progress_display.paused():
                 # Use the enhanced input method with advanced features
                 user_input = await get_enhanced_input(

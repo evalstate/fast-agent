@@ -1077,6 +1077,11 @@ async def get_enhanced_input(
     in_multiline_mode = multiline
     if available_agent_names:
         available_agents = set(available_agent_names)
+    if agent_provider:
+        try:
+            available_agents = set(agent_provider.agent_names())
+        except Exception:
+            pass
 
     # Get or create history object for this agent
     if agent_name not in agent_histories:
@@ -1115,8 +1120,8 @@ async def get_enhanced_input(
         if agent_provider:
             try:
                 agent = agent_provider._agent(agent_name)
-            except Exception as exc:
-                print(f"[toolbar debug] unable to resolve agent '{agent_name}': {exc}")
+            except Exception:
+                agent = None
 
         if agent:
             for message in agent.message_history:
