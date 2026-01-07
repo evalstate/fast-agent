@@ -201,7 +201,10 @@ class AgentACPServer(ACPAgent):
         skills_directory_override: Sequence[str | Path] | str | Path | None = None,
         permissions_enabled: bool = True,
         get_registry_version: Callable[[], int] | None = None,
-        load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        load_card_callback: Callable[
+            [str, str | None], Awaitable[tuple[list[str], list[str]]]
+        ]
+        | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         """
@@ -616,8 +619,12 @@ class AgentACPServer(ACPAgent):
                 if isinstance(agent, FilesystemRuntimeCapable):
                     agent.set_filesystem_runtime(session_state.filesystem_runtime)
 
-        async def load_card(source: str) -> tuple[AgentInstance, list[str]]:
-            return await self._load_agent_card_for_session(session_state, source)
+        async def load_card(
+            source: str, parent_name: str | None
+        ) -> tuple[AgentInstance, list[str], list[str]]:
+            return await self._load_agent_card_for_session(
+                session_state, source, attach_to=parent_name
+            )
 
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_state.session_id)
@@ -657,12 +664,15 @@ class AgentACPServer(ACPAgent):
                 session_state.acp_context.set_current_mode(current_agent)
 
     async def _load_agent_card_for_session(
-        self, session_state: ACPSessionState, source: str
-    ) -> tuple[AgentInstance, list[str]]:
+        self,
+        session_state: ACPSessionState,
+        source: str,
+        *,
+        attach_to: str | None = None,
+    ) -> tuple[AgentInstance, list[str], list[str]]:
         if not self._load_card_callback:
             raise RuntimeError("AgentCard loading is not available.")
-
-        loaded_names = await self._load_card_callback(source)
+        loaded_names, attached_names = await self._load_card_callback(source, attach_to)
 
         if self._instance_scope == "shared":
             async with self._shared_reload_lock:
@@ -700,7 +710,7 @@ class AgentACPServer(ACPAgent):
         if session_state.acp_context:
             await session_state.acp_context.send_available_commands_update()
 
-        return instance, loaded_names
+        return instance, loaded_names, attached_names
 
     async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
         if not self._reload_callback:
@@ -1013,8 +1023,12 @@ class AgentACPServer(ACPAgent):
         # Create slash command handler for this session
         resolved_prompts = session_state.resolved_instructions
 
-        async def load_card(source: str) -> tuple[AgentInstance, list[str]]:
-            return await self._load_agent_card_for_session(session_state, source)
+        async def load_card(
+            source: str, parent_name: str | None
+        ) -> tuple[AgentInstance, list[str], list[str]]:
+            return await self._load_agent_card_for_session(
+                session_state, source, attach_to=parent_name
+            )
 
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_id)

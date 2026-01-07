@@ -23,7 +23,6 @@ app = typer.Typer(
 default_instruction = DEFAULT_AGENT_INSTRUCTION
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
-DEFAULT_TOOL_CARDS_DIR = Path(".fast-agent/tool-cards")
 DEFAULT_AGENT_CARDS_DIR = Path(".fast-agent/agent-cards")
 
 
@@ -136,7 +135,6 @@ async def _run_agent(
     config_path: str | None = None,
     server_list: list[str] | None = None,
     agent_cards: list[str] | None = None,
-    card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -182,8 +180,6 @@ async def _run_agent(
         fast.args.model = model
     fast.args.reload = reload
     fast.args.watch = watch
-    if card_tools:
-        fast.args.card_tools = card_tools
     fast.args.agent = agent_name or "agent"
 
     if shell_runtime:
@@ -221,7 +217,7 @@ async def _run_agent(
                 else:
                     await agent.interactive()
     # Check if we have multiple models (comma-delimited)
-    elif model and "," in model and not card_tools:
+    elif model and "," in model:
         # Parse multiple models
         models = [m.strip() for m in model.split(",") if m.strip()]
 
@@ -326,7 +322,6 @@ def run_async_agent(
     urls: str | None = None,
     auth: str | None = None,
     agent_cards: list[str] | None = None,
-    card_tools: list[str] | None = None,
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
@@ -419,7 +414,6 @@ def run_async_agent(
                 continue
 
     agent_cards = _merge_card_sources(agent_cards, DEFAULT_AGENT_CARDS_DIR)
-    card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
 
     # Check if we're already in an event loop
     loop = ensure_event_loop()
@@ -438,7 +432,6 @@ def run_async_agent(
                 config_path=config_path,
                 server_list=server_list,
                 agent_cards=agent_cards,
-                card_tools=card_tools,
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
@@ -495,11 +488,6 @@ def go(
         "--agent-cards",
         "--card",
         help="Path or URL to an AgentCard file or directory (repeatable)",
-    ),
-    card_tools: list[str] | None = typer.Option(
-        None,
-        "--card-tool",
-        help="Path or URL to an AgentCard file to load as a tool (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -593,7 +581,6 @@ def go(
         config_path=config_path,
         servers=servers,
         agent_cards=agent_cards,
-        card_tools=card_tools,
         urls=urls,
         auth=auth,
         model=model,

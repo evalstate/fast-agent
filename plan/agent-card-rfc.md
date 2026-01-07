@@ -8,10 +8,8 @@ optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
 AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
-CLI `--card-tool` loads AgentCards and exposes them as tools on the default agent.
-CLI runs also auto-load cards from `.fast-agent/agent-cards/` (agents) and
-`.fast-agent/tool-cards/` (tool cards) when those directories exist and contain
-supported card files.
+CLI runs also auto-load cards from `.fast-agent/agent-cards/` (agents) when that
+directory exists and contains supported card files.
 
 ## Agent vs Skill
 - **Skill**: a reusable prompt fragment or capability description.
@@ -360,9 +358,9 @@ You are a concise analyst.
 ## Loading API
 - `load_agents(path)` loads a file or a directory and returns the loaded agent names.
 - CLI: `fast-agent go/serve/acp --card <path>` loads cards before starting.
-- CLI: if `.fast-agent/agent-cards/` or `.fast-agent/tool-cards/` exists and contains
-  `.md`/`.markdown`/`.yaml`/`.yml` files, those directories are loaded automatically
-  (in addition to any explicit `--card`/`--card-tool` entries).
+- CLI: if `.fast-agent/agent-cards/` exists and contains
+  `.md`/`.markdown`/`.yaml`/`.yml` files, that directory is loaded automatically
+  (in addition to any explicit `--card` entries).
 - `--agent-cards` remains as a legacy alias for `--card`.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
@@ -375,7 +373,6 @@ You are a concise analyst.
 
 ### Runtime tool injection (optional)
 - `/card --tool` exposes the loaded agent as a tool on the **current** agent.
-- CLI: `fast-agent go --card-tool <path>` loads cards and exposes them as tools on the default agent.
 - Tool names default to `agent__{name}`.
 - Tool descriptions prefer `description`; fall back to the agent instruction.
 - Tool calls use a single `message` argument.
@@ -512,7 +509,7 @@ See [agent-card-rfc-sample.md](agent-card-rfc-sample.md).
 ## Appendix: Issue Templates (from gpt-5.2-codex code review)
 
 ### Issue: prevent self-referential tool injection + dedupe tool names
-**Summary:** `/card --tool` (and `--card-tool`) can register the current agent as a tool
+**Summary:** `/card --tool` can register the current agent as a tool
 when the loaded card set includes it. This creates a self-referential tool and can
 recurse if the model calls it. Tool names can also collide silently.
 
@@ -584,6 +581,10 @@ Suggested command:
 `/agent` with options:
 - `--tool`: attach the selected agent as a tool to the current agent.
 - `--dump`: print the current agent’s AgentCard to screen.
+
+Rationalization: the CLI `--card-tool` flag and `.fast-agent/tool-cards` directory are
+unnecessary because any agent can be loaded as a tool by declaring `agents` during
+development, or dynamically at runtime via `/card --tool` and `/agent --tool`.
 
 
 ## Appendix: Next-stage Work Items

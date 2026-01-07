@@ -31,7 +31,6 @@ from acp.schema import (
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
@@ -118,7 +117,10 @@ class SlashCommandHandler:
         client_capabilities: dict | None = None,
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
-        card_loader: Callable[[str], Awaitable[tuple["AgentInstance", list[str]]]] | None = None,
+        card_loader: Callable[
+            [str, str | None], Awaitable[tuple["AgentInstance", list[str], list[str]]]
+        ]
+        | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ):
         """
@@ -1304,7 +1306,9 @@ class SlashCommandHandler:
             return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
 
         try:
-            instance, loaded_names = await self._card_loader(filename)
+            instance, loaded_names, attached_names = await self._card_loader(
+                filename, self.current_agent_name if add_tool else None
+            )
         except Exception as exc:
             return f"AgentCard load failed: {exc}"
 
@@ -1318,24 +1322,10 @@ class SlashCommandHandler:
         if not add_tool:
             return summary
 
-        parent_name = self.current_agent_name
-        if not parent_name or parent_name not in instance.agents:
-            parent_name = next(iter(instance.agents.keys()), None)
-            self.current_agent_name = parent_name or self.current_agent_name
-        if not parent_name:
+        if not attached_names:
             return summary
 
-        parent = instance.agents.get(parent_name)
-        add_tool_fn = getattr(parent, "add_agent_tool", None)
-        if not callable(add_tool_fn):
-            return f"{summary}\nCurrent agent does not support tool injection."
-
-        tool_agents = [instance.agents.get(child_name) for child_name in loaded_names]
-        added_tools = add_tools_for_agents(add_tool_fn, tool_agents)
-
-        if not added_tools:
-            return summary
-        return f"{summary}\nAdded tool(s): {', '.join(added_tools)}"
+        return f"{summary}\nAttached agent tool(s): {', '.join(attached_names)}"
 
     async def _handle_reload(self) -> str:
         if not self._reload_callback:

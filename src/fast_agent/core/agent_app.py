@@ -36,7 +36,10 @@ class AgentApp:
         *,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
-        load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        load_card_callback: Callable[
+            [str, str | None], Awaitable[tuple[list[str], list[str]]]
+        ]
+        | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -45,6 +48,7 @@ class AgentApp:
             agents: Dictionary of agent instances keyed by name
             reload_callback: Optional callback for manual AgentCard reloads
             refresh_callback: Optional callback for lazy instance refresh before requests
+            load_card_callback: Optional callback for loading AgentCards at runtime
         """
         if len(agents) == 0:
             raise ValueError("No agents provided!")
@@ -277,11 +281,13 @@ class AgentApp:
         """Return True if agent card loading is available."""
         return self._load_card_callback is not None
 
-    async def load_agent_card(self, source: str) -> list[str]:
+    async def load_agent_card(
+        self, source: str, parent_agent: str | None = None
+    ) -> tuple[list[str], list[str]]:
         """Load an AgentCard source and refresh active instances when available."""
         if not self._load_card_callback:
             raise RuntimeError("Agent card loading is not available.")
-        return await self._load_card_callback(source)
+        return await self._load_card_callback(source, parent_agent)
 
     def set_agents(self, agents: dict[str, AgentProtocol]) -> None:
         """Replace the active agent map (used after reload)."""
@@ -298,7 +304,9 @@ class AgentApp:
         self._refresh_callback = callback
 
     def set_load_card_callback(
-        self, callback: Callable[[str], Awaitable[list[str]]] | None
+        self,
+        callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+        | None,
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback

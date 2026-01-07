@@ -500,7 +500,7 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "load_history": "Load history from a file",
-            "card": "Load an AgentCard (add --tool to expose as tool)",
+            "card": "Load an AgentCard (add --tool to attach as tool)",
             "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -1571,7 +1571,7 @@ async def handle_special_commands(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
         rich_print("  /load_history <filename> - Load chat history from a file")
-        rich_print("  /card <filename> [--tool] - Load an AgentCard")
+        rich_print("  /card <filename> [--tool] - Load an AgentCard (attach as tool)")
         rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")

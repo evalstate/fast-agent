@@ -27,7 +27,6 @@ from rich import print as rich_print
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
-from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
@@ -368,9 +367,16 @@ class InteractivePrompt:
                                 continue
 
                             try:
-                                loaded_names = await prompt_provider.load_agent_card(
-                                    filename
-                                )
+                                if add_tool:
+                                    loaded_names, attached_names = (
+                                        await prompt_provider.load_agent_card(
+                                            filename, agent
+                                        )
+                                    )
+                                else:
+                                    loaded_names, attached_names = (
+                                        await prompt_provider.load_agent_card(filename)
+                                    )
                             except Exception as exc:
                                 rich_print(f"[red]AgentCard load failed: {exc}[/red]")
                                 continue
@@ -393,27 +399,10 @@ class InteractivePrompt:
                                 rich_print(f"[green]Loaded AgentCard(s): {name_list}[/green]")
 
                             if add_tool:
-                                parent = prompt_provider._agent(agent)
-                                add_tool_fn = getattr(parent, "add_agent_tool", None)
-                                if not callable(add_tool_fn):
+                                if attached_names:
+                                    attached_list = ", ".join(attached_names)
                                     rich_print(
-                                        "[yellow]Current agent does not support tool injection.[/yellow]"
-                                    )
-                                    continue
-
-                                tool_agents: list[Any] = []
-                                for child_name in loaded_names:
-                                    try:
-                                        child = prompt_provider._agent(child_name)
-                                    except Exception:
-                                        continue
-                                    tool_agents.append(child)
-                                added_tools = add_tools_for_agents(add_tool_fn, tool_agents)
-
-                                if added_tools:
-                                    tool_list = ", ".join(added_tools)
-                                    rich_print(
-                                        f"[green]Added tool(s): {tool_list}[/green]"
+                                        f"[green]Attached agent tool(s): {attached_list}[/green]"
                                     )
                             continue
                         case ReloadAgentsCommand():

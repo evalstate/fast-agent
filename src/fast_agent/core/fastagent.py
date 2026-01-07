@@ -35,7 +35,6 @@ from opentelemetry import trace
 from fast_agent import config
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
-from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.direct_decorators import (
     agent as agent_decorator,
 )
@@ -244,13 +243,6 @@ class FastAgent:
                 action="store_true",
                 help="Watch AgentCard paths and reload when files change",
             )
-            parser.add_argument(
-                "--card-tool",
-                action="append",
-                dest="card_tools",
-                help="Path or URL to an AgentCard file to load as a tool (repeatable)",
-            )
-
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
                 self.args = known_args
@@ -466,6 +458,34 @@ class FastAgent:
             return loaded_names
         finally:
             temp_path.unlink(missing_ok=True)
+
+    def attach_agent_tools(self, parent_name: str, child_names: Sequence[str]) -> list[str]:
+        """Attach loaded agents to a parent agent via Agents-as-Tools."""
+        parent_data = self.agents.get(parent_name)
+        if not parent_data:
+            raise AgentConfigError(f"Agent '{parent_name}' not found")
+
+        if parent_data.get("type") != "basic":
+            raise AgentConfigError(
+                f"Agent '{parent_name}' does not support agents-as-tools"
+            )
+
+        existing = list(parent_data.get("child_agents") or [])
+        added: list[str] = []
+        for name in child_names:
+            if not name or name == parent_name:
+                continue
+            if name not in self.agents:
+                continue
+            if name in existing or name in added:
+                continue
+            added.append(name)
+
+        if added:
+            parent_data["child_agents"] = existing + added
+            self._agent_registry_version += 1
+
+        return added
 
     async def reload_agents(self) -> bool:
         """Reload all previously registered AgentCard roots."""
@@ -1144,18 +1164,46 @@ class FastAgent:
                             return False
                         return await refresh_shared_instance()
 
-                    async def load_card_and_refresh(source: str) -> list[str]:
+                    async def load_card_and_refresh(
+                        source: str, parent_name: str | None
+                    ) -> tuple[list[str], list[str]]:
                         if source.startswith(("http://", "https://")):
                             loaded_names = self.load_agents_from_url(source)
                         else:
                             loaded_names = self.load_agents(source)
-                        await refresh_shared_instance()
-                        return loaded_names
 
-                    async def load_card_source(source: str) -> list[str]:
+                        added_names: list[str] = []
+                        if parent_name:
+                            target_name = parent_name
+                            if target_name not in self.agents:
+                                target_name = next(iter(self.agents.keys()), None)
+                            if target_name and loaded_names:
+                                added_names = self.attach_agent_tools(
+                                    target_name, loaded_names
+                                )
+
+                        await refresh_shared_instance()
+                        return loaded_names, added_names
+
+                    async def load_card_source(
+                        source: str, parent_name: str | None
+                    ) -> tuple[list[str], list[str]]:
                         if source.startswith(("http://", "https://")):
-                            return self.load_agents_from_url(source)
-                        return self.load_agents(source)
+                            loaded_names = self.load_agents_from_url(source)
+                        else:
+                            loaded_names = self.load_agents(source)
+
+                        added_names: list[str] = []
+                        if parent_name:
+                            target_name = parent_name
+                            if target_name not in self.agents:
+                                target_name = next(iter(self.agents.keys()), None)
+                            if target_name and loaded_names:
+                                added_names = self.attach_agent_tools(
+                                    target_name, loaded_names
+                                )
+
+                        return loaded_names, added_names
 
                     reload_enabled = bool(
                         getattr(self.args, "reload", False)
@@ -1342,42 +1390,6 @@ class FastAgent:
                         except Exception as e:
                             print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
                             raise SystemExit(1)
-
-                    # Handle --card-tool: load card agents and add them as tools to the default agent
-                    card_tools = getattr(self.args, "card_tools", None)
-                    if card_tools:
-                        card_tool_agent_names: list[str] = []
-                        try:
-                            for card_source in card_tools:
-                                if card_source.startswith(("http://", "https://")):
-                                    names = self.load_agents_from_url(card_source)
-                                else:
-                                    names = self.load_agents(card_source)
-                                card_tool_agent_names.extend(names)
-                        except AgentConfigError as exc:
-                            self._handle_error(exc)
-                            raise SystemExit(1) from exc
-
-                        # Refresh the instance to include newly loaded agents
-                        await refresh_shared_instance()
-
-                        # Get the default agent to add tools to
-                        default_agent_name = getattr(self.args, "agent", "default")
-                        default_agent = active_agents.get(default_agent_name)
-
-                        # If default agent not found, try the first available agent
-                        if default_agent is None and active_agents:
-                            default_agent_name = next(iter(active_agents.keys()))
-                            default_agent = active_agents[default_agent_name]
-
-                        if default_agent:
-                            add_tool_fn = getattr(default_agent, "add_agent_tool", None)
-                            if callable(add_tool_fn):
-                                tool_agents = [
-                                    active_agents.get(tool_agent_name)
-                                    for tool_agent_name in card_tool_agent_names
-                                ]
-                                add_tools_for_agents(add_tool_fn, tool_agents)
 
                     yield wrapper
 
@@ -1748,8 +1760,6 @@ class FastAgent:
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
-        if original_args is not None and hasattr(original_args, "card_tools"):
-            self.args.card_tools = original_args.card_tools
         if original_args is not None and hasattr(original_args, "agent"):
             self.args.agent = original_args.agent
         if original_args is not None and hasattr(original_args, "reload"):
