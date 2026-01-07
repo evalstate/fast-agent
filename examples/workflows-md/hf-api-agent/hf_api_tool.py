@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -10,6 +11,51 @@ from urllib.request import Request, urlopen
 
 DEFAULT_MAX_RESULTS = 20
 DEFAULT_TIMEOUT_SEC = 30
+
+# ---------------------------------------------------------------------------
+# Endpoint allowlist (regex patterns)
+# Only endpoints matching these patterns are permitted.
+# ---------------------------------------------------------------------------
+ALLOWED_ENDPOINT_PATTERNS: list[str] = [
+    # User data
+    r"^/whoami-v2$",
+    r"^/users/[^/]+/overview$",
+    r"^/users/[^/]+/likes$",
+    r"^/users/[^/]+/followers$",
+    r"^/users/[^/]+/following$",
+    # Organizations
+    r"^/organizations/[^/]+/overview$",
+    r"^/organizations/[^/]+/members$",
+    r"^/organizations/[^/]+/followers$",
+    # Discussions & PRs (repo_type: models, datasets, spaces)
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/discussions$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/discussions/\d+$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/discussions/\d+/comment$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/discussions/\d+/comment/[^/]+/edit$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/discussions/\d+/comment/[^/]+/hide$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/discussions/\d+/status$",
+    # Access requests (gated repos)
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/user-access-request/pending$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/user-access-request/accepted$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/user-access-request/rejected$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/user-access-request/handle$",
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/user-access-request/grant$",
+    # Collections
+    r"^/collections$",
+    r"^/collections/[^/]+$",
+    r"^/collections/[^/]+/items$",
+    # Auth check
+    r"^/(models|datasets|spaces)/[^/]+/[^/]+/auth-check$",
+]
+
+_COMPILED_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(p) for p in ALLOWED_ENDPOINT_PATTERNS
+]
+
+
+def _is_endpoint_allowed(endpoint: str) -> bool:
+    """Return True if endpoint matches any allowed pattern."""
+    return any(pattern.match(endpoint) for pattern in _COMPILED_PATTERNS)
 
 
 def _load_token() -> str | None:
@@ -51,13 +97,34 @@ def _max_results_from_env() -> int:
 
 
 def _normalize_endpoint(endpoint: str) -> str:
+    """Normalize and validate an endpoint path.
+
+    Checks:
+    - Must be a relative path (not a full URL)
+    - Must be non-empty
+    - No path traversal sequences (..)
+    - Must match the endpoint allowlist
+    """
     if endpoint.startswith("http://") or endpoint.startswith("https://"):
         raise ValueError("Endpoint must be a path relative to /api, not a full URL.")
     endpoint = endpoint.strip()
     if not endpoint:
         raise ValueError("Endpoint must be a non-empty string.")
+
+    # Path traversal protection
+    if ".." in endpoint:
+        raise ValueError("Path traversal sequences (..) are not allowed in endpoints.")
+
     if not endpoint.startswith("/"):
         endpoint = f"/{endpoint}"
+
+    # Allowlist validation
+    if not _is_endpoint_allowed(endpoint):
+        raise ValueError(
+            f"Endpoint '{endpoint}' is not in the allowed list. "
+            "See ALLOWED_ENDPOINT_PATTERNS for permitted endpoints."
+        )
+
     return endpoint
 
 
