@@ -507,30 +507,64 @@ See [plan/agent-card-rfc-multicard.md](plan/agent-card-rfc-multicard.md).
 ---
 
 ## Appendix: AgentCard Samples
-See [plan/agent-card-rfc-sample.md](plan/agent-card-rfc-sample.md).
+See [agent-card-rfc-sample.md](agent-card-rfc-sample.md).
 
-## Appendix: Code Review Findings
-- `/card --tool` can inject the **current agent as a tool** when the loaded card
-  set includes it. This creates a self-referential tool and can recurse if the
-  model calls it. Filter out the current agent and dedupe tool names.
-  (`src/fast_agent/ui/interactive_prompt.py`, `src/fast_agent/acp/slash_commands.py`)
-- AgentCard `type` currently defaults to `agent` when missing. If strict validation
-  is expected, this should be an error (otherwise unrelated frontmatter files are
-  accepted silently).
-  (`src/fast_agent/core/agent_card_loader.py`)
-- Tool injection is **ephemeral**; after `--watch` refresh or reload, injected tools
-  are lost with no warning.
-  (`src/fast_agent/ui/interactive_prompt.py`, `src/fast_agent/acp/slash_commands.py`)
+## Appendix: Issue Templates (from gpt-5.2-codex code review)
 
-## Appendix: Code Review Fix Plan
-Current status:
-- Tool injection uses detached clones (ToolAgent parity).
-- `/card --tool` and `--card-tool` share tool-registration wiring.
+### Issue: prevent self-referential tool injection + dedupe tool names
+**Summary:** `/card --tool` (and `--card-tool`) can register the current agent as a tool
+when the loaded card set includes it. This creates a self-referential tool and can
+recurse if the model calls it. Tool names can also collide silently.
 
-Remaining work:
-1) Filter out the current agent from `/card --tool` to avoid self-tools.
-2) Deduplicate tool names on injection and surface a warning if a tool already exists.
-3) Align `/card --tool` with Agents-as-Tools helpers if advanced history merge modes are implemented.
+**Evidence:** `add_tools_for_agents` is called with `loaded_names` as-is.
+(`src/fast_agent/ui/interactive_prompt.py`, `src/fast_agent/acp/slash_commands.py`,
+`src/fast_agent/core/fastagent.py`)
+
+**Proposed fix:**
+- Filter out the current agent from `loaded_names` before tool registration.
+- Deduplicate tool names and warn on collisions (or skip with notice).
+
+**Acceptance criteria:**
+- Current agent is never exposed as its own tool.
+- Duplicate tool names are surfaced to the user and do not silently override.
+
+### Issue: injected tools are lost after reload/watch
+**Summary:** Tool injection is **ephemeral**; after `--watch` refresh or manual reload,
+injected tools disappear without warning.
+
+**Evidence:** Tools are added to the active instance only; reload swaps the instance
+with no re-application of injected tools.
+(`src/fast_agent/ui/interactive_prompt.py`, `src/fast_agent/acp/slash_commands.py`,
+`src/fast_agent/core/fastagent.py`)
+
+**Proposed fix:**
+- Persist injected tool intents and re-apply after reload, **or**
+- Emit an explicit warning after reload that injected tools were dropped.
+
+**Acceptance criteria:**
+- After reload, either tools are restored or the user is notified.
+
+### Issue: align `/card --tool` with Agents-as-Tools history options (future)
+**Summary:** Once advanced history routing is added (history_source/history_merge_target),
+`/card --tool` should either expose those options or explicitly lock to stateless mode.
+
+**Evidence:** MVP path is stateless, but advanced history routing is under design.
+
+**Proposed fix:**
+- Reuse Agents-as-Tools helpers when advanced history routing lands, or document
+  `/card --tool` as always-stateless.
+
+**Acceptance criteria:**
+- `/card --tool` behavior is explicit and consistent with Agents-as-Tools options.
+
+## Appendix: How to solve all `/card --tool` issues
+
+Conclusion: in the Agents‑as‑Tools paradigm, any loaded agent can be called by any other agent. So there’s no real need to load a card in a special “--tool” mode just to use it as a tool.
+
+To avoid cluttering the tool list (and to avoid creating tools for every loaded agent by default), the orchestrator—like agent with mcp servers/tools—declares which agents it actually needs. Then, only those referenced in the orchestrator’s agents attribute are turned into tools at runtime.
+
+If we follow this consistently, we can declare “agents-as-tools” list strictly in the orchestrator card, keep the implementation compact, and avoid duplication.
+
 
 ## Appendix: Next-stage Work Items
 - **Cumulative session history**: no shared, merged transcript exists today; requires
@@ -541,12 +575,14 @@ Remaining work:
 `history_source` + `history_merge_target`.
 
 ## Appendix: Open Questions / Remaining Work
-- Implement stateless `/card --tool` via detached clones (ToolAgent parity).
 - Decide whether `/card --subagent` is needed as a distinct primitive from tool injection.
 - Define how (or if) advanced history routing is exposed outside agents-as-tools.
 - Confirm whether a shared “cumulative” history across `@agent` switches is desired.
 
-## Appendix: Minimal Incremental Refresh Plan
+## Appendix: Open Issues
+
+- AgentCard --watch: minimal incremental refresh (mtime/size, per-card reload, safe parse) [#603](https://github.com/evalstate/fast-agent/issues/603)
+
 - Scope: apply to `--watch` for AgentCard roots.
 - Detect changes using `mtime+size`; reload only changed card files.
 - If a card fails to parse (empty/partial write), log a warning and skip; retry on the next change.
