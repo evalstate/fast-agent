@@ -847,9 +847,11 @@ class SlashCommandHandler:
         return "\n".join(response_lines)
 
     def _handle_skills_list(self) -> str:
-        manager_dir = get_manager_directory()
-        manifests = list_local_skills(manager_dir)
-        return self._format_local_skills(manifests, manager_dir)
+        directories = resolve_skill_directories()
+        all_manifests: dict[Path, list[SkillManifest]] = {}
+        for directory in directories:
+            all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+        return self._format_local_skills_by_directory(all_manifests)
 
     async def _handle_skills_add(self, argument: str) -> str:
         if argument.strip().lower() in {"q", "quit", "exit"}:
@@ -1025,6 +1027,53 @@ class SlashCommandHandler:
         lines.append("Use `/skills add` to list available skills to install\n")
         lines.append("Remove a skill with `/skills remove <number|name>`.\n")
         lines.append("Change skills registry with `/skills registry <url>`.\n")
+        return "\n".join(lines)
+
+    def _format_local_skills_by_directory(
+        self, manifests_by_dir: dict[Path, list[SkillManifest]]
+    ) -> str:
+        lines = ["# skills", ""]
+        total_skills = sum(len(m) for m in manifests_by_dir.values())
+        skill_index = 0
+
+        for directory, manifests in manifests_by_dir.items():
+            try:
+                display_path = directory.relative_to(Path.cwd())
+            except ValueError:
+                display_path = directory
+            lines.append(f"## {display_path}")
+            lines.append("")
+
+            if not manifests:
+                lines.append("No skills in this directory.")
+                lines.append("")
+            else:
+                for manifest in manifests:
+                    skill_index += 1
+                    name = manifest.name
+                    description = manifest.description
+                    path = manifest.path
+                    source_path = path.parent if path.is_file() else path
+                    try:
+                        source_display = source_path.relative_to(Path.cwd())
+                    except ValueError:
+                        source_display = source_path
+
+                    lines.append(f"- [{skill_index}] {name}")
+                    if description:
+                        wrapped = textwrap.fill(description, width=76, subsequent_indent="    ")
+                        lines.append(f"  - {wrapped}")
+                    lines.append(f"  - source: `{source_display}`")
+                lines.append("")
+
+        if total_skills == 0:
+            lines.append("Use `/skills add` to list available skills to install.")
+        else:
+            lines.append("Use `/skills add` to list available skills to install")
+            lines.append("")
+            lines.append("Remove a skill with `/skills remove <number|name>`.")
+            lines.append("")
+            lines.append("Change skills registry with `/skills registry <url>`.")
         return "\n".join(lines)
 
     def _format_local_list(self, manifests: list[SkillManifest]) -> list[str]:

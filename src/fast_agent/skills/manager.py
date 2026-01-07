@@ -214,11 +214,19 @@ def format_marketplace_display_url(url: str) -> str:
 def resolve_skill_directories(
     settings: Settings | None = None, *, cwd: Path | None = None
 ) -> list[Path]:
+    base = cwd or Path.cwd()
     resolved_settings = settings or get_settings()
     skills_settings = getattr(resolved_settings, "skills", None)
     override_dirs: list[Path] | None = None
     if skills_settings and getattr(skills_settings, "directories", None):
-        override_dirs = [Path(entry).expanduser() for entry in skills_settings.directories]
+        # Resolve paths the same way get_manager_directory does
+        resolved: list[Path] = []
+        for entry in skills_settings.directories:
+            path = Path(entry).expanduser()
+            if not path.is_absolute():
+                path = (base / path).resolve()
+            resolved.append(path)
+        override_dirs = resolved
     manager_dir = get_manager_directory(resolved_settings, cwd=cwd)
     if override_dirs is None:
         return [manager_dir]

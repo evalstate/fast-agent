@@ -46,7 +46,7 @@ from fast_agent.skills.manager import (
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.command_payloads import (
     ClearCommand,
@@ -1158,9 +1158,11 @@ class InteractivePrompt:
         """List available local skills for an agent."""
 
         try:
-            manager_dir = get_manager_directory()
-            manifests = list_local_skills(manager_dir)
-            self._render_local_skills(manifests, manager_dir)
+            directories = resolve_skill_directories()
+            all_manifests: dict[Path, list[SkillManifest]] = {}
+            for directory in directories:
+                all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+            self._render_local_skills_by_directory(all_manifests)
 
         except Exception as exc:  # noqa: BLE001
             import traceback
@@ -1398,6 +1400,55 @@ class InteractivePrompt:
         rich_print()
         rich_print("[dim]Use /skills add to install a skill[/dim]")
         rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
+
+    def _render_local_skills_by_directory(self, manifests_by_dir: dict[Path, list[SkillManifest]]) -> None:
+        from rich.text import Text
+
+        total_skills = sum(len(m) for m in manifests_by_dir.values())
+        skill_index = 0
+
+        for directory, manifests in manifests_by_dir.items():
+            try:
+                display_dir = directory.relative_to(Path.cwd())
+            except ValueError:
+                display_dir = directory
+
+            rich_print(f"\n[bold]Skills in [cyan]{display_dir}[/cyan]:[/bold]\n")
+
+            if not manifests:
+                rich_print("[yellow]No skills in this directory[/yellow]")
+            else:
+                for manifest in manifests:
+                    skill_index += 1
+
+                    tool_line = Text()
+                    tool_line.append(f"[{skill_index:2}] ", style="dim cyan")
+                    tool_line.append(manifest.name, style="bright_blue bold")
+                    rich_print(tool_line)
+
+                    if manifest.description:
+                        wrapped_lines = textwrap.wrap(
+                            manifest.description.strip(), width=72, subsequent_indent="     "
+                        )
+                        for line in wrapped_lines:
+                            if line.startswith("     "):
+                                rich_print(f"     [white]{line[5:]}[/white]")
+                            else:
+                                rich_print(f"     [white]{line}[/white]")
+
+                    source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
+                    try:
+                        source_display = source_path.relative_to(Path.cwd())
+                    except ValueError:
+                        source_display = source_path
+                    rich_print(f"     [dim green]source:[/dim green] {source_display}")
+                    rich_print()
+
+        if total_skills == 0:
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+        else:
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+            rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
 
     def _render_install_result(self, skill: Any, install_path: Path) -> None:
         try:

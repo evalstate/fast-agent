@@ -328,10 +328,21 @@ class FastAgent:
                 self.config["logger"]["show_chat"] = False
                 self.config["logger"]["show_tools"] = False
 
+            # Propagate CLI skills override into config so resolve_skill_directories() works everywhere
+            if self._skills_directory_override is not None and hasattr(self, "config"):
+                if "skills" not in self.config:
+                    self.config["skills"] = {}
+                self.config["skills"]["directories"] = [str(p) for p in self._skills_directory_override]
+
+            # Create settings and update global settings so resolve_skill_directories() works
+            instance_settings = config.Settings(**self.config) if hasattr(self, "config") else None
+            if instance_settings is not None:
+                config.update_global_settings(instance_settings)
+
             # Create the app with our local settings
             self.app = Core(
                 name=name,
-                settings=config.Settings(**self.config) if hasattr(self, "config") else None,
+                settings=instance_settings,
                 **kwargs,
             )
 
