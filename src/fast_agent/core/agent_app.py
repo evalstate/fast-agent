@@ -2,7 +2,7 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Awaitable, Callable, Mapping, Union
+from typing import Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -40,6 +40,11 @@ class AgentApp:
             [str, str | None], Awaitable[tuple[list[str], list[str]]]
         ]
         | None = None,
+        attach_agent_tools_callback: Callable[
+            [str, Sequence[str]], Awaitable[list[str]]
+        ]
+        | None = None,
+        dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -49,6 +54,8 @@ class AgentApp:
             reload_callback: Optional callback for manual AgentCard reloads
             refresh_callback: Optional callback for lazy instance refresh before requests
             load_card_callback: Optional callback for loading AgentCards at runtime
+            attach_agent_tools_callback: Optional callback for attaching agent tools
+            dump_agent_callback: Optional callback for dumping AgentCards
         """
         if len(agents) == 0:
             raise ValueError("No agents provided!")
@@ -56,6 +63,8 @@ class AgentApp:
         self._reload_callback = reload_callback
         self._refresh_callback = refresh_callback
         self._load_card_callback = load_card_callback
+        self._attach_agent_tools_callback = attach_agent_tools_callback
+        self._dump_agent_callback = dump_agent_callback
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
@@ -281,6 +290,14 @@ class AgentApp:
         """Return True if agent card loading is available."""
         return self._load_card_callback is not None
 
+    def can_attach_agent_tools(self) -> bool:
+        """Return True if agent tool attachment is available."""
+        return self._attach_agent_tools_callback is not None
+
+    def can_dump_agent_cards(self) -> bool:
+        """Return True if agent card dumping is available."""
+        return self._dump_agent_callback is not None
+
     async def load_agent_card(
         self, source: str, parent_agent: str | None = None
     ) -> tuple[list[str], list[str]]:
@@ -288,6 +305,20 @@ class AgentApp:
         if not self._load_card_callback:
             raise RuntimeError("Agent card loading is not available.")
         return await self._load_card_callback(source, parent_agent)
+
+    async def attach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]:
+        """Attach agents as tools to a parent agent."""
+        if not self._attach_agent_tools_callback:
+            raise RuntimeError("Agent tool attachment is not available.")
+        return await self._attach_agent_tools_callback(parent_agent, child_agents)
+
+    async def dump_agent_card(self, agent_name: str) -> str:
+        """Dump an AgentCard for the requested agent."""
+        if not self._dump_agent_callback:
+            raise RuntimeError("Agent card dumping is not available.")
+        return await self._dump_agent_callback(agent_name)
 
     def set_agents(self, agents: dict[str, AgentProtocol]) -> None:
         """Replace the active agent map (used after reload)."""
@@ -310,6 +341,18 @@ class AgentApp:
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback
+
+    def set_attach_agent_tools_callback(
+        self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for attaching agent tools."""
+        self._attach_agent_tools_callback = callback
+
+    def set_dump_agent_callback(
+        self, callback: Callable[[str], Awaitable[str]] | None
+    ) -> None:
+        """Update the callback for dumping agent cards."""
+        self._dump_agent_callback = callback
 
     def agent_names(self) -> list[str]:
         """Return available agent names."""

@@ -48,6 +48,7 @@ from fast_agent.skills.manager import (
 from fast_agent.skills.registry import format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.command_payloads import (
+    AgentCommand,
     ClearCommand,
     CommandPayload,
     ListPromptsCommand,
@@ -404,6 +405,63 @@ class InteractivePrompt:
                                     rich_print(
                                         f"[green]Attached agent tool(s): {attached_list}[/green]"
                                     )
+                            continue
+                        case AgentCommand(
+                            agent_name=agent_name,
+                            add_tool=add_tool,
+                            dump=dump,
+                            error=error,
+                        ):
+                            if error:
+                                rich_print(f"[red]{error}[/red]")
+                                continue
+
+                            target_agent = agent_name or agent
+
+                            if dump:
+                                if not prompt_provider.can_dump_agent_cards():
+                                    rich_print(
+                                        "[yellow]AgentCard dumping is not available in this session.[/yellow]"
+                                    )
+                                    continue
+                                try:
+                                    card_text = await prompt_provider.dump_agent_card(
+                                        target_agent
+                                    )
+                                except Exception as exc:
+                                    rich_print(f"[red]AgentCard dump failed: {exc}[/red]")
+                                    continue
+                                print(card_text)
+                                continue
+
+                            if add_tool:
+                                if not prompt_provider.can_attach_agent_tools():
+                                    rich_print(
+                                        "[yellow]Agent tool attachment is not available in this session.[/yellow]"
+                                    )
+                                    continue
+                                try:
+                                    attached = await prompt_provider.attach_agent_tools(
+                                        agent, [target_agent]
+                                    )
+                                except Exception as exc:
+                                    rich_print(
+                                        f"[red]Agent tool attach failed: {exc}[/red]"
+                                    )
+                                    continue
+
+                                if attached:
+                                    attached_list = ", ".join(attached)
+                                    rich_print(
+                                        f"[green]Attached agent tool(s): {attached_list}[/green]"
+                                    )
+                                else:
+                                    rich_print(
+                                        "[yellow]No agent tools attached.[/yellow]"
+                                    )
+                                continue
+
+                            rich_print("[red]Invalid /agent command.[/red]")
                             continue
                         case ReloadAgentsCommand():
                             if not prompt_provider.can_reload_agents():

@@ -17,7 +17,15 @@ import time
 import uuid
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Protocol,
+    Sequence,
+    runtime_checkable,
+)
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -121,6 +129,11 @@ class SlashCommandHandler:
             [str, str | None], Awaitable[tuple["AgentInstance", list[str], list[str]]]
         ]
         | None = None,
+        attach_agent_callback: Callable[
+            [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
+        ]
+        | None = None,
+        dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ):
         """
@@ -152,6 +165,8 @@ class SlashCommandHandler:
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
         self._card_loader = card_loader
+        self._attach_agent_callback = attach_agent_callback
+        self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
 
         # Session-level commands (always available, operate on current agent)
@@ -195,6 +210,13 @@ class SlashCommandHandler:
                 description="Load an AgentCard from file or URL",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(hint="<filename|url> [--tool]")
+                ),
+            ),
+            "agent": AvailableCommand(
+                name="agent",
+                description="Attach an agent as a tool or dump its AgentCard",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="<@name> [--tool|--dump]")
                 ),
             ),
         }
@@ -358,6 +380,8 @@ class SlashCommandHandler:
                 return await self._handle_load(arguments)
             if command_name == "card":
                 return await self._handle_card(arguments)
+            if command_name == "agent":
+                return await self._handle_agent(arguments)
             if command_name == "reload":
                 return await self._handle_reload()
 
@@ -1326,6 +1350,75 @@ class SlashCommandHandler:
             return summary
 
         return f"{summary}\nAttached agent tool(s): {', '.join(attached_names)}"
+
+    async def _handle_agent(self, arguments: str | None = None) -> str:
+        """Handle the /agent command for attach or dump actions."""
+        args = (arguments or "").strip()
+        if not args:
+            return "Usage: /agent <name> --tool | /agent [name] --dump"
+
+        try:
+            tokens = shlex.split(args)
+        except ValueError as exc:
+            return f"Invalid arguments: {exc}"
+
+        add_tool = False
+        dump = False
+        agent_name = None
+        unknown: list[str] = []
+        for token in tokens:
+            if token in {"tool", "--tool", "--as-tool", "-t"}:
+                add_tool = True
+                continue
+            if token in {"dump", "--dump", "-d"}:
+                dump = True
+                continue
+            if agent_name is None:
+                agent_name = token[1:] if token.startswith("@") else token
+                continue
+            unknown.append(token)
+
+        if unknown:
+            return f"Unexpected arguments: {', '.join(unknown)}"
+        if add_tool and dump:
+            return "Use either --tool or --dump, not both."
+        if not add_tool and not dump:
+            return "Usage: /agent <name> --tool | /agent [name] --dump"
+
+        target_agent = agent_name or self.current_agent_name or self.primary_agent_name
+        if not target_agent:
+            return "No agent available for this session."
+
+        if dump:
+            if not self._dump_agent_callback:
+                return "AgentCard dumping is not available in this session."
+            try:
+                return await self._dump_agent_callback(target_agent)
+            except Exception as exc:
+                return f"AgentCard dump failed: {exc}"
+
+        if not self._attach_agent_callback:
+            return "Agent tool attachment is not available in this session."
+        if not agent_name:
+            return "Agent name is required for /agent --tool."
+
+        parent_agent = self.current_agent_name or self.primary_agent_name
+        if not parent_agent:
+            return "No active agent available for tool attachment."
+
+        try:
+            instance, attached_names = await self._attach_agent_callback(
+                parent_agent, [agent_name]
+            )
+        except Exception as exc:
+            return f"Agent tool attach failed: {exc}"
+
+        self.instance = instance
+
+        if not attached_names:
+            return "No agent tools attached."
+
+        return "Attached agent tool(s): " + ", ".join(attached_names)
 
     async def _handle_reload(self) -> str:
         if not self._reload_callback:

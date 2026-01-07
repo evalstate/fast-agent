@@ -99,6 +99,15 @@ class ReloadAgentsCommand(CommandBase):
     kind: Literal["reload_agents"] = "reload_agents"
 
 
+@dataclass(frozen=True, slots=True)
+class AgentCommand(CommandBase):
+    agent_name: str | None
+    add_tool: bool
+    dump: bool
+    error: str | None
+    kind: Literal["agent_command"] = "agent_command"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
@@ -116,6 +125,7 @@ CommandPayload = (
     | LoadHistoryCommand
     | LoadAgentCardCommand
     | ReloadAgentsCommand
+    | AgentCommand
 )
 
 

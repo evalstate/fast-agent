@@ -487,6 +487,19 @@ class FastAgent:
 
         return added
 
+    def dump_agent_card_text(self, name: str, *, as_yaml: bool = False) -> str:
+        """Render an AgentCard as text."""
+        from fast_agent.core.agent_card_loader import dump_agent_to_string
+
+        agent_data = self.agents.get(name)
+        if not agent_data:
+            raise AgentConfigError(f"Agent '{name}' not found for dump")
+
+        message_paths = self._agent_card_histories.get(name)
+        return dump_agent_to_string(
+            name, agent_data, as_yaml=as_yaml, message_paths=message_paths
+        )
+
     async def reload_agents(self) -> bool:
         """Reload all previously registered AgentCard roots."""
         if not self._agent_card_roots:
@@ -1205,6 +1218,22 @@ class FastAgent:
 
                         return loaded_names, added_names
 
+                    async def attach_agent_tools_and_refresh(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        added = self.attach_agent_tools(parent_name, child_names)
+                        if added:
+                            await refresh_shared_instance()
+                        return added
+
+                    async def attach_agent_tools_source(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        return self.attach_agent_tools(parent_name, child_names)
+
+                    async def dump_agent_card(name: str) -> str:
+                        return self.dump_agent_card_text(name)
+
                     reload_enabled = bool(
                         getattr(self.args, "reload", False)
                         or getattr(self.args, "watch", False)
@@ -1215,6 +1244,8 @@ class FastAgent:
                         refresh_shared_instance if reload_enabled else None
                     )
                     wrapper.set_load_card_callback(load_card_and_refresh)
+                    wrapper.set_attach_agent_tools_callback(attach_agent_tools_and_refresh)
+                    wrapper.set_dump_agent_callback(dump_agent_card)
                     self._agent_card_watch_reload = reload_and_refresh if reload_enabled else None
 
                     if getattr(self.args, "watch", False) and self._agent_card_roots:
@@ -1288,6 +1319,8 @@ class FastAgent:
                                     skills_directory_override=skills_override,
                                     permissions_enabled=permissions_enabled,
                                     load_card_callback=load_card_source,
+                                    attach_agent_tools_callback=attach_agent_tools_source,
+                                    dump_agent_card_callback=dump_agent_card,
                                     reload_callback=reload_callback,
                                 )
 

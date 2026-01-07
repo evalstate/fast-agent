@@ -205,6 +205,9 @@ class AgentACPServer(ACPAgent):
             [str, str | None], Awaitable[tuple[list[str], list[str]]]
         ]
         | None = None,
+        attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
+        | None = None,
+        dump_agent_card_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
         """
@@ -220,6 +223,8 @@ class AgentACPServer(ACPAgent):
             skills_directory_override: Optional skills directory override (relative to session cwd)
             permissions_enabled: Whether to request tool permissions from client (default: True)
             load_card_callback: Optional callback to load AgentCards at runtime
+            attach_agent_tools_callback: Optional callback to attach agent tools at runtime
+            dump_agent_card_callback: Optional callback to dump AgentCards at runtime
             reload_callback: Optional callback to reload AgentCards from disk
         """
         super().__init__()
@@ -230,6 +235,8 @@ class AgentACPServer(ACPAgent):
         self._instance_scope = instance_scope
         self._get_registry_version = get_registry_version
         self._load_card_callback = load_card_callback
+        self._attach_agent_tools_callback = attach_agent_tools_callback
+        self._dump_agent_card_callback = dump_agent_card_callback
         self._reload_callback = reload_callback
         self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
         self._shared_reload_lock = asyncio.Lock()
@@ -626,6 +633,18 @@ class AgentACPServer(ACPAgent):
                 session_state, source, attach_to=parent_name
             )
 
+        async def attach_agent_tools(
+            parent_name: str, child_names: Sequence[str]
+        ) -> tuple[AgentInstance, list[str]]:
+            return await self._attach_agent_tools_for_session(
+                session_state, parent_name, child_names
+            )
+
+        async def dump_agent_card(agent_name: str) -> str:
+            if not self._dump_agent_card_callback:
+                raise RuntimeError("AgentCard dumping is not available.")
+            return await self._dump_agent_card_callback(agent_name)
+
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_state.session_id)
 
@@ -638,6 +657,12 @@ class AgentACPServer(ACPAgent):
             protocol_version=self._protocol_version,
             session_instructions=resolved_for_session,
             card_loader=load_card if self._load_card_callback else None,
+            attach_agent_callback=(
+                attach_agent_tools if self._attach_agent_tools_callback else None
+            ),
+            dump_agent_callback=(
+                dump_agent_card if self._dump_agent_card_callback else None
+            ),
             reload_callback=reload_cards if self._reload_callback else None,
         )
         session_state.slash_handler = slash_handler
@@ -711,6 +736,57 @@ class AgentACPServer(ACPAgent):
             await session_state.acp_context.send_available_commands_update()
 
         return instance, loaded_names, attached_names
+
+    async def _attach_agent_tools_for_session(
+        self,
+        session_state: ACPSessionState,
+        parent_name: str,
+        child_names: Sequence[str],
+    ) -> tuple[AgentInstance, list[str]]:
+        if not self._attach_agent_tools_callback:
+            raise RuntimeError("Agent tool attachment is not available.")
+
+        attached_names = await self._attach_agent_tools_callback(parent_name, child_names)
+        if not attached_names:
+            return session_state.instance, []
+
+        if self._instance_scope == "shared":
+            async with self._shared_reload_lock:
+                new_instance = await self._create_instance_task()
+                old_instance = self.primary_instance
+                self.primary_instance = new_instance
+                latest_version = (
+                    self._get_registry_version() if self._get_registry_version else None
+                )
+                self._primary_registry_version = getattr(
+                    new_instance, "registry_version", latest_version
+                )
+                self._stale_instances.append(old_instance)
+                self.primary_agent_name = self._select_primary_agent(new_instance)
+                await self._refresh_sessions_for_instance(new_instance)
+            instance = session_state.instance
+        else:
+            instance = await self._create_instance_task()
+            old_instance = session_state.instance
+            session_state.instance = instance
+            async with self._session_lock:
+                self.sessions[session_state.session_id] = instance
+            self._refresh_session_state(session_state, instance)
+            if old_instance != self.primary_instance:
+                try:
+                    await self._dispose_instance_task(old_instance)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to dispose old session instance",
+                        name="acp_attach_dispose_error",
+                        session_id=session_state.session_id,
+                        error=str(exc),
+                    )
+
+        if session_state.acp_context:
+            await session_state.acp_context.send_available_commands_update()
+
+        return instance, attached_names
 
     async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
         if not self._reload_callback:
@@ -1030,6 +1106,18 @@ class AgentACPServer(ACPAgent):
                 session_state, source, attach_to=parent_name
             )
 
+        async def attach_agent_tools(
+            parent_name: str, child_names: Sequence[str]
+        ) -> tuple[AgentInstance, list[str]]:
+            return await self._attach_agent_tools_for_session(
+                session_state, parent_name, child_names
+            )
+
+        async def dump_agent_card(agent_name: str) -> str:
+            if not self._dump_agent_card_callback:
+                raise RuntimeError("AgentCard dumping is not available.")
+            return await self._dump_agent_card_callback(agent_name)
+
         async def reload_cards() -> bool:
             return await self._reload_agent_cards_for_session(session_id)
 
@@ -1042,6 +1130,12 @@ class AgentACPServer(ACPAgent):
             protocol_version=self._protocol_version,
             session_instructions=resolved_prompts,
             card_loader=load_card if self._load_card_callback else None,
+            attach_agent_callback=(
+                attach_agent_tools if self._attach_agent_tools_callback else None
+            ),
+            dump_agent_callback=(
+                dump_agent_card if self._dump_agent_card_callback else None
+            ),
             reload_callback=reload_cards if self._reload_callback else None,
         )
         session_state.slash_handler = slash_handler

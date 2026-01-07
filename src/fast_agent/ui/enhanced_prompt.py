@@ -30,6 +30,7 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
+    AgentCommand,
     ClearCommand,
     CommandPayload,
     ListToolsCommand,
@@ -117,6 +118,14 @@ def _load_agent_card_cmd(
     filename: str | None, add_tool: bool, error: str | None
 ) -> LoadAgentCardCommand:
     return LoadAgentCardCommand(filename=filename, add_tool=add_tool, error=error)
+
+
+def _agent_cmd(
+    agent_name: str | None, add_tool: bool, dump: bool, error: str | None
+) -> AgentCommand:
+    return AgentCommand(
+        agent_name=agent_name, add_tool=add_tool, dump=dump, error=error
+    )
 
 
 def _reload_agents_cmd() -> ReloadAgentsCommand:
@@ -501,6 +510,7 @@ class AgentCompleter(Completer):
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "load_history": "Load history from a file",
             "card": "Load an AgentCard (add --tool to attach as tool)",
+            "agent": "Attach an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -942,6 +952,63 @@ def parse_special_input(text: str) -> str | CommandPayload:
             if not filename:
                 return _load_agent_card_cmd(None, add_tool, "Filename required for /card")
             return _load_agent_card_cmd(filename, add_tool, None)
+        if cmd == "agent":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _agent_cmd(
+                    None,
+                    False,
+                    False,
+                    "Usage: /agent <name> --tool | /agent [name] --dump",
+                )
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError as exc:
+                return _agent_cmd(None, False, False, f"Invalid arguments: {exc}")
+            add_tool = False
+            dump = False
+            agent_name = None
+            unknown: list[str] = []
+            for token in tokens:
+                if token in {"tool", "--tool", "--as-tool", "-t"}:
+                    add_tool = True
+                    continue
+                if token in {"dump", "--dump", "-d"}:
+                    dump = True
+                    continue
+                if agent_name is None:
+                    agent_name = token[1:] if token.startswith("@") else token
+                    continue
+                unknown.append(token)
+            if unknown:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    dump,
+                    f"Unexpected arguments: {', '.join(unknown)}",
+                )
+            if add_tool and dump:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    dump,
+                    "Use either --tool or --dump, not both",
+                )
+            if not add_tool and not dump:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    dump,
+                    "Usage: /agent <name> --tool | /agent [name] --dump",
+                )
+            if add_tool and not agent_name:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    dump,
+                    "Agent name is required for /agent --tool",
+                )
+            return _agent_cmd(agent_name, add_tool, dump, None)
         if cmd == "reload":
             return _reload_agents_cmd()
         if cmd in ("mcpstatus", "mcp"):
@@ -1572,6 +1639,8 @@ async def handle_special_commands(
         )
         rich_print("  /load_history <filename> - Load chat history from a file")
         rich_print("  /card <filename> [--tool] - Load an AgentCard (attach as tool)")
+        rich_print("  /agent <name> --tool - Attach an agent as a tool")
+        rich_print("  /agent [name] --dump - Print an AgentCard to screen")
         rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  STOP           - Return control back to the workflow")

@@ -681,10 +681,23 @@ def dump_agent_to_path(
     as_yaml: bool = False,
     message_paths: list[Path] | None = None,
 ) -> None:
-    card_dict, instruction = _build_card_dump(name, agent_data, message_paths)
+    payload = dump_agent_to_string(
+        name, agent_data, as_yaml=as_yaml, message_paths=message_paths
+    )
     output_path = output_path.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(payload, encoding="utf-8")
 
+
+def dump_agent_to_string(
+    name: str,
+    agent_data: dict[str, Any],
+    *,
+    as_yaml: bool = False,
+    message_paths: list[Path] | None = None,
+) -> str:
+    """Render an AgentCard to a string."""
+    card_dict, instruction = _build_card_dump(name, agent_data, message_paths)
     if as_yaml:
         card_dict = dict(card_dict)
         card_dict["instruction"] = instruction
@@ -693,18 +706,14 @@ def dump_agent_to_path(
             sort_keys=False,
             allow_unicode=False,
         ).rstrip()
-        output_path.write_text(f"{payload}\n", encoding="utf-8")
-        return
+        return f"{payload}\n"
 
     frontmatter = yaml.safe_dump(
         card_dict,
         sort_keys=False,
         allow_unicode=False,
     ).rstrip()
-    output_path.write_text(
-        f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n",
-        encoding="utf-8",
-    )
+    return f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n"
 
 
 def _build_card_dump(
