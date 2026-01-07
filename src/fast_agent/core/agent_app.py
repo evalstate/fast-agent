@@ -362,9 +362,14 @@ class AgentApp:
         """Return mapping of agent names to agent types."""
         return {name: agent.agent_type for name, agent in self._agents.items()}
 
-    async def _refresh_if_needed(self) -> None:
+    async def refresh_if_needed(self) -> bool:
+        """Refresh agent instances if the registry has changed."""
+        return await self._refresh_if_needed()
+
+    async def _refresh_if_needed(self) -> bool:
         if self._refresh_callback:
-            await self._refresh_callback()
+            return await self._refresh_callback()
+        return False
 
     @deprecated
     async def prompt(

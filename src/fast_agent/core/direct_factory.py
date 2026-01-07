@@ -218,7 +218,11 @@ async def create_agents_by_type(
                     child_agents: list[AgentProtocol] = []
                     for agent_name in child_names:
                         if agent_name not in active_agents:
-                            raise AgentConfigError(f"Agent {agent_name} not found")
+                            logger.warning(
+                                "Skipping missing child agent",
+                                data={"agent_name": agent_name, "parent": name},
+                            )
+                            continue
                         child_agents.append(active_agents[agent_name])
 
                     # Import here to avoid circulars at module import time

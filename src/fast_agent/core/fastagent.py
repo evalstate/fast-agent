@@ -762,6 +762,16 @@ class FastAgent:
             else:
                 self._agent_card_histories.pop(card.name, None)
 
+        if removed_names:
+            removed_set = set(removed_names)
+            for agent_data in self.agents.values():
+                child_agents = agent_data.get("child_agents")
+                if not child_agents:
+                    continue
+                pruned = [name for name in child_agents if name not in removed_set]
+                if pruned != child_agents:
+                    agent_data["child_agents"] = pruned
+
         for path_entry, signature in current_stats.items():
             self._agent_card_file_cache[path_entry] = signature
 

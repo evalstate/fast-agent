@@ -139,6 +139,21 @@ class InteractivePrompt:
 
         result = ""
         while True:
+            refreshed = await prompt_provider.refresh_if_needed()
+            if refreshed:
+                available_agents = list(prompt_provider.agent_names())
+                available_agents_set = set(available_agents)
+                self.agent_types = prompt_provider.agent_types()
+
+                if agent not in available_agents_set:
+                    if available_agents:
+                        agent = available_agents[0]
+                    else:
+                        rich_print("[red]No agents available after refresh.[/red]")
+                        return result
+
+                rich_print("[green]AgentCards reloaded.[/green]")
+
             with progress_display.paused():
                 # Use the enhanced input method with advanced features
                 user_input = await get_enhanced_input(
