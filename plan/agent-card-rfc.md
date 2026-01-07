@@ -559,11 +559,31 @@ with no re-application of injected tools.
 
 ## Appendix: How to solve all `/card --tool` issues
 
-Conclusion: in the Agents‑as‑Tools paradigm, any loaded agent can be called by any other agent. So there’s no real need to load a card in a special “--tool” mode just to use it as a tool.
+Conclusion: loading a card with `--tool` is **needed and useful**, but it should
+**not** introduce a separate code path. In the Agents‑as‑Tools paradigm, any loaded
+agent can be called by any other agent after declaration, so `--tool` should just
+reuse the same flow.
 
-To avoid cluttering the tool list (and to avoid creating tools for every loaded agent by default), the orchestrator—like agent with mcp servers/tools—declares which agents it actually needs. Then, only those referenced in the orchestrator’s agents attribute are turned into tools at runtime.
+To avoid cluttering the tool list (and to avoid creating tools for every loaded
+agent by default), the orchestrator—like an agent with MCP servers/tools—declares
+which agents it actually needs. Then, only those referenced in the orchestrator’s
+`agents` attribute are turned into tools at runtime.
+The list of agents available as tools can be extended dynamically via
+`/card --tool` and `/agent --tool`.
 
-If we follow this consistently, we can declare “agents-as-tools” list strictly in the orchestrator card, keep the implementation compact, and avoid duplication.
+Implementation rule:
+`/card --tool` should **append** the loaded agent(s) to the current agent’s
+`agents` list and hot‑swap using the existing Agents‑as‑Tools flow. That keeps the
+implementation compact, avoids tool‑list clutter, and reuses the same code path.
+
+Suggested help text:
+`/card <path> [--tool]` — load an AgentCard; `--tool` attaches the loaded agent(s)
+to the current agent’s `agents` list and hot‑swaps via Agents‑as‑Tools.
+
+Suggested command:
+`/agent` with options:
+- `--tool`: attach the selected agent as a tool to the current agent.
+- `--dump`: print the current agent’s AgentCard to screen.
 
 
 ## Appendix: Next-stage Work Items
