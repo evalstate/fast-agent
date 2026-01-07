@@ -506,6 +506,16 @@ See [plan/agent-card-rfc-multicard.md](plan/agent-card-rfc-multicard.md).
 ## Appendix: AgentCard Samples
 See [agent-card-rfc-sample.md](agent-card-rfc-sample.md).
 
+Status (implemented or no longer pending):
+- [x] Basic agent (Sample 2)
+- [x] Messages preload (Sample 3)
+- [x] Function tools + hooks (Sample 6)
+- [x] Chain workflow (Samples 7, 13)
+- [x] Agents-as-tools orchestrator (Sample 10)
+- [x] MAKER workflow (Sample 9)
+- [x] Human input agent (Sample 14)
+- [x] MCP OAuth config snippets (Samples 11, 12)
+
 ## Appendix: Issue Templates (from gpt-5.2-codex code review)
 
 ### Issue: prevent self-referential tool injection + dedupe tool names

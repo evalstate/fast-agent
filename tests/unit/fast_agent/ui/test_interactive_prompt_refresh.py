@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from fast_agent.agents.agent_types import AgentType
-from fast_agent.ui import interactive_prompt
+from fast_agent.ui import enhanced_prompt, interactive_prompt
 from fast_agent.ui.interactive_prompt import InteractivePrompt
 
 if TYPE_CHECKING:
@@ -45,7 +45,10 @@ class _FakeAgentApp:
 async def test_prompt_loop_refreshes_agent_list(monkeypatch, capsys: Any) -> None:
     inputs = iter(["/agents", "STOP"])
 
-    async def fake_get_enhanced_input(*_args: Any, **_kwargs: Any) -> str:
+    async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
+        available_agent_names = kwargs.get("available_agent_names")
+        if available_agent_names is not None:
+            enhanced_prompt.available_agents = set(available_agent_names)
         return next(inputs)
 
     monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
