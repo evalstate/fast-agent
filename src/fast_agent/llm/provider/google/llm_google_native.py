@@ -1,6 +1,7 @@
 import json
 import secrets
 from collections.abc import Mapping
+from typing import cast
 
 # Import necessary types and client from google.genai
 from google import genai
@@ -150,7 +151,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
         try:
             response_stream = await client.aio.models.generate_content_stream(
                 model=model,
-                contents=contents,
+                contents=cast("types.ContentListUnion", contents),
                 config=config,
             )
         except AttributeError:
@@ -409,7 +410,7 @@ class GoogleNativeLLM(FastAgentLLM[types.Content, types.Content]):
             if api_response is None:
                 api_response = await client.aio.models.generate_content(
                     model=model_name,
-                    contents=conversation_history,  # Full conversational context for this turn
+                    contents=cast("types.ContentListUnion", conversation_history),
                     config=generate_content_config,
                 )
             self.logger.debug("Google generate_content response:", data=api_response)

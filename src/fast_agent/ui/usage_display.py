@@ -7,6 +7,8 @@ from typing import Any
 
 from rich.console import Console
 
+from fast_agent.ui.model_display import format_model_display
+
 
 def display_usage_report(
     agents: dict[str, Any], show_if_progress_disabled: bool = False, subdued_colors: bool = False
@@ -56,9 +58,7 @@ def display_usage_report(
                 if agent.llm:
                     model = agent.llm.model_name or "unknown"
 
-                # Standardize model name truncation - use consistent 25 char width with 22+... truncation
-                if len(model) > 25:
-                    model = model[:22] + "..."
+                model = format_model_display(model, max_len=25) or model
 
                 usage_data.append(
                     {

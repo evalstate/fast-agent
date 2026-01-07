@@ -19,6 +19,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
+    Awaitable,
     Callable,
     Literal,
     ParamSpec,
@@ -366,12 +367,15 @@ class FastAgent:
         self._agent_card_sources: dict[str, Path] = {}
         self._agent_card_roots: dict[Path, set[str]] = {}
         self._agent_card_root_files: dict[Path, set[Path]] = {}
+        self._agent_card_root_watch_files: dict[Path, set[Path]] = {}
         self._agent_card_file_cache: dict[Path, tuple[int, int]] = {}
         self._agent_card_name_by_path: dict[Path, str] = {}
         self._agent_card_histories: dict[str, list[Path]] = {}
+        self._agent_card_tool_files: dict[Path, set[Path]] = {}
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
+        self._agent_card_watch_reload: Callable[[], Awaitable[bool]] | None = None
 
     @staticmethod
     def _normalize_skill_directories(
@@ -497,46 +501,142 @@ class FastAgent:
 
         if not root.exists():
             if incremental:
-                current_files: set[Path] = set()
+                current_card_files: set[Path] = set()
             else:
                 raise AgentConfigError(f"AgentCard path not found: {root}")
         else:
-            current_files = self._collect_agent_card_files(root)
+            current_card_files = self._collect_agent_card_files(root)
 
-        previous_files = self._agent_card_root_files.get(root, set())
-        removed_files = previous_files - current_files
+        previous_card_files = self._agent_card_root_files.get(root, set())
+        removed_card_files = previous_card_files - current_card_files
+        for removed_path in removed_card_files:
+            self._agent_card_tool_files.pop(removed_path, None)
 
-        current_stats: dict[Path, tuple[int, int]] = {}
-        for path_entry in list(current_files):
+        current_card_stats: dict[Path, tuple[int, int]] = {}
+        for path_entry in list(current_card_files):
             try:
                 stat = path_entry.stat()
             except FileNotFoundError:
-                current_files.discard(path_entry)
+                current_card_files.discard(path_entry)
+                continue
+            current_card_stats[path_entry] = (stat.st_mtime_ns, stat.st_size)
+
+        if incremental:
+            changed_card_files = {
+                path_entry
+                for path_entry, signature in current_card_stats.items()
+                if self._agent_card_file_cache.get(path_entry) != signature
+            }
+        else:
+            changed_card_files = set(current_card_stats.keys())
+
+        def _load_cards(path_entry: Path) -> list[Any]:
+            try:
+                return load_agent_cards(path_entry)
+            except Exception as exc:
+                if not incremental:
+                    raise
+                logger.warning(
+                    "Skipping invalid AgentCard during reload",
+                    path=str(path_entry),
+                    error=str(exc),
+                )
+                return []
+
+        cards: list[Any] = []
+        loaded_card_files: set[Path] = set()
+        for path_entry in sorted(changed_card_files):
+            loaded_cards = _load_cards(path_entry)
+            cards.extend(loaded_cards)
+            loaded_card_files.add(path_entry)
+            for card in loaded_cards:
+                config = card.agent_data.get("config")
+                function_tools = getattr(config, "function_tools", None)
+                self._agent_card_tool_files[card.path] = self._resolve_function_tool_paths(
+                    card.path, function_tools
+                )
+
+        missing_tool_cards = {
+            path_entry
+            for path_entry in current_card_files
+            if path_entry not in self._agent_card_tool_files
+        }
+        for path_entry in sorted(missing_tool_cards):
+            loaded_cards = _load_cards(path_entry)
+            cards.extend(loaded_cards)
+            loaded_card_files.add(path_entry)
+            for card in loaded_cards:
+                config = card.agent_data.get("config")
+                function_tools = getattr(config, "function_tools", None)
+                self._agent_card_tool_files[card.path] = self._resolve_function_tool_paths(
+                    card.path, function_tools
+                )
+
+        current_tool_files: set[Path] = set()
+        for card_path in current_card_files:
+            current_tool_files.update(self._agent_card_tool_files.get(card_path, set()))
+
+        watch_files = set(current_card_files) | current_tool_files
+        previous_watch_files = self._agent_card_root_watch_files.get(root, set())
+        removed_watch_files = previous_watch_files - watch_files
+
+        current_stats: dict[Path, tuple[int, int]] = {}
+        for path_entry in list(watch_files):
+            try:
+                stat = path_entry.stat()
+            except FileNotFoundError:
+                watch_files.discard(path_entry)
                 continue
             current_stats[path_entry] = (stat.st_mtime_ns, stat.st_size)
 
         if incremental:
-            changed_files = {
+            changed_watch_files = {
                 path_entry
                 for path_entry, signature in current_stats.items()
                 if self._agent_card_file_cache.get(path_entry) != signature
             }
         else:
-            changed_files = set(current_stats.keys())
+            changed_watch_files = set(current_stats.keys())
 
-        cards: list[Any] = []
-        for path_entry in sorted(changed_files):
-            cards.extend(load_agent_cards(path_entry))
+        changed_tool_files = {
+            path_entry for path_entry in changed_watch_files if path_entry in current_tool_files
+        }
+        removed_tool_files = {
+            path_entry for path_entry in removed_watch_files if path_entry not in current_card_files
+        }
+        changed_tool_files |= removed_tool_files
+
+        if changed_tool_files:
+            affected_card_files = {
+                card_path
+                for card_path in current_card_files
+                if self._agent_card_tool_files.get(card_path, set()) & changed_tool_files
+            }
+            for path_entry in sorted(affected_card_files - loaded_card_files):
+                loaded_cards = _load_cards(path_entry)
+                cards.extend(loaded_cards)
+                loaded_card_files.add(path_entry)
+                for card in loaded_cards:
+                    config = card.agent_data.get("config")
+                    function_tools = getattr(config, "function_tools", None)
+                    self._agent_card_tool_files[card.path] = self._resolve_function_tool_paths(
+                        card.path, function_tools
+                    )
 
         self._apply_agent_card_updates(
             root,
-            current_files=current_files,
-            removed_files=removed_files,
+            current_files=current_card_files,
+            removed_files=removed_card_files,
             changed_cards=cards,
             current_stats=current_stats,
         )
 
-        return bool(removed_files or changed_files)
+        for path_entry in removed_watch_files:
+            self._agent_card_file_cache.pop(path_entry, None)
+
+        self._agent_card_root_watch_files[root] = set(watch_files)
+
+        return bool(removed_card_files or changed_watch_files)
 
     @staticmethod
     def _agent_card_extensions() -> set[str]:
@@ -554,6 +654,25 @@ class FastAgent:
         if root.suffix.lower() not in self._agent_card_extensions():
             raise AgentConfigError(f"Unsupported AgentCard file extension: {root}")
         return {root}
+
+    @staticmethod
+    def _resolve_function_tool_paths(
+        card_path: Path,
+        function_tools: Sequence[str] | None,
+    ) -> set[Path]:
+        tool_paths: set[Path] = set()
+        if not function_tools:
+            return tool_paths
+        for spec in function_tools:
+            if not isinstance(spec, str) or ":" not in spec:
+                continue
+            module_path_str, _func_name = spec.rsplit(":", 1)
+            module_path = Path(module_path_str)
+            if not module_path.is_absolute():
+                module_path = (card_path.parent / module_path).resolve()
+            if module_path.suffix.lower() == ".py":
+                tool_paths.add(module_path)
+        return tool_paths
 
     def _apply_agent_card_updates(
         self,
@@ -646,7 +765,7 @@ class FastAgent:
             from watchfiles import awatch  # type: ignore[import-not-found]
 
             async for _changes in awatch(*roots):
-                await self.reload_agents()
+                await self._reload_agent_cards_from_watch()
         except ImportError:
             logger.info(
                 "watchfiles not available; falling back to polling for AgentCard reloads"
@@ -654,11 +773,17 @@ class FastAgent:
             try:
                 while True:
                     await asyncio.sleep(1.0)
-                    await self.reload_agents()
+                    await self._reload_agent_cards_from_watch()
             except asyncio.CancelledError:
                 return
         except asyncio.CancelledError:
             return
+
+    async def _reload_agent_cards_from_watch(self) -> bool:
+        reload_callback = self._agent_card_watch_reload
+        if reload_callback is None:
+            return await self.reload_agents()
+        return await reload_callback()
 
     # Decorator methods with precise signatures for IDE completion
     # Provide annotations so IDEs can discover these attributes on instances
@@ -1053,6 +1178,7 @@ class FastAgent:
                         refresh_shared_instance if reload_enabled else None
                     )
                     wrapper.set_load_card_callback(load_card_and_refresh)
+                    self._agent_card_watch_reload = reload_and_refresh if reload_enabled else None
 
                     if getattr(self.args, "watch", False) and self._agent_card_roots:
                         self._agent_card_watch_task = asyncio.create_task(
@@ -1298,6 +1424,7 @@ class FastAgent:
                     except asyncio.CancelledError:
                         pass
                     self._agent_card_watch_task = None
+                self._agent_card_watch_reload = None
 
                 # Print usage report before cleanup (show for user exits too)
                 if (
