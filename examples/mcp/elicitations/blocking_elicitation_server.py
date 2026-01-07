@@ -21,7 +21,7 @@ Connect to: http://127.0.0.1:8000/mcp
 
 import logging
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from mcp.server.elicitation import (
     AcceptedElicitation,
@@ -29,8 +29,10 @@ from mcp.server.elicitation import (
     DeclinedElicitation,
 )
 from mcp.server.fastmcp import FastMCP
-from mcp.types import ElicitResult
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from mcp.types import ElicitResult
 
 # Configure detailed logging
 logging.basicConfig(
