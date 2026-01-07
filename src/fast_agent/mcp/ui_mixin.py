@@ -17,7 +17,7 @@ from fast_agent.ui.mcp_ui_utils import open_links_in_browser, ui_links_from_chan
 if TYPE_CHECKING:
     from rich.text import Text
 
-    from fast_agent.types import PromptMessageExtended
+    from fast_agent.types import PromptMessageExtended, RequestParams
 
 
 class McpUIMixin:
@@ -52,7 +52,11 @@ class McpUIMixin:
             mode = "auto"
         self._ui_mode = mode
 
-    async def run_tools(self, request: "PromptMessageExtended") -> "PromptMessageExtended":
+    async def run_tools(
+        self,
+        request: "PromptMessageExtended",
+        request_params: "RequestParams | None" = None,
+    ) -> "PromptMessageExtended":
         """
         Override run_tools to extract and handle UI resources.
 
@@ -61,10 +65,10 @@ class McpUIMixin:
         """
         # If UI is disabled, just pass through to parent
         if self._ui_mode == "disabled":
-            return await super().run_tools(request)  # type: ignore
+            return await super().run_tools(request, request_params=request_params)  # type: ignore
 
         # Run the tools normally via parent implementation
-        result = await super().run_tools(request)  # type: ignore
+        result = await super().run_tools(request, request_params=request_params)  # type: ignore
 
         # Extract UI resources from tool results
         if result and result.tool_results:

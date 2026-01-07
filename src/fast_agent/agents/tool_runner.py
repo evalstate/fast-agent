@@ -33,7 +33,11 @@ class _ToolLoopAgent(Protocol):
         tools: list[Tool] | None = None,
     ) -> PromptMessageExtended: ...
 
-    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended: ...
+    async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended: ...
 
     async def list_tools(self) -> ListToolsResult: ...
 
@@ -137,7 +141,9 @@ class ToolRunner:
         if self._hooks.before_tool_call is not None:
             await self._hooks.before_tool_call(self, self._pending_tool_request)
 
-        tool_message = await self._agent.run_tools(self._pending_tool_request)
+        tool_message = await self._agent.run_tools(
+            self._pending_tool_request, request_params=self._request_params
+        )
         self._pending_tool_response = tool_message
 
         if self._hooks.after_tool_call is not None:

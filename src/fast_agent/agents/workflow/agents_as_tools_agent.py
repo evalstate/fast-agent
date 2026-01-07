@@ -201,7 +201,7 @@ from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FORCE_SEQUENTIAL_TOOL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
-from fast_agent.types import PromptMessageExtended
+from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
@@ -465,6 +465,8 @@ class AgentsAsToolsAgent(McpAgent):
         name: str,
         arguments: dict[str, Any] | None = None,
         tool_use_id: str | None = None,
+        *,
+        request_params: RequestParams | None = None,
     ) -> CallToolResult:
         """Route tool execution to child agents first, then MCP/local tools.
 
@@ -478,7 +480,9 @@ class AgentsAsToolsAgent(McpAgent):
             # a plain PromptMessageExtended tool call.
             return await self._invoke_child_agent(child, arguments)
 
-        return await super().call_tool(name, arguments, tool_use_id)
+        return await super().call_tool(
+            name, arguments, tool_use_id, request_params=request_params
+        )
 
     def _show_parallel_tool_calls(self, descriptors: list[dict[str, Any]]) -> None:
         """Display tool call headers for parallel agent execution.
@@ -586,7 +590,11 @@ class AgentsAsToolsAgent(McpAgent):
                 ),
             )
 
-    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
+    async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
         """Handle mixed MCP + agent-tool batches."""
 
         if not request.tool_calls:
@@ -599,7 +607,7 @@ class AgentsAsToolsAgent(McpAgent):
                 child_ids.append(correlation_id)
 
         if not child_ids:
-            return await super().run_tools(request)
+            return await super().run_tools(request, request_params=request_params)
 
         child_results, child_error = await self._run_child_tools(request, set(child_ids))
 
@@ -613,7 +621,7 @@ class AgentsAsToolsAgent(McpAgent):
             content=request.content,
             tool_calls={cid: request.tool_calls[cid] for cid in remaining_ids},
         )
-        mcp_message = await super().run_tools(mcp_request)
+        mcp_message = await super().run_tools(mcp_request, request_params=request_params)
         mcp_results = mcp_message.tool_results or {}
         mcp_error = self._extract_error_text(mcp_message)
 

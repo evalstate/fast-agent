@@ -18,7 +18,12 @@ from fast_agent.mcp.oauth_client import (
 from fast_agent.ui.console import console
 from fast_agent.utils.async_utils import run_sync
 
-app = typer.Typer(help="Manage OAuth authentication state for MCP servers")
+app = typer.Typer(
+    help=(
+        "Manage OAuth tokens stored in the OS keyring for MCP HTTP/SSE servers "
+        "(identity = base URL)."
+    )
+)
 
 
 def _get_keyring_status() -> tuple[str, bool]:
@@ -117,7 +122,7 @@ def status(
     target: str | None = typer.Argument(None, help="Identity (base URL) or server name"),
     config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
-    """Show keyring backend and token status for configured MCP servers."""
+    """Show keyring backend and token status for configured MCP servers (identity = base URL)."""
     settings = get_settings(config_path)
     backend, backend_usable = _get_keyring_status()
 
@@ -246,7 +251,7 @@ def clear(
     all: bool = typer.Option(False, "--all", help="Clear tokens for all identities in keyring"),
     config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
-    """Clear stored OAuth tokens from the keyring."""
+    """Clear stored OAuth tokens from the keyring by server name or identity (base URL)."""
     targets_identities: list[str] = []
     if all:
         targets_identities = list_keyring_tokens()
@@ -300,7 +305,7 @@ def login(
     ),
     config_path: str | None = typer.Option(None, "--config-path", "-c"),
 ) -> None:
-    """Start OAuth flow and store tokens for a server.
+    """Start OAuth flow and store tokens in the keyring for a server.
 
     Accepts either a configured server name or an identity (base URL).
     For identity mode, default transport is 'http' (uses <identity>/mcp).

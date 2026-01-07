@@ -1,3 +1,4 @@
+import asyncio
 import time
 from contextvars import ContextVar
 from typing import Any, Callable, Dict, List, Sequence
@@ -21,7 +22,7 @@ from fast_agent.interfaces import ToolRunnerHookCapable
 from fast_agent.mcp.helpers.content_helpers import text_content
 from fast_agent.mcp.tool_execution_handler import ToolExecutionHandler
 from fast_agent.tools.elicitation import get_elicitation_fastmcp_tool
-from fast_agent.types import PromptMessageExtended, RequestParams, ToolTimingInfo
+from fast_agent.types import LlmStopReason, PromptMessageExtended, RequestParams, ToolTimingInfo
 from fast_agent.utils.async_utils import gather_with_cancel
 
 logger = get_logger(__name__)
@@ -30,6 +31,55 @@ _tool_progress_context: ContextVar[tuple[ToolExecutionHandler, str] | None] = Co
     "tool_progress_context",
     default=None,
 )
+
+
+class _ToolLoopProgressEmitter:
+    def __init__(self, handler: ToolExecutionHandler, agent_name: str) -> None:
+        self._handler = handler
+        self._agent_name = agent_name
+        self._tool_call_id: str | None = None
+        self._step = 0
+        self._finished = False
+        self._lock = asyncio.Lock()
+
+    async def _ensure_started(self) -> str | None:
+        if self._tool_call_id:
+            return self._tool_call_id
+        try:
+            self._tool_call_id = await self._handler.on_tool_start(
+                "agent_loop", self._agent_name, None
+            )
+        except Exception:
+            self._tool_call_id = None
+        return self._tool_call_id
+
+    async def step(self, label: str) -> None:
+        async with self._lock:
+            if self._finished:
+                return
+            self._step += 1
+            tool_call_id = await self._ensure_started()
+            if not tool_call_id:
+                return
+            message = f"step {self._step}"
+            if label:
+                message = f"{message} ({label})"
+            try:
+                await self._handler.on_tool_progress(tool_call_id, float(self._step), None, message)
+            except Exception:
+                pass
+
+    async def finish(self, success: bool, error: str | None = None) -> None:
+        async with self._lock:
+            if self._finished:
+                return
+            self._finished = True
+            if not self._tool_call_id:
+                return
+            try:
+                await self._handler.on_tool_complete(self._tool_call_id, success, None, error)
+            except Exception:
+                pass
 
 
 class ToolAgent(LlmAgent, _ToolLoopAgent):
@@ -228,7 +278,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             messages=messages,
             request_params=request_params,
             tools=tools,
-            hooks=self._tool_runner_hooks(),
+            hooks=self._build_tool_runner_hooks(request_params),
         )
         return await runner.until_done()
 
@@ -236,6 +286,95 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         if isinstance(self, ToolRunnerHookCapable):
             return self.tool_runner_hooks
         return None
+
+    def _build_tool_runner_hooks(
+        self, request_params: RequestParams | None
+    ) -> ToolRunnerHooks | None:
+        base_hooks = self._tool_runner_hooks()
+        if (
+            request_params is None
+            or not request_params.emit_loop_progress
+            or not request_params.tool_execution_handler
+        ):
+            return base_hooks
+
+        progress_hooks = self._build_loop_progress_hooks(
+            request_params.tool_execution_handler
+        )
+        return self._merge_tool_runner_hooks(base_hooks, progress_hooks)
+
+    def _build_loop_progress_hooks(
+        self, handler: ToolExecutionHandler
+    ) -> ToolRunnerHooks:
+        emitter = _ToolLoopProgressEmitter(handler, self.name)
+        error_reasons = (
+            LlmStopReason.ERROR.value,
+            LlmStopReason.CANCELLED.value,
+            LlmStopReason.TIMEOUT.value,
+            LlmStopReason.SAFETY.value,
+        )
+
+        def tool_label(request: PromptMessageExtended) -> str:
+            tool_calls = request.tool_calls or {}
+            names = [call.params.name for call in tool_calls.values()]
+            if len(names) == 1:
+                return f"tool {names[0]}"
+            if len(names) > 1:
+                return f"tools x{len(names)}"
+            return "tool"
+
+        async def before_llm_call(runner, messages):
+            await emitter.step("llm")
+
+        async def before_tool_call(runner, request):
+            await emitter.step(tool_label(request))
+
+        async def after_llm_call(runner, message):
+            if message.stop_reason == LlmStopReason.TOOL_USE:
+                return
+            stop_reason = message.stop_reason
+            if stop_reason in error_reasons:
+                if isinstance(stop_reason, LlmStopReason):
+                    reason_label = stop_reason.value
+                else:
+                    reason_label = str(stop_reason) if stop_reason is not None else "unknown"
+                await emitter.finish(False, error=f"stopped: {reason_label}")
+            else:
+                await emitter.finish(True)
+
+        return ToolRunnerHooks(
+            before_llm_call=before_llm_call,
+            after_llm_call=after_llm_call,
+            before_tool_call=before_tool_call,
+        )
+
+    @staticmethod
+    def _merge_tool_runner_hooks(
+        base: ToolRunnerHooks | None, extra: ToolRunnerHooks | None
+    ) -> ToolRunnerHooks | None:
+        if base is None:
+            return extra
+        if extra is None:
+            return base
+
+        def merge(one, two):
+            if one is None:
+                return two
+            if two is None:
+                return one
+
+            async def merged(runner, payload):
+                await one(runner, payload)
+                await two(runner, payload)
+
+            return merged
+
+        return ToolRunnerHooks(
+            before_llm_call=merge(base.before_llm_call, extra.before_llm_call),
+            after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
+            before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
+            after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
+        )
 
     async def _tool_runner_llm_step(
         self,
@@ -251,7 +390,11 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             return
         super().show_user_message(message)
 
-    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
+    async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
         """Runs the tools in the request, and returns a new User message with the results"""
         if not request.tool_calls:
             logger.warning("No tool calls found in request", data=request)
@@ -303,7 +446,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 correlation_id: str, tool_name: str, tool_args: dict[str, Any]
             ) -> tuple[str, CallToolResult, float]:
                 start_time = time.perf_counter()
-                result = await self.call_tool(tool_name, tool_args)
+                result = await self.call_tool(
+                    tool_name, tool_args, request_params=request_params
+                )
                 end_time = time.perf_counter()
                 return correlation_id, result, round((end_time - start_time) * 1000, 2)
 
@@ -353,7 +498,9 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
 
             # Track timing for tool execution
             start_time = time.perf_counter()
-            result = await self.call_tool(tool_name, tool_args)
+            result = await self.call_tool(
+                tool_name, tool_args, request_params=request_params
+            )
             end_time = time.perf_counter()
             duration_ms = round((end_time - start_time) * 1000, 2)
 
@@ -426,7 +573,14 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         """Return available tools for this agent. Overridable by subclasses."""
         return ListToolsResult(tools=list(self._tool_schemas))
 
-    async def call_tool(self, name: str, arguments: Dict[str, Any] | None = None) -> CallToolResult:
+    async def call_tool(
+        self,
+        name: str,
+        arguments: Dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: RequestParams | None = None,
+    ) -> CallToolResult:
         """Execute a tool by name using local FastMCP tools. Overridable by subclasses."""
         fast_tool = self._execution_tools.get(name)
         if not fast_tool:
@@ -436,11 +590,13 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 isError=True,
             )
 
-        tool_handler = self._get_tool_handler()
+        tool_handler = self._get_tool_handler(request_params)
         tool_call_id = None
         if tool_handler:
             try:
-                tool_call_id = await tool_handler.on_tool_start(name, "local", arguments, None)
+                tool_call_id = await tool_handler.on_tool_start(
+                    name, "local", arguments, tool_use_id
+                )
             except Exception:
                 tool_call_id = None
 
@@ -478,7 +634,15 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
             if token is not None:
                 _tool_progress_context.reset(token)
 
-    def _get_tool_handler(self) -> ToolExecutionHandler | None:
+    def _get_tool_handler(
+        self, request_params: RequestParams | None = None
+    ) -> ToolExecutionHandler | None:
+        if request_params and request_params.tool_execution_handler:
+            return request_params.tool_execution_handler
         context = getattr(self, "_context", None)
         acp = getattr(context, "acp", None) if context else None
-        return getattr(acp, "progress_manager", None)
+        if acp is not None:
+            progress_manager = getattr(acp, "progress_manager", None)
+            if progress_manager is not None:
+                return progress_manager
+        return None

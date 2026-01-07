@@ -249,9 +249,14 @@ class MCPAggregator(ContextDependent):
         return self._persistent_connection_manager
 
     def _create_progress_callback(
-        self, server_name: str, tool_name: str, tool_call_id: str
+        self,
+        server_name: str,
+        tool_name: str,
+        tool_call_id: str,
+        request_tool_handler: ToolExecutionHandler | None = None,
     ) -> "ProgressFnT":
         """Create a progress callback function for tool execution."""
+        handler_for_request = request_tool_handler or self._tool_handler
 
         async def progress_callback(
             progress: float, total: float | None, message: str | None
@@ -272,7 +277,9 @@ class MCPAggregator(ContextDependent):
 
             # Forward progress to tool handler (e.g., for ACP notifications)
             try:
-                await self._tool_handler.on_tool_progress(tool_call_id, progress, total, message)
+                await handler_for_request.on_tool_progress(
+                    tool_call_id, progress, total, message
+                )
             except Exception as e:
                 logger.error(f"Error in tool progress handler: {e}", exc_info=True)
 
@@ -1453,7 +1460,12 @@ class MCPAggregator(ContextDependent):
         return (self.server_names[0] if self.server_names else None, name)
 
     async def call_tool(
-        self, name: str, arguments: dict | None = None, tool_use_id: str | None = None
+        self,
+        name: str,
+        arguments: dict | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_tool_handler: ToolExecutionHandler | None = None,
     ) -> CallToolResult:
         """
         Call a namespaced tool, e.g., 'server_name__tool_name'.
@@ -1462,6 +1474,7 @@ class MCPAggregator(ContextDependent):
             name: Tool name (possibly namespaced)
             arguments: Tool arguments
             tool_use_id: LLM's tool use ID (for matching with stream events)
+            request_tool_handler: Optional per-request handler for tool execution events
         """
         if not self.initialized:
             await self.load_servers()
@@ -1477,6 +1490,8 @@ class MCPAggregator(ContextDependent):
             )
 
         namespaced_tool_name = create_namespaced_name(server_name, local_tool_name)
+
+        active_tool_handler = request_tool_handler or self._tool_handler
 
         # Check tool permission before execution
         try:
@@ -1498,9 +1513,9 @@ class MCPAggregator(ContextDependent):
                         error_msg = f"The user has declined permission to use this tool: {namespaced_tool_name}"
 
                 # Notify tool handler so ACP clients can reflect the cancellation/denial
-                if hasattr(self._tool_handler, "on_tool_permission_denied"):
+                if hasattr(active_tool_handler, "on_tool_permission_denied"):
                     try:
-                        await self._tool_handler.on_tool_permission_denied(
+                        await active_tool_handler.on_tool_permission_denied(
                             local_tool_name, server_name, tool_use_id, error_msg
                         )
                     except Exception as e:
@@ -1537,7 +1552,7 @@ class MCPAggregator(ContextDependent):
 
         # Notify tool handler that execution is starting
         try:
-            tool_call_id = await self._tool_handler.on_tool_start(
+            tool_call_id = await active_tool_handler.on_tool_start(
                 local_tool_name, server_name, arguments, tool_use_id
             )
         except Exception as e:
@@ -1555,7 +1570,10 @@ class MCPAggregator(ContextDependent):
 
             # Create progress callback for this tool execution
             progress_callback = self._create_progress_callback(
-                server_name, local_tool_name, tool_call_id
+                server_name,
+                local_tool_name,
+                tool_call_id,
+                active_tool_handler,
             )
 
             try:
@@ -1596,7 +1614,7 @@ class MCPAggregator(ContextDependent):
                         error_text = "\n".join(text_parts) if text_parts else None
                         content = None  # Don't send content when there's an error
 
-                    await self._tool_handler.on_tool_complete(
+                    await active_tool_handler.on_tool_complete(
                         tool_call_id, not result.isError, content, error_text
                     )
 
@@ -1612,7 +1630,9 @@ class MCPAggregator(ContextDependent):
             except Exception as e:
                 # Notify tool handler of error
                 try:
-                    await self._tool_handler.on_tool_complete(tool_call_id, False, None, str(e))
+                    await active_tool_handler.on_tool_complete(
+                        tool_call_id, False, None, str(e)
+                    )
                 except Exception as handler_error:
                     logger.error(f"Error in tool complete handler: {handler_error}", exc_info=True)
                 raise
