@@ -35,7 +35,7 @@ class StubAgent:
         self.display = StubDisplay()
         self.message_history = []
 
-    async def run_tools(self, request):
+    async def run_tools(self, request, request_params=None):
         """Stub implementation that returns the request unchanged."""
         return request
 

@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING
 
 import httpx
 import pytest
+from mcp import ClientSession, types
+from mcp.client.streamable_http import streamable_http_client
 
 from fast_agent.mcp.helpers.content_helpers import get_text
 
@@ -269,6 +271,15 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
             ) as response:
                 assert response.status_code == 200
                 assert "mcp-session-id" not in response.headers
+
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                init_result = await session.initialize()
+                assert init_result.capabilities.prompts is None
     finally:
         if server_proc.poll() is None:
             server_proc.terminate()
@@ -349,11 +360,7 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
     agents_dir.mkdir()
     card_path = agents_dir / "watcher.md"
     card_path.write_text(
-        "---\n"
-        "type: agent\n"
-        "name: watcher\n"
-        "---\n"
-        "Echo test.\n",
+        "---\ntype: agent\nname: watcher\n---\nEcho test.\n",
         encoding="utf-8",
     )
 
@@ -388,15 +395,90 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
     try:
         await wait_for_port("127.0.0.1", port, process=server_proc)
         card_path.write_text(
-            "---\n"
-            "type: agent\n"
-            "name: watcher\n"
-            "---\n"
-            "Echo test updated.\n",
+            "---\ntype: agent\nname: watcher\n---\nEcho test updated.\n",
             encoding="utf-8",
         )
         await asyncio.sleep(0.25)
         assert server_proc.poll() is None
+    finally:
+        if server_proc.poll() is None:
+            server_proc.terminate()
+            try:
+                server_proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                server_proc.kill()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_agent_server_emits_mcp_progress_notifications(
+    fast_agent, mcp_test_ports, wait_for_port
+):
+    """Test that MCP progress notifications are emitted during tool execution."""
+
+    import os
+    import subprocess
+
+    test_dir = os.path.dirname(os.path.abspath(__file__))
+    test_agent_path = os.path.join(test_dir, "integration_agent.py")
+
+    port = mcp_test_ports["http"]
+
+    server_proc = subprocess.Popen(
+        [
+            "uv",
+            "run",
+            test_agent_path,
+            "--server",
+            "--transport",
+            "http",
+            "--port",
+            str(port),
+            "--quiet",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=test_dir,
+    )
+
+    try:
+        await wait_for_port("127.0.0.1", port, process=server_proc)
+
+        progress_events: list[tuple[float, float | None, str | None]] = []
+
+        async def on_progress(progress: float, total: float | None, message: str | None) -> None:
+            progress_events.append((progress, total, message))
+
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
+            async with ClientSession(read_stream, write_stream) as session:
+                await session.initialize()
+                params = types.CallToolRequestParams(
+                    name="test_send", arguments={"message": "progress check"}
+                )
+                request = types.CallToolRequest(method="tools/call", params=params)
+                result = await session.send_request(
+                    types.ClientRequest(request),
+                    types.CallToolResult,
+                    progress_callback=on_progress,
+                )
+
+                assert result.content
+                assert "progress check" in (get_text(result.content[0]) or "")
+
+        for _ in range(20):
+            if progress_events:
+                break
+            await asyncio.sleep(0.1)
+
+        assert progress_events
+        assert any(message and "step" in message for _, _, message in progress_events), (
+            f"Unexpected progress messages: {progress_events}"
+        )
     finally:
         if server_proc.poll() is None:
             server_proc.terminate()

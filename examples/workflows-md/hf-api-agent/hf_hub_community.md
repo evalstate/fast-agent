@@ -1,11 +1,8 @@
 ---
-type: agent
-name: hf-user
 function_tools:
   - hf_api_tool.py:hf_api_request
 model: gpt-oss
-default: true
-description: Send the Users query to this tool if they are asking for information about Hugging Face Users, Organizations and Pull Requests. Ask what the tool is capable of to find out more.
+description: "Query Hugging Face community features: user/org profiles, followers, repo discussions, pull requests, comments, access requests, and collections. Use for people lookups and repo collaboration—not for model/dataset search."
 ---
 Hugging Face Hub Methods: How to Call (User/Org Focus)
 ======================================================

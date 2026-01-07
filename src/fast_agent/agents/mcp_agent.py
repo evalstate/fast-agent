@@ -567,7 +567,12 @@ class McpAgent(ABC, ToolAgent):
         )
 
     async def call_tool(
-        self, name: str, arguments: dict[str, Any] | None = None, tool_use_id: str | None = None
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+        tool_use_id: str | None = None,
+        *,
+        request_params: RequestParams | None = None,
     ) -> CallToolResult:
         """
         Call a tool by name with the given arguments.
@@ -610,9 +615,21 @@ class McpAgent(ABC, ToolAgent):
             return await self._call_human_input_tool(arguments)
 
         if name in self._execution_tools:
-            return await super().call_tool(name, arguments)
-        else:
-            return await self._aggregator.call_tool(name, arguments, tool_use_id)
+            return await super().call_tool(
+                name,
+                arguments,
+                tool_use_id,
+                request_params=request_params,
+            )
+        request_tool_handler = None
+        if request_params and request_params.tool_execution_handler:
+            request_tool_handler = request_params.tool_execution_handler
+        return await self._aggregator.call_tool(
+            name,
+            arguments,
+            tool_use_id,
+            request_tool_handler=request_tool_handler,
+        )
 
     async def _call_human_input_tool(
         self, arguments: dict[str, Any] | None = None
@@ -856,7 +873,11 @@ class McpAgent(ABC, ToolAgent):
         response: PromptMessageExtended = await self.generate([prompt], None)
         return response.first_text()
 
-    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended:
+    async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended:
         """Override ToolAgent's run_tools to use MCP tools via aggregator."""
         if not request.tool_calls:
             self.logger.warning("No tool calls found in request", data=request)
@@ -999,7 +1020,10 @@ class McpAgent(ABC, ToolAgent):
             async def run_one(call: dict[str, Any]) -> tuple[str, CallToolResult, float]:
                 start_time = time.perf_counter()
                 result = await self.call_tool(
-                    call["tool_name"], call["tool_args"], call["correlation_id"]
+                    call["tool_name"],
+                    call["tool_args"],
+                    call["correlation_id"],
+                    request_params=request_params,
                 )
                 end_time = time.perf_counter()
                 return call["correlation_id"], result, round((end_time - start_time) * 1000, 2)
@@ -1062,7 +1086,9 @@ class McpAgent(ABC, ToolAgent):
 
             try:
                 start_time = time.perf_counter()
-                result = await self.call_tool(tool_name, tool_args, correlation_id)
+                result = await self.call_tool(
+                    tool_name, tool_args, correlation_id, request_params=request_params
+                )
                 end_time = time.perf_counter()
                 duration_ms = round((end_time - start_time) * 1000, 2)
 

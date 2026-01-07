@@ -141,7 +141,7 @@ async def sample(
                         logger.debug(f"Using agent's model for sampling: {model}")
                     if context.session.api_key:
                         api_key = context.session.api_key
-                        logger.debug(f"Using agent's API KEY for sampling: {api_key}")
+                        logger.debug("Using agent's API key override for sampling")
 
                 # Fall back to system default model
                 if model is None:

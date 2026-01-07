@@ -238,7 +238,11 @@ class AgentProtocol(LlmAgentProtocol, Protocol):
 
     async def shutdown(self) -> None: ...
 
-    async def run_tools(self, request: PromptMessageExtended) -> PromptMessageExtended: ...
+    async def run_tools(
+        self,
+        request: PromptMessageExtended,
+        request_params: RequestParams | None = None,
+    ) -> PromptMessageExtended: ...
 
     async def show_assistant_message(
         self,
