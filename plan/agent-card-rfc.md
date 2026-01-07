@@ -535,6 +535,10 @@ recurse if the model calls it. Tool names can also collide silently.
 - Current agent is never exposed as its own tool.
 - Duplicate tool names are surfaced to the user and do not silently override.
 
+**Status:** superseded if `/card --tool` only appends to the `agents` list (no direct
+tool injection). Remaining guard: prevent adding the current agent to its own
+`agents` list and dedupe names.
+
 ### Issue: injected tools are lost after reload/watch
 **Summary:** Tool injection is **ephemeral**; after `--watch` refresh or manual reload,
 injected tools disappear without warning.
@@ -551,6 +555,10 @@ with no re-application of injected tools.
 **Acceptance criteria:**
 - After reload, either tools are restored or the user is notified.
 
+**Status:** obsolete if `/card --tool` no longer injects tools directly and instead
+relies on Agents-as-Tools via the `agents` list. Persistence of dynamic `/card --tool`
+changes across reload still needs a defined policy.
+
 ### Issue: align `/card --tool` with Agents-as-Tools history options (future)
 **Summary:** Once advanced history routing is added (history_source/history_merge_target),
 `/card --tool` should either expose those options or explicitly lock to stateless mode.
@@ -563,6 +571,9 @@ with no re-application of injected tools.
 
 **Acceptance criteria:**
 - `/card --tool` behavior is explicit and consistent with Agents-as-Tools options.
+
+**Status:** applies only if `/card --tool` becomes a distinct code path. If it reuses
+Agents-as-Tools, history behavior is inherited.
 
 ## Appendix: How to solve all `/card --tool` issues
 
