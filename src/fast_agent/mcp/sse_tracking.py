@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
+PING_FAILURE_RESET_THRESHOLD = 3
 
 
 def _extract_session_id(endpoint_url: str) -> str | None:
@@ -105,6 +106,23 @@ async def tracking_sse_client(
     write_stream, write_stream_reader = anyio.create_memory_object_stream[SessionMessage](0)
 
     session_id: str | None = None
+    ping_failure_count = 0
+
+    def reset_ping_failures() -> None:
+        nonlocal ping_failure_count
+        ping_failure_count = 0
+
+    def record_ping_failure() -> None:
+        nonlocal ping_failure_count
+        ping_failure_count += 1
+        logger.warning(
+            "Ping timeout waiting for keepalive on %s (%s/%s)",
+            url,
+            ping_failure_count,
+            PING_FAILURE_RESET_THRESHOLD,
+        )
+        if ping_failure_count >= PING_FAILURE_RESET_THRESHOLD:
+            logger.warning("Multiple ping timeouts on %s; resetting connection", url)
 
     def get_session_id() -> str | None:
         return session_id
@@ -124,6 +142,7 @@ async def tracking_sse_client(
                     task_status: TaskStatus[str] = anyio.TASK_STATUS_IGNORED,
                 ):
                     try:
+                        reset_ping_failures()
                         async for sse in event_source.aiter_sse():
                             if sse.event == "endpoint":
                                 endpoint_url = urljoin(url, sse.data)
@@ -167,7 +186,9 @@ async def tracking_sse_client(
 
                                 _emit_channel_event(channel_hook, "get", "message", message=message)
                                 await read_stream_writer.send(SessionMessage(message))
+                                reset_ping_failures()
                             else:
+                                reset_ping_failures()
                                 _emit_channel_event(
                                     channel_hook,
                                     "get",
@@ -176,6 +197,7 @@ async def tracking_sse_client(
                                 )
                     except SSEError as sse_exc:
                         logger.exception("Encountered SSE exception")
+                        reset_ping_failures()
                         _emit_channel_event(
                             channel_hook,
                             "get",
@@ -184,12 +206,19 @@ async def tracking_sse_client(
                         )
                         raise
                     except Exception as exc:
-                        logger.exception("Error in sse_reader")
+                        if isinstance(exc, (httpx.ReadTimeout, httpx.TimeoutException)):
+                            record_ping_failure()
+                            detail = "Ping timeout waiting for keepalive"
+                            logger.warning("SSE ping timeout on %s", url)
+                        else:
+                            reset_ping_failures()
+                            detail = str(exc)
+                            logger.exception("Error in sse_reader")
                         _emit_channel_event(
                             channel_hook,
                             "get",
                             "error",
-                            detail=str(exc),
+                            detail=detail,
                         )
                         await read_stream_writer.send(exc)
                     finally:

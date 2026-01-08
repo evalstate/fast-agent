@@ -30,6 +30,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
+PING_FAILURE_RESET_THRESHOLD = 3
 
 
 class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
@@ -43,6 +44,21 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     ) -> None:
         super().__init__(url)
         self._channel_hook = channel_hook
+        self._ping_failure_count = 0
+
+    def _reset_ping_failures(self) -> None:
+        self._ping_failure_count = 0
+
+    def _record_ping_failure(self) -> None:
+        self._ping_failure_count += 1
+        logger.warning(
+            "Ping timeout waiting for keepalive on %s (%s/%s)",
+            self.url,
+            self._ping_failure_count,
+            PING_FAILURE_RESET_THRESHOLD,
+        )
+        if self._ping_failure_count >= PING_FAILURE_RESET_THRESHOLD:
+            logger.warning("Multiple ping timeouts on %s; resetting connection", self.url)
 
     def _emit_channel_event(
         self,
@@ -101,6 +117,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     ) -> bool:
         if sse.event != "message":
             # Treat non-message events (e.g. ping) as keepalive notifications
+            self._reset_ping_failures()
             self._emit_channel_event(channel, "keepalive", raw_event=sse.event or "keepalive")
             return False
 
@@ -121,6 +138,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             ):
                 message.root.id = original_request_id
 
+            self._reset_ping_failures()
             self._emit_channel_event(channel, "message", message=message)
             await read_stream_writer.send(SessionMessage(message))
 
@@ -163,6 +181,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     event_source.response.raise_for_status()
                     self._emit_channel_event("get", "connect")
                     connected = True
+                    self._reset_ping_failures()
 
                     async for sse in event_source.aiter_sse():
                         if sse.id:
@@ -179,10 +198,15 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     attempt = 0
 
             except Exception as exc:  # pragma: no cover - non fatal stream errors
+                is_ping_timeout = isinstance(exc, (httpx.ReadTimeout, httpx.TimeoutException))
+                if is_ping_timeout:
+                    self._record_ping_failure()
+                else:
+                    self._reset_ping_failures()
                 logger.debug("GET stream error: %s", exc)
                 attempt += 1
                 status_code = None
-                detail = str(exc)
+                detail = "Ping timeout waiting for keepalive" if is_ping_timeout else str(exc)
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
                     status_code = exc.response.status_code
                     reason = exc.response.reason_phrase or ""
