@@ -8,8 +8,8 @@ optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
 AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
-CLI runs also auto-load cards from `.fast-agent/agent-cards/` (agents) when that
-directory exists and contains supported card files.
+CLI auto-loads cards from `.fast-agent/agent-cards/` when that directory exists and
+contains supported card files.
 
 ## Agent vs Skill
 - **Skill**: a reusable prompt fragment or capability description.
@@ -358,9 +358,9 @@ You are a concise analyst.
 ## Loading API
 - `load_agents(path)` loads a file or a directory and returns the loaded agent names.
 - CLI: `fast-agent go/serve/acp --card <path>` loads cards before starting.
-- CLI: if `.fast-agent/agent-cards/` exists and contains
-  `.md`/`.markdown`/`.yaml`/`.yml` files, that directory is loaded automatically
-  (in addition to any explicit `--card` entries).
+- CLI: if `.fast-agent/agent-cards/` exists and contains `.md`/`.markdown`/`.yaml`/`.yml`
+  files, that directory is loaded automatically (in addition to any explicit `--card`
+  entries).
 - `--agent-cards` remains as a legacy alias for `--card`.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
@@ -372,7 +372,8 @@ You are a concise analyst.
   modes for the current session.
 
 ### Runtime tool injection (optional)
-- `/card --tool` exposes the loaded agent as a tool on the **current** agent.
+- `/card --tool` attaches the loaded agent(s) to the **current** agent’s `agents` list
+  and hot-swaps using Agents-as-Tools.
 - Tool names default to `agent__{name}`.
 - Tool descriptions prefer `description`; fall back to the agent instruction.
 - Tool calls use a single `message` argument.
@@ -506,16 +507,6 @@ See [plan/agent-card-rfc-multicard.md](plan/agent-card-rfc-multicard.md).
 ## Appendix: AgentCard Samples
 See [agent-card-rfc-sample.md](agent-card-rfc-sample.md).
 
-Status (implemented or no longer pending):
-- [x] Basic agent (Sample 2)
-- [x] Messages preload (Sample 3)
-- [x] Function tools + hooks (Sample 6)
-- [x] Chain workflow (Samples 7, 13)
-- [x] Agents-as-tools orchestrator (Sample 10)
-- [x] MAKER workflow (Sample 9)
-- [x] Human input agent (Sample 14)
-- [x] MCP OAuth config snippets (Samples 11, 12)
-
 ## Appendix: Issue Templates (from gpt-5.2-codex code review)
 
 ### Issue: prevent self-referential tool injection + dedupe tool names
@@ -535,9 +526,8 @@ recurse if the model calls it. Tool names can also collide silently.
 - Current agent is never exposed as its own tool.
 - Duplicate tool names are surfaced to the user and do not silently override.
 
-**Status:** superseded if `/card --tool` only appends to the `agents` list (no direct
-tool injection). Remaining guard: prevent adding the current agent to its own
-`agents` list and dedupe names.
+**Status:** addressed by the Agents-as-Tools attach path (`/card --tool` appends to
+`agents`, skipping self and deduping in `attach_agent_tools`).
 
 ### Issue: injected tools are lost after reload/watch
 **Summary:** Tool injection is **ephemeral**; after `--watch` refresh or manual reload,
@@ -555,9 +545,8 @@ with no re-application of injected tools.
 **Acceptance criteria:**
 - After reload, either tools are restored or the user is notified.
 
-**Status:** obsolete if `/card --tool` no longer injects tools directly and instead
-relies on Agents-as-Tools via the `agents` list. Persistence of dynamic `/card --tool`
-changes across reload still needs a defined policy.
+**Status:** resolved by persisting tool attachment in `child_agents` and reloading
+via Agents-as-Tools rather than ephemeral tool injection.
 
 ### Issue: align `/card --tool` with Agents-as-Tools history options (future)
 **Summary:** Once advanced history routing is added (history_source/history_merge_target),
@@ -572,8 +561,8 @@ changes across reload still needs a defined policy.
 **Acceptance criteria:**
 - `/card --tool` behavior is explicit and consistent with Agents-as-Tools options.
 
-**Status:** applies only if `/card --tool` becomes a distinct code path. If it reuses
-Agents-as-Tools, history behavior is inherited.
+**Status:** still relevant for advanced history routing; MVP keeps `/card --tool`
+stateless for now.
 
 ## Appendix: How to solve all `/card --tool` issues
 
@@ -602,10 +591,6 @@ Suggested command:
 `/agent` with options:
 - `--tool`: attach the selected agent as a tool to the current agent.
 - `--dump`: print the current agent’s AgentCard to screen.
-
-Rationalization: the CLI `--card-tool` flag and `.fast-agent/tool-cards` directory are
-unnecessary because any agent can be loaded as a tool by declaring `agents` during
-development, or dynamically at runtime via `/card --tool` and `/agent --tool`.
 
 
 ## Appendix: Next-stage Work Items

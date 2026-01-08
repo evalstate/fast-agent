@@ -47,6 +47,7 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
     MarketplaceSkill,
     candidate_marketplace_urls,
     fetch_marketplace_skills,
@@ -133,6 +134,10 @@ class SlashCommandHandler:
             [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
         ]
         | None = None,
+        detach_agent_callback: Callable[
+            [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
+        ]
+        | None = None,
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ):
@@ -166,6 +171,7 @@ class SlashCommandHandler:
         self._session_instructions = session_instructions or {}
         self._card_loader = card_loader
         self._attach_agent_callback = attach_agent_callback
+        self._detach_agent_callback = detach_agent_callback
         self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
 
@@ -209,14 +215,18 @@ class SlashCommandHandler:
                 name="card",
                 description="Load an AgentCard from file or URL",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="<filename|url> [--tool]")
+                    root=UnstructuredCommandInput(
+                        hint="<filename|url> [--tool [remove]]"
+                    )
                 ),
             ),
             "agent": AvailableCommand(
                 name="agent",
                 description="Attach an agent as a tool or dump its AgentCard",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="<@name> [--tool|--dump]")
+                    root=UnstructuredCommandInput(
+                        hint="<@name> [--tool [remove]|--dump]"
+                    )
                 ),
             ),
         }
@@ -783,7 +793,7 @@ class SlashCommandHandler:
 
         # Get configured registries from settings
         settings = get_settings()
-        configured_urls = settings.skills.marketplace_urls or []
+        configured_urls = settings.skills.marketplace_urls or list(DEFAULT_SKILL_REGISTRIES)
 
         if not argument:
             current = get_marketplace_url(settings)
@@ -873,9 +883,11 @@ class SlashCommandHandler:
         return "\n".join(response_lines)
 
     def _handle_skills_list(self) -> str:
-        manager_dir = get_manager_directory()
-        manifests = list_local_skills(manager_dir)
-        return self._format_local_skills(manifests, manager_dir)
+        directories = resolve_skill_directories()
+        all_manifests: dict[Path, list[SkillManifest]] = {}
+        for directory in directories:
+            all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+        return self._format_local_skills_by_directory(all_manifests)
 
     async def _handle_skills_add(self, argument: str) -> str:
         if argument.strip().lower() in {"q", "quit", "exit"}:
@@ -1051,6 +1063,53 @@ class SlashCommandHandler:
         lines.append("Use `/skills add` to list available skills to install\n")
         lines.append("Remove a skill with `/skills remove <number|name>`.\n")
         lines.append("Change skills registry with `/skills registry <url>`.\n")
+        return "\n".join(lines)
+
+    def _format_local_skills_by_directory(
+        self, manifests_by_dir: dict[Path, list[SkillManifest]]
+    ) -> str:
+        lines = ["# skills", ""]
+        total_skills = sum(len(m) for m in manifests_by_dir.values())
+        skill_index = 0
+
+        for directory, manifests in manifests_by_dir.items():
+            try:
+                display_path = directory.relative_to(Path.cwd())
+            except ValueError:
+                display_path = directory
+            lines.append(f"## {display_path}")
+            lines.append("")
+
+            if not manifests:
+                lines.append("No skills in this directory.")
+                lines.append("")
+            else:
+                for manifest in manifests:
+                    skill_index += 1
+                    name = manifest.name
+                    description = manifest.description
+                    path = manifest.path
+                    source_path = path.parent if path.is_file() else path
+                    try:
+                        source_display = source_path.relative_to(Path.cwd())
+                    except ValueError:
+                        source_display = source_path
+
+                    lines.append(f"- [{skill_index}] {name}")
+                    if description:
+                        wrapped = textwrap.fill(description, width=76, subsequent_indent="    ")
+                        lines.append(f"  - {wrapped}")
+                    lines.append(f"  - source: `{source_display}`")
+                lines.append("")
+
+        if total_skills == 0:
+            lines.append("Use `/skills add` to list available skills to install.")
+        else:
+            lines.append("Use `/skills add` to list available skills to install")
+            lines.append("")
+            lines.append("Remove a skill with `/skills remove <number|name>`.")
+            lines.append("")
+            lines.append("Change skills registry with `/skills registry <url>`.")
         return "\n".join(lines)
 
     def _format_local_list(self, manifests: list[SkillManifest]) -> list[str]:
@@ -1318,20 +1377,28 @@ class SlashCommandHandler:
             return f"Invalid arguments: {exc}"
 
         add_tool = False
+        remove_tool = False
         filename = None
         for token in tokens:
             if token in {"tool", "--tool", "--as-tool", "-t"}:
                 add_tool = True
                 continue
+            if token in {"remove", "--remove"}:
+                add_tool = True
+                remove_tool = True
+                continue
             if filename is None:
                 filename = token
 
         if not filename:
-            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
+            return (
+                "Filename required for /card command.\nUsage: /card <filename|url> [--tool [remove]]"
+            )
 
         try:
+            attach_to = self.current_agent_name if add_tool and not remove_tool else None
             instance, loaded_names, attached_names = await self._card_loader(
-                filename, self.current_agent_name if add_tool else None
+                filename, attach_to
             )
         except Exception as exc:
             return f"AgentCard load failed: {exc}"
@@ -1345,6 +1412,23 @@ class SlashCommandHandler:
 
         if not add_tool:
             return summary
+
+        if remove_tool:
+            if not self._detach_agent_callback:
+                return "Agent tool detachment is not available in this session."
+            parent_agent = self.current_agent_name or self.primary_agent_name
+            if not parent_agent:
+                return "No active agent available for tool detachment."
+            try:
+                instance, detached_names = await self._detach_agent_callback(
+                    parent_agent, loaded_names
+                )
+            except Exception as exc:
+                return f"Agent tool detach failed: {exc}"
+            self.instance = instance
+            if not detached_names:
+                return f"{summary}\nNo agent tools detached."
+            return f"{summary}\nDetached agent tool(s): {', '.join(detached_names)}"
 
         if not attached_names:
             return summary
@@ -1363,12 +1447,17 @@ class SlashCommandHandler:
             return f"Invalid arguments: {exc}"
 
         add_tool = False
+        remove_tool = False
         dump = False
         agent_name = None
         unknown: list[str] = []
         for token in tokens:
             if token in {"tool", "--tool", "--as-tool", "-t"}:
                 add_tool = True
+                continue
+            if token in {"remove", "--remove"}:
+                add_tool = True
+                remove_tool = True
                 continue
             if token in {"dump", "--dump", "-d"}:
                 dump = True
@@ -1383,7 +1472,7 @@ class SlashCommandHandler:
         if add_tool and dump:
             return "Use either --tool or --dump, not both."
         if not add_tool and not dump:
-            return "Usage: /agent <name> --tool | /agent [name] --dump"
+            return "Usage: /agent <name> --tool [remove] | /agent [name] --dump"
 
         target_agent = agent_name or self.current_agent_name or self.primary_agent_name
         if not target_agent:
@@ -1396,6 +1485,25 @@ class SlashCommandHandler:
                 return await self._dump_agent_callback(target_agent)
             except Exception as exc:
                 return f"AgentCard dump failed: {exc}"
+
+        if remove_tool:
+            if not self._detach_agent_callback:
+                return "Agent tool detachment is not available in this session."
+            if not agent_name:
+                return "Agent name is required for /agent --tool remove."
+            parent_agent = self.current_agent_name or self.primary_agent_name
+            if not parent_agent:
+                return "No active agent available for tool detachment."
+            try:
+                instance, removed_names = await self._detach_agent_callback(
+                    parent_agent, [agent_name]
+                )
+            except Exception as exc:
+                return f"Agent tool detach failed: {exc}"
+            self.instance = instance
+            if not removed_names:
+                return "No agent tools detached."
+            return "Detached agent tool(s): " + ", ".join(removed_names)
 
         if not self._attach_agent_callback:
             return "Agent tool attachment is not available in this session."

@@ -44,6 +44,10 @@ class AgentApp:
             [str, Sequence[str]], Awaitable[list[str]]
         ]
         | None = None,
+        detach_agent_tools_callback: Callable[
+            [str, Sequence[str]], Awaitable[list[str]]
+        ]
+        | None = None,
         dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
     ) -> None:
         """
@@ -55,6 +59,7 @@ class AgentApp:
             refresh_callback: Optional callback for lazy instance refresh before requests
             load_card_callback: Optional callback for loading AgentCards at runtime
             attach_agent_tools_callback: Optional callback for attaching agent tools
+            detach_agent_tools_callback: Optional callback for detaching agent tools
             dump_agent_callback: Optional callback for dumping AgentCards
         """
         if len(agents) == 0:
@@ -64,6 +69,7 @@ class AgentApp:
         self._refresh_callback = refresh_callback
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
+        self._detach_agent_tools_callback = detach_agent_tools_callback
         self._dump_agent_callback = dump_agent_callback
 
     def __getitem__(self, key: str) -> AgentProtocol:
@@ -314,6 +320,14 @@ class AgentApp:
             raise RuntimeError("Agent tool attachment is not available.")
         return await self._attach_agent_tools_callback(parent_agent, child_agents)
 
+    async def detach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]:
+        """Detach agents-as-tools from a parent agent."""
+        if not self._detach_agent_tools_callback:
+            raise RuntimeError("Agent tool detachment is not available.")
+        return await self._detach_agent_tools_callback(parent_agent, child_agents)
+
     async def dump_agent_card(self, agent_name: str) -> str:
         """Dump an AgentCard for the requested agent."""
         if not self._dump_agent_callback:
@@ -348,6 +362,12 @@ class AgentApp:
         """Update the callback for attaching agent tools."""
         self._attach_agent_tools_callback = callback
 
+    def set_detach_agent_tools_callback(
+        self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for detaching agent tools."""
+        self._detach_agent_tools_callback = callback
+
     def set_dump_agent_callback(
         self, callback: Callable[[str], Awaitable[str]] | None
     ) -> None:
@@ -357,6 +377,10 @@ class AgentApp:
     def agent_names(self) -> list[str]:
         """Return available agent names."""
         return list(self._agents.keys())
+
+    def can_detach_agent_tools(self) -> bool:
+        """Return True if agent tool detachment is available."""
+        return self._detach_agent_tools_callback is not None
 
     def agent_types(self) -> dict[str, AgentType]:
         """Return mapping of agent names to agent types."""

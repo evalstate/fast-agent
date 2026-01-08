@@ -115,16 +115,22 @@ def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCom
 
 
 def _load_agent_card_cmd(
-    filename: str | None, add_tool: bool, error: str | None
+    filename: str | None, add_tool: bool, remove_tool: bool, error: str | None
 ) -> LoadAgentCardCommand:
-    return LoadAgentCardCommand(filename=filename, add_tool=add_tool, error=error)
+    return LoadAgentCardCommand(
+        filename=filename, add_tool=add_tool, remove_tool=remove_tool, error=error
+    )
 
 
 def _agent_cmd(
-    agent_name: str | None, add_tool: bool, dump: bool, error: str | None
+    agent_name: str | None, add_tool: bool, remove_tool: bool, dump: bool, error: str | None
 ) -> AgentCommand:
     return AgentCommand(
-        agent_name=agent_name, add_tool=add_tool, dump=dump, error=error
+        agent_name=agent_name,
+        add_tool=add_tool,
+        remove_tool=remove_tool,
+        dump=dump,
+        error=error,
     )
 
 
@@ -132,9 +138,7 @@ def _reload_agents_cmd() -> ReloadAgentsCommand:
     return ReloadAgentsCommand()
 
 
-def _select_prompt_cmd(
-    prompt_index: int | None, prompt_name: str | None
-) -> SelectPromptCommand:
+def _select_prompt_cmd(prompt_index: int | None, prompt_name: str | None) -> SelectPromptCommand:
     return SelectPromptCommand(prompt_index=prompt_index, prompt_name=prompt_name)
 
 
@@ -410,9 +414,7 @@ async def _display_router_children(router_agent, agent_provider: "AgentApp | Non
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-async def _display_tool_children(
-    tool_children, agent_provider: "AgentApp | None"
-) -> None:
+async def _display_tool_children(tool_children, agent_provider: "AgentApp | None") -> None:
     """Display tool-exposed child agents in tree format."""
     for i, child_agent in enumerate(tool_children):
         is_last = i == len(tool_children) - 1
@@ -439,6 +441,7 @@ def _collect_tool_children(agent) -> list[Any]:
         seen.add(name)
         unique_children.append(child)
     return unique_children
+
 
 async def _display_child_agent_info(
     child_agent, prefix: str, agent_provider: "AgentApp | None"
@@ -499,7 +502,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
             "tools": "List available MCP Tools",
-            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
+            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
@@ -509,8 +512,8 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "load_history": "Load history from a file",
-            "card": "Load an AgentCard (add --tool to attach as tool)",
-            "agent": "Attach an agent as a tool or dump an AgentCard",
+            "card": "Load an AgentCard (add --tool to attach/remove as tool)",
+            "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -534,7 +537,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -593,7 +598,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -642,15 +649,15 @@ class AgentCompleter(Completer):
         if text_lower.startswith("/load_history ") or text_lower.startswith("/load "):
             # Extract the partial path after the command
             if text_lower.startswith("/load_history "):
-                partial = text[len("/load_history "):]
+                partial = text[len("/load_history ") :]
             else:
-                partial = text[len("/load "):]
+                partial = text[len("/load ") :]
 
             yield from self._complete_history_files(partial)
             return
 
         if text_lower.startswith("/card "):
-            partial = text[len("/card "):]
+            partial = text[len("/card ") :]
             yield from self._complete_agent_card_files(partial)
             return
 
@@ -922,36 +929,41 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "markdown":
             return _show_markdown_cmd()
         if cmd in ("save_history", "save"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             return _save_history_cmd(filename)
         if cmd in ("load_history", "load"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             if not filename:
                 return _load_history_cmd(None, "Filename required for load_history")
             return _load_history_cmd(filename, None)
         if cmd == "card":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
-                return _load_agent_card_cmd(None, False, "Filename required for /card")
+                return _load_agent_card_cmd(
+                    None, False, False, "Filename required for /card"
+                )
             try:
                 tokens = shlex.split(remainder)
             except ValueError as exc:
-                return _load_agent_card_cmd(None, False, f"Invalid arguments: {exc}")
+                return _load_agent_card_cmd(None, False, False, f"Invalid arguments: {exc}")
             add_tool = False
+            remove_tool = False
             filename = None
             for token in tokens:
                 if token in {"tool", "--tool", "--as-tool", "-t"}:
                     add_tool = True
                     continue
+                if token in {"remove", "--remove", "--rm"}:
+                    remove_tool = True
+                    add_tool = True
+                    continue
                 if filename is None:
                     filename = token
             if not filename:
-                return _load_agent_card_cmd(None, add_tool, "Filename required for /card")
-            return _load_agent_card_cmd(filename, add_tool, None)
+                return _load_agent_card_cmd(
+                    None, add_tool, remove_tool, "Filename required for /card"
+                )
+            return _load_agent_card_cmd(filename, add_tool, remove_tool, None)
         if cmd == "agent":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
@@ -959,18 +971,24 @@ def parse_special_input(text: str) -> str | CommandPayload:
                     None,
                     False,
                     False,
+                    False,
                     "Usage: /agent <name> --tool | /agent [name] --dump",
                 )
             try:
                 tokens = shlex.split(remainder)
             except ValueError as exc:
-                return _agent_cmd(None, False, False, f"Invalid arguments: {exc}")
+                return _agent_cmd(None, False, False, False, f"Invalid arguments: {exc}")
             add_tool = False
+            remove_tool = False
             dump = False
             agent_name = None
             unknown: list[str] = []
             for token in tokens:
                 if token in {"tool", "--tool", "--as-tool", "-t"}:
+                    add_tool = True
+                    continue
+                if token in {"remove", "--remove", "--rm"}:
+                    remove_tool = True
                     add_tool = True
                     continue
                 if token in {"dump", "--dump", "-d"}:
@@ -984,6 +1002,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return _agent_cmd(
                     agent_name,
                     add_tool,
+                    remove_tool,
                     dump,
                     f"Unexpected arguments: {', '.join(unknown)}",
                 )
@@ -991,6 +1010,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return _agent_cmd(
                     agent_name,
                     add_tool,
+                    remove_tool,
                     dump,
                     "Use either --tool or --dump, not both",
                 )
@@ -998,6 +1018,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return _agent_cmd(
                     agent_name,
                     add_tool,
+                    remove_tool,
                     dump,
                     "Usage: /agent <name> --tool | /agent [name] --dump",
                 )
@@ -1005,10 +1026,11 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return _agent_cmd(
                     agent_name,
                     add_tool,
+                    remove_tool,
                     dump,
                     "Agent name is required for /agent --tool",
                 )
-            return _agent_cmd(agent_name, add_tool, dump, None)
+            return _agent_cmd(agent_name, add_tool, remove_tool, dump, None)
         if cmd == "reload":
             return _reload_agents_cmd()
         if cmd in ("mcpstatus", "mcp"):
@@ -1441,9 +1463,7 @@ async def get_enhanced_input(
                                     hf_info = get_hf_info()
                                     model = hf_info.get("model", "unknown")
                                     provider = hf_info.get("provider", "auto-routing")
-                                    rich_print(
-                                        f"[dim]HuggingFace: {model} via {provider}[/dim]"
-                                    )
+                                    rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
 
@@ -1481,6 +1501,10 @@ async def get_enhanced_input(
     # Get the input - using async version
     try:
         result = await session.prompt_async(HTML(prompt_text), default=default)
+        # Echo slash command input since erase_when_done clears it
+        stripped = result.lstrip()
+        if stripped.startswith("/"):
+            rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
         return parse_special_input(result)
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
@@ -1617,7 +1641,7 @@ async def handle_special_commands(
     if is_command_payload(command):
         return cast("CommandPayload", command)
 
-    global agent_histories
+    global agent_histories, available_agents
 
     # Check for special string commands
     if command == "HELP":
@@ -1643,8 +1667,10 @@ async def handle_special_commands(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
         rich_print("  /load_history <filename> - Load chat history from a file")
-        rich_print("  /card <filename> [--tool] - Load an AgentCard (attach as tool)")
-        rich_print("  /agent <name> --tool - Attach an agent as a tool")
+        rich_print(
+            "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
+        )
+        rich_print("  /agent <name> --tool [remove] - Attach/remove an agent as a tool")
         rich_print("  /agent [name] --dump - Print an AgentCard to screen")
         rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
@@ -1665,6 +1691,12 @@ async def handle_special_commands(
         raise PromptExitError("User requested to exit fast-agent session")
 
     elif command == "LIST_AGENTS":
+        if agent_app and agent_app is not True:
+            try:
+                await agent_app.refresh_if_needed()
+                available_agents = set(agent_app.agent_names())
+            except Exception:
+                pass
         if available_agents:
             rich_print("\n[bold]Available Agents:[/bold]")
             for agent in sorted(available_agents):

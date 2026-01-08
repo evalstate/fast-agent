@@ -90,6 +90,7 @@ class LoadHistoryCommand(CommandBase):
 class LoadAgentCardCommand(CommandBase):
     filename: str | None
     add_tool: bool
+    remove_tool: bool
     error: str | None
     kind: Literal["load_agent_card"] = "load_agent_card"
 
@@ -103,6 +104,7 @@ class ReloadAgentsCommand(CommandBase):
 class AgentCommand(CommandBase):
     agent_name: str | None
     add_tool: bool
+    remove_tool: bool
     dump: bool
     error: str | None
     kind: Literal["agent_command"] = "agent_command"

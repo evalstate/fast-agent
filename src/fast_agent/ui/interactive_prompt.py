@@ -32,6 +32,7 @@ from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
     format_marketplace_display_url,
@@ -45,8 +46,9 @@ from fast_agent.skills.manager import (
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
+from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
@@ -144,6 +146,7 @@ class InteractivePrompt:
                 available_agents = list(prompt_provider.agent_names())
                 available_agents_set = set(available_agents)
                 self.agent_types = prompt_provider.agent_types()
+                enhanced_prompt.available_agents = set(available_agents)
 
                 if agent not in available_agents_set:
                     if available_agents:
@@ -158,6 +161,7 @@ class InteractivePrompt:
             if current_agents and set(current_agents) != available_agents_set:
                 available_agents = current_agents
                 available_agents_set = set(available_agents)
+                enhanced_prompt.available_agents = set(available_agents)
             if agent not in available_agents_set:
                 if available_agents:
                     agent = available_agents[0]
@@ -181,8 +185,24 @@ class InteractivePrompt:
                 if isinstance(user_input, str):
                     user_input = parse_special_input(user_input)
 
-                # Handle special commands - pass "True" to enable agent switching
-                command_result = await handle_special_commands(user_input, True)
+                refreshed = await prompt_provider.refresh_if_needed()
+                if refreshed:
+                    available_agents = list(prompt_provider.agent_names())
+                    available_agents_set = set(available_agents)
+                    self.agent_types = prompt_provider.agent_types()
+                    enhanced_prompt.available_agents = set(available_agents)
+
+                    if agent not in available_agents_set:
+                        if available_agents:
+                            agent = available_agents[0]
+                        else:
+                            rich_print("[red]No agents available after refresh.[/red]")
+                            return result
+
+                    rich_print("[green]AgentCards reloaded.[/green]")
+
+                # Handle special commands with access to the agent provider
+                command_result = await handle_special_commands(user_input, prompt_provider)
 
                 # Check if we should switch agents
                 if is_command_payload(command_result):
@@ -377,7 +397,10 @@ class InteractivePrompt:
                                 rich_print(f"[red]Error loading history: {e}[/red]")
                             continue
                         case LoadAgentCardCommand(
-                            filename=filename, add_tool=add_tool, error=error
+                            filename=filename,
+                            add_tool=add_tool,
+                            remove_tool=remove_tool,
+                            error=error,
                         ):
                             if error:
                                 rich_print(f"[red]{error}[/red]")
@@ -394,7 +417,7 @@ class InteractivePrompt:
                                 continue
 
                             try:
-                                if add_tool:
+                                if add_tool and not remove_tool:
                                     loaded_names, attached_names = (
                                         await prompt_provider.load_agent_card(
                                             filename, agent
@@ -425,6 +448,31 @@ class InteractivePrompt:
                                 name_list = ", ".join(loaded_names)
                                 rich_print(f"[green]Loaded AgentCard(s): {name_list}[/green]")
 
+                            if add_tool and remove_tool:
+                                if not prompt_provider.can_detach_agent_tools():
+                                    rich_print(
+                                        "[yellow]Agent tool detachment is not available in this session.[/yellow]"
+                                    )
+                                    continue
+                                try:
+                                    removed = await prompt_provider.detach_agent_tools(
+                                        agent, loaded_names
+                                    )
+                                except Exception as exc:
+                                    rich_print(
+                                        f"[red]Agent tool detach failed: {exc}[/red]"
+                                    )
+                                    continue
+                                if removed:
+                                    removed_list = ", ".join(removed)
+                                    rich_print(
+                                        f"[green]Detached agent tool(s): {removed_list}[/green]"
+                                    )
+                                else:
+                                    rich_print(
+                                        "[yellow]No agent tools detached.[/yellow]"
+                                    )
+                                continue
                             if add_tool:
                                 if attached_names:
                                     attached_list = ", ".join(attached_names)
@@ -435,6 +483,7 @@ class InteractivePrompt:
                         case AgentCommand(
                             agent_name=agent_name,
                             add_tool=add_tool,
+                            remove_tool=remove_tool,
                             dump=dump,
                             error=error,
                         ):
@@ -460,7 +509,37 @@ class InteractivePrompt:
                                 print(card_text)
                                 continue
 
+                            if add_tool and remove_tool:
+                                if not prompt_provider.can_detach_agent_tools():
+                                    rich_print(
+                                        "[yellow]Agent tool detachment is not available in this session.[/yellow]"
+                                    )
+                                    continue
+                                try:
+                                    removed = await prompt_provider.detach_agent_tools(
+                                        agent, [target_agent]
+                                    )
+                                except Exception as exc:
+                                    rich_print(
+                                        f"[red]Agent tool detach failed: {exc}[/red]"
+                                    )
+                                    continue
+                                if removed:
+                                    removed_list = ", ".join(removed)
+                                    rich_print(
+                                        f"[green]Detached agent tool(s): {removed_list}[/green]"
+                                    )
+                                else:
+                                    rich_print(
+                                        "[yellow]No agent tools detached.[/yellow]"
+                                    )
+                                continue
                             if add_tool:
+                                if target_agent not in available_agents_set:
+                                    rich_print(
+                                        f"[red]Agent '{target_agent}' not found[/red]"
+                                    )
+                                    continue
                                 if not prompt_provider.can_attach_agent_tools():
                                     rich_print(
                                         "[yellow]Agent tool attachment is not available in this session.[/yellow]"
@@ -1231,9 +1310,11 @@ class InteractivePrompt:
         """List available local skills for an agent."""
 
         try:
-            manager_dir = get_manager_directory()
-            manifests = list_local_skills(manager_dir)
-            self._render_local_skills(manifests, manager_dir)
+            directories = resolve_skill_directories()
+            all_manifests: dict[Path, list[SkillManifest]] = {}
+            for directory in directories:
+                all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+            self._render_local_skills_by_directory(all_manifests)
 
         except Exception as exc:  # noqa: BLE001
             import traceback
@@ -1263,30 +1344,59 @@ class InteractivePrompt:
         rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
 
     async def _set_skills_registry(self, argument: str | None) -> None:
+        settings = get_settings()
+        configured_urls = (
+            settings.skills.marketplace_urls if settings.skills else None
+        ) or list(DEFAULT_SKILL_REGISTRIES)
+
         if not argument:
-            current = get_marketplace_url(get_settings())
-            rich_print(f"[dim]Current registry:[/dim] {current}")
-            rich_print("[dim]Usage: /skills registry <url>[/dim]")
+            current = get_marketplace_url(settings)
+            rich_print(f"[dim]Current registry:[/dim] {format_marketplace_display_url(current)}")
+
+            # Show numbered list of configured registries
+            if configured_urls:
+                rich_print("\n[dim]Available registries:[/dim]")
+                for i, reg_url in enumerate(configured_urls, 1):
+                    display = format_marketplace_display_url(reg_url)
+                    rich_print(f"  [cyan][{i}][/cyan] {display}")
+
+            rich_print("\n[dim]Usage: /skills registry <number|url|path>[/dim]")
             return
 
-        url = str(argument).strip()
+        arg = str(argument).strip()
+
+        # Check if argument is a number (select from configured registries)
+        if arg.isdigit():
+            index = int(arg)
+            if not configured_urls:
+                rich_print("[yellow]No registries configured.[/yellow]")
+                return
+            if 1 <= index <= len(configured_urls):
+                url = configured_urls[index - 1]
+            else:
+                rich_print(
+                    f"[yellow]Invalid registry number. Use 1-{len(configured_urls)}.[/yellow]"
+                )
+                return
+        else:
+            url = arg
+
         try:
             marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
         except Exception as exc:  # noqa: BLE001
             rich_print(f"[red]Failed to load registry: {exc}[/red]")
             return
 
-        settings = get_settings()
+        # Update only the active registry, preserve the configured list
         skills_settings = getattr(settings, "skills", None)
         if skills_settings is not None:
-            skills_settings.marketplace_urls = [resolved_url]
             skills_settings.marketplace_url = resolved_url
 
         if resolved_url != url:
             rich_print(f"[dim]Resolved from:[/dim] {url}")
-            rich_print(
-                f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
-            )
+        rich_print(
+            f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
+        )
         rich_print(f"[dim]Skills discovered:[/dim] {len(marketplace)}")
 
     async def _add_skill(
@@ -1471,6 +1581,55 @@ class InteractivePrompt:
         rich_print()
         rich_print("[dim]Use /skills add to install a skill[/dim]")
         rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
+
+    def _render_local_skills_by_directory(self, manifests_by_dir: dict[Path, list[SkillManifest]]) -> None:
+        from rich.text import Text
+
+        total_skills = sum(len(m) for m in manifests_by_dir.values())
+        skill_index = 0
+
+        for directory, manifests in manifests_by_dir.items():
+            try:
+                display_dir = directory.relative_to(Path.cwd())
+            except ValueError:
+                display_dir = directory
+
+            rich_print(f"\n[bold]Skills in [cyan]{display_dir}[/cyan]:[/bold]\n")
+
+            if not manifests:
+                rich_print("[yellow]No skills in this directory[/yellow]")
+            else:
+                for manifest in manifests:
+                    skill_index += 1
+
+                    tool_line = Text()
+                    tool_line.append(f"[{skill_index:2}] ", style="dim cyan")
+                    tool_line.append(manifest.name, style="bright_blue bold")
+                    rich_print(tool_line)
+
+                    if manifest.description:
+                        wrapped_lines = textwrap.wrap(
+                            manifest.description.strip(), width=72, subsequent_indent="     "
+                        )
+                        for line in wrapped_lines:
+                            if line.startswith("     "):
+                                rich_print(f"     [white]{line[5:]}[/white]")
+                            else:
+                                rich_print(f"     [white]{line}[/white]")
+
+                    source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
+                    try:
+                        source_display = source_path.relative_to(Path.cwd())
+                    except ValueError:
+                        source_display = source_path
+                    rich_print(f"     [dim green]source:[/dim green] {source_display}")
+                    rich_print()
+
+        if total_skills == 0:
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+        else:
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+            rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
 
     def _render_install_result(self, skill: Any, install_path: Path) -> None:
         try:

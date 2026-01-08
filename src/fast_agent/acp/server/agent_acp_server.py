@@ -207,6 +207,8 @@ class AgentACPServer(ACPAgent):
         | None = None,
         attach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
         | None = None,
+        detach_agent_tools_callback: Callable[[str, Sequence[str]], Awaitable[list[str]]]
+        | None = None,
         dump_agent_card_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ) -> None:
@@ -224,6 +226,7 @@ class AgentACPServer(ACPAgent):
             permissions_enabled: Whether to request tool permissions from client (default: True)
             load_card_callback: Optional callback to load AgentCards at runtime
             attach_agent_tools_callback: Optional callback to attach agent tools at runtime
+            detach_agent_tools_callback: Optional callback to detach agent tools at runtime
             dump_agent_card_callback: Optional callback to dump AgentCards at runtime
             reload_callback: Optional callback to reload AgentCards from disk
         """
@@ -236,6 +239,7 @@ class AgentACPServer(ACPAgent):
         self._get_registry_version = get_registry_version
         self._load_card_callback = load_card_callback
         self._attach_agent_tools_callback = attach_agent_tools_callback
+        self._detach_agent_tools_callback = detach_agent_tools_callback
         self._dump_agent_card_callback = dump_agent_card_callback
         self._reload_callback = reload_callback
         self._primary_registry_version = getattr(primary_instance, "registry_version", 0)
@@ -584,9 +588,9 @@ class AgentACPServer(ACPAgent):
             for session_id, session_state in self._session_state.items():
                 self.sessions[session_id] = instance
                 session_state.instance = instance
-                self._refresh_session_state(session_state, instance)
+                await self._refresh_session_state(session_state, instance)
 
-    def _refresh_session_state(
+    async def _refresh_session_state(
         self, session_state: ACPSessionState, instance: AgentInstance
     ) -> None:
         prompt_context = session_state.prompt_context or {}
@@ -625,6 +629,12 @@ class AgentACPServer(ACPAgent):
             for agent_name, agent in instance.agents.items():
                 if isinstance(agent, FilesystemRuntimeCapable):
                     agent.set_filesystem_runtime(session_state.filesystem_runtime)
+            # Rebuild instructions now that filesystem runtime is available
+            # This ensures skill prompts use read_text_file instead of read_skill
+            from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+            for agent in instance.agents.values():
+                await rebuild_agent_instruction(agent)
 
         async def load_card(
             source: str, parent_name: str | None
@@ -637,6 +647,13 @@ class AgentACPServer(ACPAgent):
             parent_name: str, child_names: Sequence[str]
         ) -> tuple[AgentInstance, list[str]]:
             return await self._attach_agent_tools_for_session(
+                session_state, parent_name, child_names
+            )
+
+        async def detach_agent_tools(
+            parent_name: str, child_names: Sequence[str]
+        ) -> tuple[AgentInstance, list[str]]:
+            return await self._detach_agent_tools_for_session(
                 session_state, parent_name, child_names
             )
 
@@ -659,6 +676,9 @@ class AgentACPServer(ACPAgent):
             card_loader=load_card if self._load_card_callback else None,
             attach_agent_callback=(
                 attach_agent_tools if self._attach_agent_tools_callback else None
+            ),
+            detach_agent_callback=(
+                detach_agent_tools if self._detach_agent_tools_callback else None
             ),
             dump_agent_callback=(
                 dump_agent_card if self._dump_agent_card_callback else None
@@ -720,7 +740,7 @@ class AgentACPServer(ACPAgent):
             session_state.instance = instance
             async with self._session_lock:
                 self.sessions[session_state.session_id] = instance
-            self._refresh_session_state(session_state, instance)
+            await self._refresh_session_state(session_state, instance)
             if old_instance != self.primary_instance:
                 try:
                     await self._dispose_instance_task(old_instance)
@@ -788,6 +808,57 @@ class AgentACPServer(ACPAgent):
 
         return instance, attached_names
 
+    async def _detach_agent_tools_for_session(
+        self,
+        session_state: ACPSessionState,
+        parent_name: str,
+        child_names: Sequence[str],
+    ) -> tuple[AgentInstance, list[str]]:
+        if not self._detach_agent_tools_callback:
+            raise RuntimeError("Agent tool detachment is not available.")
+
+        detached_names = await self._detach_agent_tools_callback(parent_name, child_names)
+        if not detached_names:
+            return session_state.instance, []
+
+        if self._instance_scope == "shared":
+            async with self._shared_reload_lock:
+                new_instance = await self._create_instance_task()
+                old_instance = self.primary_instance
+                self.primary_instance = new_instance
+                latest_version = (
+                    self._get_registry_version() if self._get_registry_version else None
+                )
+                self._primary_registry_version = getattr(
+                    new_instance, "registry_version", latest_version
+                )
+                self._stale_instances.append(old_instance)
+                self.primary_agent_name = self._select_primary_agent(new_instance)
+                await self._refresh_sessions_for_instance(new_instance)
+            instance = session_state.instance
+        else:
+            instance = await self._create_instance_task()
+            old_instance = session_state.instance
+            session_state.instance = instance
+            async with self._session_lock:
+                self.sessions[session_state.session_id] = instance
+            self._refresh_session_state(session_state, instance)
+            if old_instance != self.primary_instance:
+                try:
+                    await self._dispose_instance_task(old_instance)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to dispose old session instance",
+                        name="acp_detach_dispose_error",
+                        session_id=session_state.session_id,
+                        error=str(exc),
+                    )
+
+        if session_state.acp_context:
+            await session_state.acp_context.send_available_commands_update()
+
+        return instance, detached_names
+
     async def _reload_agent_cards_for_session(self, session_id: str) -> bool:
         if not self._reload_callback:
             return False
@@ -815,7 +886,7 @@ class AgentACPServer(ACPAgent):
         session_state.instance = instance
         async with self._session_lock:
             self.sessions[session_id] = instance
-        self._refresh_session_state(session_state, instance)
+        await self._refresh_session_state(session_state, instance)
         if old_instance != self.primary_instance:
             try:
                 await self._dispose_instance_task(old_instance)
@@ -1065,6 +1136,13 @@ class AgentACPServer(ACPAgent):
                                 read_enabled=self._client_supports_fs_read,
                                 write_enabled=self._client_supports_fs_write,
                             )
+
+                    # Rebuild instructions now that filesystem runtime is available
+                    # This ensures skill prompts use read_text_file instead of read_skill
+                    from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+                    for agent in instance.agents.values():
+                        await rebuild_agent_instruction(agent)
 
         # Track per-session template variables (used for late instruction binding)
         session_context: dict[str, str] = {}

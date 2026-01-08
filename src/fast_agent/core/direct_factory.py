@@ -214,6 +214,17 @@ async def create_agents_by_type(
                 # If BASIC agent declares child_agents, build an Agents-as-Tools wrapper
                 child_names = agent_data.get("child_agents", []) or []
                 if child_names:
+                    function_tools = []
+                    tools_config = config.function_tools
+                    if tools_config is None:
+                        tools_config = agent_data.get("function_tools")
+                    if tools_config:
+                        source_path = agent_data.get("source_path")
+                        base_path = Path(source_path).parent if source_path else None
+                        function_tools = load_function_tools(
+                            tools_config, base_path
+                        )
+
                     # Ensure child agents are already created
                     child_agents: list[AgentProtocol] = []
                     for agent_name in child_names:
@@ -239,6 +250,7 @@ async def create_agents_by_type(
                         context=app_instance.context,
                         agents=cast("list[LlmAgent]", child_agents),  # expose children as tools
                         options=options,
+                        tools=function_tools,
                     )
 
                     await agent.initialize()
@@ -264,12 +276,15 @@ async def create_agents_by_type(
                 else:
                     # Load function tools if configured
                     function_tools = []
-                    if config.function_tools:
+                    tools_config = config.function_tools
+                    if tools_config is None:
+                        tools_config = agent_data.get("function_tools")
+                    if tools_config:
                         # Use source_path from agent card for relative path resolution
                         source_path = agent_data.get("source_path")
                         base_path = Path(source_path).parent if source_path else None
                         function_tools = load_function_tools(
-                            config.function_tools, base_path
+                            tools_config, base_path
                         )
 
                     # Create agent with UI support if needed

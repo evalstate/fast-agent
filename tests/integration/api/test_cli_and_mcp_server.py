@@ -272,9 +272,11 @@ async def test_serve_request_scope_disables_session_header(mcp_test_ports, wait_
                 assert response.status_code == 200
                 assert "mcp-session-id" not in response.headers
 
-        async with streamable_http_client(
-            f"http://127.0.0.1:{port}/mcp"
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 init_result = await session.initialize()
                 assert init_result.capabilities.prompts is None
@@ -358,11 +360,7 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
     agents_dir.mkdir()
     card_path = agents_dir / "watcher.md"
     card_path.write_text(
-        "---\n"
-        "type: agent\n"
-        "name: watcher\n"
-        "---\n"
-        "Echo test.\n",
+        "---\ntype: agent\nname: watcher\n---\nEcho test.\n",
         encoding="utf-8",
     )
 
@@ -397,11 +395,7 @@ async def test_agent_server_option_http_with_watch(mcp_test_ports, wait_for_port
     try:
         await wait_for_port("127.0.0.1", port, process=server_proc)
         card_path.write_text(
-            "---\n"
-            "type: agent\n"
-            "name: watcher\n"
-            "---\n"
-            "Echo test updated.\n",
+            "---\ntype: agent\nname: watcher\n---\nEcho test updated.\n",
             encoding="utf-8",
         )
         await asyncio.sleep(0.25)
@@ -453,14 +447,14 @@ async def test_agent_server_emits_mcp_progress_notifications(
 
         progress_events: list[tuple[float, float | None, str | None]] = []
 
-        async def on_progress(
-            progress: float, total: float | None, message: str | None
-        ) -> None:
+        async def on_progress(progress: float, total: float | None, message: str | None) -> None:
             progress_events.append((progress, total, message))
 
-        async with streamable_http_client(
-            f"http://127.0.0.1:{port}/mcp"
-        ) as (read_stream, write_stream, _):
+        async with streamable_http_client(f"http://127.0.0.1:{port}/mcp") as (
+            read_stream,
+            write_stream,
+            _,
+        ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 params = types.CallToolRequestParams(
@@ -482,9 +476,9 @@ async def test_agent_server_emits_mcp_progress_notifications(
             await asyncio.sleep(0.1)
 
         assert progress_events
-        assert any(
-            message and "step" in message for _, _, message in progress_events
-        ), f"Unexpected progress messages: {progress_events}"
+        assert any(message and "step" in message for _, _, message in progress_events), (
+            f"Unexpected progress messages: {progress_events}"
+        )
     finally:
         if server_proc.poll() is None:
             server_proc.terminate()

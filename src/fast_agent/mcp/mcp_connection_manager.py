@@ -408,8 +408,8 @@ class MCPConnectionManager(ContextDependent):
                 self._task_group_active = False
                 self._task_group = None
                 self._tg = None
-        except Exception as e:
-            logger.error(f"Error during connection manager shutdown: {e}")
+        except Exception:
+            logger.exception("Error during connection manager shutdown")
 
     def _suppress_mcp_sse_errors(self) -> None:
         """Suppress MCP library's 'Error in sse_reader' messages."""

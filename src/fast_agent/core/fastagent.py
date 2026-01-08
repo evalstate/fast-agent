@@ -321,10 +321,21 @@ class FastAgent:
                 self.config["logger"]["show_chat"] = False
                 self.config["logger"]["show_tools"] = False
 
+            # Propagate CLI skills override into config so resolve_skill_directories() works everywhere
+            if self._skills_directory_override is not None and hasattr(self, "config"):
+                if "skills" not in self.config:
+                    self.config["skills"] = {}
+                self.config["skills"]["directories"] = [str(p) for p in self._skills_directory_override]
+
+            # Create settings and update global settings so resolve_skill_directories() works
+            instance_settings = config.Settings(**self.config) if hasattr(self, "config") else None
+            if instance_settings is not None:
+                config.update_global_settings(instance_settings)
+
             # Create the app with our local settings
             self.app = Core(
                 name=name,
-                settings=config.Settings(**self.config) if hasattr(self, "config") else None,
+                settings=instance_settings,
                 **kwargs,
             )
 
@@ -470,12 +481,19 @@ class FastAgent:
                 f"Agent '{parent_name}' does not support agents-as-tools"
             )
 
+        missing = [
+            name
+            for name in child_names
+            if name and name != parent_name and name not in self.agents
+        ]
+        if missing:
+            missing_list = ", ".join(missing)
+            raise AgentConfigError(f"Agent(s) not found: {missing_list}")
+
         existing = list(parent_data.get("child_agents") or [])
         added: list[str] = []
         for name in child_names:
             if not name or name == parent_name:
-                continue
-            if name not in self.agents:
                 continue
             if name in existing or name in added:
                 continue
@@ -486,6 +504,36 @@ class FastAgent:
             self._agent_registry_version += 1
 
         return added
+
+    def detach_agent_tools(self, parent_name: str, child_names: Sequence[str]) -> list[str]:
+        """Detach agents-as-tools from a parent agent."""
+        parent_data = self.agents.get(parent_name)
+        if not parent_data:
+            raise AgentConfigError(f"Agent '{parent_name}' not found")
+
+        if parent_data.get("type") != "basic":
+            raise AgentConfigError(
+                f"Agent '{parent_name}' does not support agents-as-tools"
+            )
+
+        existing = list(parent_data.get("child_agents") or [])
+        removed: list[str] = []
+        for name in child_names:
+            if not name or name == parent_name:
+                continue
+            if name not in existing or name in removed:
+                continue
+            removed.append(name)
+
+        if removed:
+            pruned = [name for name in existing if name not in set(removed)]
+            if pruned:
+                parent_data["child_agents"] = pruned
+            else:
+                parent_data.pop("child_agents", None)
+            self._agent_registry_version += 1
+
+        return removed
 
     def dump_agent_card_text(self, name: str, *, as_yaml: bool = False) -> str:
         """Render an AgentCard as text."""
@@ -566,6 +614,21 @@ class FastAgent:
                     return []
             try:
                 return load_agent_cards(path_entry)
+            except AgentConfigError as exc:
+                if not incremental:
+                    raise
+                if "Instruction is required" in exc.message:
+                    logger.warning(
+                        "Skipping incomplete AgentCard during reload; waiting for write to complete",
+                        path=str(path_entry),
+                    )
+                    return []
+                logger.warning(
+                    "Skipping invalid AgentCard during reload",
+                    path=str(path_entry),
+                    error=str(exc),
+                )
+                return []
             except Exception as exc:
                 if not incremental:
                     raise
@@ -1247,6 +1310,14 @@ class FastAgent:
                             await refresh_shared_instance()
                         return added
 
+                    async def detach_agent_tools_and_refresh(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        removed = self.detach_agent_tools(parent_name, child_names)
+                        if removed:
+                            await refresh_shared_instance()
+                        return removed
+
                     async def attach_agent_tools_source(
                         parent_name: str, child_names: Sequence[str]
                     ) -> list[str]:
@@ -1266,6 +1337,7 @@ class FastAgent:
                     )
                     wrapper.set_load_card_callback(load_card_and_refresh)
                     wrapper.set_attach_agent_tools_callback(attach_agent_tools_and_refresh)
+                    wrapper.set_detach_agent_tools_callback(detach_agent_tools_and_refresh)
                     wrapper.set_dump_agent_callback(dump_agent_card)
                     self._agent_card_watch_reload = reload_and_refresh if reload_enabled else None
 
