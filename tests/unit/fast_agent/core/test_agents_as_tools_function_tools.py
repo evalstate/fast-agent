@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import pytest_asyncio
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core import Core
@@ -12,6 +14,29 @@ from fast_agent.llm.model_factory import ModelFactory
 
 if TYPE_CHECKING:
     from fast_agent.interfaces import LLMFactoryProtocol, ModelFactoryFunctionProtocol
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_logging():
+    yield
+    from fast_agent.core.logging.logger import LoggingConfig
+    from fast_agent.core.logging.transport import AsyncEventBus
+
+    await LoggingConfig.shutdown()
+    bus = AsyncEventBus._instance
+    if bus is not None:
+        await bus.stop()
+    AsyncEventBus.reset()
+    pending = [
+        task
+        for task in asyncio.all_tasks()
+        if task is not asyncio.current_task()
+        and getattr(task.get_coro(), "__qualname__", "") == "AsyncEventBus._process_events"
+    ]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 @pytest.mark.asyncio
