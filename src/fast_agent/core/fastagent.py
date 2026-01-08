@@ -364,6 +364,9 @@ class FastAgent:
         self._agent_card_name_by_path: dict[Path, str] = {}
         self._agent_card_histories: dict[str, list[Path]] = {}
         self._agent_card_tool_files: dict[Path, set[Path]] = {}
+        self._agent_card_last_changed: set[str] = set()
+        self._agent_card_last_removed: set[str] = set()
+        self._agent_card_last_dependents: set[str] = set()
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
@@ -465,6 +468,7 @@ class FastAgent:
             # Apply skills
             if cards:
                 self._apply_skills_to_agent_configs(self._default_skill_manifests)
+                self._agent_card_last_changed.update(loaded_names)
                 self._agent_registry_version += 1
             return loaded_names
         finally:
@@ -501,6 +505,7 @@ class FastAgent:
 
         if added:
             parent_data["child_agents"] = existing + added
+            self._agent_card_last_changed.add(parent_name)
             self._agent_registry_version += 1
 
         return added
@@ -531,6 +536,7 @@ class FastAgent:
                 parent_data["child_agents"] = pruned
             else:
                 parent_data.pop("child_agents", None)
+            self._agent_card_last_changed.add(parent_name)
             self._agent_registry_version += 1
 
         return removed
@@ -557,6 +563,9 @@ class FastAgent:
             self._agent_card_reload_lock = asyncio.Lock()
 
         async with self._agent_card_reload_lock:
+            self._agent_card_last_changed = set()
+            self._agent_card_last_removed = set()
+            self._agent_card_last_dependents = set()
             changed = False
             for root in sorted(self._agent_card_roots.keys()):
                 if self._load_agent_cards_from_root(root, incremental=True):
@@ -784,12 +793,22 @@ class FastAgent:
             for path in removed_files
             if path in self._agent_card_name_by_path
         }
+        removed_dependents: set[str] = set()
+        if removed_names:
+            from fast_agent.core.validation import get_agent_dependencies
+
+            removed_set = set(removed_names)
+            for name, agent_data in self.agents.items():
+                if get_agent_dependencies(agent_data) & removed_set:
+                    removed_dependents.add(name)
 
         new_names_by_path: dict[Path, str] = {}
         seen_names: dict[str, Path] = {}
+        changed_names: set[str] = set()
         for card in changed_cards:
             if not hasattr(card, "name") or not hasattr(card, "path"):
                 raise AgentConfigError("Invalid AgentCard payload during reload")
+            changed_names.add(card.name)
             if card.name in seen_names:
                 raise AgentConfigError(
                     f"Duplicate agent name '{card.name}' during reload",
@@ -858,6 +877,20 @@ class FastAgent:
 
         if changed_cards or removed_files:
             self._apply_skills_to_agent_configs(self._default_skill_manifests)
+            from fast_agent.core.validation import get_agent_dependencies
+
+            if changed_names:
+                changed_dependents: set[str] = set()
+                for name, agent_data in self.agents.items():
+                    if name in changed_names:
+                        continue
+                    if get_agent_dependencies(agent_data) & changed_names:
+                        changed_dependents.add(name)
+                self._agent_card_last_dependents.update(changed_dependents)
+
+            self._agent_card_last_changed.update(changed_names)
+            self._agent_card_last_removed.update(removed_names)
+            self._agent_card_last_dependents.update(removed_dependents)
 
     def _get_registry_version(self) -> int:
         return self._agent_registry_version
@@ -1247,13 +1280,116 @@ class FastAgent:
                         nonlocal primary_instance, active_agents
                         if self._agent_registry_version <= primary_instance.registry_version:
                             return False
+                        changed_names = set(self._agent_card_last_changed)
+                        removed_names = set(self._agent_card_last_removed)
+                        dependent_names = set(self._agent_card_last_dependents)
+                        active_agents_local = active_agents
 
-                        new_instance = await instantiate_agent_instance(app_override=wrapper)
-                        old_instance = primary_instance
-                        primary_instance = new_instance
-                        active_agents = new_instance.agents
-                        await dispose_agent_instance(old_instance)
-                        return True
+                        if not (changed_names or removed_names or dependent_names):
+                            new_instance = await instantiate_agent_instance(app_override=wrapper)
+                            old_instance = primary_instance
+                            primary_instance = new_instance
+                            active_agents = new_instance.agents
+                            await dispose_agent_instance(old_instance)
+                            return True
+
+                        async with instance_lock:
+                            impacted = set(changed_names)
+                            impacted.update(dependent_names)
+                            impacted.difference_update(removed_names)
+
+                            if impacted:
+                                from fast_agent.core.validation import (
+                                    get_agent_dependencies,
+                                )
+
+                                reverse_deps: dict[str, set[str]] = {}
+                                for name, agent_data in self.agents.items():
+                                    for dep in get_agent_dependencies(agent_data):
+                                        reverse_deps.setdefault(dep, set()).add(name)
+
+                                queue = list(impacted)
+                                while queue:
+                                    current = queue.pop()
+                                    for parent in reverse_deps.get(current, set()):
+                                        if parent in removed_names or parent in impacted:
+                                            continue
+                                        impacted.add(parent)
+                                        queue.append(parent)
+
+                            removed_instances = [
+                                active_agents_local.pop(name, None)
+                                for name in removed_names
+                            ]
+                            for agent in removed_instances:
+                                if agent is None:
+                                    continue
+                                await agent.shutdown()
+
+                            old_agents = {
+                                name: active_agents_local.get(name)
+                                for name in impacted
+                                if name in active_agents_local
+                            }
+
+                            if impacted:
+                                from fast_agent.core.direct_factory import (
+                                    active_agents_in_dependency_group,
+                                )
+                                from fast_agent.core.validation import (
+                                    get_dependencies_groups,
+                                )
+
+                                dependencies = get_dependencies_groups(self.agents)
+                                for group in dependencies:
+                                    group_targets = [
+                                        name for name in group if name in impacted
+                                    ]
+                                    if not group_targets:
+                                        continue
+                                    await active_agents_in_dependency_group(
+                                        self.app,
+                                        self.agents,
+                                        model_factory_func,
+                                        group_targets,
+                                        active_agents_local,
+                                    )
+
+                            for name, old_agent in old_agents.items():
+                                new_agent = active_agents_local.get(name)
+                                if old_agent is None or new_agent is None:
+                                    continue
+                                if old_agent is new_agent:
+                                    continue
+                                await old_agent.shutdown()
+
+                            if impacted:
+                                updated_agents = {
+                                    name: active_agents_local[name]
+                                    for name in impacted
+                                    if name in active_agents_local
+                                }
+                                if updated_agents:
+                                    self._apply_agent_card_histories(updated_agents)
+                                    validate_provider_keys_post_creation(updated_agents)
+
+                                    if global_prompt_context:
+                                        for agent in updated_agents.values():
+                                            template = getattr(agent, "instruction", None)
+                                            if not template:
+                                                continue
+                                            resolved = apply_template_variables(
+                                                template, global_prompt_context
+                                            )
+                                            if resolved is None or resolved == template:
+                                                continue
+                                            agent.set_instruction(resolved)
+
+                            primary_instance.registry_version = self._agent_registry_version
+                            self._agent_card_last_changed.clear()
+                            self._agent_card_last_removed.clear()
+                            self._agent_card_last_dependents.clear()
+                            return True
 
                     async def reload_and_refresh() -> bool:
                         changed = await self.reload_agents()

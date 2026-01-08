@@ -356,6 +356,59 @@ You are a concise analyst.
 
 ---
 
+## Reload / Watch Behavior (Lazy Hot-Reload)
+Both `--reload` and `--watch` use the same **lazy hot-reload** semantics. The loader
+tracks `registry_version` (monotonic counter) and a per-file cache:
+`path -> (mtime_ns, size, agent_name)`.
+
+On each reload pass, only **changed** files are re-read:
+- If `mtime_ns` or `size` differs, the file is re-parsed and its agents are updated.
+- If a file disappears, its agents are removed from the registry.
+- If a new file appears, its agents are added.
+
+After a reload pass, `registry_version` is bumped if any changes were applied.
+Runtime instances compare `instance_version` to the registry. If
+`registry_version > instance_version`, a new instance is created on the next
+eligible boundary.
+
+### Lazy hot-swap algorithm (shared instance)
+- Reload tracks changed/removed agent names and their dependents.
+- Before each request, `refresh_if_needed()` checks the registry version.
+- If no change is pending, it is a no-op.
+- If changes are pending:
+  - Compute `impacted = changed + dependents - removed`, then expand to
+    transitive dependents.
+  - Remove deleted agents from the active map and shut them down.
+  - Rebuild only `impacted` agents in dependency order (others stay intact).
+  - Re-apply AgentCard history and late-bound instruction context for impacted
+    agents only.
+  - Set `instance_version = registry_version` and continue.
+- In-flight requests always complete on the old instance; the swap happens
+  between requests.
+
+### `--reload` (manual)
+- No filesystem watcher.
+- Reload is triggered explicitly (e.g. `/reload` in TUI; ACP/tool hooks pending).
+- The loader performs an mtime-based incremental reload and updates the registry.
+
+### `--watch` (automatic)
+- OS file events trigger reload passes when `watchfiles` is available. Otherwise,
+  the watcher falls back to mtime/size polling.
+- Only changed files are re-read using the same mtime/size cache.
+- No immediate restart; the swap happens lazily on the next request/connection.
+
+### Instance scope behavior
+- `instance_scope=shared`: on the **next request**, if version changed, the shared
+  instance is refreshed under lock by rebuilding only impacted agents.
+- `instance_scope=connection`: version check occurs when a new connection is opened;
+  existing connections keep their old instance.
+- `instance_scope=request`: a new instance is created per request, so the latest
+  registry is always used.
+
+### Force reload
+- A “force” reload is a full runtime restart (process-level) to guarantee a clean
+  Python module state.
+
 ## Loading API
 - `load_agents(path)` loads a file or a directory and returns the loaded agent names.
 - CLI: `fast-agent go/serve/acp --card <path>` loads cards before starting.
@@ -385,6 +438,9 @@ You are a concise analyst.
 - Tool calls use a single `message` argument.
 - Default behavior is **stateless**: fresh clone per call with no history load or merge
   (`history_source=none`, `history_merge_target=none`).
+- If a tool-backed agent is removed from disk, it is pruned from any parent `agents`
+  lists and detached on the next refresh; attempts to switch to or call it should
+  return a clear “agent not found” error.
 
 ### Example: export AgentCards from a Python workflow
 ```bash
@@ -452,44 +508,6 @@ if __name__ == "__main__":
 - **One-shot**: `fast-agent go --card <dir> --message "..."` sends a single
   request and exits. `--prompt-file` loads a prompt/history file, runs it, then
   exits (or returns to interactive if explicitly invoked).
-
-## Reload / Watch Behavior (Lazy Hot-Reload)
-Both `--reload` and `--watch` use the same **lazy hot-reload** semantics. The loader
-tracks `registry_version` (monotonic counter) and a per-file cache:
-`path -> (mtime_ns, size, agent_name)`.
-
-On each reload pass, only **changed** files are re-read:
-- If `mtime_ns` or `size` differs, the file is re-parsed and its agents are updated.
-- If a file disappears, its agents are removed from the registry.
-- If a new file appears, its agents are added.
-
-After a reload pass, `registry_version` is bumped if any changes were applied.
-Runtime instances compare `instance_version` to the registry. If
-`registry_version > instance_version`, a new instance is created on the next
-eligible boundary.
-
-### `--reload` (manual)
-- No filesystem watcher.
-- Reload is triggered explicitly (e.g. `/reload` in TUI; ACP/tool hooks pending).
-- The loader performs an mtime-based incremental reload and updates the registry.
-
-### `--watch` (automatic)
-- OS file events trigger reload passes when `watchfiles` is available. Otherwise,
-  the watcher falls back to mtime/size polling.
-- Only changed files are re-read using the same mtime/size cache.
-- No immediate restart; the swap happens lazily on the next request/connection.
-
-### Instance scope behavior
-- `instance_scope=shared`: on the **next request**, if version changed, the shared
-  instance is recreated once (under lock), then reused for subsequent requests.
-- `instance_scope=connection`: version check occurs when a new connection is opened;
-  existing connections keep their old instance.
-- `instance_scope=request`: a new instance is created per request, so the latest
-  registry is always used.
-
-### Force reload
-- A “force” reload is a full runtime restart (process-level) to guarantee a clean
-  Python module state.
 
 ## Tools Exposure (fast-agent-mcp)
 Expose loader utilities via internal MCP tools:
@@ -628,6 +646,6 @@ Suggested command:
 - [x] If a card fails to parse (empty/partial write), log a warning and skip; retry on the next change.
 - [x] If a tool file changes, reload only cards that reference that tool file.
 - [x] Handle removals by unregistering the agent and updating available agents without restarting the session.
-- [ ] Refresh only the affected agent instances (no full app rebuild); for `instance_scope=shared`, swap updated
+- [x] Refresh only the affected agent instances (no full app rebuild); for `instance_scope=shared`, swap updated
   agents; for `request/connection`, bump the registry version so new instances see the update.
 - [x] UX: emit a short “AgentCards reloaded” line and refresh the available agent list.
