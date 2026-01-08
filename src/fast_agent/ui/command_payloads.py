@@ -74,6 +74,15 @@ class SwitchAgentCommand(CommandBase):
 
 
 @dataclass(frozen=True, slots=True)
+class HashAgentCommand(CommandBase):
+    """Send a message to an agent and return the response to the input buffer."""
+
+    agent_name: str
+    message: str
+    kind: Literal["hash_agent"] = "hash_agent"
+
+
+@dataclass(frozen=True, slots=True)
 class SaveHistoryCommand(CommandBase):
     filename: str | None
     kind: Literal["save_history"] = "save_history"
@@ -112,6 +121,7 @@ CommandPayload = (
     | SkillsCommand
     | SelectPromptCommand
     | SwitchAgentCommand
+    | HashAgentCommand
     | SaveHistoryCommand
     | LoadHistoryCommand
     | LoadAgentCardCommand
