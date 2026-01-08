@@ -621,13 +621,13 @@ Suggested command:
 
 ## Appendix: Open Issues
 
-- AgentCard --watch: minimal incremental refresh (mtime/size, per-card reload, safe parse) [#603](https://github.com/evalstate/fast-agent/issues/603)
+- [x] AgentCard --watch: minimal incremental refresh (mtime/size, per-card reload, safe parse) [#603](https://github.com/evalstate/fast-agent/issues/603)
 
-- Scope: apply to `--watch` for AgentCard roots.
-- Detect changes using `mtime+size`; reload only changed card files.
-- If a card fails to parse (empty/partial write), log a warning and skip; retry on the next change.
-- If a tool file changes, reload only cards that reference that tool file.
-- Handle removals by unregistering the agent and updating available agents without restarting the session.
-- Refresh only the affected agent instances (no full app rebuild); for `instance_scope=shared`, swap updated
+- [x] Scope: apply to `--watch` for AgentCard roots.
+- [x] Detect changes using `mtime+size`; reload only changed card files.
+- [x] If a card fails to parse (empty/partial write), log a warning and skip; retry on the next change.
+- [x] If a tool file changes, reload only cards that reference that tool file.
+- [x] Handle removals by unregistering the agent and updating available agents without restarting the session.
+- [ ] Refresh only the affected agent instances (no full app rebuild); for `instance_scope=shared`, swap updated
   agents; for `request/connection`, bump the registry version so new instances see the update.
-- UX: emit a short “AgentCards reloaded” line and refresh the available agent list.
+- [x] UX: emit a short “AgentCards reloaded” line and refresh the available agent list.
