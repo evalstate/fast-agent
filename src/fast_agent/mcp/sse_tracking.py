@@ -15,7 +15,7 @@ from httpx_sse._exceptions import SSEError
 from mcp.shared._httpx_utils import McpHttpClientFactory, create_mcp_http_client
 from mcp.shared.message import SessionMessage
 
-from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.transport_errors import wrap_transport_error
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
@@ -23,19 +23,8 @@ if TYPE_CHECKING:
     from anyio.streams.memory import MemoryObjectReceiveStream, MemoryObjectSendStream
 
 logger = logging.getLogger(__name__)
-event_logger = get_logger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
-
-_warning_keys: set[str] = set()
-
-
-def _warn_once(key: str, message: str) -> None:
-    if key in _warning_keys:
-        return
-    _warning_keys.add(key)
-    event_logger.warning(message)
-
 
 def _extract_session_id(endpoint_url: str) -> str | None:
     parsed = urlparse(endpoint_url)
@@ -167,20 +156,18 @@ async def tracking_sse_client(
                                     message = types.JSONRPCMessage.model_validate_json(sse.data)
                                 except Exception as exc:
                                     logger.exception("Error parsing server message")
-                                    _warn_once(
-                                        f"mcp_sse_invalid_message:{url}",
-                                        (
-                                            "MCP server sent an invalid SSE message; "
-                                            "ignoring. Please report this to the server maintainer."
-                                        ),
-                                    )
                                     _emit_channel_event(
                                         channel_hook,
                                         "get",
                                         "error",
                                         detail="Error parsing server message",
                                     )
-                                    await read_stream_writer.send(exc)
+                                    await read_stream_writer.send(
+                                        wrap_transport_error(
+                                            f"MCP server sent an invalid SSE message (url={url}).",
+                                            exc,
+                                        )
+                                    )
                                     continue
 
                                 _emit_channel_event(channel_hook, "get", "message", message=message)
@@ -209,7 +196,12 @@ async def tracking_sse_client(
                             "error",
                             detail=str(exc),
                         )
-                        await read_stream_writer.send(exc)
+                        await read_stream_writer.send(
+                            wrap_transport_error(
+                                f"Error reading SSE stream (url={url}).",
+                                exc,
+                            )
+                        )
                     finally:
                         await read_stream_writer.aclose()
 

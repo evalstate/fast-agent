@@ -21,7 +21,7 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
-from fast_agent.core.logging.logger import get_logger
+from fast_agent.mcp.transport_errors import wrap_transport_error
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
@@ -29,19 +29,8 @@ if TYPE_CHECKING:
     from anyio.abc import ObjectReceiveStream, ObjectSendStream
 
 logger = logging.getLogger(__name__)
-event_logger = get_logger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
-
-_warning_keys: set[str] = set()
-
-
-def _warn_once(key: str, message: str) -> None:
-    if key in _warning_keys:
-        return
-    _warning_keys.add(key)
-    event_logger.warning(message)
-
 
 class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     """Streamable HTTP transport that emits channel events before dispatching."""
@@ -98,14 +87,15 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             await read_stream_writer.send(SessionMessage(message))
         except Exception as exc:  # pragma: no cover - propagate to session
             logger.exception("Error parsing JSON response")
-            _warn_once(
-                f"mcp_http_invalid_json:{self.url}",
-                (
-                    "MCP server returned invalid JSON; ignoring. "
-                    "Please report this to the server maintainer."
-                ),
+            await read_stream_writer.send(
+                wrap_transport_error(
+                    (
+                        "MCP server returned invalid JSON "
+                        f"(url={self.url}, status={response.status_code})."
+                    ),
+                    exc,
+                )
             )
-            await read_stream_writer.send(exc)
             self._emit_channel_event("post-json", "error", detail=str(exc))
 
     async def _handle_sse_event_with_channel(
@@ -149,14 +139,12 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
 
         except Exception as exc:  # pragma: no cover - propagate to session
             logger.exception("Error parsing SSE message")
-            _warn_once(
-                f"mcp_http_invalid_sse:{self.url}:{channel}",
-                (
-                    "MCP server sent an invalid SSE message; ignoring. "
-                    "Please report this to the server maintainer."
-                ),
+            await read_stream_writer.send(
+                wrap_transport_error(
+                    f"MCP server sent an invalid SSE message (url={self.url}, channel={channel}).",
+                    exc,
+                )
             )
-            await read_stream_writer.send(exc)
             self._emit_channel_event(channel, "error", detail=str(exc))
             return False
 
@@ -295,7 +283,12 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                     return
         except Exception as exc:  # pragma: no cover - propagate to session
             logger.exception("Error reading SSE stream")
-            await ctx.read_stream_writer.send(exc)
+            await ctx.read_stream_writer.send(
+                wrap_transport_error(
+                    f"Error reading SSE stream (url={self.url}).",
+                    exc,
+                )
+            )
             self._emit_channel_event("post-sse", "error", detail=str(exc))
 
         if last_event_id is not None:  # pragma: no branch
