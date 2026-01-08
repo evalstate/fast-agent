@@ -1,14 +1,14 @@
 # REPL Implementation Overview
 
 ## Executive Summary
-The fast-agent REPL (Read-Eval-Print Loop) is the interactive TUI and ACP feature
-designed for rapid, iterative agent development. You edit
-AgentCards on disk and the runtime picks them up without restart via lazy
-hot-reload and hot-swap, turning the workflow into a tight edit → run → observe
-loop. This keeps the architecture simple (file-based cards + incremental reloads)
-while delivering fast feedback: updated agents appear on the next turn and only
-the impacted agents are rebuilt. The same reload/watch pipeline is used by ACP
-sessions, so `--watch` and `--reload` behavior applies there as well.
+The fast-agent REPL (Read-Eval-Print Loop) is an interactive TUI + ACP workflow
+optimized for rapid agent iteration. You edit AgentCards on disk and the runtime
+adopts changes without restart via lazy hot-reload and hot-swap, so the feedback
+loop is effectively edit -> run -> observe. Architecturally, this keeps things
+simple (file-based cards + incremental reloads) while staying fast: updated
+agents appear on the next turn and only the impacted agents are rebuilt. The
+same reload/watch pipeline is shared by ACP sessions, so `--watch` and `--reload`
+apply there too.
 
 ## Terminology
 - **Current agent**: the agent selected in the interactive prompt (TUI/ACP).
@@ -16,57 +16,31 @@ sessions, so `--watch` and `--reload` behavior applies there as well.
 - **Tool attach**: add child agent names to a BASIC agent's `child_agents` list
   so it is upgraded to Agents-as-Tools at runtime.
 
-## Reload / Watch Behavior
-- `--reload`: manual reloads only; no filesystem watcher.
-- `--watch`: background watcher triggers reload passes; uses OS events when
-  `watchfiles` is available, otherwise falls back to mtime/size polling.
-- Reloads are incremental: only changed card files are re-parsed; removed cards
-  are pruned from the registry.
-- Lazy swap happens on the next request/turn after the registry version changes.
-- Without `--reload` or `--watch`, behavior stays as close as possible to the
-  existing runtime for stability; new REPL features are opt-in.
-
-## Lazy Hot Swap (Shared Instance)
-### Algorithm (shared instance)
-1) Track changed/removed agent names plus dependency graph edges.
-2) On the next request, check the registry version.
-3) If changes are pending:
-   - Compute `impacted = changed + dependents - removed`, then expand to
-     transitive dependents.
-   - Remove deleted agents from the active map and shut them down.
-   - Rebuild only impacted agents in dependency order; leave others intact.
-   - Re-apply AgentCard history and late-bound instruction context for impacted
-     agents only.
-4) Update the shared instance version and continue.
-
-In-flight requests always complete on the old instance; swaps happen between
-turns.
-
 ## Architecture Overview
-### High-Level Flow
+### High-Level Flow (internal)
 ```
-Filesystem change                 User message / command
-    |                                   |
-    v                                   v
-watchfiles/poller                AgentApp._refresh_if_needed()
-    |                                   ^
-    v                                   |
-FastAgent._watch_agent_cards()          |
-    |                                   |
-    v                                   |
-FastAgent.reload_agents()               |
-    |                                   |
-    v                                   |
-FastAgent._load_agent_cards_from_root() |
-    |                                   |
-    v                                   |
-agent_card_loader.load_agent_cards()    |
-    |                                   |
-    v                                   |
-FastAgent._apply_agent_card_updates()   |
-    |                                   |
-    v                                   |
-registry_version += 1 ------------------/
+Filesystem change (watchfiles/poller)
+    |
+    v
+FastAgent._watch_agent_cards()
+    |
+    v
+FastAgent.reload_agents()
+    |
+    v
+FastAgent._load_agent_cards_from_root()
+    |
+    v
+agent_card_loader.load_agent_cards()
+    |
+    v
+FastAgent._apply_agent_card_updates()
+    |
+    v
+registry_version += 1
+    |
+    v
+AgentApp._refresh_if_needed()  <-- user message / command
     |
     v
 FastAgent.refresh_shared_instance()
@@ -91,7 +65,46 @@ LLM
 - **InteractivePrompt / EnhancedPrompt**: input loop and slash-command parsing.
 - **AgentsAsToolsAgent**: upgrades basic agents when `child_agents` are declared.
 
-## Implementation Details
+## Runtime Behavior
+### Reload / Watch Behavior
+- `--reload`: manual reloads only; no filesystem watcher.
+- `--watch`: background watcher triggers reload passes; uses OS events when
+  `watchfiles` is available, otherwise falls back to mtime/size polling.
+- Reloads are incremental: only changed card files are re-parsed; removed cards
+  are pruned from the registry.
+- Lazy swap happens on the next request/turn after the registry version changes.
+- Without `--reload` or `--watch`, behavior stays as close as possible to the
+  existing runtime for stability; new REPL features are opt-in.
+
+### Lazy Hot Swap (Shared Instance)
+#### Algorithm (shared instance)
+1) Track changed/removed agent names plus dependency graph edges.
+2) On the next request, check the registry version.
+3) If changes are pending:
+   - Compute `impacted = changed + dependents - removed`, then expand to
+     transitive dependents.
+   - Remove deleted agents from the active map and shut them down.
+   - Rebuild only impacted agents in dependency order; leave others intact.
+   - Re-apply AgentCard history and late-bound instruction context for impacted
+     agents only.
+4) Update the shared instance version and continue.
+
+In-flight requests always complete on the old instance; swaps happen between
+turns.
+
+### AgentCard Reload
+- Uses `agent_card_loader.load_agent_cards()` with strict field validation.
+- Tracks per-file `(mtime_ns, size)` to determine incremental changes.
+- Removed cards are pruned and detached on the next refresh.
+- Parse failures on partial writes are logged as warnings and retried on the
+  next change.
+
+### ACP Integration
+- ACP sessions use the same registry and lazy refresh logic.
+- `--watch` and `--reload` update the registry; ACP sessions see updates on the
+  next request/connection boundary depending on `instance_scope`.
+
+## Command Surface
 ### Command Handling
 - `/agents`: list available agents.
 - `/card <path|url> [--tool [remove]]`: load cards at runtime; with `--tool`,
@@ -110,17 +123,11 @@ LLM
 - Tool descriptions prefer `description` from the AgentCard, then fall back to
   the instruction text.
 
-### AgentCard Reload
-- Uses `agent_card_loader.load_agent_cards()` with strict field validation.
-- Tracks per-file `(mtime_ns, size)` to determine incremental changes.
-- Removed cards are pruned and detached on the next refresh.
-- Parse failures on partial writes are logged as warnings and retried on the
-  next change.
-
-### ACP Integration
-- ACP sessions use the same registry and lazy refresh logic.
-- `--watch` and `--reload` update the registry; ACP sessions see updates on the
-  next request/connection boundary depending on `instance_scope`.
+### Model Display Trimming
+- Strip path-like prefixes (keep the last segment after `/`).
+- Cap displayed model name length to a UI-safe maximum.
+- Apply consistently in the console header, usage report, and enhanced prompt
+  header.
 
 ## What's Implemented
 - [x] Interactive REPL loop with slash commands and `@agent` switching.
@@ -148,6 +155,7 @@ LLM
 - `registry_version += 1`: marks that a newer registry is available for the REPL to pick up.
 - `AgentApp._refresh_if_needed()`: runs at the start of each turn to check for pending registry updates.
 - `FastAgent.refresh_shared_instance()`: rebuilds only impacted agents and swaps them into the shared instance.
+
 #### partial rebuild of impacted agents
 - Entry point: `FastAgent.refresh_shared_instance()` when `registry_version` changes.
 - Compute `impacted` + transitive dependents via `get_agent_dependencies()` and

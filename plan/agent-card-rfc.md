@@ -414,12 +414,12 @@ eligible boundary.
 - CLI: `fast-agent go/serve/acp --card <path>` loads cards before starting.
 - CLI: `fast-agent go/serve/acp --card-tool <path>` loads cards **after** `--card`
   and attaches the loaded agent(s) to the default agent via Agents-as-Tools.
-- CLI: if `.fast-agent/agent-cards/` exists and contains `.md`/`.markdown`/`.yaml`/`.yml`
-  files, that directory is loaded automatically (in addition to any explicit `--card`
-  entries).
-- CLI: if `.fast-agent/tool-cards/` exists and contains supported card files, that
-  directory is loaded automatically (after `--card` and `.fast-agent/agent-cards/`)
-  and behaves like `--card-tool`.
+- CLI: if `.fast-agent/agent-cards/` exists and contains `.md`/`.markdown`/`.yaml`/
+  `.yml` files, that directory is loaded automatically (in addition to any
+  explicit `--card` entries).
+- CLI: if `.fast-agent/tool-cards/` exists and contains `.md`/`.markdown`/`.yaml`/
+  `.yml` files, that directory is loaded automatically (after `--card` and
+  `.fast-agent/agent-cards/`) and behaves like `--card-tool`.
 - `--agent-cards` remains as a legacy alias for `--card`.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
