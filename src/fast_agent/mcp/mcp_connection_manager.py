@@ -6,7 +6,7 @@ import asyncio
 import traceback
 from contextlib import AbstractAsyncContextManager
 from datetime import timedelta
-from typing import TYPE_CHECKING, Callable, Union
+from typing import TYPE_CHECKING, Callable, Union, cast
 
 import httpx
 from anyio import Event, Lock, create_task_group
@@ -245,6 +245,45 @@ class ServerConnection:
         return session
 
 
+async def _run_ping_loop(server_conn: ServerConnection) -> None:
+    interval = server_conn.server_config.ping_interval_seconds
+    if not interval or interval <= 0:
+        return
+
+    max_missed = server_conn.server_config.max_missed_pings
+    missed = 0
+    read_timeout = (
+        timedelta(seconds=server_conn.server_config.read_timeout_seconds)
+        if server_conn.server_config.read_timeout_seconds
+        else None
+    )
+
+    while not server_conn._shutdown_event.is_set():
+        await asyncio.sleep(interval)
+        if server_conn._shutdown_event.is_set():
+            break
+        session = server_conn.session
+        if session is None:
+            break
+        if not hasattr(session, "ping"):
+            return
+        try:
+            await cast("MCPAgentClientSession", session).ping(read_timeout_seconds=read_timeout)
+            missed = 0
+        except Exception as exc:
+            missed += 1
+            logger.warning(
+                f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}"
+            )
+            if missed >= max_missed:
+                server_conn._error_occurred = True
+                server_conn._error_message = (
+                    f"Ping failed {missed} time(s); last error: {exc}"
+                )
+                server_conn.request_shutdown()
+                break
+
+
 async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
     """
     Manage the lifecycle of a single server connection.
@@ -285,7 +324,15 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                         elif server_conn.server_config.transport == "stdio":
                             server_conn.session_id = "local"
 
-                        await server_conn.wait_for_shutdown_request()
+                        if (
+                            server_conn.server_config.ping_interval_seconds
+                            and server_conn.server_config.ping_interval_seconds > 0
+                        ):
+                            async with create_task_group() as ping_group:
+                                ping_group.start_soon(_run_ping_loop, server_conn)
+                                await server_conn.wait_for_shutdown_request()
+                        else:
+                            await server_conn.wait_for_shutdown_request()
                 except Exception as session_exit_exc:
                     # Catch exceptions during session cleanup (e.g., when session was terminated)
                     # This prevents cleanup errors from propagating to the task group

@@ -18,11 +18,13 @@ from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
     ClientRequest,
+    EmptyResult,
     GetPromptRequest,
     GetPromptRequestParams,
     GetPromptResult,
     Implementation,
     ListRootsResult,
+    PingRequest,
     ReadResourceRequest,
     ReadResourceRequestParams,
     ReadResourceResult,
@@ -363,6 +365,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
             CallToolResult,
             request_read_timeout_seconds=read_timeout_seconds,
             progress_callback=progress_callback,
+        )
+
+    async def ping(self, read_timeout_seconds: timedelta | None = None) -> EmptyResult:
+        """Send a ping request to check server liveness."""
+        request = PingRequest(method="ping")
+        return await self.send_request(
+            ClientRequest(request),
+            EmptyResult,
+            request_read_timeout_seconds=read_timeout_seconds,
         )
 
     async def read_resource(
