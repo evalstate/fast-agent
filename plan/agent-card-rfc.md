@@ -243,7 +243,7 @@ MVP path 2:
 *) *Footnote:* there is no cumulative (session-wide merged) history store today;
 it would need to be designed and implemented as a separate feature.
 **) *Footnote:* writing merged history to a file-based `history_merge_target`
-requires a read/write lock and is deferred to a separate implementation.
+uses a read/write lock and is implemented.
 
 ### Python API (proposed)
 ```python
