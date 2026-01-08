@@ -33,6 +33,7 @@ from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
     CommandPayload,
+    HashAgentCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
@@ -92,6 +93,10 @@ def _list_tools_cmd() -> ListToolsCommand:
 
 def _switch_agent_cmd(agent_name: str) -> SwitchAgentCommand:
     return SwitchAgentCommand(agent_name=agent_name)
+
+
+def _hash_agent_cmd(agent_name: str, message: str) -> HashAgentCommand:
+    return HashAgentCommand(agent_name=agent_name, message=message)
 
 
 def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
@@ -688,6 +693,24 @@ class AgentCompleter(Completer):
                         display_meta=agent_type,
                     )
 
+        # Complete agent names for hash commands (#agent_name message)
+        elif text.startswith("#"):
+            # Only complete if we haven't finished the agent name yet (no space after #agent)
+            rest = text[1:]
+            if " " not in rest:
+                # Still typing agent name
+                agent_name = rest
+                for agent in self.agents:
+                    if agent.lower().startswith(agent_name.lower()):
+                        # Get agent type or default to "Agent"
+                        agent_type = self.agent_types.get(agent, AgentType.BASIC).value
+                        yield Completion(
+                            agent + " ",  # Add space after agent name for message input
+                            start_position=-len(agent_name),
+                            display=agent,
+                            display_meta=f"# {agent_type}",
+                        )
+
 
 # Helper function to open text in an external editor
 def get_text_from_editor(initial_text: str = "") -> str:
@@ -1060,6 +1083,17 @@ def parse_special_input(text: str) -> str | CommandPayload:
     if cmd_line and cmd_line.startswith("@"):
         return _switch_agent_cmd(cmd_line[1:].strip())
 
+    # Hash command: #agent_name message - send message to agent, return result to buffer
+    if cmd_line and cmd_line.startswith("#"):
+        rest = cmd_line[1:].strip()
+        if " " in rest:
+            # Split into agent name and message
+            agent_name, message = rest.split(" ", 1)
+            return _hash_agent_cmd(agent_name.strip(), message.strip())
+        elif rest:
+            # Just agent name, no message - return empty hash command (user will be prompted)
+            return _hash_agent_cmd(rest.strip(), "")
+
     return text
 
 
@@ -1074,6 +1108,7 @@ async def get_enhanced_input(
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
     agent_provider: "AgentApp | None" = None,
+    pre_populate_buffer: str = "",
 ) -> str | CommandPayload:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -1089,6 +1124,7 @@ async def get_enhanced_input(
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
         agent_provider: Optional AgentApp for displaying agent info
+        pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
 
     Returns:
         User input string or parsed command payload
@@ -1392,7 +1428,7 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Type '/' for commands, '@' to switch agent. Ctrl+T multiline, CTRL+E external editor.[/dim]\n"
+                "[dim]Type '/' for commands, '@' to switch agent, '#' to query agent. \nCtrl+T multiline, CTRL+Y copy last assistant message, CTRL+E external editor.[/dim]\n"
             )
 
             # Display agent info right after help text if agent_provider is available
@@ -1498,9 +1534,14 @@ async def get_enhanced_input(
 
     # Process special commands
 
+    # Determine what to use as the buffer's initial content:
+    # - pre_populate_buffer takes priority (one-off, for # command results)
+    # - otherwise use the default parameter
+    buffer_default = pre_populate_buffer if pre_populate_buffer else default
+
     # Get the input - using async version
     try:
-        result = await session.prompt_async(HTML(prompt_text), default=default)
+        result = await session.prompt_async(HTML(prompt_text), default=buffer_default)
         # Echo slash command input since erase_when_done clears it
         stripped = result.lstrip()
         if stripped.startswith("/"):
@@ -1674,6 +1715,7 @@ async def handle_special_commands(
         rich_print("  /agent [name] --dump - Print an AgentCard to screen")
         rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
+        rich_print("  #agent_name <msg> - Send message to agent, return result to input buffer")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
         rich_print("\n[bold]Keyboard Shortcuts:[/bold]")
