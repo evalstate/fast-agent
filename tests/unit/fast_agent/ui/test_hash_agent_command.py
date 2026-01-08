@@ -149,7 +149,7 @@ class TestHashAgentCommandPayload:
         cmd = HashAgentCommand(agent_name="test", message="hello")
 
         with pytest.raises(AttributeError):
-            cmd.agent_name = "other"
+            cmd.agent_name = "other"  # type: ignore[misc]
 
     def test_hash_agent_command_kind(self):
         """Test that kind is always 'hash_agent'."""

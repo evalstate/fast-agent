@@ -530,6 +530,8 @@ class InteractivePrompt:
                 continue
 
             # Send the message to the agent
+            # Type narrowing: by this point user_input is str (non-str inputs continue above)
+            assert isinstance(user_input, str)
             result = await send_func(user_input, agent)
 
         return result
