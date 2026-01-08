@@ -587,6 +587,13 @@ Suggested help text:
 `/card <path> [--tool]` — load an AgentCard; `--tool` attaches the loaded agent(s)
 to the current agent’s `agents` list and hot‑swaps via Agents‑as‑Tools.
 
+CLI compatibility:
+- `--card-tool <path>` loads AgentCards like `--card`, then attaches the loaded agent(s)
+  to the default agent via Agents‑as‑Tools.
+- `.fast-agent/tool-cards/` is auto-loaded on startup and behaves like `--card-tool`.
+- Tool cards are processed **after** `--card` and `.fast-agent/agent-cards/` to ensure
+  the default agent is already available.
+
 Suggested command:
 `/agent` with options:
 - `--tool`: attach the selected agent as a tool to the current agent.
