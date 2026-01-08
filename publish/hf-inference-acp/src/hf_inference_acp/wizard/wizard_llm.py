@@ -454,7 +454,7 @@ Some tips:
  - You can include content from URLs with `{{{{url:https://gist.github.com/...}}}}` syntax
  - Tool Permissions are set on a per-project basis. use `/status auth` and `/status authreset` to manage. 
  - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
- - Join https://huggingface.co/toad-hf-inference-explorers to claim **$10** in free inference credits!
+ - Join https://huggingface.co/toad-hf-inference-explorers to claim **$20** in free inference credits!
 
 Transferring to chat mode...
 

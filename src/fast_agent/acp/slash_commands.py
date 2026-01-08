@@ -558,9 +558,7 @@ class SlashCommandHandler:
             )
 
         # Add conversation statistics
-        status_lines.append(
-            f"## Conversation Statistics ({agent.name if agent else 'Unknown'})"
-        )
+        status_lines.append(f"## Conversation Statistics ({agent.name if agent else 'Unknown'})")
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
@@ -775,7 +773,7 @@ class SlashCommandHandler:
                 lines.append("")
 
             lines.append(
-                "Usage: `/skills registry [number|URL]`.\n\n URL should point to a repo with a valid `marketplace.json`"
+                "Usage: `/skills registry <number|URL|path>`.\n\n URL should point to a repo with a valid `marketplace.json`"
             )
             return "\n".join(lines)
 
@@ -1026,8 +1024,8 @@ class SlashCommandHandler:
         lines.extend(self._format_local_list(manifests))
         lines.append("")
         lines.append("Use `/skills add` to list available skills to install\n")
-        lines.append("Remove a skill with `/skills remove <number|name>`.\n")
-        lines.append("Change skills registry with `/skills registry <url>`.\n")
+        lines.append("Remove a skill with `/skills remove   <number|name>`.\n")
+        lines.append("Change skills registry with `/skills registry <number|url|path>`.\n")
         return "\n".join(lines)
 
     def _format_local_skills_by_directory(
@@ -1070,11 +1068,11 @@ class SlashCommandHandler:
         if total_skills == 0:
             lines.append("Use `/skills add` to list available skills to install.")
         else:
-            lines.append("Use `/skills add` to list available skills to install")
-            lines.append("")
             lines.append("Remove a skill with `/skills remove <number|name>`.")
             lines.append("")
-            lines.append("Change skills registry with `/skills registry <url>`.")
+            lines.append("Use `/skills add` to list available skills to install")
+            lines.append("")
+            lines.append("Change skills registry with `/skills registry <number|url|path>`.")
         return "\n".join(lines)
 
     def _format_local_list(self, manifests: list[SkillManifest]) -> list[str]:
@@ -1301,7 +1299,7 @@ class SlashCommandHandler:
                     "",
                     f"File not found: `{filename}`",
                 ]
-        )
+            )
 
         try:
             load_history_into_agent(agent, file_path)

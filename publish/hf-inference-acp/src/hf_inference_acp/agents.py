@@ -529,7 +529,7 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
                 tool_list = "\n".join(f"- `{name}`" for name in tool_names[:10])
                 more = f"\n- ... and {len(tool_names) - 10} more" if len(tool_names) > 10 else ""
                 return (
-                    "Connected to HuggingFace MCP server.\n\n"
+                    "Connected to Hugging Face MCP server.\n\n"
                     f"**Available tools ({len(tool_names)}):**\n{tool_list}{more}"
                 )
             else:

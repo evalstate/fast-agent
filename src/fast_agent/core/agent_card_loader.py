@@ -309,10 +309,10 @@ def _build_card_from_data(
 
 def _resolve_name(raw_name: Any, path: Path) -> str:
     if raw_name is None:
-        return path.stem
+        return path.stem.replace(" ", "_")
     if not isinstance(raw_name, str) or not raw_name.strip():
         raise AgentConfigError(f"'name' must be a non-empty string in {path}")
-    return raw_name.strip()
+    return raw_name.strip().replace(" ", "_")
 
 
 def _resolve_instruction_field(

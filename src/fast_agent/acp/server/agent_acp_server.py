@@ -47,7 +47,10 @@ from acp.schema import (
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
-from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.content_conversion import (
+    convert_acp_prompt_to_mcp_content_blocks,
+    inline_resources_for_slash_command,
+)
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.protocols import (
@@ -1285,8 +1288,11 @@ class AgentACPServer(ACPAgent):
                 # Return an error response
                 return PromptResponse(stop_reason=REFUSAL)
 
+            # Inline resource URIs for slash commands (e.g., /card @file.txt)
+            processed_prompt = inline_resources_for_slash_command(prompt)
+
             # Convert ACP content blocks to MCP format
-            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(prompt)
+            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
 
             # Create a PromptMessageExtended with the converted content
             prompt_message = PromptMessageExtended(

@@ -20,6 +20,7 @@ from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import collect_stdio_commands, resolve_instruction_option
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -193,6 +194,8 @@ async def run_agents(
     tool_description: str | None,
     instance_scope: str,
     permissions_enabled: bool,
+    agent_cards: list[str] | None,
+    card_tools: list[str] | None,
 ) -> None:
     """Main async function to set up and run the agents."""
     if config_path is None:
@@ -271,6 +274,26 @@ async def run_agents(
     )
     async def hf_agent():
         pass
+
+    # Load agent cards (--card option)
+    if agent_cards:
+        try:
+            for card_source in agent_cards:
+                if card_source.startswith(("http://", "https://")):
+                    fast.load_agents_from_url(card_source)
+                else:
+                    fast.load_agents(card_source)
+        except AgentConfigError as exc:
+            fast._handle_error(exc)
+            raise SystemExit(1) from exc
+
+    # Set card_tools for start_server() to process (--card-tool option)
+    if card_tools:
+        from argparse import Namespace
+
+        if not hasattr(fast, "args") or fast.args is None:
+            fast.args = Namespace()
+        fast.args.card_tools = card_tools
 
     # Start the ACP server
     await fast.start_server(
@@ -353,6 +376,17 @@ def run_acp(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking)",
     ),
+    agent_cards: list[str] | None = typer.Option(
+        None,
+        "--agent-cards",
+        "--card",
+        help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
+    card_tools: list[str] | None = typer.Option(
+        None,
+        "--card-tool",
+        help="Path or URL to an AgentCard file to load as a tool (repeatable)",
+    ),
 ) -> None:
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
@@ -395,6 +429,8 @@ def run_acp(
                 tool_description=description,
                 instance_scope=instance_scope.value,
                 permissions_enabled=not no_permissions,
+                agent_cards=agent_cards,
+                card_tools=card_tools,
             )
         )
     except KeyboardInterrupt:
