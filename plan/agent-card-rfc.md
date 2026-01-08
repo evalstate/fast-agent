@@ -8,8 +8,9 @@ optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
 AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
-CLI auto-loads cards from `.fast-agent/agent-cards/` when that directory exists and
-contains supported card files.
+CLI auto-loads cards from `.fast-agent/agent-cards/` and `.fast-agent/tool-cards/`
+when those directories exist and contain supported card files. Tool cards attach
+to the default agent via Agents-as-Tools.
 
 ## Agent vs Skill
 - **Skill**: a reusable prompt fragment or capability description.
@@ -358,9 +359,14 @@ You are a concise analyst.
 ## Loading API
 - `load_agents(path)` loads a file or a directory and returns the loaded agent names.
 - CLI: `fast-agent go/serve/acp --card <path>` loads cards before starting.
+- CLI: `fast-agent go/serve/acp --card-tool <path>` loads cards **after** `--card`
+  and attaches the loaded agent(s) to the default agent via Agents-as-Tools.
 - CLI: if `.fast-agent/agent-cards/` exists and contains `.md`/`.markdown`/`.yaml`/`.yml`
   files, that directory is loaded automatically (in addition to any explicit `--card`
   entries).
+- CLI: if `.fast-agent/tool-cards/` exists and contains supported card files, that
+  directory is loaded automatically (after `--card` and `.fast-agent/agent-cards/`)
+  and behaves like `--card-tool`.
 - `--agent-cards` remains as a legacy alias for `--card`.
 - Loading is immediate (no deferred mode).
 - All loaded agents are tracked with a name and source file path.
