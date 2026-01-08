@@ -52,6 +52,7 @@ from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.command_payloads import (
     ClearCommand,
     CommandPayload,
+    HashAgentCommand,
     ListPromptsCommand,
     ListSkillsCommand,
     ListToolsCommand,
@@ -139,7 +140,12 @@ class InteractivePrompt:
         available_agents_set = set(available_agents)
 
         result = ""
+        buffer_prefill = ""  # One-off buffer content for # command results
         while True:
+            # Variables for hash command - must be sent OUTSIDE paused context
+            hash_send_target: str | None = None
+            hash_send_message: str | None = None
+
             with progress_display.paused():
                 # Use the enhanced input method with advanced features
                 user_input = await get_enhanced_input(
@@ -151,7 +157,9 @@ class InteractivePrompt:
                     available_agent_names=available_agents,
                     agent_types=self.agent_types,  # Pass agent types for display
                     agent_provider=prompt_provider,  # Pass agent provider for info display
+                    pre_populate_buffer=buffer_prefill,  # One-off buffer content
                 )
+                buffer_prefill = ""  # Clear after use - it's one-off
 
                 if isinstance(user_input, str):
                     user_input = parse_special_input(user_input)
@@ -172,6 +180,21 @@ class InteractivePrompt:
                                 continue
                             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
                             continue
+                        case HashAgentCommand(agent_name=target_agent, message=hash_message):
+                            # Validate, but send OUTSIDE paused context to avoid
+                            # nested paused() issues with progress display
+                            if target_agent not in available_agents_set:
+                                rich_print(f"[red]Agent '{target_agent}' not found[/red]")
+                                continue
+                            if not hash_message:
+                                rich_print(
+                                    f"[yellow]Usage: #{target_agent} <message>[/yellow]"
+                                )
+                                continue
+                            # Set up for sending outside the paused context
+                            hash_send_target = target_agent
+                            hash_send_message = hash_message
+                            # Don't continue here - fall through to exit paused context
                         # Keep the existing list_prompts handler for backward compatibility
                         case ListPromptsCommand():
                             # Use the prompt_provider directly
@@ -458,20 +481,53 @@ class InteractivePrompt:
                 # 2. The original input was a command payload (special command like /prompt)
                 # 3. The command result itself is a command payload (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
-                if (
-                    command_result
-                    or is_command_payload(user_input)
-                    or is_command_payload(command_result)
-                ):
+                # Skip these checks if we have a pending hash command to handle outside
+                if not hash_send_target:
+                    if (
+                        command_result
+                        or is_command_payload(user_input)
+                        or is_command_payload(command_result)
+                    ):
+                        continue
+
+                    if not isinstance(user_input, str):
+                        continue
+
+                    if user_input.upper() == "STOP":
+                        return result
+                    if user_input == "":
+                        continue
+
+            # Handle hash command OUTSIDE paused context so progress display works correctly
+            if hash_send_target and hash_send_message:
+                rich_print(f"[dim]Asking {hash_send_target}...[/dim]")
+                try:
+                    await send_func(hash_send_message, hash_send_target)
+                except Exception as exc:
+                    with progress_display.paused():
+                        rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
                     continue
 
-                if not isinstance(user_input, str):
-                    continue
+                # Pause progress display for status messages after send completes
+                with progress_display.paused():
+                    # Get the last assistant message from the target agent
+                    target_agent_obj = prompt_provider._agent(hash_send_target)
+                    response_text = ""
+                    for msg in reversed(target_agent_obj.message_history):
+                        if msg.role == "assistant":
+                            response_text = msg.last_text()
+                            break
 
-                if user_input.upper() == "STOP":
-                    return result
-                if user_input == "":
-                    continue
+                    if response_text:
+                        buffer_prefill = response_text
+                        rich_print(
+                            f"[green]Response from {hash_send_target} loaded into input buffer[/green]"
+                        )
+                    else:
+                        rich_print(
+                            f"[yellow]No response received from {hash_send_target}[/yellow]"
+                        )
+                continue
 
             # Send the message to the agent
             result = await send_func(user_input, agent)
