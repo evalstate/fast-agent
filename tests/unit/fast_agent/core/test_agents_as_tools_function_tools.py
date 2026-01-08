@@ -7,6 +7,7 @@ import pytest
 from fast_agent.agents.agent_types import AgentConfig, AgentType
 from fast_agent.core import Core
 from fast_agent.core.direct_factory import create_agents_in_dependency_order
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.llm.model_factory import ModelFactory
 
 if TYPE_CHECKING:
@@ -66,5 +67,52 @@ async def test_agents_as_tools_loads_function_tools_from_agent_data(
 
         assert "mini_rag" in tool_names
         assert "agent__sizer" in tool_names
+    finally:
+        await core.cleanup()
+
+
+@pytest.mark.asyncio
+async def test_agents_as_tools_requires_messages_for_history_source_messages(
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "fastagent.config.yaml"
+    config_path.write_text("", encoding="utf-8")
+
+    source_path = tmp_path / "vertex-rag.md"
+    source_path.write_text("", encoding="utf-8")
+
+    parent_config = AgentConfig(
+        name="vertex-rag",
+        instruction="Use mini_rag.",
+    )
+    child_config = AgentConfig(
+        name="sizer",
+        instruction="Return size.",
+    )
+
+    agents_dict = {
+        "vertex-rag": {
+            "config": parent_config,
+            "type": AgentType.BASIC.value,
+            "child_agents": ["sizer"],
+            "agents_as_tools_options": {"history_source": "messages"},
+            "source_path": source_path,
+        },
+        "sizer": {
+            "config": child_config,
+            "type": AgentType.BASIC.value,
+        },
+    }
+
+    def model_factory_func(model: str | None = None) -> LLMFactoryProtocol:
+        return ModelFactory.create_factory("passthrough")
+
+    model_factory = cast("ModelFactoryFunctionProtocol", model_factory_func)
+
+    core = Core(settings=str(config_path))
+    await core.initialize()
+    try:
+        with pytest.raises(AgentConfigError):
+            await create_agents_in_dependency_order(core, agents_dict, model_factory)
     finally:
         await core.cleanup()

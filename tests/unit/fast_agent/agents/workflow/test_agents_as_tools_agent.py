@@ -11,6 +11,8 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
+    HistoryMergeTarget,
+    HistorySource,
 )
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import text_content
@@ -62,6 +64,41 @@ class ErrorChannelChild(FakeChildAgent):
             content=[],
             channels={FAST_AGENT_ERROR_CHANNEL: [text_content("err-block")]},
         )
+
+
+class HistoryChild(LlmAgent):
+    """Child stub that records loaded history and appends a response."""
+
+    def __init__(self, name: str):
+        super().__init__(AgentConfig(name))
+        self.loaded_history: list[PromptMessageExtended] | None = None
+        self.last_clone: HistoryChild | None = None
+
+    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
+        self.loaded_history = list(messages or [])
+        super().load_message_history(messages)
+
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[text_content("ok")],
+        )
+        self.message_history.append(response)
+        return response
+
+    async def spawn_detached_instance(self, name: str | None = None):
+        clone = HistoryChild(name or self.name)
+        clone.load_message_history(list(self.message_history))
+        self.last_clone = clone
+        return clone
 
 
 class StubNestedAgentsAsTools(AgentsAsToolsAgent):
@@ -148,6 +185,63 @@ async def test_run_tools_respects_max_parallel_and_timeout():
         for block in err_res.content
     )
 
+
+@pytest.mark.asyncio
+async def test_history_source_child_merges_back_to_child():
+    child = HistoryChild("child")
+    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
+    child.load_message_history([seed])
+
+    options = AgentsAsToolsOptions(
+        history_source=HistorySource.CHILD,
+        history_merge_target=HistoryMergeTarget.CHILD,
+    )
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child], options=options)
+    await agent.initialize()
+
+    tool_calls = {
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__child", arguments={"text": "hi"})
+        ),
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    await agent.run_tools(request)
+
+    clone = child.last_clone
+    assert clone is not None
+    assert clone.loaded_history == [seed]
+    assert len(child.message_history) == 2
+    assert child.message_history[-1].role == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_history_source_orchestrator_merges_back_to_orchestrator():
+    child = HistoryChild("child")
+    options = AgentsAsToolsOptions(
+        history_source=HistorySource.ORCHESTRATOR,
+        history_merge_target=HistoryMergeTarget.ORCHESTRATOR,
+    )
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child], options=options)
+    await agent.initialize()
+
+    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
+    agent.load_message_history([seed])
+
+    tool_calls = {
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__child", arguments={"text": "hi"})
+        ),
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    await agent.run_tools(request)
+
+    clone = child.last_clone
+    assert clone is not None
+    assert clone.loaded_history == [seed]
+    assert len(agent.message_history) == 2
+    assert agent.message_history[-1].role == "assistant"
 
 @pytest.mark.asyncio
 async def test_invoke_child_appends_error_channel():

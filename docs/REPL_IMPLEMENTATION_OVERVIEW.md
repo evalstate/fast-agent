@@ -19,37 +19,37 @@ apply there too.
 ## Architecture Overview
 ### High-Level Flow (internal)
 ```
-Filesystem change (watchfiles/poller)
-    |
-    v
-FastAgent._watch_agent_cards()
-    |
-    v
-FastAgent.reload_agents()
-    |
-    v
-FastAgent._load_agent_cards_from_root()
-    |
-    v
-agent_card_loader.load_agent_cards()
-    |
-    v
-FastAgent._apply_agent_card_updates()
-    |
-    v
-registry_version += 1
-    |
-    v
-AgentApp._refresh_if_needed()  <-- user message / command
-    |
-    v
-FastAgent.refresh_shared_instance()
-    |
-    v
-partial rebuild of impacted agents
-    |
-    v
-LLM
+Filesystem change                 User message / command
+    |                                   |
+    v                                   v
+watchfiles/poller                AgentApp._refresh_if_needed()
+    |                                   ^
+    v                                   |
+FastAgent._watch_agent_cards()          |
+    |                                   |
+    v                                   |
+FastAgent.reload_agents()               |
+    |                                   |
+    v                                   |
+FastAgent._load_agent_cards_from_root() |
+    |                                   |
+    v                                   |
+agent_card_loader.load_agent_cards()    |
+    |                                   |
+    v                                   |
+FastAgent._apply_agent_card_updates()   |
+    |                                   |
+    v                                   |
+registry_version += 1 ------------------/
+                                        |
+                                        v
+                          FastAgent.refresh_shared_instance()
+                                        |
+                                        v
+                          partial rebuild of impacted agents
+                                        |
+                                        v
+                                        LLM
 ```
 
 ### Flow Notes

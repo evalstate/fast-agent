@@ -111,7 +111,7 @@ Allowed fields:
 - `agents` (agents-as-tools)
 - `servers`, `tools`, `resources`, `prompts`, `skills`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
-- `history_mode`
+- `history_source`, `history_merge_target`
 - `max_parallel`, `child_timeout_sec`, `max_display_instances`
 - `function_tools`, `tool_hooks` (see separate spec)
 - `shell`, `cwd`

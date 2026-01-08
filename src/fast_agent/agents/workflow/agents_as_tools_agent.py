@@ -201,33 +201,57 @@ from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL, FORCE_SEQUENTIAL_TOOL
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.core.prompt import Prompt
 from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.mcp.prompts.prompt_load import load_prompt
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.utils.async_utils import gather_with_cancel
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from fast_agent.agents.agent_types import AgentConfig
     from fast_agent.agents.llm_agent import LlmAgent
 
 logger = get_logger(__name__)
 
 
-class HistoryMode(str, Enum):
-    """History handling for detached child instances."""
+class HistorySource(str, Enum):
+    """History sources for detached child instances."""
 
-    SCRATCH = "scratch"
-    FORK = "fork"
-    FORK_AND_MERGE = "fork_and_merge"
+    NONE = "none"
+    MESSAGES = "messages"
+    CHILD = "child"
+    ORCHESTRATOR = "orchestrator"
 
     @classmethod
-    def from_input(cls, value: Any | None) -> HistoryMode:
+    def from_input(cls, value: Any | None) -> HistorySource:
         if value is None:
-            return cls.FORK
+            return cls.NONE
         if isinstance(value, cls):
             return value
         try:
             return cls(str(value))
         except Exception:
-            return cls.FORK
+            return cls.NONE
+
+
+class HistoryMergeTarget(str, Enum):
+    """Merge targets for detached child history."""
+
+    NONE = "none"
+    MESSAGES = "messages"
+    CHILD = "child"
+    ORCHESTRATOR = "orchestrator"
+
+    @classmethod
+    def from_input(cls, value: Any | None) -> HistoryMergeTarget:
+        if value is None:
+            return cls.NONE
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value))
+        except Exception:
+            return cls.NONE
 
 
 @dataclass(kw_only=True)
@@ -235,19 +259,22 @@ class AgentsAsToolsOptions:
     """Configuration knobs for the Agents-as-Tools wrapper.
 
     Defaults:
-    - history_mode: fork child history (no merge back)
+    - history_source: none (child starts with empty history)
+    - history_merge_target: none (no merge back)
     - max_parallel: None (no cap; caller may set an explicit limit)
     - child_timeout_sec: None (no per-child timeout)
     - max_display_instances: 20 (show first N lines, collapse the rest)
     """
 
-    history_mode: HistoryMode = HistoryMode.FORK
+    history_source: HistorySource = HistorySource.NONE
+    history_merge_target: HistoryMergeTarget = HistoryMergeTarget.NONE
     max_parallel: int | None = None
     child_timeout_sec: float | None = None
     max_display_instances: int = 20
 
     def __post_init__(self) -> None:
-        self.history_mode = HistoryMode.from_input(self.history_mode)
+        self.history_source = HistorySource.from_input(self.history_source)
+        self.history_merge_target = HistoryMergeTarget.from_input(self.history_merge_target)
         if self.max_parallel is not None and self.max_parallel <= 0:
             raise ValueError("max_parallel must be > 0 when set")
         if self.max_display_instances is not None and self.max_display_instances <= 0:
@@ -277,6 +304,7 @@ class AgentsAsToolsAgent(McpAgent):
         agents: list[LlmAgent],
         options: AgentsAsToolsOptions | None = None,
         context: Any | None = None,
+        child_message_files: dict[str, list[Path]] | None = None,
         **kwargs: Any,
     ) -> None:
         """Initialize AgentsAsToolsAgent.
@@ -290,6 +318,7 @@ class AgentsAsToolsAgent(McpAgent):
         super().__init__(config=config, context=context, **kwargs)
         self._options = options or AgentsAsToolsOptions()
         self._child_agents: dict[str, LlmAgent] = {}
+        self._child_message_files = child_message_files or {}
         self._history_merge_lock = asyncio.Lock()
         self._display_suppression_count: dict[int, int] = {}
         self._original_display_configs: dict[int, Any] = {}
@@ -396,13 +425,28 @@ class AgentsAsToolsAgent(McpAgent):
                 if original_config is not None and hasattr(child, "display") and child.display:
                     child.display.config = original_config
 
-    async def _merge_child_history(
+    async def _merge_history(
         self, target: LlmAgent, clone: LlmAgent, start_index: int
     ) -> None:
         """Append clone history from start_index into target with a global merge lock."""
         async with self._history_merge_lock:
             new_messages = clone.message_history[start_index:]
             target.append_history(new_messages)
+
+    def _load_child_message_history(self, child_name: str) -> list[PromptMessageExtended]:
+        message_files = self._child_message_files.get(child_name, [])
+        if not message_files:
+            return []
+        messages: list[PromptMessageExtended] = []
+        for path in message_files:
+            try:
+                messages.extend(load_prompt(path))
+            except Exception as exc:
+                logger.warning(
+                    "Failed to load child message history",
+                    data={"agent_name": child_name, "path": str(path), "error": str(exc)},
+                )
+        return messages
 
     async def _invoke_child_agent(
         self,
@@ -729,16 +773,19 @@ class AgentsAsToolsAgent(McpAgent):
                 )
                 return CallToolResult(content=[text_content(f"Spawn failed: {exc}")], isError=True)
 
-            # Prepare history according to mode
-            history_mode = self._options.history_mode
-            base_history = child.message_history
-            fork_index = len(base_history)
+            history_source = self._options.history_source
+            history_merge_target = self._options.history_merge_target
+            base_history: list[PromptMessageExtended] = []
+            fork_index = 0
             try:
-                if history_mode == HistoryMode.SCRATCH:
-                    clone.load_message_history([])
-                    fork_index = 0
-                else:
-                    clone.load_message_history(base_history)
+                if history_source == HistorySource.MESSAGES:
+                    base_history = self._load_child_message_history(child.name)
+                elif history_source == HistorySource.CHILD:
+                    base_history = child.message_history
+                elif history_source == HistorySource.ORCHESTRATOR:
+                    base_history = self.message_history
+                clone.load_message_history(base_history)
+                fork_index = len(base_history)
             except Exception as hist_exc:
                 logger.warning(
                     "Failed to load history into clone",
@@ -785,14 +832,32 @@ class AgentsAsToolsAgent(McpAgent):
                             "error": str(merge_exc),
                         },
                     )
-                if history_mode == HistoryMode.FORK_AND_MERGE:
+                if history_merge_target == HistoryMergeTarget.MESSAGES:
+                    logger.warning(
+                        "history_merge_target=messages is deferred",
+                        data={"instance_name": instance_name},
+                    )
+                elif history_merge_target == HistoryMergeTarget.CHILD:
                     try:
-                        await self._merge_child_history(
+                        await self._merge_history(
                             target=child, clone=clone, start_index=fork_index
                         )
                     except Exception as merge_hist_exc:
                         logger.warning(
                             "Failed to merge child history",
+                            data={
+                                "instance_name": instance_name,
+                                "error": str(merge_hist_exc),
+                            },
+                        )
+                elif history_merge_target == HistoryMergeTarget.ORCHESTRATOR:
+                    try:
+                        await self._merge_history(
+                            target=self, clone=clone, start_index=fork_index
+                        )
+                    except Exception as merge_hist_exc:
+                        logger.warning(
+                            "Failed to merge orchestrator history",
                             data={
                                 "instance_name": instance_name,
                                 "error": str(merge_hist_exc),

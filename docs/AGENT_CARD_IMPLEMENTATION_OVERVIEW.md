@@ -105,8 +105,8 @@ keys:
 
 Type-specific mappings:
 - `agent`: `child_agents`, `function_tools`, `tool_hooks`,
-  `agents_as_tools_options` (history_mode, max_parallel, child_timeout_sec,
-  max_display_instances).
+  `agents_as_tools_options` (history_source, history_merge_target, max_parallel,
+  child_timeout_sec, max_display_instances).
 - `chain`: `sequence`, `cumulative`.
 - `parallel`: `fan_out`, `fan_in`, `include_request`.
 - `router`: `router_agents`.

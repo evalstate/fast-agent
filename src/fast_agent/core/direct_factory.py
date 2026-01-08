@@ -240,10 +240,39 @@ async def create_agents_by_type(
                     from fast_agent.agents.workflow.agents_as_tools_agent import (
                         AgentsAsToolsAgent,
                         AgentsAsToolsOptions,
+                        HistoryMergeTarget,
+                        HistorySource,
                     )
                     raw_opts = agent_data.get("agents_as_tools_options") or {}
                     opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
                     options = AgentsAsToolsOptions(**opt_kwargs)
+                    child_message_files: dict[str, list[Path]] = {}
+                    if (
+                        options.history_source == HistorySource.MESSAGES
+                        or options.history_merge_target == HistoryMergeTarget.MESSAGES
+                    ):
+                        missing_messages: list[str] = []
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name)
+                            message_files = (
+                                child_data.get("message_files") if child_data else None
+                            )
+                            if not message_files:
+                                missing_messages.append(agent_name)
+                            else:
+                                child_message_files[agent_name] = list(message_files)
+                        if missing_messages:
+                            missing_list = ", ".join(sorted(set(missing_messages)))
+                            raise AgentConfigError(
+                                "history_source/history_merge_target=messages requires child agents with messages",
+                                f"Missing messages for: {missing_list}",
+                            )
+                    else:
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name, {})
+                            message_files = child_data.get("message_files")
+                            if message_files:
+                                child_message_files[agent_name] = list(message_files)
 
                     agent = AgentsAsToolsAgent(
                         config=config,
@@ -251,6 +280,7 @@ async def create_agents_by_type(
                         agents=cast("list[LlmAgent]", child_agents),  # expose children as tools
                         options=options,
                         tools=function_tools,
+                        child_message_files=child_message_files,
                     )
 
                     await agent.initialize()
