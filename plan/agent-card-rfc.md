@@ -8,9 +8,10 @@ optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
 AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
-CLI auto-loads cards from `.fast-agent/agent-cards/` and `.fast-agent/tool-cards/`
-when those directories exist and contain supported card files. Tool cards attach
-to the default agent via Agents-as-Tools.
+CLI `--card-tool` loads AgentCards and exposes them as tools on the default agent.
+CLI runs also auto-load cards from `.fast-agent/agent-cards/` (agents) and
+`.fast-agent/tool-cards/` (tool cards) when those directories exist and contain
+supported card files.
 
 ## Agent vs Skill
 - **Skill**: a reusable prompt fragment or capability description.
