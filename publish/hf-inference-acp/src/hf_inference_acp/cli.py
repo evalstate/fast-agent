@@ -16,7 +16,6 @@ from typing import Any, cast
 import typer
 
 from fast_agent import FastAgent
-from fast_agent.agents.agent_types import AgentType
 from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import (
     CARD_EXTENSIONS,
@@ -28,12 +27,11 @@ from fast_agent.cli.commands.go import (
 )
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
-from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.core.agent_card_validation import find_loaded_agent_issues
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.hf_auth import add_hf_auth_header
-from fast_agent.tools.function_tool_loader import load_function_tools
 from hf_inference_acp.agents import HuggingFaceAgent, SetupAgent
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
@@ -188,11 +186,14 @@ def _parse_stdio_servers(
     return stdio_servers, updated_server_list
 
 
-def _format_agent_card_error(source: str, exc: Exception) -> str:
-    message = getattr(exc, "message", str(exc))
-    details = getattr(exc, "details", "")
-    if details:
-        message = f"{message} ({details})"
+def _format_agent_card_error(source: str, exc: Exception | str) -> str:
+    if isinstance(exc, Exception):
+        message = getattr(exc, "message", str(exc))
+        details = getattr(exc, "details", "")
+        if details:
+            message = f"{message} ({details})"
+    else:
+        message = str(exc)
     return f"AgentCard load failed: {source} - {message}"
 
 
@@ -240,114 +241,6 @@ def _load_agent_cards(
     return loaded_names, errors
 
 
-def _agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
-    agent_type = agent_data.get("type")
-    if isinstance(agent_type, AgentType):
-        agent_type = agent_type.value
-    if not isinstance(agent_type, str):
-        return set()
-
-    deps: set[str] = set()
-    if agent_type == AgentType.BASIC.value:
-        deps.update(agent_data.get("child_agents") or [])
-    elif agent_type == AgentType.CHAIN.value:
-        deps.update(agent_data.get("sequence") or [])
-    elif agent_type == AgentType.PARALLEL.value:
-        deps.update(agent_data.get("fan_out") or [])
-        fan_in = agent_data.get("fan_in")
-        if fan_in:
-            deps.add(fan_in)
-    elif agent_type in {AgentType.ORCHESTRATOR.value, AgentType.ITERATIVE_PLANNER.value}:
-        deps.update(agent_data.get("child_agents") or [])
-    elif agent_type == AgentType.ROUTER.value:
-        deps.update(agent_data.get("router_agents") or [])
-    elif agent_type == AgentType.EVALUATOR_OPTIMIZER.value:
-        evaluator = agent_data.get("evaluator")
-        generator = agent_data.get("generator")
-        if evaluator:
-            deps.add(evaluator)
-        if generator:
-            deps.add(generator)
-    elif agent_type == AgentType.MAKER.value:
-        worker = agent_data.get("worker")
-        if worker:
-            deps.add(worker)
-
-    return {dep for dep in deps if isinstance(dep, str)}
-
-
-def _prune_invalid_agent_cards(
-    fast: FastAgent,
-    *,
-    extra_agent_names: set[str],
-) -> list[str]:
-    errors: list[str] = []
-    removed_any = True
-    server_names: set[str] = set()
-    config = getattr(getattr(fast, "app", None), "context", None)
-    settings = getattr(config, "config", None) if config else None
-    if settings and getattr(settings, "mcp", None) and getattr(settings.mcp, "servers", None):
-        server_names = set(settings.mcp.servers.keys())
-
-    while removed_any:
-        removed_any = False
-        available = set(fast.agents.keys()) | extra_agent_names
-        invalid_names: list[str] = []
-
-        for name, agent_data in list(fast.agents.items()):
-            source_path = agent_data.get("source_path") or name
-            missing = sorted(dep for dep in _agent_dependencies(agent_data) if dep not in available)
-            if missing:
-                exc = AgentConfigError(
-                    f"Agent '{name}' references missing components: {', '.join(missing)}"
-                )
-                errors.append(_format_agent_card_error(str(source_path), exc))
-                invalid_names.append(name)
-                continue
-
-            config = agent_data.get("config")
-            if config and config.servers:
-                missing_servers = sorted(s for s in config.servers if s not in server_names)
-                if missing_servers:
-                    exc = AgentConfigError(
-                        f"Agent '{name}' references missing servers: {', '.join(missing_servers)}"
-                    )
-                    errors.append(_format_agent_card_error(str(source_path), exc))
-                    invalid_names.append(name)
-                    continue
-            tool_specs = getattr(config, "function_tools", None) if config else None
-            if tool_specs:
-                base_path = None
-                if source_path:
-                    base_path = Path(str(source_path)).expanduser().resolve().parent
-                try:
-                    load_function_tools(tool_specs, base_path)
-                except Exception as exc:  # noqa: BLE001
-                    errors.append(_format_agent_card_error(str(source_path), exc))
-                    invalid_names.append(name)
-
-        if not invalid_names:
-            continue
-
-        removed_any = True
-        invalid_set = set(invalid_names)
-        for name in invalid_names:
-            fast.agents.pop(name, None)
-            for mapping_name in ("_agent_card_sources", "_agent_card_histories"):
-                mapping = getattr(fast, mapping_name, None)
-                if isinstance(mapping, dict):
-                    mapping.pop(name, None)
-
-        roots = getattr(fast, "_agent_card_roots", None)
-        if isinstance(roots, dict):
-            for names in roots.values():
-                if isinstance(names, set):
-                    names.difference_update(invalid_set)
-
-    for message in errors:
-        typer.echo(f"Warning: {message}", err=True)
-
-    return errors
 
 
 async def run_agents(
@@ -418,12 +311,34 @@ async def run_agents(
     card_errors: list[str] = []
     if merged_agent_cards:
         _, card_errors = _load_agent_cards(fast, merged_agent_cards)
-        prune_errors = _prune_invalid_agent_cards(
-            fast,
+        server_names: set[str] | None = None
+        settings = getattr(getattr(fast, "app", None), "context", None)
+        config = getattr(settings, "config", None) if settings else None
+        if config and getattr(config, "mcp", None) and getattr(config.mcp, "servers", None):
+            server_names = set(config.mcp.servers.keys())
+
+        issues, invalid_names = find_loaded_agent_issues(
+            fast.agents,
             extra_agent_names={"setup", "huggingface"},
+            server_names=server_names,
         )
-        if prune_errors:
-            card_errors.extend(prune_errors)
+        if invalid_names:
+            for name in invalid_names:
+                fast.agents.pop(name, None)
+                for mapping_name in ("_agent_card_sources", "_agent_card_histories"):
+                    mapping = getattr(fast, mapping_name, None)
+                    if isinstance(mapping, dict):
+                        mapping.pop(name, None)
+            roots = getattr(fast, "_agent_card_roots", None)
+            if isinstance(roots, dict):
+                for names in roots.values():
+                    if isinstance(names, set):
+                        names.difference_update(invalid_names)
+
+        for issue in issues:
+            formatted = _format_agent_card_error(issue.source, issue.message)
+            card_errors.append(formatted)
+            typer.echo(f"Warning: {formatted}", err=True)
         # Collect names of all loaded agents (excluding our built-in ones)
         child_agent_names = [
             name for name in fast.agents.keys()
