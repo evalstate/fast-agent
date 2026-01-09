@@ -16,8 +16,10 @@ from typing import Any, cast
 import typer
 
 from fast_agent import FastAgent
+from fast_agent.agents.agent_types import AgentType
 from fast_agent.cli.commands import serve
 from fast_agent.cli.commands.go import (
+    CARD_EXTENSIONS,
     DEFAULT_AGENT_CARDS_DIR,
     DEFAULT_TOOL_CARDS_DIR,
     _merge_card_sources,
@@ -31,6 +33,7 @@ from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.mcp.hf_auth import add_hf_auth_header
+from fast_agent.tools.function_tool_loader import load_function_tools
 from hf_inference_acp.agents import HuggingFaceAgent, SetupAgent
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
@@ -76,6 +79,7 @@ Use these slash commands to configure the agent:
 - `/set-model <model>` - Set the default model for inference
 - `/login` - Get instructions for logging in to HuggingFace
 - `/check` - Verify huggingface_hub installation and configuration
+- `/reset confirm` - Reset the local .fast-agent directory (removes stored permissions and cards)
 
 # Current Status
 
@@ -184,6 +188,168 @@ def _parse_stdio_servers(
     return stdio_servers, updated_server_list
 
 
+def _format_agent_card_error(source: str, exc: Exception) -> str:
+    message = getattr(exc, "message", str(exc))
+    details = getattr(exc, "details", "")
+    if details:
+        message = f"{message} ({details})"
+    return f"AgentCard load failed: {source} - {message}"
+
+
+def _iter_agent_card_files(source: Path) -> list[Path]:
+    if source.is_dir():
+        return [
+            entry
+            for entry in sorted(source.iterdir())
+            if entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
+        ]
+    return [source]
+
+
+def _load_agent_cards(
+    fast: FastAgent,
+    sources: list[str],
+) -> tuple[list[str], list[str]]:
+    loaded_names: list[str] = []
+    errors: list[str] = []
+    seen_files: set[Path] = set()
+
+    for source in sources:
+        if source.startswith(("http://", "https://")):
+            try:
+                loaded_names.extend(fast.load_agents_from_url(source))
+            except Exception as exc:  # noqa: BLE001
+                formatted = _format_agent_card_error(source, exc)
+                errors.append(formatted)
+                typer.echo(f"Warning: {formatted}", err=True)
+            continue
+
+        source_path = Path(source).expanduser()
+        for card_path in _iter_agent_card_files(source_path):
+            resolved_path = card_path.expanduser().resolve()
+            if resolved_path in seen_files:
+                continue
+            seen_files.add(resolved_path)
+            try:
+                loaded_names.extend(fast.load_agents(resolved_path))
+            except Exception as exc:  # noqa: BLE001
+                formatted = _format_agent_card_error(str(resolved_path), exc)
+                errors.append(formatted)
+                typer.echo(f"Warning: {formatted}", err=True)
+
+    return loaded_names, errors
+
+
+def _agent_dependencies(agent_data: dict[str, Any]) -> set[str]:
+    agent_type = agent_data.get("type")
+    if isinstance(agent_type, AgentType):
+        agent_type = agent_type.value
+    if not isinstance(agent_type, str):
+        return set()
+
+    deps: set[str] = set()
+    if agent_type == AgentType.BASIC.value:
+        deps.update(agent_data.get("child_agents") or [])
+    elif agent_type == AgentType.CHAIN.value:
+        deps.update(agent_data.get("sequence") or [])
+    elif agent_type == AgentType.PARALLEL.value:
+        deps.update(agent_data.get("fan_out") or [])
+        fan_in = agent_data.get("fan_in")
+        if fan_in:
+            deps.add(fan_in)
+    elif agent_type in {AgentType.ORCHESTRATOR.value, AgentType.ITERATIVE_PLANNER.value}:
+        deps.update(agent_data.get("child_agents") or [])
+    elif agent_type == AgentType.ROUTER.value:
+        deps.update(agent_data.get("router_agents") or [])
+    elif agent_type == AgentType.EVALUATOR_OPTIMIZER.value:
+        evaluator = agent_data.get("evaluator")
+        generator = agent_data.get("generator")
+        if evaluator:
+            deps.add(evaluator)
+        if generator:
+            deps.add(generator)
+    elif agent_type == AgentType.MAKER.value:
+        worker = agent_data.get("worker")
+        if worker:
+            deps.add(worker)
+
+    return {dep for dep in deps if isinstance(dep, str)}
+
+
+def _prune_invalid_agent_cards(
+    fast: FastAgent,
+    *,
+    extra_agent_names: set[str],
+) -> list[str]:
+    errors: list[str] = []
+    removed_any = True
+    server_names: set[str] = set()
+    config = getattr(getattr(fast, "app", None), "context", None)
+    settings = getattr(config, "config", None) if config else None
+    if settings and getattr(settings, "mcp", None) and getattr(settings.mcp, "servers", None):
+        server_names = set(settings.mcp.servers.keys())
+
+    while removed_any:
+        removed_any = False
+        available = set(fast.agents.keys()) | extra_agent_names
+        invalid_names: list[str] = []
+
+        for name, agent_data in list(fast.agents.items()):
+            source_path = agent_data.get("source_path") or name
+            missing = sorted(dep for dep in _agent_dependencies(agent_data) if dep not in available)
+            if missing:
+                exc = AgentConfigError(
+                    f"Agent '{name}' references missing components: {', '.join(missing)}"
+                )
+                errors.append(_format_agent_card_error(str(source_path), exc))
+                invalid_names.append(name)
+                continue
+
+            config = agent_data.get("config")
+            if config and config.servers:
+                missing_servers = sorted(s for s in config.servers if s not in server_names)
+                if missing_servers:
+                    exc = AgentConfigError(
+                        f"Agent '{name}' references missing servers: {', '.join(missing_servers)}"
+                    )
+                    errors.append(_format_agent_card_error(str(source_path), exc))
+                    invalid_names.append(name)
+                    continue
+            tool_specs = getattr(config, "function_tools", None) if config else None
+            if tool_specs:
+                base_path = None
+                if source_path:
+                    base_path = Path(str(source_path)).expanduser().resolve().parent
+                try:
+                    load_function_tools(tool_specs, base_path)
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(_format_agent_card_error(str(source_path), exc))
+                    invalid_names.append(name)
+
+        if not invalid_names:
+            continue
+
+        removed_any = True
+        invalid_set = set(invalid_names)
+        for name in invalid_names:
+            fast.agents.pop(name, None)
+            for mapping_name in ("_agent_card_sources", "_agent_card_histories"):
+                mapping = getattr(fast, mapping_name, None)
+                if isinstance(mapping, dict):
+                    mapping.pop(name, None)
+
+        roots = getattr(fast, "_agent_card_roots", None)
+        if isinstance(roots, dict):
+            for names in roots.values():
+                if isinstance(names, set):
+                    names.difference_update(invalid_set)
+
+    for message in errors:
+        typer.echo(f"Warning: {message}", err=True)
+
+    return errors
+
+
 async def run_agents(
     *,
     name: str,
@@ -232,8 +398,8 @@ async def run_agents(
 
     fast = FastAgent(**cast("Any", fast_kwargs))
 
+    await fast.app.initialize()
     if shell_runtime:
-        await fast.app.initialize()
         setattr(fast.app.context, "shell_runtime", True)
 
     await add_servers_to_config(fast, url_servers or {})
@@ -249,21 +415,22 @@ async def run_agents(
 
     # Load agent cards BEFORE defining agents so we can add them as child agents
     child_agent_names: list[str] = []
+    card_errors: list[str] = []
     if merged_agent_cards:
-        try:
-            for card_source in merged_agent_cards:
-                if card_source.startswith(("http://", "https://")):
-                    fast.load_agents_from_url(card_source)
-                else:
-                    fast.load_agents(card_source)
-            # Collect names of all loaded agents (excluding our built-in ones)
-            child_agent_names = [
-                name for name in fast.agents.keys()
-                if name not in {"setup", "huggingface"}
-            ]
-        except AgentConfigError as exc:
-            fast._handle_error(exc)
-            raise SystemExit(1) from exc
+        _, card_errors = _load_agent_cards(fast, merged_agent_cards)
+        prune_errors = _prune_invalid_agent_cards(
+            fast,
+            extra_agent_names={"setup", "huggingface"},
+        )
+        if prune_errors:
+            card_errors.extend(prune_errors)
+        # Collect names of all loaded agents (excluding our built-in ones)
+        child_agent_names = [
+            name for name in fast.agents.keys()
+            if name not in {"setup", "huggingface"}
+        ]
+        if card_errors:
+            setattr(fast.app.context, "agent_card_errors", card_errors)
 
     # Register the Setup agent (wizard LLM for guided setup)
     # This is always available for configuration

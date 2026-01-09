@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import os
+import shutil
 import uuid
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from acp.helpers import text_block, tool_content
@@ -89,6 +91,20 @@ def _resolve_alias_display(model: str) -> tuple[str, str] | None:
     return model, resolved
 
 
+def _collect_agent_card_warnings(context: "Context | None") -> list[str]:
+    if not context:
+        return []
+    warnings = getattr(context, "agent_card_errors", None)
+    if not warnings:
+        return []
+    cleaned: list[str] = []
+    for message in warnings:
+        message_text = str(message).strip()
+        if message_text:
+            cleaned.append(message_text)
+    return cleaned
+
+
 async def _lookup_and_format_providers(model: str) -> str | None:
     """Look up inference providers for a model and return a formatted message.
 
@@ -130,6 +146,11 @@ class SetupAgent(ACPAwareMixin, McpAgent):
         """Initialize the Setup agent."""
         McpAgent.__init__(self, config=config, context=context, **kwargs)
         self._context = context
+        self._record_agent_card_warnings()
+
+    def _record_agent_card_warnings(self) -> None:
+        for warning in _collect_agent_card_warnings(self._context):
+            self._record_warning(warning)
 
     async def attach_llm(self, llm_factory, model=None, request_params=None, **kwargs):
         """Override to set up wizard callback after LLM is attached."""
@@ -212,6 +233,11 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             "check": ACPCommand(
                 description="Verify huggingface_hub installation and configuration",
                 handler=self._handle_check,
+            ),
+            "reset": ACPCommand(
+                description="Reset the local .fast-agent directory",
+                input_hint="confirm",
+                handler=self._handle_reset,
             ),
         }
 
@@ -325,6 +351,33 @@ class SetupAgent(ACPAwareMixin, McpAgent):
 
         return "\n".join(lines)
 
+    async def _handle_reset(self, arguments: str) -> str:
+        """Handler for /reset command."""
+        confirmation = arguments.strip().lower()
+        if confirmation not in {"confirm", "yes", "y"}:
+            return (
+                "This will delete the local `.fast-agent` directory and recreate it empty.\n\n"
+                "To proceed, run:\n"
+                "`/reset confirm`"
+            )
+
+        base_dir = Path(self.config.cwd) if self.config.cwd else Path.cwd()
+        target_dir = (base_dir / ".fast-agent").resolve()
+
+        try:
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            target_dir.mkdir(parents=True, exist_ok=True)
+            (target_dir / "agent-cards").mkdir(parents=True, exist_ok=True)
+            (target_dir / "tool-cards").mkdir(parents=True, exist_ok=True)
+        except Exception as exc:  # noqa: BLE001
+            return f"Error resetting `{target_dir}`: {exc}"
+
+        return (
+            "Reset complete.\n\n"
+            f"Recreated `{target_dir}` with empty `agent-cards` and `tool-cards` folders."
+        )
+
     async def _get_model_provider_info(self, model: str) -> str | None:
         """Get a brief provider info string for a model.
 
@@ -365,6 +418,11 @@ class HuggingFaceAgent(ACPAwareMixin, McpAgent):
         McpAgent.__init__(self, config=config, context=context, **kwargs)
         self._context = context
         self._hf_mcp_connected = False
+        self._record_agent_card_warnings()
+
+    def _record_agent_card_warnings(self) -> None:
+        for warning in _collect_agent_card_warnings(self._context):
+            self._record_warning(warning)
 
     @property
     def acp_commands(self) -> dict[str, ACPCommand]:
