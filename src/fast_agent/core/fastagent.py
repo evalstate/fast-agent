@@ -1221,23 +1221,9 @@ class FastAgent:
                         # Refresh the instance to include newly loaded agents
                         await refresh_shared_instance()
 
-                        # Get the default agent to add tools to
+                        # Get the default agent to add tools to (reuse AgentApp's default logic)
                         default_agent_name = getattr(self.args, "agent", None)
-                        default_agent = (
-                            active_agents.get(default_agent_name)
-                            if default_agent_name
-                            else None
-                        )
-
-                        # If no explicit agent specified, find the one marked default=True
-                        if default_agent is None and active_agents:
-                            for agent in active_agents.values():
-                                if agent.config.default:
-                                    default_agent = agent
-                                    break
-                            # Final fallback: first available agent
-                            if default_agent is None:
-                                default_agent = next(iter(active_agents.values()))
+                        default_agent = wrapper._agent(default_agent_name)
 
                         if default_agent:
                             add_tool_fn = getattr(default_agent, "add_agent_tool", None)
