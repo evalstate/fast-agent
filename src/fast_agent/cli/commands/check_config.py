@@ -10,6 +10,8 @@ import yaml
 from rich.table import Table
 from rich.text import Text
 
+from fast_agent.cli.commands.go import DEFAULT_AGENT_CARDS_DIR, DEFAULT_TOOL_CARDS_DIR
+from fast_agent.core.agent_card_validation import scan_agent_card_directory
 from fast_agent.llm.provider_key_manager import API_KEY_HINT_TEXT, ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
 from fast_agent.skills import SkillRegistry
@@ -406,6 +408,11 @@ def show_check_summary() -> None:
         except ValueError:
             return str(path)
 
+    def _truncate(text: str, length: int = 70) -> str:
+        if len(text) <= length:
+            return text
+        return text[: length - 3] + "..."
+
     skills_override = config_summary.get("skills_directories")
     override_directories = (
         [Path(entry).expanduser() for entry in skills_override]
@@ -657,11 +664,6 @@ def show_check_summary() -> None:
             skills_table.add_column("Source", style="dim", header_style="bold bright_white")
             skills_table.add_column("Status", style="green", header_style="bold bright_white")
 
-            def _truncate(text: str, length: int = 70) -> str:
-                if len(text) <= length:
-                    return text
-                return text[: length - 3] + "..."
-
             for manifest in skills_manifests:
                 source_display = _relative_path(manifest.path.parent)
 
@@ -692,6 +694,63 @@ def show_check_summary() -> None:
     else:
         console.print(
             "[dim]Agent Skills not configured. Go to https://fast-agent.ai/agents/skills/[/dim]"
+        )
+
+    server_names: set[str] | None = None
+    if config_summary.get("status") == "parsed":
+        mcp_servers = config_summary.get("mcp_servers", [])
+        if isinstance(mcp_servers, list):
+            server_names = {
+                server.get("name", "")
+                for server in mcp_servers
+                if isinstance(server, dict) and server.get("name")
+            }
+
+    _print_section_header("Agent Cards", color="blue")
+    card_directories = [
+        ("Agent Cards", DEFAULT_AGENT_CARDS_DIR),
+        ("Tool Cards", DEFAULT_TOOL_CARDS_DIR),
+    ]
+    found_card_dir = False
+    for label, directory in card_directories:
+        if not directory.is_dir():
+            continue
+        found_card_dir = True
+        console.print(f"{label} Directory: [green]{_relative_path(directory)}[/green]")
+
+        entries = scan_agent_card_directory(directory, server_names=server_names)
+        if not entries:
+            console.print("[yellow]No AgentCards found in this directory[/yellow]")
+            continue
+
+        cards_table = Table(show_header=True, box=None)
+        cards_table.add_column("Name", style="cyan", header_style="bold bright_white")
+        cards_table.add_column("Type", style="white", header_style="bold bright_white")
+        cards_table.add_column("Source", style="dim", header_style="bold bright_white")
+        cards_table.add_column("Status", style="green", header_style="bold bright_white")
+
+        for entry in entries:
+            error_messages = entry.errors
+            if error_messages:
+                error_text = _truncate(error_messages[0], 60)
+                if len(error_messages) > 1:
+                    error_text = f"{error_text} (+{len(error_messages) - 1} more)"
+                status = f"[red]{error_text}[/red]"
+            else:
+                status = "[green]ok[/green]"
+
+            cards_table.add_row(
+                entry.name,
+                entry.type,
+                _relative_path(entry.path),
+                status,
+            )
+
+        console.print(cards_table)
+
+    if not found_card_dir:
+        console.print(
+            "[dim]No local AgentCard directories found (.fast-agent/agent-cards or .fast-agent/tool-cards).[/dim]"
         )
 
     # Show help tips
