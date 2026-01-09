@@ -26,7 +26,7 @@ The "Agents as Tools" pattern simplifies this by:
   based on its instruction and context, without hardcoded routing logic
 - **Parallel execution**: Multiple child agents can run concurrently when the LLM makes
   parallel tool calls
-- **Clean abstraction**: Child agents expose minimal schemas (text or JSON input),
+- **Clean abstraction**: Child agents expose a minimal schema (single `message` parameter),
   making them universally composable
 
 Benefits over iterative_planner/orchestrator:
@@ -40,7 +40,7 @@ Algorithm
 1. **Initialization**
    - `AgentsAsToolsAgent` is itself an `McpAgent` (with its own MCP servers + tools) and receives a list of **child agents**.
    - Each child agent is mapped to a synthetic tool name: `agent__{child_name}`.
-   - Child tool schemas advertise text/json input capabilities.
+   - Child tool schemas accept a single `message` string parameter.
 
 2. **Tool Discovery (list_tools)**
    - `list_tools()` starts from the base `McpAgent.list_tools()` (MCP + local tools).
@@ -49,7 +49,7 @@ Algorithm
 
 3. **Tool Execution (call_tool)**
    - If the requested tool name resolves to a child agent (either `child_name` or `agent__child_name`):
-     - Convert tool arguments (text or JSON) to a child user message.
+     - Convert the `message` argument to a child user message.
      - Execute via detached clones created inside `run_tools` (see below).
      - Responses are converted to `CallToolResult` objects (errors propagate as `isError=True`).
    - Otherwise, delegate to the base `McpAgent.call_tool` implementation (MCP tools, shell, human-input, etc.).
@@ -350,10 +350,9 @@ class AgentsAsToolsAgent(McpAgent):
             input_schema: dict[str, Any] = {
                 "type": "object",
                 "properties": {
-                    "text": {"type": "string", "description": "Plain text input"},
-                    "json": {"type": "object", "description": "Arbitrary JSON payload"},
+                    "message": {"type": "string", "description": "Message to send to the agent"},
                 },
-                "additionalProperties": True,
+                "required": ["message"],
             }
             tools.append(
                 Tool(
@@ -414,17 +413,13 @@ class AgentsAsToolsAgent(McpAgent):
         """Shared helper to execute a child agent with standard serialization and display rules."""
 
         args = arguments or {}
-        # Serialize arguments to text input
-        if isinstance(args.get("text"), str):
+        # Extract message from arguments
+        if isinstance(args.get("message"), str):
+            input_text = args["message"]
+        elif isinstance(args.get("text"), str):  # backwards compat
             input_text = args["text"]
-        elif "json" in args:
-            input_text = (
-                json.dumps(args["json"], ensure_ascii=False)
-                if isinstance(args["json"], dict)
-                else str(args["json"])
-            )
         else:
-            input_text = json.dumps(args, ensure_ascii=False) if args else ""
+            input_text = str(args) if args else ""
 
         child_request = Prompt.user(input_text)
 

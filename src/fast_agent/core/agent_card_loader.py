@@ -10,6 +10,7 @@ import frontmatter
 import yaml
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.skills import SKILLS_DEFAULT
@@ -344,7 +345,7 @@ def _resolve_instruction_field(
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
         return resolved
 
-    raise AgentConfigError(f"Instruction is required in {path}")
+    return DEFAULT_AGENT_INSTRUCTION
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:

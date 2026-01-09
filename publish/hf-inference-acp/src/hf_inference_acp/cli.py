@@ -17,7 +17,13 @@ import typer
 
 from fast_agent import FastAgent
 from fast_agent.cli.commands import serve
-from fast_agent.cli.commands.go import collect_stdio_commands, resolve_instruction_option
+from fast_agent.cli.commands.go import (
+    DEFAULT_AGENT_CARDS_DIR,
+    DEFAULT_TOOL_CARDS_DIR,
+    _merge_card_sources,
+    collect_stdio_commands,
+    resolve_instruction_option,
+)
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.core.exceptions import AgentConfigError
@@ -237,6 +243,28 @@ async def run_agents(
     _ensure_hf_token_from_provider_config(fast)
     hf_token_present = has_hf_token()
 
+    # Auto-discover and merge agent cards from .fast-agent/agent-cards
+    merged_agent_cards = _merge_card_sources(agent_cards, DEFAULT_AGENT_CARDS_DIR)
+    merged_card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
+
+    # Load agent cards BEFORE defining agents so we can add them as child agents
+    child_agent_names: list[str] = []
+    if merged_agent_cards:
+        try:
+            for card_source in merged_agent_cards:
+                if card_source.startswith(("http://", "https://")):
+                    fast.load_agents_from_url(card_source)
+                else:
+                    fast.load_agents(card_source)
+            # Collect names of all loaded agents (excluding our built-in ones)
+            child_agent_names = [
+                name for name in fast.agents.keys()
+                if name not in {"setup", "huggingface"}
+            ]
+        except AgentConfigError as exc:
+            fast._handle_error(exc)
+            raise SystemExit(1) from exc
+
     # Register the Setup agent (wizard LLM for guided setup)
     # This is always available for configuration
     @fast.custom(
@@ -264,36 +292,26 @@ async def run_agents(
 
     # Register the HuggingFace agent (uses HF LLM)
     # Always register so the mode is visible; defaults to Setup mode when token is missing
+    # Include any loaded agent cards as child agents (available as tools)
     @fast.custom(
         HuggingFaceAgent,
         name="huggingface",
         instruction=instruction,
         model=effective_model if hf_token_present else "wizard-setup",
         servers=server_list,
+        agents=child_agent_names if child_agent_names else None,
         default=hf_token_present,
     )
     async def hf_agent():
         pass
 
-    # Load agent cards (--card option)
-    if agent_cards:
-        try:
-            for card_source in agent_cards:
-                if card_source.startswith(("http://", "https://")):
-                    fast.load_agents_from_url(card_source)
-                else:
-                    fast.load_agents(card_source)
-        except AgentConfigError as exc:
-            fast._handle_error(exc)
-            raise SystemExit(1) from exc
-
     # Set card_tools for start_server() to process (--card-tool option)
-    if card_tools:
+    if merged_card_tools:
         from argparse import Namespace
 
         if not hasattr(fast, "args") or fast.args is None:
             fast.args = Namespace()
-        fast.args.card_tools = card_tools
+        fast.args.card_tools = merged_card_tools
 
     # Start the ACP server
     await fast.start_server(
