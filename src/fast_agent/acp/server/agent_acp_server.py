@@ -64,6 +64,7 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
+from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -78,7 +79,12 @@ from fast_agent.core.prompt_templates import (
     apply_template_variables,
     enrich_with_environment_context,
 )
-from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, StreamingAgentProtocol
+from fast_agent.interfaces import (
+    ACPAwareProtocol,
+    AgentProtocol,
+    StreamingAgentProtocol,
+    ToolRunnerHookCapable,
+)
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import last_turn_usage
@@ -786,6 +792,56 @@ class AgentACPServer(ACPAgent):
 
         return {"field_meta": {"openhands.dev/metrics": {"status_line": status_line}}}
 
+    @staticmethod
+    def _merge_tool_runner_hooks(
+        base: ToolRunnerHooks | None, extra: ToolRunnerHooks | None
+    ) -> ToolRunnerHooks | None:
+        if base is None:
+            return extra
+        if extra is None:
+            return base
+
+        def merge(one, two):
+            if one is None:
+                return two
+            if two is None:
+                return one
+
+            async def merged(*args, **kwargs):
+                await one(*args, **kwargs)
+                await two(*args, **kwargs)
+
+            return merged
+
+        return ToolRunnerHooks(
+            before_llm_call=merge(base.before_llm_call, extra.before_llm_call),
+            after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
+            before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
+            after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
+        )
+
+    async def _send_status_line_update(
+        self, session_id: str, agent: Any, turn_start_index: int | None
+    ) -> None:
+        if not self._connection:
+            return
+        status_line_meta = self._build_status_line_meta(agent, turn_start_index)
+        if not status_line_meta:
+            return
+        try:
+            message_chunk = update_agent_message_text("")
+            await self._connection.session_update(
+                session_id=session_id,
+                update=message_chunk,
+                **status_line_meta,
+            )
+        except Exception as exc:
+            logger.error(
+                f"Error sending status line update: {exc}",
+                name="acp_status_line_update_error",
+                exc_info=True,
+            )
+
     async def new_session(
         self,
         cwd: str,
@@ -1433,10 +1489,40 @@ class AgentACPServer(ACPAgent):
                         turn_start_index = None
                         if isinstance(agent, AgentProtocol) and agent.usage_accumulator is not None:
                             turn_start_index = len(agent.usage_accumulator.turns)
-                        result = await agent.generate(
-                            prompt_message,
-                            request_params=session_request_params,
-                        )
+                        previous_hooks = None
+                        restore_hooks = False
+                        if (
+                            self._connection
+                            and isinstance(agent, ToolRunnerHookCapable)
+                            and turn_start_index is not None
+                        ):
+
+                            async def after_llm_call(_runner, message):
+                                if message.stop_reason != LlmStopReason.TOOL_USE:
+                                    return
+                                await self._send_status_line_update(
+                                    session_id, agent, turn_start_index
+                                )
+
+                            status_hook = ToolRunnerHooks(after_llm_call=after_llm_call)
+                            try:
+                                previous_hooks = agent.tool_runner_hooks
+                                agent.tool_runner_hooks = self._merge_tool_runner_hooks(
+                                    previous_hooks, status_hook
+                                )
+                                restore_hooks = True
+                            except AttributeError:
+                                previous_hooks = None
+                                restore_hooks = False
+
+                        try:
+                            result = await agent.generate(
+                                prompt_message,
+                                request_params=session_request_params,
+                            )
+                        finally:
+                            if restore_hooks:
+                                agent.tool_runner_hooks = previous_hooks
                         response_text = result.last_text() or "No content generated"
                         status_line_meta = self._build_status_line_meta(agent, turn_start_index)
 

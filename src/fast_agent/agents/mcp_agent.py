@@ -398,7 +398,7 @@ class McpAgent(ABC, ToolAgent):
         self._warnings.append(message)
         self.logger.warning(message)
         try:
-            console.console.print(f"[yellow]{message}[/yellow]")
+            console.error_console.print(f"[yellow]{message}[/yellow]")
         except Exception:  # pragma: no cover - console fallback
             pass
 
