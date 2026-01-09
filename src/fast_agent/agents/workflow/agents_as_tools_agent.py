@@ -186,7 +186,6 @@ References
 from __future__ import annotations
 
 import asyncio
-import json
 from contextlib import contextmanager, nullcontext
 from copy import copy
 from dataclasses import dataclass
