@@ -22,10 +22,14 @@ How it works:
   - Exposes each child agent as a tool (`agent__ChildName`).
   - Merges MCP tools and agent-tools in a single `list_tools()` surface.
   - Supports history/parallel controls:
-    - `history_mode` (controls child history):
-      - `scratch`: clones start with empty history
-      - `**fork**` (default): clones start from the template child history; no merge-back
-      - `fork_and_merge`: merge clone history back into the template child agent
+    - `history_source` (where child clones load history from):
+      - `none` (default): clones start with empty history
+      - `child`: clones start from the template child history
+      - `orchestrator`: clones start from the parent/orchestrator history
+    - `history_merge_target` (where clone history is merged back to):
+      - `none` (default): no merge-back
+      - `child`: merge into the template child history
+      - `orchestrator`: merge into the parent/orchestrator history
     - `max_parallel` (default unlimited)
     - `child_timeout_sec` (default none)
     - `max_display_instances` (default 20; collapse progress after top-N)
@@ -35,7 +39,6 @@ How it works:
 import asyncio
 
 from fast_agent import FastAgent
-from fast_agent.agents.workflow.agents_as_tools_agent import HistoryMode
 
 # Create the application
 fast = FastAgent("Agents-as-Tools demo")
@@ -81,10 +84,9 @@ fast = FastAgent("Agents-as-Tools demo")
         "NY-Project-Manager",
         "London-Project-Manager",
     ],  
-    # Defaults: clones fork parent history (no merge-back), no timeout, no parallel cap,
+    # Defaults: clones start with empty history (no merge-back), no timeout, no parallel cap,
     # and collapses progress display after the first 20 instances.
     # To change behavior, pass decorator args
-    history_mode=HistoryMode.SCRATCH,
     max_parallel=128,
     child_timeout_sec=120,
     max_display_instances=20

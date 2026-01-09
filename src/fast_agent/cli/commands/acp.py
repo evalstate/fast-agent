@@ -45,6 +45,11 @@ def run_acp(
         "--card",
         help="Path or URL to an AgentCard file or directory (repeatable)",
     ),
+    card_tools: list[str] | None = typer.Option(
+        None,
+        "--card-tool",
+        help="Path or URL to an AgentCard file or directory to load as tools (repeatable)",
+    ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
     ),
@@ -121,6 +126,7 @@ def run_acp(
         config_path=config_path,
         servers=servers,
         agent_cards=agent_cards,
+        card_tools=card_tools,
         urls=urls,
         auth=auth,
         model=model,

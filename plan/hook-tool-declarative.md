@@ -49,7 +49,6 @@ agents:
   - London-Project-Manager
 tool_hooks:
   - hooks.py:audit_hook
-history_mode: scratch
 max_parallel: 128
 child_timeout_sec: 120
 max_display_instances: 20

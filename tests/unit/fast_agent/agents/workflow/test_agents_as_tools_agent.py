@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from unittest.mock import AsyncMock
 
 import pytest
+import pytest_asyncio
 from mcp import CallToolRequest, Tool
 from mcp.types import CallToolRequestParams, PromptMessage, TextContent
 
@@ -11,10 +12,36 @@ from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.agents.workflow.agents_as_tools_agent import (
     AgentsAsToolsAgent,
     AgentsAsToolsOptions,
+    HistoryMergeTarget,
+    HistorySource,
 )
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
 from fast_agent.mcp.helpers.content_helpers import text_content
+from fast_agent.mcp.prompt_serialization import load_messages, save_messages
 from fast_agent.types import PromptMessageExtended, RequestParams
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def cleanup_logging():
+    yield
+    from fast_agent.core.logging.logger import LoggingConfig
+    from fast_agent.core.logging.transport import AsyncEventBus
+
+    await LoggingConfig.shutdown()
+    bus = AsyncEventBus._instance
+    if bus is not None:
+        await bus.stop()
+    AsyncEventBus.reset()
+    pending = [
+        task
+        for task in asyncio.all_tasks()
+        if task is not asyncio.current_task()
+        and getattr(task.get_coro(), "__qualname__", "") == "AsyncEventBus._process_events"
+    ]
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)
 
 
 class FakeChildAgent(LlmAgent):
@@ -62,6 +89,41 @@ class ErrorChannelChild(FakeChildAgent):
             content=[],
             channels={FAST_AGENT_ERROR_CHANNEL: [text_content("err-block")]},
         )
+
+
+class HistoryChild(LlmAgent):
+    """Child stub that records loaded history and appends a response."""
+
+    def __init__(self, name: str):
+        super().__init__(AgentConfig(name))
+        self.loaded_history: list[PromptMessageExtended] | None = None
+        self.last_clone: HistoryChild | None = None
+
+    def load_message_history(self, messages: list[PromptMessageExtended] | None) -> None:
+        self.loaded_history = list(messages or [])
+        super().load_message_history(messages)
+
+    async def generate(
+        self,
+        messages: str
+        | PromptMessage
+        | PromptMessageExtended
+        | Sequence[str | PromptMessage | PromptMessageExtended],
+        request_params: RequestParams | None = None,
+        tools: list[Tool] | None = None,
+    ) -> PromptMessageExtended:
+        response = PromptMessageExtended(
+            role="assistant",
+            content=[text_content("ok")],
+        )
+        self.message_history.append(response)
+        return response
+
+    async def spawn_detached_instance(self, name: str | None = None):
+        clone = HistoryChild(name or self.name)
+        clone.load_message_history(list(self.message_history))
+        self.last_clone = clone
+        return clone
 
 
 class StubNestedAgentsAsTools(AgentsAsToolsAgent):
@@ -148,6 +210,96 @@ async def test_run_tools_respects_max_parallel_and_timeout():
         for block in err_res.content
     )
 
+
+@pytest.mark.asyncio
+async def test_history_source_child_merges_back_to_child():
+    child = HistoryChild("child")
+    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
+    child.load_message_history([seed])
+
+    options = AgentsAsToolsOptions(
+        history_source=HistorySource.CHILD,
+        history_merge_target=HistoryMergeTarget.CHILD,
+    )
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child], options=options)
+    await agent.initialize()
+
+    tool_calls = {
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__child", arguments={"text": "hi"})
+        ),
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    await agent.run_tools(request)
+
+    clone = child.last_clone
+    assert clone is not None
+    assert clone.loaded_history == [seed]
+    assert len(child.message_history) == 2
+    assert child.message_history[-1].role == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_history_source_orchestrator_merges_back_to_orchestrator():
+    child = HistoryChild("child")
+    options = AgentsAsToolsOptions(
+        history_source=HistorySource.ORCHESTRATOR,
+        history_merge_target=HistoryMergeTarget.ORCHESTRATOR,
+    )
+    agent = AgentsAsToolsAgent(AgentConfig("parent"), [child], options=options)
+    await agent.initialize()
+
+    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
+    agent.load_message_history([seed])
+
+    tool_calls = {
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__child", arguments={"text": "hi"})
+        ),
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    await agent.run_tools(request)
+
+    clone = child.last_clone
+    assert clone is not None
+    assert clone.loaded_history == [seed]
+    assert len(agent.message_history) == 2
+    assert agent.message_history[-1].role == "assistant"
+
+
+@pytest.mark.asyncio
+@pytest.mark.xfail(
+    strict=True,
+    reason="history_merge_target=messages is deferred until file merge is implemented",
+)
+async def test_history_merge_target_messages_updates_history_file(tmp_path):
+    messages_path = tmp_path / "history.json"
+    seed = PromptMessageExtended(role="user", content=[text_content("seed")])
+    save_messages([seed], str(messages_path))
+
+    child = HistoryChild("child")
+    options = AgentsAsToolsOptions(history_merge_target=HistoryMergeTarget.MESSAGES)
+    agent = AgentsAsToolsAgent(
+        AgentConfig("parent"),
+        [child],
+        options=options,
+        child_message_files={"child": [messages_path]},
+    )
+    await agent.initialize()
+
+    tool_calls = {
+        "1": CallToolRequest(
+            params=CallToolRequestParams(name="agent__child", arguments={"text": "hi"})
+        ),
+    }
+    request = PromptMessageExtended(role="assistant", content=[], tool_calls=tool_calls)
+
+    await agent.run_tools(request)
+
+    merged = load_messages(str(messages_path))
+    assert len(merged) > 1
 
 @pytest.mark.asyncio
 async def test_invoke_child_appends_error_channel():

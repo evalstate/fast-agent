@@ -23,8 +23,8 @@ app = typer.Typer(
 default_instruction = DEFAULT_AGENT_INSTRUCTION
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
-DEFAULT_TOOL_CARDS_DIR = Path(".fast-agent/tool-cards")
 DEFAULT_AGENT_CARDS_DIR = Path(".fast-agent/agent-cards")
+DEFAULT_TOOL_CARDS_DIR = Path(".fast-agent/tool-cards")
 
 
 def _merge_card_sources(
@@ -182,8 +182,6 @@ async def _run_agent(
         fast.args.model = model
     fast.args.reload = reload
     fast.args.watch = watch
-    if card_tools:
-        fast.args.card_tools = card_tools
     fast.args.agent = agent_name or "agent"
 
     if shell_runtime:
@@ -196,13 +194,29 @@ async def _run_agent(
     if stdio_servers:
         await add_servers_to_config(fast, cast("dict[str, dict[str, Any]]", stdio_servers))
 
-    if agent_cards:
+    if agent_cards or card_tools:
         try:
-            for card_source in agent_cards:
-                if card_source.startswith(("http://", "https://")):
-                    fast.load_agents_from_url(card_source)
-                else:
-                    fast.load_agents(card_source)
+            if agent_cards:
+                for card_source in agent_cards:
+                    if card_source.startswith(("http://", "https://")):
+                        fast.load_agents_from_url(card_source)
+                    else:
+                        fast.load_agents(card_source)
+
+            tool_loaded_names: list[str] = []
+            if card_tools:
+                for card_source in card_tools:
+                    if card_source.startswith(("http://", "https://")):
+                        tool_loaded_names.extend(fast.load_agents_from_url(card_source))
+                    else:
+                        tool_loaded_names.extend(fast.load_agents(card_source))
+
+            if tool_loaded_names:
+                target_name = agent_name or "agent"
+                if target_name not in fast.agents:
+                    target_name = next(iter(fast.agents.keys()), None)
+                if target_name:
+                    fast.attach_agent_tools(target_name, tool_loaded_names)
         except AgentConfigError as exc:
             fast._handle_error(exc)
             raise typer.Exit(1) from exc
@@ -238,7 +252,7 @@ async def _run_agent(
                 else:
                     await agent.interactive()
     # Check if we have multiple models (comma-delimited)
-    elif model and "," in model and not card_tools:
+    elif model and "," in model:
         # Parse multiple models
         models = [m.strip() for m in model.split(",") if m.strip()]
 
@@ -516,7 +530,7 @@ def go(
     card_tools: list[str] | None = typer.Option(
         None,
         "--card-tool",
-        help="Path or URL to an AgentCard file to load as a tool (repeatable)",
+        help="Path or URL to an AgentCard file or directory to load as tools (repeatable)",
     ),
     urls: str | None = typer.Option(
         None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
@@ -587,6 +601,7 @@ def go(
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
         --agent-cards         Load AgentCards from a file or directory
+        --card-tool           Load AgentCards and attach them as tools to the default agent
         --skills              Override the default skills folder
         --shell, -x           Enable local shell runtime
         --npx                 NPX package and args to run as MCP server (quoted)

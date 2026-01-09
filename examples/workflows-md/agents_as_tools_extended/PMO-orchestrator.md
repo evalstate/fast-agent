@@ -5,7 +5,6 @@ default: true
 agents:
 - NY-Project-Manager
 - London-Project-Manager
-history_mode: scratch
 max_parallel: 128
 child_timeout_sec: 120
 max_display_instances: 20

@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, cast
+
+import pytest
+
+from fast_agent.agents.agent_types import AgentType
+from fast_agent.ui import enhanced_prompt, interactive_prompt
+from fast_agent.ui.interactive_prompt import InteractivePrompt
+
+if TYPE_CHECKING:
+    from fast_agent.core.agent_app import AgentApp
+
+
+class _FakeAgent:
+    agent_type = AgentType.BASIC
+
+
+class _FakeAgentApp:
+    def __init__(self, agent_names: list[str]) -> None:
+        self._agents = {name: _FakeAgent() for name in agent_names}
+        self.attached: list[str] = []
+        self.detached: list[str] = []
+        self.loaded: list[str] = []
+
+    async def refresh_if_needed(self) -> bool:
+        return False
+
+    def agent_names(self) -> list[str]:
+        return list(self._agents.keys())
+
+    def agent_types(self) -> dict[str, AgentType]:
+        return {name: agent.agent_type for name, agent in self._agents.items()}
+
+    def can_attach_agent_tools(self) -> bool:
+        return True
+
+    async def attach_agent_tools(self, _parent: str, child_names: list[str]) -> list[str]:
+        self.attached.extend(child_names)
+        return child_names
+
+    def can_detach_agent_tools(self) -> bool:
+        return True
+
+    async def detach_agent_tools(self, _parent: str, child_names: list[str]) -> list[str]:
+        self.detached.extend(child_names)
+        return child_names
+
+    def can_dump_agent_cards(self) -> bool:
+        return True
+
+    async def dump_agent_card(self, name: str) -> str:
+        return f"card:{name}"
+
+    def can_load_agent_cards(self) -> bool:
+        return True
+
+    async def load_agent_card(
+        self, filename: str, _parent: str | None = None
+    ) -> tuple[list[str], list[str]]:
+        self.loaded.append(filename)
+        loaded = ["sizer"]
+        attached = ["sizer"] if _parent else []
+        return loaded, attached
+
+    def can_reload_agents(self) -> bool:
+        return False
+
+
+def _patch_input(monkeypatch, inputs: list[str]) -> None:
+    iterator = iter(inputs)
+
+    async def fake_get_enhanced_input(*_args: Any, **kwargs: Any) -> str:
+        available_agent_names = kwargs.get("available_agent_names")
+        if available_agent_names is not None:
+            enhanced_prompt.available_agents = set(available_agent_names)
+        return next(iterator)
+
+    monkeypatch.setattr(interactive_prompt, "get_enhanced_input", fake_get_enhanced_input)
+
+
+@pytest.mark.asyncio
+async def test_agent_command_missing_agent(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/agent sizer --tool", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Agent 'sizer' not found" in output
+
+
+@pytest.mark.asyncio
+async def test_agent_command_attach_and_detach(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/agent sizer --tool", "/agent sizer --tool remove", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag", "sizer"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag", "sizer"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Attached agent tool(s): sizer" in output
+    assert "Detached agent tool(s): sizer" in output
+
+
+@pytest.mark.asyncio
+async def test_agent_command_dump(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/agent sizer --dump", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag", "sizer"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag", "sizer"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "card:sizer" in output
+
+
+@pytest.mark.asyncio
+async def test_card_command_attach(monkeypatch, capsys: Any) -> None:
+    _patch_input(monkeypatch, ["/card sizer.md --tool", "STOP"])
+
+    async def fake_send(*_args: Any, **_kwargs: Any) -> str:
+        return ""
+
+    prompt_ui = InteractivePrompt()
+    agent_app = _FakeAgentApp(["vertex-rag"])
+
+    await prompt_ui.prompt_loop(
+        send_func=fake_send,
+        default_agent="vertex-rag",
+        available_agents=["vertex-rag"],
+        prompt_provider=cast("AgentApp", agent_app),
+    )
+
+    output = capsys.readouterr().out
+    assert "Loaded AgentCard(s): sizer" in output
+    assert "Attached agent tool(s): sizer" in output

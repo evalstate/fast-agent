@@ -275,7 +275,10 @@ class BatchingListener(FilteredListener):
 
         if self._flush_task and not self._flush_task.done():
             self._flush_task.cancel()
-            await self._flush_task
+            try:
+                await self._flush_task
+            except asyncio.CancelledError:
+                pass
             self._flush_task = None
         await self.flush()
 

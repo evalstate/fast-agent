@@ -320,6 +320,15 @@ class AsyncEventBus:
     async def stop(self) -> None:
         """Stop the event bus and all lifecycle-aware listeners."""
         if not self._running:
+            if self._task and not self._task.done():
+                self._task.cancel()
+                try:
+                    await asyncio.wait_for(self._task, timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass  # Task was cancelled or timed out
+                except Exception as e:
+                    print(f"Error cancelling process task: {e}")
+            self._task = None
             return
 
         # Signal processing to stop

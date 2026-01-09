@@ -214,27 +214,73 @@ async def create_agents_by_type(
                 # If BASIC agent declares child_agents, build an Agents-as-Tools wrapper
                 child_names = agent_data.get("child_agents", []) or []
                 if child_names:
+                    function_tools = []
+                    tools_config = config.function_tools
+                    if tools_config is None:
+                        tools_config = agent_data.get("function_tools")
+                    if tools_config:
+                        source_path = agent_data.get("source_path")
+                        base_path = Path(source_path).parent if source_path else None
+                        function_tools = load_function_tools(
+                            tools_config, base_path
+                        )
+
                     # Ensure child agents are already created
                     child_agents: list[AgentProtocol] = []
                     for agent_name in child_names:
                         if agent_name not in active_agents:
-                            raise AgentConfigError(f"Agent {agent_name} not found")
+                            logger.warning(
+                                "Skipping missing child agent",
+                                data={"agent_name": agent_name, "parent": name},
+                            )
+                            continue
                         child_agents.append(active_agents[agent_name])
 
                     # Import here to avoid circulars at module import time
                     from fast_agent.agents.workflow.agents_as_tools_agent import (
                         AgentsAsToolsAgent,
                         AgentsAsToolsOptions,
+                        HistoryMergeTarget,
+                        HistorySource,
                     )
                     raw_opts = agent_data.get("agents_as_tools_options") or {}
                     opt_kwargs = {k: v for k, v in raw_opts.items() if v is not None}
                     options = AgentsAsToolsOptions(**opt_kwargs)
+                    child_message_files: dict[str, list[Path]] = {}
+                    if (
+                        options.history_source == HistorySource.MESSAGES
+                        or options.history_merge_target == HistoryMergeTarget.MESSAGES
+                    ):
+                        missing_messages: list[str] = []
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name)
+                            message_files = (
+                                child_data.get("message_files") if child_data else None
+                            )
+                            if not message_files:
+                                missing_messages.append(agent_name)
+                            else:
+                                child_message_files[agent_name] = list(message_files)
+                        if missing_messages:
+                            missing_list = ", ".join(sorted(set(missing_messages)))
+                            raise AgentConfigError(
+                                "history_source/history_merge_target=messages requires child agents with messages",
+                                f"Missing messages for: {missing_list}",
+                            )
+                    else:
+                        for agent_name in child_names:
+                            child_data = agents_dict.get(agent_name, {})
+                            message_files = child_data.get("message_files")
+                            if message_files:
+                                child_message_files[agent_name] = list(message_files)
 
                     agent = AgentsAsToolsAgent(
                         config=config,
                         context=app_instance.context,
                         agents=cast("list[LlmAgent]", child_agents),  # expose children as tools
                         options=options,
+                        tools=function_tools,
+                        child_message_files=child_message_files,
                     )
 
                     await agent.initialize()
@@ -260,12 +306,15 @@ async def create_agents_by_type(
                 else:
                     # Load function tools if configured
                     function_tools = []
-                    if config.function_tools:
+                    tools_config = config.function_tools
+                    if tools_config is None:
+                        tools_config = agent_data.get("function_tools")
+                    if tools_config:
                         # Use source_path from agent card for relative path resolution
                         source_path = agent_data.get("source_path")
                         base_path = Path(source_path).parent if source_path else None
                         function_tools = load_function_tools(
-                            config.function_tools, base_path
+                            tools_config, base_path
                         )
 
                     # Create agent with UI support if needed
