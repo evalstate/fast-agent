@@ -334,17 +334,31 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                         else:
                             await server_conn.wait_for_shutdown_request()
                 except Exception as session_exit_exc:
-                    # Catch exceptions during session cleanup (e.g., when session was terminated)
-                    # This prevents cleanup errors from propagating to the task group
-                    logger.debug(
-                        f"{server_name}: Exception during session cleanup (expected during reconnect): {session_exit_exc}"
-                    )
+                    if server_conn._shutdown_event.is_set():
+                        # Cleanup errors can happen when disconnecting a session that was already
+                        # terminated; treat as expected during shutdown.
+                        logger.debug(
+                            f"{server_name}: Exception during session cleanup (expected during shutdown): {session_exit_exc}"
+                        )
+                        if not server_conn._initialized_event.is_set():
+                            server_conn._error_occurred = True
+                            server_conn._error_message = "Shutdown requested before initialization"
+                            server_conn._initialized_event.set()
+                    else:
+                        raise
         except Exception as transport_exit_exc:
-            # Catch exceptions during transport cleanup
-            # This can happen when disconnecting a session that was already terminated
-            logger.debug(
-                f"{server_name}: Exception during transport cleanup (expected during reconnect): {transport_exit_exc}"
-            )
+            if server_conn._shutdown_event.is_set():
+                # Cleanup errors can happen when disconnecting a transport that was already
+                # terminated; treat as expected during shutdown.
+                logger.debug(
+                    f"{server_name}: Exception during transport cleanup (expected during shutdown): {transport_exit_exc}"
+                )
+                if not server_conn._initialized_event.is_set():
+                    server_conn._error_occurred = True
+                    server_conn._error_message = "Shutdown requested before initialization"
+                    server_conn._initialized_event.set()
+            else:
+                raise
 
     except HTTPStatusError as http_exc:
         logger.error(
