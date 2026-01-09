@@ -118,7 +118,8 @@ async def test_reload_agents_skips_invalid_new_card(tmp_path: Path) -> None:
     fast.load_agents(agents_dir)
 
     invalid_path = agents_dir / "sizer.md"
-    invalid_path.write_text("", encoding="utf-8")
+    # An explicitly empty instruction is invalid (empty file now gets default instruction)
+    invalid_path.write_text("---\ninstruction: ''\n---\n", encoding="utf-8")
 
     await fast.reload_agents()
     assert "sizer" not in fast.agents

@@ -1202,6 +1202,38 @@ class FastAgent:
 
                     # Handle command line options that should be processed after agent initialization
 
+                    # Handle --card-tool: load card agents and add them as tools to the default agent
+                    # This must happen before server startup since server mode exits after running
+                    card_tools = getattr(self.args, "card_tools", None)
+                    if card_tools:
+                        card_tool_agent_names: list[str] = []
+                        try:
+                            for card_source in card_tools:
+                                if card_source.startswith(("http://", "https://")):
+                                    names = self.load_agents_from_url(card_source)
+                                else:
+                                    names = self.load_agents(card_source)
+                                card_tool_agent_names.extend(names)
+                        except AgentConfigError as exc:
+                            self._handle_error(exc)
+                            raise SystemExit(1) from exc
+
+                        # Refresh the instance to include newly loaded agents
+                        await refresh_shared_instance()
+
+                        # Get the default agent to add tools to (reuse AgentApp's default logic)
+                        default_agent_name = getattr(self.args, "agent", None)
+                        default_agent = wrapper._agent(default_agent_name)
+
+                        if default_agent:
+                            add_tool_fn = getattr(default_agent, "add_agent_tool", None)
+                            if callable(add_tool_fn):
+                                tool_agents = [
+                                    active_agents.get(tool_agent_name)
+                                    for tool_agent_name in card_tool_agent_names
+                                ]
+                                add_tools_for_agents(add_tool_fn, tool_agents)
+
                     # Handle --server option
                     # Check if parse_cli_args was True before checking self.args.server
                     if hasattr(self.args, "server") and self.args.server:
@@ -1353,42 +1385,6 @@ class FastAgent:
                         except Exception as e:
                             print(f"\n\nError sending message to agent '{agent_name}': {str(e)}")
                             raise SystemExit(1)
-
-                    # Handle --card-tool: load card agents and add them as tools to the default agent
-                    card_tools = getattr(self.args, "card_tools", None)
-                    if card_tools:
-                        card_tool_agent_names: list[str] = []
-                        try:
-                            for card_source in card_tools:
-                                if card_source.startswith(("http://", "https://")):
-                                    names = self.load_agents_from_url(card_source)
-                                else:
-                                    names = self.load_agents(card_source)
-                                card_tool_agent_names.extend(names)
-                        except AgentConfigError as exc:
-                            self._handle_error(exc)
-                            raise SystemExit(1) from exc
-
-                        # Refresh the instance to include newly loaded agents
-                        await refresh_shared_instance()
-
-                        # Get the default agent to add tools to
-                        default_agent_name = getattr(self.args, "agent", "default")
-                        default_agent = active_agents.get(default_agent_name)
-
-                        # If default agent not found, try the first available agent
-                        if default_agent is None and active_agents:
-                            default_agent_name = next(iter(active_agents.keys()))
-                            default_agent = active_agents[default_agent_name]
-
-                        if default_agent:
-                            add_tool_fn = getattr(default_agent, "add_agent_tool", None)
-                            if callable(add_tool_fn):
-                                tool_agents = [
-                                    active_agents.get(tool_agent_name)
-                                    for tool_agent_name in card_tool_agent_names
-                                ]
-                                add_tools_for_agents(add_tool_fn, tool_agents)
 
                     yield wrapper
 
