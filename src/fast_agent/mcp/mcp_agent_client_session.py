@@ -226,6 +226,13 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
     ) -> ReceiveResultT:
         logger.debug("send_request: request=", data=request.model_dump())
         request_id = getattr(self, "_request_id", None)
+        is_ping_request = self._is_ping_request(request)
+        if (
+            is_ping_request
+            and request_id is not None
+            and self._transport_metrics is not None
+        ):
+            self._transport_metrics.register_ping_request(request_id)
         try:
             result = await super().send_request(
                 request=request,
@@ -239,8 +246,20 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
                 data=result.model_dump() if result is not None else "no response returned",
             )
             self._attach_transport_channel(request_id, result)
+            if (
+                is_ping_request
+                and request_id is not None
+                and self._transport_metrics is not None
+            ):
+                self._transport_metrics.discard_ping_request(request_id)
             return result
         except Exception as e:
+            if (
+                is_ping_request
+                and request_id is not None
+                and self._transport_metrics is not None
+            ):
+                self._transport_metrics.discard_ping_request(request_id)
             from anyio import ClosedResourceError
 
             from fast_agent.core.exceptions import ServerSessionTerminatedError
@@ -263,6 +282,15 @@ class MCPAgentClientSession(ClientSession, ContextDependent):
 
             logger.error(f"send_request failed: {str(e)}")
             raise
+
+    @staticmethod
+    def _is_ping_request(request: ClientRequest) -> bool:
+        root = getattr(request, "root", None)
+        method = getattr(root, "method", None)
+        if not isinstance(method, str):
+            return False
+        method_lower = method.lower()
+        return method_lower == "ping" or method_lower.endswith("/ping") or method_lower.endswith(".ping")
 
     def _is_session_terminated_error(self, exc: Exception) -> bool:
         """Check if exception is a session terminated error (code 32600 from 404)."""

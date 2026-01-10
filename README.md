@@ -268,16 +268,16 @@ mcp:
 
 ## MCP Ping (optional)
 
-The MCP ping utility is optional and can be enabled by either peer (client or server). See the [Ping overview](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview).
+The MCP ping utility can be enabled by either peer (client or server). See the [Ping overview](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview).
 
-Client-side pinging is opt-in and configured per server:
+Client-side pinging is configured per server (default: 30s interval, 3 missed pings):
 
 ```yaml
 mcp:
   servers:
     myserver:
-      ping_interval_seconds: 30 # optional; <=0 or unset disables
-      max_missed_pings: 2 # optional; consecutive timeouts before marking failed
+      ping_interval_seconds: 30 # optional; <=0 disables
+      max_missed_pings: 3 # optional; consecutive timeouts before marking failed
 ```
 
 ## Workflows

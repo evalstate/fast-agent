@@ -308,6 +308,95 @@ def _format_relative_time(dt: datetime | None) -> str:
     return _format_compact_duration(seconds) or "<1s"
 
 
+def _truncate_detail(value: str, max_len: int = 48) -> str:
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 3] + "..."
+
+
+def _build_health_text(status: ServerStatus) -> Text | None:
+    interval = status.ping_interval_seconds
+    if interval is None:
+        return None
+
+    health = Text()
+    state_label, state_style = _get_health_state(status)
+    if interval <= 0:
+        health.append(state_label, style=state_style)
+        return health
+
+    max_missed = status.ping_max_missed or 0
+    misses = status.ping_consecutive_failures or 0
+
+    health.append(state_label, style=state_style)
+    health.append(f" | interval: {interval}s", style=Colours.TEXT_DIM)
+
+    misses_text = f"{misses}/{max_missed}" if max_missed else str(misses)
+    misses_style = Colours.TEXT_WARNING if misses > 0 else Colours.TEXT_DIM
+    health.append(f" | misses: {misses_text}", style=misses_style)
+
+    last_ok = _format_relative_time(status.ping_last_ok_at)
+    health.append(f" | last ok: {last_ok}", style=Colours.TEXT_DIM)
+
+    if misses > 0:
+        last_fail = _format_relative_time(status.ping_last_fail_at)
+        health.append(f" | last fail: {last_fail}", style=Colours.TEXT_DIM)
+        if status.ping_last_error:
+            err = _truncate_detail(status.ping_last_error)
+            health.append(f" | last err: {err}", style=Colours.TEXT_ERROR)
+
+    return health
+
+
+def _get_health_state(status: ServerStatus) -> tuple[str, str]:
+    interval = status.ping_interval_seconds
+    if interval is None:
+        return ("unknown", Colours.TEXT_DIM)
+    if interval <= 0:
+        return ("disabled", Colours.TEXT_DIM)
+
+    if _has_transport_error(status):
+        return ("error", Colours.TEXT_ERROR)
+
+    max_missed = status.ping_max_missed or 0
+    misses = status.ping_consecutive_failures or 0
+    has_activity = bool(status.ping_last_ok_at or status.ping_last_fail_at)
+
+    if not has_activity:
+        return ("ok", Colours.TEXT_SUCCESS)
+    if max_missed and misses >= max_missed:
+        return ("failed", Colours.TEXT_ERROR)
+    if misses > 0:
+        return ("missed", Colours.TEXT_WARNING)
+    return ("ok", Colours.TEXT_SUCCESS)
+
+
+def _has_transport_error(status: ServerStatus) -> bool:
+    snapshot = status.transport_channels
+    if snapshot is None:
+        return False
+    channels = [
+        getattr(snapshot, "get", None),
+        getattr(snapshot, "post_json", None),
+        getattr(snapshot, "post_sse", None),
+        getattr(snapshot, "post", None),
+        getattr(snapshot, "resumption", None),
+        getattr(snapshot, "stdio", None),
+    ]
+    for channel in channels:
+        if channel is None:
+            continue
+        if channel.state == "error" and channel.last_status_code != 405:
+            return True
+    return False
+
+
+def _get_ping_attempts(status: ServerStatus) -> int:
+    ok = status.ping_ok_count or 0
+    fail = status.ping_fail_count or 0
+    return ok + fail
+
+
 def _format_label(label: str, width: int = 10) -> str:
     return f"{label:<{width}}" if len(label) < width else label
 
@@ -439,6 +528,72 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
 
     # Get appropriate timeline color map
     timeline_color_map = TIMELINE_COLORS_STDIO if is_stdio else TIMELINE_COLORS
+
+    health_insert_label = None
+    if status.ping_interval_seconds is not None:
+        label_names = [entry[0] for entry in entries]
+        if "POST (JSON)" in label_names:
+            health_insert_label = "POST (JSON)"
+        elif "POST (SSE)" in label_names:
+            health_insert_label = "POST (SSE)"
+        elif "STDIO" in label_names:
+            health_insert_label = "STDIO"
+        elif label_names:
+            health_insert_label = label_names[-1]
+
+    def render_health_row() -> None:
+        line = Text(indent)
+        line.append("│ ", style="dim")
+        _, state_style = _get_health_state(status)
+        line.append(SYMBOL_PING, style=state_style)
+        line.append(f" {'HEALTH':<13}", style=state_style)
+
+        bucket_seconds = status.ping_activity_bucket_seconds or default_bucket_seconds
+        bucket_count = status.ping_activity_bucket_count or default_bucket_count
+        timeline_label = _format_timeline_label(bucket_seconds * bucket_count)
+        line.append(f"{timeline_label} ", style="dim")
+
+        bucket_states = status.ping_activity_buckets or []
+        if len(bucket_states) < bucket_count:
+            bucket_states = list(bucket_states) + ["none"] * (bucket_count - len(bucket_states))
+        elif len(bucket_states) > bucket_count:
+            bucket_states = bucket_states[-bucket_count:]
+
+        for bucket_state in bucket_states:
+            color = timeline_color_map.get(bucket_state, "dim")
+            if bucket_state in {"idle", "none"}:
+                symbol = SYMBOL_IDLE
+            elif bucket_state == "error":
+                symbol = SYMBOL_ERROR
+            elif bucket_state == "ping":
+                symbol = SYMBOL_PING
+            else:
+                symbol = SYMBOL_RESPONSE
+            line.append(symbol, style=f"bold {color}")
+
+        line.append(" now", style="dim")
+        ping_attempts = _get_ping_attempts(status)
+        if is_stdio:
+            activity = str(ping_attempts).rjust(8) if ping_attempts > 0 else "-".rjust(8)
+            activity_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
+            line.append(f"  {activity}", style=activity_style)
+        else:
+            req = "-".rjust(5)
+            resp = "-".rjust(5)
+            notif = "-".rjust(5)
+            ping = str(ping_attempts).rjust(5) if ping_attempts > 0 else "-".rjust(5)
+            ping_style = Colours.TEXT_DEFAULT if ping_attempts > 0 else Colours.TEXT_DIM
+            line.append("  ", style="dim")
+            line.append(req, style=Colours.TEXT_DIM)
+            line.append(" ", style="dim")
+            line.append(resp, style=Colours.TEXT_DIM)
+            line.append(" ", style="dim")
+            line.append(notif, style=Colours.TEXT_DIM)
+            line.append(" ", style="dim")
+            line.append(ping, style=ping_style)
+        console.console.print(line)
+
+    health_inserted = False
 
     for label, arrow, channel in entries:
         line = Text(indent)
@@ -595,6 +750,10 @@ def _render_channel_summary(status: ServerStatus, indent: str, total_width: int)
             line.append(f"  {req} {resp} {notif} {ping}", style=metrics_style)
 
         console.console.print(line)
+
+        if health_insert_label == label and not health_inserted:
+            render_health_row()
+            health_inserted = True
 
         # Debug: print the raw line length
         # import sys
@@ -771,6 +930,12 @@ async def render_mcp_status(agent, indent: str = "") -> None:
         session_text = _format_session_id(status.session_id)
         session_line.append_text(_build_aligned_field("session", session_text))
         console.console.print(session_line)
+
+        health_text = _build_health_text(status)
+        if health_text is not None:
+            health_line = Text(indent + "  ")
+            health_line.append_text(_build_aligned_field("health", health_text))
+            console.console.print(health_line)
         console.console.print()
 
         # Build status segments

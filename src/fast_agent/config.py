@@ -213,10 +213,10 @@ class MCPServerSettings(BaseModel):
     read_timeout_seconds: int | None = None
     """The timeout in seconds for the session."""
 
-    ping_interval_seconds: int | None = None
-    """Optional interval for MCP ping requests. When unset or <=0, pinging is disabled."""
+    ping_interval_seconds: int = 30
+    """Interval for MCP ping requests. Set <=0 to disable pinging."""
 
-    max_missed_pings: int = 1
+    max_missed_pings: int = 3
     """Number of consecutive missed ping responses before treating the connection as failed."""
 
     http_timeout_seconds: int | None = None
