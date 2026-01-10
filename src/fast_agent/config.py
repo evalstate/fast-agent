@@ -213,6 +213,12 @@ class MCPServerSettings(BaseModel):
     read_timeout_seconds: int | None = None
     """The timeout in seconds for the session."""
 
+    ping_interval_seconds: int = 30
+    """Interval for MCP ping requests. Set <=0 to disable pinging."""
+
+    max_missed_pings: int = 3
+    """Number of consecutive missed ping responses before treating the connection as failed."""
+
     http_timeout_seconds: int | None = None
     """Overall HTTP timeout (seconds) for StreamableHTTP transport. Defaults to MCP SDK."""
 
@@ -261,6 +267,16 @@ class MCPServerSettings(BaseModel):
     """
 
     implementation: Implementation | None = None
+
+    @field_validator("max_missed_pings", mode="before")
+    @classmethod
+    def _coerce_max_missed_pings(cls, value: Any) -> int:
+        if isinstance(value, str):
+            value = int(value.strip())
+        value = int(value)
+        if value <= 0:
+            raise ValueError("max_missed_pings must be greater than zero.")
+        return value
 
     @model_validator(mode="before")
     @classmethod

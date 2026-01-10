@@ -266,6 +266,20 @@ mcp:
 
 - To disable OAuth for a specific server , set `auth.oauth: false` for that server.
 
+## MCP Ping (optional)
+
+The MCP ping utility can be enabled by either peer (client or server). See the [Ping overview](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#overview).
+
+Client-side pinging is configured per server (default: 30s interval, 3 missed pings):
+
+```yaml
+mcp:
+  servers:
+    myserver:
+      ping_interval_seconds: 30 # optional; <=0 disables
+      max_missed_pings: 3 # optional; consecutive timeouts before marking failed
+```
+
 ## Workflows
 
 ### Chain
