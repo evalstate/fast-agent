@@ -4,9 +4,10 @@ Manages the lifecycle of multiple MCP server connections.
 
 import asyncio
 import traceback
-from contextlib import AbstractAsyncContextManager
-from datetime import timedelta
-from typing import TYPE_CHECKING, Callable, Union
+from collections import deque
+from contextlib import AbstractAsyncContextManager, suppress
+from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING, Callable, Union, cast
 
 import httpx
 from anyio import Event, Lock, create_task_group
@@ -150,6 +151,13 @@ class ServerConnection:
         self.session_id: str | None = None
         self._get_session_id_cb: GetSessionIdCallback | None = None
         self.transport_metrics: TransportChannelMetrics | None = None
+        self._ping_ok_count = 0
+        self._ping_fail_count = 0
+        self._ping_consecutive_failures = 0
+        self._ping_last_ok_at: datetime | None = None
+        self._ping_last_fail_at: datetime | None = None
+        self._ping_last_error: str | None = None
+        self._ping_history: deque[tuple[datetime, str]] = deque(maxlen=200)
 
     def is_healthy(self) -> bool:
         """Check if the server connection is healthy and ready to use."""
@@ -216,6 +224,43 @@ class ServerConnection:
         """
         await self._initialized_event.wait()
 
+    def record_ping_event(self, state: str) -> None:
+        self._ping_history.append((datetime.now(timezone.utc), state))
+
+    def build_ping_activity_buckets(self, bucket_seconds: int, bucket_count: int) -> list[str]:
+        try:
+            seconds = int(bucket_seconds)
+        except (TypeError, ValueError):
+            seconds = 30
+        if seconds <= 0:
+            seconds = 30
+
+        try:
+            count = int(bucket_count)
+        except (TypeError, ValueError):
+            count = 20
+        if count <= 0:
+            count = 20
+
+        if not self._ping_history:
+            return ["none"] * count
+
+        priority = {"error": 2, "ping": 1, "none": 0}
+        history_map: dict[int, str] = {}
+        for timestamp, state in self._ping_history:
+            bucket = int(timestamp.timestamp() // seconds)
+            existing = history_map.get(bucket)
+            if existing is None or priority.get(state, 0) >= priority.get(existing, 0):
+                history_map[bucket] = state
+
+        current_bucket = int(datetime.now(timezone.utc).timestamp() // seconds)
+        buckets: list[str] = []
+        for offset in range(count - 1, -1, -1):
+            bucket_index = current_bucket - offset
+            buckets.append(history_map.get(bucket_index, "none"))
+
+        return buckets
+
     def create_session(
         self,
         read_stream: MemoryObjectReceiveStream,
@@ -243,6 +288,57 @@ class ServerConnection:
         self.client_capabilities = getattr(session, "client_capabilities", None)
 
         return session
+
+
+async def _run_ping_loop(server_conn: ServerConnection) -> None:
+    interval = server_conn.server_config.ping_interval_seconds
+    if not interval or interval <= 0:
+        return
+
+    max_missed = server_conn.server_config.max_missed_pings
+    missed = 0
+    read_timeout = (
+        timedelta(seconds=server_conn.server_config.read_timeout_seconds)
+        if server_conn.server_config.read_timeout_seconds
+        else None
+    )
+    if read_timeout is None:
+        read_timeout = timedelta(seconds=interval)
+
+    while not server_conn._shutdown_event.is_set():
+        await asyncio.sleep(interval)
+        if server_conn._shutdown_event.is_set():
+            break
+        session = server_conn.session
+        if session is None:
+            break
+        if not hasattr(session, "ping"):
+            return
+        try:
+            await cast("MCPAgentClientSession", session).ping(read_timeout_seconds=read_timeout)
+            missed = 0
+            server_conn._ping_ok_count += 1
+            server_conn._ping_consecutive_failures = 0
+            server_conn._ping_last_ok_at = datetime.now(timezone.utc)
+            server_conn._ping_last_error = None
+            server_conn.record_ping_event("ping")
+        except Exception as exc:
+            missed += 1
+            server_conn._ping_fail_count += 1
+            server_conn._ping_consecutive_failures = missed
+            server_conn._ping_last_fail_at = datetime.now(timezone.utc)
+            server_conn._ping_last_error = str(exc)
+            server_conn.record_ping_event("error")
+            logger.warning(
+                f"{server_conn.server_name}: Ping failed ({missed}/{max_missed}): {exc}"
+            )
+            if missed >= max_missed:
+                server_conn._error_occurred = True
+                server_conn._error_message = (
+                    f"Ping failed {missed} time(s); last error: {exc}"
+                )
+                server_conn.request_shutdown()
+                break
 
 
 async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
@@ -285,19 +381,46 @@ async def _server_lifecycle_task(server_conn: ServerConnection) -> None:
                         elif server_conn.server_config.transport == "stdio":
                             server_conn.session_id = "local"
 
-                        await server_conn.wait_for_shutdown_request()
+                        if (
+                            server_conn.server_config.ping_interval_seconds
+                            and server_conn.server_config.ping_interval_seconds > 0
+                        ):
+                            ping_task = asyncio.create_task(_run_ping_loop(server_conn))
+                            try:
+                                await server_conn.wait_for_shutdown_request()
+                            finally:
+                                if not ping_task.done():
+                                    ping_task.cancel()
+                                with suppress(asyncio.CancelledError):
+                                    await ping_task
+                        else:
+                            await server_conn.wait_for_shutdown_request()
                 except Exception as session_exit_exc:
-                    # Catch exceptions during session cleanup (e.g., when session was terminated)
-                    # This prevents cleanup errors from propagating to the task group
-                    logger.debug(
-                        f"{server_name}: Exception during session cleanup (expected during reconnect): {session_exit_exc}"
-                    )
+                    if server_conn._shutdown_event.is_set():
+                        # Cleanup errors can happen when disconnecting a session that was already
+                        # terminated; treat as expected during shutdown.
+                        logger.debug(
+                            f"{server_name}: Exception during session cleanup (expected during shutdown): {session_exit_exc}"
+                        )
+                        if not server_conn._initialized_event.is_set():
+                            server_conn._error_occurred = True
+                            server_conn._error_message = "Shutdown requested before initialization"
+                            server_conn._initialized_event.set()
+                    else:
+                        raise
         except Exception as transport_exit_exc:
-            # Catch exceptions during transport cleanup
-            # This can happen when disconnecting a session that was already terminated
-            logger.debug(
-                f"{server_name}: Exception during transport cleanup (expected during reconnect): {transport_exit_exc}"
-            )
+            if server_conn._shutdown_event.is_set():
+                # Cleanup errors can happen when disconnecting a transport that was already
+                # terminated; treat as expected during shutdown.
+                logger.debug(
+                    f"{server_name}: Exception during transport cleanup (expected during shutdown): {transport_exit_exc}"
+                )
+                if not server_conn._initialized_event.is_set():
+                    server_conn._error_occurred = True
+                    server_conn._error_message = "Shutdown requested before initialization"
+                    server_conn._initialized_event.set()
+            else:
+                raise
 
     except HTTPStatusError as http_exc:
         logger.error(
