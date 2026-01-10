@@ -40,6 +40,7 @@ from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.helpers.content_helpers import get_text
 from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
 from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
     MarketplaceSkill,
     candidate_marketplace_urls,
     fetch_marketplace_skills,
@@ -557,9 +558,7 @@ class SlashCommandHandler:
             )
 
         # Add conversation statistics
-        status_lines.append(
-            f"## Conversation Statistics ({agent.name if agent else 'Unknown'})"
-        )
+        status_lines.append(f"## Conversation Statistics ({agent.name if agent else 'Unknown'})")
 
         uptime_seconds = max(time.time() - self._created_at, 0.0)
         status_lines.extend(summary_stats)
@@ -757,7 +756,7 @@ class SlashCommandHandler:
 
         # Get configured registries from settings
         settings = get_settings()
-        configured_urls = settings.skills.marketplace_urls or []
+        configured_urls = settings.skills.marketplace_urls or list(DEFAULT_SKILL_REGISTRIES)
 
         if not argument:
             current = get_marketplace_url(settings)
@@ -774,7 +773,7 @@ class SlashCommandHandler:
                 lines.append("")
 
             lines.append(
-                "Usage: `/skills registry [number|URL]`.\n\n URL should point to a repo with a valid `marketplace.json`"
+                "Usage: `/skills registry <number|URL|path>`.\n\n URL should point to a repo with a valid `marketplace.json`"
             )
             return "\n".join(lines)
 
@@ -847,9 +846,11 @@ class SlashCommandHandler:
         return "\n".join(response_lines)
 
     def _handle_skills_list(self) -> str:
-        manager_dir = get_manager_directory()
-        manifests = list_local_skills(manager_dir)
-        return self._format_local_skills(manifests, manager_dir)
+        directories = resolve_skill_directories()
+        all_manifests: dict[Path, list[SkillManifest]] = {}
+        for directory in directories:
+            all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+        return self._format_local_skills_by_directory(all_manifests)
 
     async def _handle_skills_add(self, argument: str) -> str:
         if argument.strip().lower() in {"q", "quit", "exit"}:
@@ -1023,8 +1024,55 @@ class SlashCommandHandler:
         lines.extend(self._format_local_list(manifests))
         lines.append("")
         lines.append("Use `/skills add` to list available skills to install\n")
-        lines.append("Remove a skill with `/skills remove <number|name>`.\n")
-        lines.append("Change skills registry with `/skills registry <url>`.\n")
+        lines.append("Remove a skill with `/skills remove   <number|name>`.\n")
+        lines.append("Change skills registry with `/skills registry <number|url|path>`.\n")
+        return "\n".join(lines)
+
+    def _format_local_skills_by_directory(
+        self, manifests_by_dir: dict[Path, list[SkillManifest]]
+    ) -> str:
+        lines = ["# skills", ""]
+        total_skills = sum(len(m) for m in manifests_by_dir.values())
+        skill_index = 0
+
+        for directory, manifests in manifests_by_dir.items():
+            try:
+                display_path = directory.relative_to(Path.cwd())
+            except ValueError:
+                display_path = directory
+            lines.append(f"## {display_path}")
+            lines.append("")
+
+            if not manifests:
+                lines.append("No skills in this directory.")
+                lines.append("")
+            else:
+                for manifest in manifests:
+                    skill_index += 1
+                    name = manifest.name
+                    description = manifest.description
+                    path = manifest.path
+                    source_path = path.parent if path.is_file() else path
+                    try:
+                        source_display = source_path.relative_to(Path.cwd())
+                    except ValueError:
+                        source_display = source_path
+
+                    lines.append(f"- [{skill_index}] {name}")
+                    if description:
+                        wrapped = textwrap.fill(description, width=76, subsequent_indent="    ")
+                        lines.append(f"  - {wrapped}")
+                    lines.append(f"  - source: `{source_display}`")
+                lines.append("")
+
+        if total_skills == 0:
+            lines.append("Use `/skills add` to list available skills to install.")
+        else:
+            lines.append("Remove a skill with `/skills remove <number|name>`.")
+            lines.append("")
+            lines.append("Use `/skills add` to list available skills to install")
+            lines.append("")
+            lines.append("Change skills registry with `/skills registry <number|url|path>`.")
         return "\n".join(lines)
 
     def _format_local_list(self, manifests: list[SkillManifest]) -> list[str]:
@@ -1251,7 +1299,7 @@ class SlashCommandHandler:
                     "",
                     f"File not found: `{filename}`",
                 ]
-        )
+            )
 
         try:
             load_history_into_agent(agent, file_path)

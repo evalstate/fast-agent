@@ -861,3 +861,14 @@ def get_settings(config_path: str | os.PathLike[str] | None = None) -> Settings:
 
     _settings = Settings(**merged_settings)
     return _settings
+
+
+def update_global_settings(settings: Settings) -> None:
+    """Update the global settings instance.
+
+    This is used to propagate CLI overrides (like --skills-dir) into the
+    global settings so that functions like resolve_skill_directories()
+    work correctly without needing to pass settings around explicitly.
+    """
+    global _settings
+    _settings = settings

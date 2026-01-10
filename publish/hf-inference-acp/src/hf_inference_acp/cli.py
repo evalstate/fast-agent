@@ -17,9 +17,17 @@ import typer
 
 from fast_agent import FastAgent
 from fast_agent.cli.commands import serve
-from fast_agent.cli.commands.go import collect_stdio_commands, resolve_instruction_option
+from fast_agent.cli.commands.go import (
+    CARD_EXTENSIONS,
+    DEFAULT_AGENT_CARDS_DIR,
+    DEFAULT_TOOL_CARDS_DIR,
+    _merge_card_sources,
+    collect_stdio_commands,
+    resolve_instruction_option,
+)
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.core.agent_card_validation import find_loaded_agent_issues
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider_key_manager import ProviderKeyManager
 from fast_agent.llm.provider_types import Provider
@@ -69,6 +77,7 @@ Use these slash commands to configure the agent:
 - `/set-model <model>` - Set the default model for inference
 - `/login` - Get instructions for logging in to HuggingFace
 - `/check` - Verify huggingface_hub installation and configuration
+- `/reset confirm` - Reset the local .fast-agent directory (removes stored permissions and cards)
 
 # Current Status
 
@@ -177,6 +186,63 @@ def _parse_stdio_servers(
     return stdio_servers, updated_server_list
 
 
+def _format_agent_card_error(source: str, exc: Exception | str) -> str:
+    if isinstance(exc, Exception):
+        message = getattr(exc, "message", str(exc))
+        details = getattr(exc, "details", "")
+        if details:
+            message = f"{message} ({details})"
+    else:
+        message = str(exc)
+    return f"AgentCard load failed: {source} - {message}"
+
+
+def _iter_agent_card_files(source: Path) -> list[Path]:
+    if source.is_dir():
+        return [
+            entry
+            for entry in sorted(source.iterdir())
+            if entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
+        ]
+    return [source]
+
+
+def _load_agent_cards(
+    fast: FastAgent,
+    sources: list[str],
+) -> tuple[list[str], list[str]]:
+    loaded_names: list[str] = []
+    errors: list[str] = []
+    seen_files: set[Path] = set()
+
+    for source in sources:
+        if source.startswith(("http://", "https://")):
+            try:
+                loaded_names.extend(fast.load_agents_from_url(source))
+            except Exception as exc:  # noqa: BLE001
+                formatted = _format_agent_card_error(source, exc)
+                errors.append(formatted)
+                typer.echo(f"Warning: {formatted}", err=True)
+            continue
+
+        source_path = Path(source).expanduser()
+        for card_path in _iter_agent_card_files(source_path):
+            resolved_path = card_path.expanduser().resolve()
+            if resolved_path in seen_files:
+                continue
+            seen_files.add(resolved_path)
+            try:
+                loaded_names.extend(fast.load_agents(resolved_path))
+            except Exception as exc:  # noqa: BLE001
+                formatted = _format_agent_card_error(str(resolved_path), exc)
+                errors.append(formatted)
+                typer.echo(f"Warning: {formatted}", err=True)
+
+    return loaded_names, errors
+
+
+
+
 async def run_agents(
     *,
     name: str,
@@ -193,6 +259,8 @@ async def run_agents(
     tool_description: str | None,
     instance_scope: str,
     permissions_enabled: bool,
+    agent_cards: list[str] | None,
+    card_tools: list[str] | None,
 ) -> None:
     """Main async function to set up and run the agents."""
     if config_path is None:
@@ -223,8 +291,8 @@ async def run_agents(
 
     fast = FastAgent(**cast("Any", fast_kwargs))
 
+    await fast.app.initialize()
     if shell_runtime:
-        await fast.app.initialize()
         setattr(fast.app.context, "shell_runtime", True)
 
     await add_servers_to_config(fast, url_servers or {})
@@ -233,6 +301,51 @@ async def run_agents(
     # Ensure HF_TOKEN is available from provider config for MCP auth
     _ensure_hf_token_from_provider_config(fast)
     hf_token_present = has_hf_token()
+
+    # Auto-discover and merge agent cards from .fast-agent/agent-cards
+    merged_agent_cards = _merge_card_sources(agent_cards, DEFAULT_AGENT_CARDS_DIR)
+    merged_card_tools = _merge_card_sources(card_tools, DEFAULT_TOOL_CARDS_DIR)
+
+    # Load agent cards BEFORE defining agents so we can add them as child agents
+    child_agent_names: list[str] = []
+    card_errors: list[str] = []
+    if merged_agent_cards:
+        _, card_errors = _load_agent_cards(fast, merged_agent_cards)
+        server_names: set[str] | None = None
+        settings = getattr(getattr(fast, "app", None), "context", None)
+        config = getattr(settings, "config", None) if settings else None
+        if config and getattr(config, "mcp", None) and getattr(config.mcp, "servers", None):
+            server_names = set(config.mcp.servers.keys())
+
+        issues, invalid_names = find_loaded_agent_issues(
+            fast.agents,
+            extra_agent_names={"setup", "huggingface"},
+            server_names=server_names,
+        )
+        if invalid_names:
+            for name in invalid_names:
+                fast.agents.pop(name, None)
+                for mapping_name in ("_agent_card_sources", "_agent_card_histories"):
+                    mapping = getattr(fast, mapping_name, None)
+                    if isinstance(mapping, dict):
+                        mapping.pop(name, None)
+            roots = getattr(fast, "_agent_card_roots", None)
+            if isinstance(roots, dict):
+                for names in roots.values():
+                    if isinstance(names, set):
+                        names.difference_update(invalid_names)
+
+        for issue in issues:
+            formatted = _format_agent_card_error(issue.source, issue.message)
+            card_errors.append(formatted)
+            typer.echo(f"Warning: {formatted}", err=True)
+        # Collect names of all loaded agents (excluding our built-in ones)
+        child_agent_names = [
+            name for name in fast.agents.keys()
+            if name not in {"setup", "huggingface"}
+        ]
+        if card_errors:
+            setattr(fast.app.context, "agent_card_errors", card_errors)
 
     # Register the Setup agent (wizard LLM for guided setup)
     # This is always available for configuration
@@ -261,16 +374,26 @@ async def run_agents(
 
     # Register the HuggingFace agent (uses HF LLM)
     # Always register so the mode is visible; defaults to Setup mode when token is missing
+    # Include any loaded agent cards as child agents (available as tools)
     @fast.custom(
         HuggingFaceAgent,
         name="huggingface",
         instruction=instruction,
         model=effective_model if hf_token_present else "wizard-setup",
         servers=server_list,
+        agents=child_agent_names if child_agent_names else None,
         default=hf_token_present,
     )
     async def hf_agent():
         pass
+
+    # Set card_tools for start_server() to process (--card-tool option)
+    if merged_card_tools:
+        from argparse import Namespace
+
+        if not hasattr(fast, "args") or fast.args is None:
+            fast.args = Namespace()
+        fast.args.card_tools = merged_card_tools
 
     # Start the ACP server
     await fast.start_server(
@@ -353,6 +476,17 @@ def run_acp(
         "--no-permissions",
         help="Disable tool permission requests (allow all tool executions without asking)",
     ),
+    agent_cards: list[str] | None = typer.Option(
+        None,
+        "--agent-cards",
+        "--card",
+        help="Path or URL to an AgentCard file or directory (repeatable)",
+    ),
+    card_tools: list[str] | None = typer.Option(
+        None,
+        "--card-tool",
+        help="Path or URL to an AgentCard file to load as a tool (repeatable)",
+    ),
 ) -> None:
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell
@@ -395,6 +529,8 @@ def run_acp(
                 tool_description=description,
                 instance_scope=instance_scope.value,
                 permissions_enabled=not no_permissions,
+                agent_cards=agent_cards,
+                card_tools=card_tools,
             )
         )
     except KeyboardInterrupt:

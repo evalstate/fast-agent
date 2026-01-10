@@ -207,6 +207,23 @@ async def _run_agent(
             fast._handle_error(exc)
             raise typer.Exit(1) from exc
 
+        # Add CLI servers (--url, --servers, etc.) to the default agent
+        if server_list:
+            default_agent_data = None
+            for agent_data in fast.agents.values():
+                config = agent_data.get("config")
+                if config and getattr(config, "default", False):
+                    default_agent_data = agent_data
+                    break
+            # If no explicit default, use the first agent
+            if default_agent_data is None and fast.agents:
+                default_agent_data = next(iter(fast.agents.values()))
+            if default_agent_data:
+                config = default_agent_data.get("config")
+                if config:
+                    existing = list(config.servers) if config.servers else []
+                    config.servers = existing + [s for s in server_list if s not in existing]
+
         async def cli_agent():
             async with fast.run() as agent:
                 if message:
@@ -429,6 +446,7 @@ def run_async_agent(
         loop = create_event_loop()
     _set_asyncio_exception_handler(loop)
 
+    exit_code: int | None = None
     try:
         loop.run_until_complete(
             _run_agent(
@@ -457,6 +475,8 @@ def run_async_agent(
                 watch=watch,
             )
         )
+    except SystemExit as exc:
+        exit_code = exc.code if isinstance(exc.code, int) else None
     finally:
         try:
             # Clean up the loop
@@ -471,6 +491,9 @@ def run_async_agent(
             loop.close()
         except Exception:
             pass
+
+    if exit_code not in (None, 0):
+        raise SystemExit(exit_code)
 
 
 @app.callback(invoke_without_command=True, no_args_is_help=False)

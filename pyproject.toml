@@ -1,6 +1,6 @@
 [project]
 name = "fast-agent-mcp"
-version = "0.4.23"
+version = "0.4.26"
 description = "Define, Prompt and Test MCP enabled Agents and Workflows"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -38,6 +38,7 @@ dependencies = [
     "pyperclip>=1.9.0",
     "keyring>=24.3.1",
     "python-frontmatter>=1.1.0",
+    "watchfiles>=1.1.0",
     "agent-client-protocol>=0.7.0",
     "tiktoken>=0.12.0",
     "uvloop>=0.22.1; platform_system != 'Windows'",

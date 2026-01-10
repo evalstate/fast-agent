@@ -10,8 +10,10 @@ import frontmatter
 import yaml
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
+from fast_agent.skills import SKILLS_DEFAULT
 from fast_agent.types import RequestParams
 
 _TYPE_MAP: dict[str, AgentType] = {
@@ -308,10 +310,10 @@ def _build_card_from_data(
 
 def _resolve_name(raw_name: Any, path: Path) -> str:
     if raw_name is None:
-        return path.stem
+        return path.stem.replace(" ", "_")
     if not isinstance(raw_name, str) or not raw_name.strip():
         raise AgentConfigError(f"'name' must be a non-empty string in {path}")
-    return raw_name.strip()
+    return raw_name.strip().replace(" ", "_")
 
 
 def _resolve_instruction_field(
@@ -343,7 +345,7 @@ def _resolve_instruction_field(
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
         return resolved
 
-    raise AgentConfigError(f"Instruction is required in {path}")
+    return DEFAULT_AGENT_INSTRUCTION
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:
@@ -448,7 +450,7 @@ def _build_agent_data(
         tools=tools,
         resources=resources,
         prompts=prompts,
-        skills=raw.get("skills"),
+        skills=raw.get("skills") if raw.get("skills") is not None else SKILLS_DEFAULT,
         model=model,
         use_history=use_history,
         human_input=human_input,

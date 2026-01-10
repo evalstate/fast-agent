@@ -33,6 +33,7 @@ from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.skills.manager import (
+    DEFAULT_SKILL_REGISTRIES,
     fetch_marketplace_skills,
     fetch_marketplace_skills_with_source,
     format_marketplace_display_url,
@@ -46,11 +47,12 @@ from fast_agent.skills.manager import (
     select_manifest_by_name_or_index,
     select_skill_by_name_or_index,
 )
-from fast_agent.skills.registry import format_skills_for_prompt
+from fast_agent.skills.registry import SkillManifest, format_skills_for_prompt
 from fast_agent.types import PromptMessageExtended
 from fast_agent.ui.command_payloads import (
     ClearCommand,
     CommandPayload,
+    HashAgentCommand,
     ListPromptsCommand,
     ListSkillsCommand,
     ListToolsCommand,
@@ -138,7 +140,12 @@ class InteractivePrompt:
         available_agents_set = set(available_agents)
 
         result = ""
+        buffer_prefill = ""  # One-off buffer content for # command results
         while True:
+            # Variables for hash command - must be sent OUTSIDE paused context
+            hash_send_target: str | None = None
+            hash_send_message: str | None = None
+
             with progress_display.paused():
                 # Use the enhanced input method with advanced features
                 user_input = await get_enhanced_input(
@@ -150,7 +157,9 @@ class InteractivePrompt:
                     available_agent_names=available_agents,
                     agent_types=self.agent_types,  # Pass agent types for display
                     agent_provider=prompt_provider,  # Pass agent provider for info display
+                    pre_populate_buffer=buffer_prefill,  # One-off buffer content
                 )
+                buffer_prefill = ""  # Clear after use - it's one-off
 
                 if isinstance(user_input, str):
                     user_input = parse_special_input(user_input)
@@ -171,6 +180,21 @@ class InteractivePrompt:
                                 continue
                             rich_print(f"[red]Agent '{new_agent}' not found[/red]")
                             continue
+                        case HashAgentCommand(agent_name=target_agent, message=hash_message):
+                            # Validate, but send OUTSIDE paused context to avoid
+                            # nested paused() issues with progress display
+                            if target_agent not in available_agents_set:
+                                rich_print(f"[red]Agent '{target_agent}' not found[/red]")
+                                continue
+                            if not hash_message:
+                                rich_print(
+                                    f"[yellow]Usage: #{target_agent} <message>[/yellow]"
+                                )
+                                continue
+                            # Set up for sending outside the paused context
+                            hash_send_target = target_agent
+                            hash_send_message = hash_message
+                            # Don't continue here - fall through to exit paused context
                         # Keep the existing list_prompts handler for backward compatibility
                         case ListPromptsCommand():
                             # Use the prompt_provider directly
@@ -457,22 +481,57 @@ class InteractivePrompt:
                 # 2. The original input was a command payload (special command like /prompt)
                 # 3. The command result itself is a command payload (special command handling result)
                 # This fixes the issue where /prompt without arguments gets sent to the LLM
-                if (
-                    command_result
-                    or is_command_payload(user_input)
-                    or is_command_payload(command_result)
-                ):
+                # Skip these checks if we have a pending hash command to handle outside
+                if not hash_send_target:
+                    if (
+                        command_result
+                        or is_command_payload(user_input)
+                        or is_command_payload(command_result)
+                    ):
+                        continue
+
+                    if not isinstance(user_input, str):
+                        continue
+
+                    if user_input.upper() == "STOP":
+                        return result
+                    if user_input == "":
+                        continue
+
+            # Handle hash command OUTSIDE paused context so progress display works correctly
+            if hash_send_target and hash_send_message:
+                rich_print(f"[dim]Asking {hash_send_target}...[/dim]")
+                try:
+                    await send_func(hash_send_message, hash_send_target)
+                except Exception as exc:
+                    with progress_display.paused():
+                        rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
                     continue
 
-                if not isinstance(user_input, str):
-                    continue
+                # Pause progress display for status messages after send completes
+                with progress_display.paused():
+                    # Get the last assistant message from the target agent
+                    target_agent_obj = prompt_provider._agent(hash_send_target)
+                    response_text = ""
+                    for msg in reversed(target_agent_obj.message_history):
+                        if msg.role == "assistant":
+                            response_text = msg.last_text()
+                            break
 
-                if user_input.upper() == "STOP":
-                    return result
-                if user_input == "":
-                    continue
+                    if response_text:
+                        buffer_prefill = response_text
+                        rich_print(
+                            f"[green]Response from {hash_send_target} loaded into input buffer[/green]"
+                        )
+                    else:
+                        rich_print(
+                            f"[yellow]No response received from {hash_send_target}[/yellow]"
+                        )
+                continue
 
             # Send the message to the agent
+            # Type narrowing: by this point user_input is str (non-str inputs continue above)
+            assert isinstance(user_input, str)
             result = await send_func(user_input, agent)
 
         return result
@@ -1158,9 +1217,11 @@ class InteractivePrompt:
         """List available local skills for an agent."""
 
         try:
-            manager_dir = get_manager_directory()
-            manifests = list_local_skills(manager_dir)
-            self._render_local_skills(manifests, manager_dir)
+            directories = resolve_skill_directories()
+            all_manifests: dict[Path, list[SkillManifest]] = {}
+            for directory in directories:
+                all_manifests[directory] = list_local_skills(directory) if directory.exists() else []
+            self._render_local_skills_by_directory(all_manifests)
 
         except Exception as exc:  # noqa: BLE001
             import traceback
@@ -1190,30 +1251,59 @@ class InteractivePrompt:
         rich_print(f"[yellow]Unknown /skills action: {action}[/yellow]")
 
     async def _set_skills_registry(self, argument: str | None) -> None:
+        settings = get_settings()
+        configured_urls = (
+            settings.skills.marketplace_urls if settings.skills else None
+        ) or list(DEFAULT_SKILL_REGISTRIES)
+
         if not argument:
-            current = get_marketplace_url(get_settings())
-            rich_print(f"[dim]Current registry:[/dim] {current}")
-            rich_print("[dim]Usage: /skills registry <url>[/dim]")
+            current = get_marketplace_url(settings)
+            rich_print(f"[dim]Current registry:[/dim] {format_marketplace_display_url(current)}")
+
+            # Show numbered list of configured registries
+            if configured_urls:
+                rich_print("\n[dim]Available registries:[/dim]")
+                for i, reg_url in enumerate(configured_urls, 1):
+                    display = format_marketplace_display_url(reg_url)
+                    rich_print(f"  [cyan][{i}][/cyan] {display}")
+
+            rich_print("\n[dim]Usage: /skills registry <number|url|path>[/dim]")
             return
 
-        url = str(argument).strip()
+        arg = str(argument).strip()
+
+        # Check if argument is a number (select from configured registries)
+        if arg.isdigit():
+            index = int(arg)
+            if not configured_urls:
+                rich_print("[yellow]No registries configured.[/yellow]")
+                return
+            if 1 <= index <= len(configured_urls):
+                url = configured_urls[index - 1]
+            else:
+                rich_print(
+                    f"[yellow]Invalid registry number. Use 1-{len(configured_urls)}.[/yellow]"
+                )
+                return
+        else:
+            url = arg
+
         try:
             marketplace, resolved_url = await fetch_marketplace_skills_with_source(url)
         except Exception as exc:  # noqa: BLE001
             rich_print(f"[red]Failed to load registry: {exc}[/red]")
             return
 
-        settings = get_settings()
+        # Update only the active registry, preserve the configured list
         skills_settings = getattr(settings, "skills", None)
         if skills_settings is not None:
-            skills_settings.marketplace_urls = [resolved_url]
             skills_settings.marketplace_url = resolved_url
 
         if resolved_url != url:
             rich_print(f"[dim]Resolved from:[/dim] {url}")
-            rich_print(
-                f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
-            )
+        rich_print(
+            f"[green]Registry set to:[/green] {format_marketplace_display_url(resolved_url)}"
+        )
         rich_print(f"[dim]Skills discovered:[/dim] {len(marketplace)}")
 
     async def _add_skill(
@@ -1398,6 +1488,55 @@ class InteractivePrompt:
         rich_print()
         rich_print("[dim]Use /skills add to install a skill[/dim]")
         rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
+
+    def _render_local_skills_by_directory(self, manifests_by_dir: dict[Path, list[SkillManifest]]) -> None:
+        from rich.text import Text
+
+        total_skills = sum(len(m) for m in manifests_by_dir.values())
+        skill_index = 0
+
+        for directory, manifests in manifests_by_dir.items():
+            try:
+                display_dir = directory.relative_to(Path.cwd())
+            except ValueError:
+                display_dir = directory
+
+            rich_print(f"\n[bold]Skills in [cyan]{display_dir}[/cyan]:[/bold]\n")
+
+            if not manifests:
+                rich_print("[yellow]No skills in this directory[/yellow]")
+            else:
+                for manifest in manifests:
+                    skill_index += 1
+
+                    tool_line = Text()
+                    tool_line.append(f"[{skill_index:2}] ", style="dim cyan")
+                    tool_line.append(manifest.name, style="bright_blue bold")
+                    rich_print(tool_line)
+
+                    if manifest.description:
+                        wrapped_lines = textwrap.wrap(
+                            manifest.description.strip(), width=72, subsequent_indent="     "
+                        )
+                        for line in wrapped_lines:
+                            if line.startswith("     "):
+                                rich_print(f"     [white]{line[5:]}[/white]")
+                            else:
+                                rich_print(f"     [white]{line}[/white]")
+
+                    source_path = manifest.path.parent if manifest.path.is_file() else manifest.path
+                    try:
+                        source_display = source_path.relative_to(Path.cwd())
+                    except ValueError:
+                        source_display = source_path
+                    rich_print(f"     [dim green]source:[/dim green] {source_display}")
+                    rich_print()
+
+        if total_skills == 0:
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+        else:
+            rich_print("[dim]Use /skills add to install a skill[/dim]")
+            rich_print("[dim]Remove a skill with /skills remove <number|name>[/dim]")
 
     def _render_install_result(self, skill: Any, install_path: Path) -> None:
         try:

@@ -90,3 +90,43 @@ def test_override_missing_directory(tmp_path: Path) -> None:
     assert registry.directories == []
     assert registry.warnings
     assert str(override_dir.resolve()) in registry.warnings[0]
+
+
+def test_cli_override_propagates_to_global_settings(tmp_path: Path, monkeypatch) -> None:
+    """Verify that skills_directory passed to FastAgent updates global settings."""
+    import fast_agent.config as config_module
+    from fast_agent.skills.manager import resolve_skill_directories
+
+    # Reset global settings
+    monkeypatch.setattr(config_module, "_settings", None)
+
+    # Create a custom skills directory with a skill
+    custom_skills = tmp_path / "my-skills"
+    write_skill(custom_skills, "test-skill", "A test skill")
+
+    # Create a minimal config file
+    config_file = tmp_path / "fastagent.config.yaml"
+    config_file.write_text("default_model: playback\n", encoding="utf-8")
+
+    # Change to tmp_path so config is found
+    monkeypatch.chdir(tmp_path)
+
+    # Import and create FastAgent with skills_directory override
+    from fast_agent.core.fastagent import FastAgent
+
+    # Creating FastAgent updates global settings as a side effect
+    FastAgent(
+        name="test",
+        config_path=str(config_file),
+        skills_directory=custom_skills,
+        ignore_unknown_args=True,
+        parse_cli_args=False,
+    )
+
+    # Now resolve_skill_directories() should return our custom directory
+    directories = resolve_skill_directories()
+    directory_strs = [str(d) for d in directories]
+
+    assert str(custom_skills) in directory_strs, (
+        f"Expected {custom_skills} in {directory_strs}"
+    )

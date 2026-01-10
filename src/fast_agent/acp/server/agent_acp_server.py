@@ -47,7 +47,10 @@ from acp.schema import (
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
-from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.content_conversion import (
+    convert_acp_prompt_to_mcp_content_blocks,
+    inline_resources_for_slash_command,
+)
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.protocols import (
@@ -574,9 +577,9 @@ class AgentACPServer(ACPAgent):
             for session_id, session_state in self._session_state.items():
                 self.sessions[session_id] = instance
                 session_state.instance = instance
-                self._refresh_session_state(session_state, instance)
+                await self._refresh_session_state(session_state, instance)
 
-    def _refresh_session_state(
+    async def _refresh_session_state(
         self, session_state: ACPSessionState, instance: AgentInstance
     ) -> None:
         prompt_context = session_state.prompt_context or {}
@@ -615,6 +618,12 @@ class AgentACPServer(ACPAgent):
             for agent_name, agent in instance.agents.items():
                 if isinstance(agent, FilesystemRuntimeCapable):
                     agent.set_filesystem_runtime(session_state.filesystem_runtime)
+            # Rebuild instructions now that filesystem runtime is available
+            # This ensures skill prompts use read_text_file instead of read_skill
+            from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+            for agent in instance.agents.values():
+                await rebuild_agent_instruction(agent)
 
         async def load_card(source: str) -> tuple[AgentInstance, list[str]]:
             return await self._load_agent_card_for_session(session_state, source)
@@ -685,7 +694,7 @@ class AgentACPServer(ACPAgent):
             session_state.instance = instance
             async with self._session_lock:
                 self.sessions[session_state.session_id] = instance
-            self._refresh_session_state(session_state, instance)
+            await self._refresh_session_state(session_state, instance)
             if old_instance != self.primary_instance:
                 try:
                     await self._dispose_instance_task(old_instance)
@@ -729,7 +738,7 @@ class AgentACPServer(ACPAgent):
         session_state.instance = instance
         async with self._session_lock:
             self.sessions[session_id] = instance
-        self._refresh_session_state(session_state, instance)
+        await self._refresh_session_state(session_state, instance)
         if old_instance != self.primary_instance:
             try:
                 await self._dispose_instance_task(old_instance)
@@ -979,6 +988,13 @@ class AgentACPServer(ACPAgent):
                                 read_enabled=self._client_supports_fs_read,
                                 write_enabled=self._client_supports_fs_write,
                             )
+
+                    # Rebuild instructions now that filesystem runtime is available
+                    # This ensures skill prompts use read_text_file instead of read_skill
+                    from fast_agent.core.instruction_refresh import rebuild_agent_instruction
+
+                    for agent in instance.agents.values():
+                        await rebuild_agent_instruction(agent)
 
         # Track per-session template variables (used for late instruction binding)
         session_context: dict[str, str] = {}
@@ -1272,8 +1288,11 @@ class AgentACPServer(ACPAgent):
                 # Return an error response
                 return PromptResponse(stop_reason=REFUSAL)
 
+            # Inline resource URIs for slash commands (e.g., /card @file.txt)
+            processed_prompt = inline_resources_for_slash_command(prompt)
+
             # Convert ACP content blocks to MCP format
-            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(prompt)
+            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
 
             # Create a PromptMessageExtended with the converted content
             prompt_message = PromptMessageExtended(

@@ -32,6 +32,7 @@ from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     ClearCommand,
     CommandPayload,
+    HashAgentCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
@@ -48,6 +49,7 @@ from fast_agent.ui.command_payloads import (
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
+from fast_agent.ui.model_display import format_model_display
 
 if TYPE_CHECKING:
     from fast_agent.core.agent_app import AgentApp
@@ -92,6 +94,10 @@ def _switch_agent_cmd(agent_name: str) -> SwitchAgentCommand:
     return SwitchAgentCommand(agent_name=agent_name)
 
 
+def _hash_agent_cmd(agent_name: str, message: str) -> HashAgentCommand:
+    return HashAgentCommand(agent_name=agent_name, message=message)
+
+
 def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
     return ShowHistoryCommand(agent=target_agent)
 
@@ -122,9 +128,7 @@ def _reload_agents_cmd() -> ReloadAgentsCommand:
     return ReloadAgentsCommand()
 
 
-def _select_prompt_cmd(
-    prompt_index: int | None, prompt_name: str | None
-) -> SelectPromptCommand:
+def _select_prompt_cmd(prompt_index: int | None, prompt_name: str | None) -> SelectPromptCommand:
     return SelectPromptCommand(prompt_index=prompt_index, prompt_name=prompt_name)
 
 
@@ -400,9 +404,7 @@ async def _display_router_children(router_agent, agent_provider: "AgentApp | Non
         await _display_child_agent_info(child_agent, prefix, agent_provider)
 
 
-async def _display_tool_children(
-    tool_children, agent_provider: "AgentApp | None"
-) -> None:
+async def _display_tool_children(tool_children, agent_provider: "AgentApp | None") -> None:
     """Display tool-exposed child agents in tree format."""
     for i, child_agent in enumerate(tool_children):
         is_last = i == len(tool_children) - 1
@@ -429,6 +431,7 @@ def _collect_tool_children(agent) -> list[Any]:
         seen.add(name)
         unique_children.append(child)
     return unique_children
+
 
 async def _display_child_agent_info(
     child_agent, prefix: str, agent_provider: "AgentApp | None"
@@ -489,7 +492,7 @@ class AgentCompleter(Completer):
             "mcp": "Show MCP server status",
             "history": "Show conversation history overview (optionally another agent)",
             "tools": "List available MCP Tools",
-            "skills": "Manage local skills (/skills, /skills add, /skills remove)",
+            "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
             "clear": "Clear history",
             "clear last": "Remove the most recent message from history",
@@ -523,7 +526,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -582,7 +587,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -631,15 +638,15 @@ class AgentCompleter(Completer):
         if text_lower.startswith("/load_history ") or text_lower.startswith("/load "):
             # Extract the partial path after the command
             if text_lower.startswith("/load_history "):
-                partial = text[len("/load_history "):]
+                partial = text[len("/load_history ") :]
             else:
-                partial = text[len("/load "):]
+                partial = text[len("/load ") :]
 
             yield from self._complete_history_files(partial)
             return
 
         if text_lower.startswith("/card "):
-            partial = text[len("/card "):]
+            partial = text[len("/card ") :]
             yield from self._complete_agent_card_files(partial)
             return
 
@@ -669,6 +676,24 @@ class AgentCompleter(Completer):
                         display=agent,
                         display_meta=agent_type,
                     )
+
+        # Complete agent names for hash commands (#agent_name message)
+        elif text.startswith("#"):
+            # Only complete if we haven't finished the agent name yet (no space after #agent)
+            rest = text[1:]
+            if " " not in rest:
+                # Still typing agent name
+                agent_name = rest
+                for agent in self.agents:
+                    if agent.lower().startswith(agent_name.lower()):
+                        # Get agent type or default to "Agent"
+                        agent_type = self.agent_types.get(agent, AgentType.BASIC).value
+                        yield Completion(
+                            agent + " ",  # Add space after agent name for message input
+                            start_position=-len(agent_name),
+                            display=agent,
+                            display_meta=f"# {agent_type}",
+                        )
 
 
 # Helper function to open text in an external editor
@@ -911,14 +936,10 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "markdown":
             return _show_markdown_cmd()
         if cmd in ("save_history", "save"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             return _save_history_cmd(filename)
         if cmd in ("load_history", "load"):
-            filename = (
-                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
-            )
+            filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             if not filename:
                 return _load_history_cmd(None, "Filename required for load_history")
             return _load_history_cmd(filename, None)
@@ -970,6 +991,17 @@ def parse_special_input(text: str) -> str | CommandPayload:
     if cmd_line and cmd_line.startswith("@"):
         return _switch_agent_cmd(cmd_line[1:].strip())
 
+    # Hash command: #agent_name message - send message to agent, return result to buffer
+    if cmd_line and cmd_line.startswith("#"):
+        rest = cmd_line[1:].strip()
+        if " " in rest:
+            # Split into agent name and message
+            agent_name, message = rest.split(" ", 1)
+            return _hash_agent_cmd(agent_name.strip(), message.strip())
+        elif rest:
+            # Just agent name, no message - return empty hash command (user will be prompted)
+            return _hash_agent_cmd(rest.strip(), "")
+
     return text
 
 
@@ -984,6 +1016,7 @@ async def get_enhanced_input(
     is_human_input: bool = False,
     toolbar_color: str = "ansiblue",
     agent_provider: "AgentApp | None" = None,
+    pre_populate_buffer: str = "",
 ) -> str | CommandPayload:
     """
     Enhanced input with advanced prompt_toolkit features.
@@ -999,6 +1032,7 @@ async def get_enhanced_input(
         is_human_input: Whether this is a human input request (disables agent selection features)
         toolbar_color: Color to use for the agent name in the toolbar (default: "ansiblue")
         agent_provider: Optional AgentApp for displaying agent info
+        pre_populate_buffer: Text to pre-populate in the input buffer for editing (one-off)
 
     Returns:
         User input string or parsed command payload
@@ -1085,9 +1119,12 @@ async def get_enhanced_input(
                     model_name = context.config.default_model
 
             if model_name:
+                display_name = format_model_display(model_name) or model_name
                 max_len = 25
                 model_display = (
-                    model_name[: max_len - 1] + "…" if len(model_name) > max_len else model_name
+                    display_name[: max_len - 1] + "…"
+                    if len(display_name) > max_len
+                    else display_name
                 )
             else:
                 print(f"[toolbar debug] no model resolved for agent '{agent_name}'")
@@ -1294,7 +1331,7 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Type '/' for commands, '@' to switch agent. Ctrl+T multiline, CTRL+E external editor.[/dim]\n"
+                "[dim]Type '/' for commands, '@' to switch agent, '#' to query agent. \nCtrl+T multiline, CTRL+Y copy last assistant message, CTRL+E external editor.[/dim]\n"
             )
 
             # Display agent info right after help text if agent_provider is available
@@ -1365,9 +1402,7 @@ async def get_enhanced_input(
                                     hf_info = get_hf_info()
                                     model = hf_info.get("model", "unknown")
                                     provider = hf_info.get("provider", "auto-routing")
-                                    rich_print(
-                                        f"[dim]HuggingFace: {model} via {provider}[/dim]"
-                                    )
+                                    rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
 
@@ -1402,9 +1437,18 @@ async def get_enhanced_input(
 
     # Process special commands
 
+    # Determine what to use as the buffer's initial content:
+    # - pre_populate_buffer takes priority (one-off, for # command results)
+    # - otherwise use the default parameter
+    buffer_default = pre_populate_buffer if pre_populate_buffer else default
+
     # Get the input - using async version
     try:
-        result = await session.prompt_async(HTML(prompt_text), default=default)
+        result = await session.prompt_async(HTML(prompt_text), default=buffer_default)
+        # Echo slash command input since erase_when_done clears it
+        stripped = result.lstrip()
+        if stripped.startswith("/"):
+            rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
         return parse_special_input(result)
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully
@@ -1570,6 +1614,7 @@ async def handle_special_commands(
         rich_print("  /card <filename> [--tool] - Load an AgentCard")
         rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
+        rich_print("  #agent_name <msg> - Send message to agent, return result to input buffer")
         rich_print("  STOP           - Return control back to the workflow")
         rich_print("  EXIT           - Exit fast-agent, terminating any running workflows")
         rich_print("\n[bold]Keyboard Shortcuts:[/bold]")

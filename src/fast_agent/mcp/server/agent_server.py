@@ -380,15 +380,15 @@ class AgentMCPServer:
         agent_count = len(self.primary_instance.agents)
         base = server_description or f"This server provides access to {agent_count} agents."
         if self._instance_scope == "request":
-            scope_info = "do not retain history between your requests"
+            scope_info = "do NOT retain history between your requests"
         elif self._instance_scope == "connection":
             scope_info = "retain history between tool calls."
         else:
             scope_info = "retain history between tool calls."
         return (
-            f"{base} Use the  `{self._name_for_send_tool()}` tools to send messages to agents."
-            f"Agents {self._instance_scope} "
-            f"({scope_info})"
+            f"{base} Use the  `{self._name_for_send_tool()}` tools to send messages to agents. "
+            f"Instance mode is {self._instance_scope} "
+            f"Agents ({scope_info})"
         )
 
     def _name_for_send_tool(self) -> str:
