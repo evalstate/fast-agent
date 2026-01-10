@@ -302,6 +302,8 @@ async def _run_ping_loop(server_conn: ServerConnection) -> None:
         if server_conn.server_config.read_timeout_seconds
         else None
     )
+    if read_timeout is None:
+        read_timeout = timedelta(seconds=interval)
 
     while not server_conn._shutdown_event.is_set():
         await asyncio.sleep(interval)

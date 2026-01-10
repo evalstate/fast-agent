@@ -326,7 +326,7 @@ def _build_health_text(status: ServerStatus) -> Text | None:
         return health
 
     max_missed = status.ping_max_missed or 0
-    misses = status.ping_consecutive_failures or 0
+    misses = _compute_display_misses(status)
 
     health.append(state_label, style=state_style)
     health.append(f" | interval: {interval}s", style=Colours.TEXT_DIM)
@@ -355,15 +355,28 @@ def _get_health_state(status: ServerStatus) -> tuple[str, str]:
     if interval <= 0:
         return ("disabled", Colours.TEXT_DIM)
 
+    if status.is_connected is False:
+        if status.error_message and "initializing" in status.error_message:
+            return ("pending", Colours.TEXT_DIM)
+        return ("offline", Colours.TEXT_ERROR)
+
     if _has_transport_error(status):
         return ("error", Colours.TEXT_ERROR)
 
     max_missed = status.ping_max_missed or 0
-    misses = status.ping_consecutive_failures or 0
+    misses = _compute_display_misses(status)
     has_activity = bool(status.ping_last_ok_at or status.ping_last_fail_at)
 
+    last_ping_at = status.ping_last_ok_at or status.ping_last_fail_at
+    if last_ping_at is not None and max_missed > 0:
+        if last_ping_at.tzinfo is None:
+            last_ping_at = last_ping_at.replace(tzinfo=timezone.utc)
+        now = datetime.now(timezone.utc)
+        if (now - last_ping_at).total_seconds() > interval * max_missed:
+            return ("stale", Colours.TEXT_ERROR)
+
     if not has_activity:
-        return ("ok", Colours.TEXT_SUCCESS)
+        return ("pending", Colours.TEXT_DIM)
     if max_missed and misses >= max_missed:
         return ("failed", Colours.TEXT_ERROR)
     if misses > 0:
@@ -386,9 +399,34 @@ def _has_transport_error(status: ServerStatus) -> bool:
     for channel in channels:
         if channel is None:
             continue
-        if channel.state == "error" and channel.last_status_code != 405:
+        if channel.last_status_code == 405 or channel.state == "disabled":
+            continue
+        if channel.last_error and "405" in channel.last_error:
+            continue
+        if channel.state == "error":
             return True
     return False
+
+
+def _compute_display_misses(status: ServerStatus) -> int:
+    interval = status.ping_interval_seconds
+    if interval is None or interval <= 0:
+        return status.ping_consecutive_failures or 0
+
+    last_ping_at = status.ping_last_ok_at or status.ping_last_fail_at
+    if last_ping_at is None:
+        return status.ping_consecutive_failures or 0
+
+    if last_ping_at.tzinfo is None:
+        last_ping_at = last_ping_at.replace(tzinfo=timezone.utc)
+
+    elapsed = (datetime.now(timezone.utc) - last_ping_at).total_seconds()
+    if elapsed <= 0:
+        return status.ping_consecutive_failures or 0
+
+    derived = int(elapsed // interval)
+    recorded = status.ping_consecutive_failures or 0
+    return max(recorded, derived)
 
 
 def _get_ping_attempts(status: ServerStatus) -> int:
