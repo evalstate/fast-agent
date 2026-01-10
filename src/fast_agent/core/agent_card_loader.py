@@ -175,12 +175,21 @@ def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
                 continue
             if entry.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
                 continue
+            if entry.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(
+                entry
+            ):
+                continue
             cards.extend(_load_agent_card_file(entry))
         _ensure_unique_names(cards, path)
         return cards
 
     if path.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
         raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
+    if path.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(path):
+        raise AgentConfigError(
+            "AgentCard markdown files must include frontmatter",
+            f"Missing frontmatter in {path}",
+        )
 
     cards = _load_agent_card_file(path)
     _ensure_unique_names(cards, path)
@@ -235,6 +244,21 @@ def _load_markdown_card(path: Path) -> tuple[dict[str, Any], str]:
 
     body = post.content or ""
     return dict(metadata), body
+
+
+def _markdown_has_frontmatter(path: Path) -> bool:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if raw_text.startswith("\ufeff"):
+        raw_text = raw_text.lstrip("\ufeff")
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped in ("---", "+++")
+    return False
 
 
 def _build_card_from_data(

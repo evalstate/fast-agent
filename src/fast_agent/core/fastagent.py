@@ -643,16 +643,40 @@ class FastAgent:
         return {".md", ".markdown", ".yaml", ".yml"}
 
     def _collect_agent_card_files(self, root: Path) -> set[Path]:
+        def _has_frontmatter(path: Path) -> bool:
+            try:
+                raw_text = path.read_text(encoding="utf-8")
+            except Exception:
+                return False
+            if raw_text.startswith("\ufeff"):
+                raw_text = raw_text.lstrip("\ufeff")
+            for line in raw_text.splitlines():
+                stripped = line.strip()
+                if not stripped:
+                    continue
+                return stripped in ("---", "+++")
+            return False
+
         if root.is_dir():
             extensions = self._agent_card_extensions()
             return {
                 entry
                 for entry in root.iterdir()
-                if entry.is_file() and entry.suffix.lower() in extensions
+                if entry.is_file()
+                and entry.suffix.lower() in extensions
+                and (
+                    entry.suffix.lower() not in {".md", ".markdown"}
+                    or _has_frontmatter(entry)
+                )
             }
 
         if root.suffix.lower() not in self._agent_card_extensions():
             raise AgentConfigError(f"Unsupported AgentCard file extension: {root}")
+        if root.suffix.lower() in {".md", ".markdown"} and not _has_frontmatter(root):
+            raise AgentConfigError(
+                "AgentCard markdown files must include frontmatter",
+                f"Missing frontmatter in {root}",
+            )
         return {root}
 
     @staticmethod

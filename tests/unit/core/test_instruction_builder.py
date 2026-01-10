@@ -2,6 +2,7 @@
 
 import pytest
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.instruction import InstructionBuilder
 
 
@@ -182,6 +183,15 @@ class TestInstructionBuilderFilePatterns:
 
         result = await builder.build()
         assert result == "Base."
+
+    @pytest.mark.asyncio
+    async def test_file_pattern_missing_file_raises(self, tmp_path):
+        """{{file:path}} should raise AgentConfigError when missing."""
+        builder = InstructionBuilder("Base. {{file:missing.md}}")
+        builder.set("workspaceRoot", str(tmp_path))
+
+        with pytest.raises(AgentConfigError, match="Instruction file not found"):
+            await builder.build()
 
     @pytest.mark.asyncio
     async def test_file_pattern_rejects_absolute_paths(self):

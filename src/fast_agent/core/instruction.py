@@ -35,6 +35,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.core.logging.logger import get_logger
 
 logger = get_logger(__name__)
@@ -277,10 +278,13 @@ class InstructionBuilder:
 
             try:
                 return resolved_path.read_text(encoding="utf-8")
-            except FileNotFoundError:
+            except FileNotFoundError as exc:
                 if silent:
                     return ""
-                raise
+                raise AgentConfigError(
+                    "Instruction file not found for template placeholder",
+                    f"Placeholder: {{{{file:{file_path_str}}}}}\nMissing: {resolved_path}",
+                ) from exc
 
         return file_pattern.sub(replace_file, text)
 

@@ -1491,11 +1491,13 @@ class AgentACPServer(ACPAgent):
                             turn_start_index = len(agent.usage_accumulator.turns)
                         previous_hooks = None
                         restore_hooks = False
+                        tool_hook_agent: ToolRunnerHookCapable | None = None
                         if (
                             self._connection
                             and isinstance(agent, ToolRunnerHookCapable)
                             and turn_start_index is not None
                         ):
+                            tool_hook_agent = agent
 
                             async def after_llm_call(_runner, message):
                                 if message.stop_reason != LlmStopReason.TOOL_USE:
@@ -1506,8 +1508,8 @@ class AgentACPServer(ACPAgent):
 
                             status_hook = ToolRunnerHooks(after_llm_call=after_llm_call)
                             try:
-                                previous_hooks = agent.tool_runner_hooks
-                                agent.tool_runner_hooks = self._merge_tool_runner_hooks(
+                                previous_hooks = tool_hook_agent.tool_runner_hooks
+                                tool_hook_agent.tool_runner_hooks = self._merge_tool_runner_hooks(
                                     previous_hooks, status_hook
                                 )
                                 restore_hooks = True
@@ -1521,8 +1523,8 @@ class AgentACPServer(ACPAgent):
                                 request_params=session_request_params,
                             )
                         finally:
-                            if restore_hooks:
-                                agent.tool_runner_hooks = previous_hooks
+                            if restore_hooks and tool_hook_agent is not None:
+                                tool_hook_agent.tool_runner_hooks = previous_hooks
                         response_text = result.last_text() or "No content generated"
                         status_line_meta = self._build_status_line_meta(agent, turn_start_index)
 

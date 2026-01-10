@@ -251,11 +251,10 @@ class PromptTemplate:
         """
         lines = self.template_text.split("\n")
 
-        # Check if we're in simple mode (no delimiters)
-        first_non_empty_line = next((line for line in lines if line.strip()), "")
+        # Check if we're in simple mode (no delimiters anywhere)
         delimiter_values = set(self.delimiter_map.keys())
-
-        is_simple_mode = first_non_empty_line and first_non_empty_line not in delimiter_values
+        has_delimiter = any(line.strip() in delimiter_values for line in lines)
+        is_simple_mode = not has_delimiter
 
         if is_simple_mode:
             # Simple mode: treat the entire content as a single user message
@@ -266,6 +265,7 @@ class PromptTemplate:
         current_role = None
         current_content = ""
         current_resources = []
+        preamble_lines: list[str] = []
 
         i = 0
         while i < len(lines):
@@ -277,6 +277,17 @@ class PromptTemplate:
 
                 # If we're moving to a new user/assistant section (not resource)
                 if role_type != "resource":
+                    if current_role is None and preamble_lines:
+                        preamble_text = "\n".join(preamble_lines).strip()
+                        if preamble_text:
+                            sections.append(
+                                PromptContent(
+                                    text=preamble_text,
+                                    role="user",
+                                    resources=[],
+                                )
+                            )
+                        preamble_lines = []
                     # Save the previous section if it exists
                     if current_role is not None and current_content:
                         sections.append(
@@ -302,6 +313,8 @@ class PromptTemplate:
             # If we're in a section, add to the current content
             elif current_role is not None:
                 current_content += line + "\n"
+            else:
+                preamble_lines.append(line)
 
             i += 1
 
@@ -374,10 +387,11 @@ class PromptTemplateLoader:
 
         # Generate a description based on content
         lines = template.template_text.split("\n")
-        first_non_empty_line = next((line for line in lines if line.strip()), "")
+        delimiter_values = set(self.delimiter_map.keys())
+        has_delimiter = any(line.strip() in delimiter_values for line in lines)
 
         # Check if we're in simple mode
-        is_simple_mode = first_non_empty_line and first_non_empty_line not in self.delimiter_map
+        is_simple_mode = not has_delimiter
 
         if is_simple_mode:
             # In simple mode, use first line as description if it seems like one
