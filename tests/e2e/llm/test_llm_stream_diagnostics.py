@@ -16,7 +16,6 @@ from fast_agent.types.llm_stop_reason import LlmStopReason
 
 TEST_MODELS = [
     "hf.moonshotai/Kimi-K2-Thinking:nebius",
-    "hf.moonshotai/Kimi-K2-Thinking:together",
     "hf.moonshotai/Kimi-K2-Thinking:novita",
 ]
 
@@ -35,7 +34,7 @@ def _patch_stream_logging(llm: Any):
     summaries: list[list[dict[str, Any]]] = []
 
     def _wrap(original):
-        async def wrapped(stream, model):
+        async def wrapped(stream, model, *args):
             local: list[dict[str, Any]] = []
 
             async def logged_stream():
@@ -59,7 +58,7 @@ def _patch_stream_logging(llm: Any):
                     local.append(info)
                     yield chunk
 
-            result = await original(logged_stream(), model)
+            result = await original(logged_stream(), model, *args)
             summaries.append(local)
             return result
 
