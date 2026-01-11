@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import shutil
+from contextlib import ExitStack
+from importlib.resources import as_file, files
 from pathlib import Path
 from typing import Any
 
@@ -261,3 +265,77 @@ def ensure_skill_registries() -> None:
     if modified:
         with open(config_path, "w") as f:
             _yaml.dump(config, f)
+
+
+def copy_toad_cards_from_resources(
+    target_dir: Path | None = None,
+    force: bool = False,
+) -> list[str]:
+    """Copy toad-cards from fast-agent-mcp package resources.
+
+    Args:
+        target_dir: Target directory. Defaults to cwd/.fast-agent
+        force: If True, overwrite existing files
+
+    Returns:
+        List of created file paths (relative, e.g. ".fast-agent/agent-cards/foo.md")
+    """
+    from fast_agent.cli.commands.quickstart import TOAD_CARDS_SUBDIRS
+
+    logger = logging.getLogger(__name__)
+
+    if target_dir is None:
+        target_dir = Path.cwd() / ".fast-agent"
+
+    created: list[str] = []
+
+    # Try to access fast-agent-mcp package resources
+    use_as_file = False
+    try:
+        source_dir_traversable = (
+            files("fast_agent")
+            .joinpath("resources")
+            .joinpath("examples")
+            .joinpath("hf-toad-cards")
+        )
+        if not source_dir_traversable.is_dir():
+            raise FileNotFoundError("hf-toad-cards not found in package resources")
+        source_dir = source_dir_traversable  # type: ignore
+        use_as_file = True
+    except (ImportError, ModuleNotFoundError, FileNotFoundError) as e:
+        logger.warning(f"Could not access package resources: {e}")
+        return created
+
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    with ExitStack() as stack:
+        if use_as_file:
+            source_path = stack.enter_context(as_file(source_dir))  # type: ignore
+        else:
+            source_path = source_dir  # type: ignore
+
+        if not source_path.exists():
+            return created
+
+        for subdir_name in TOAD_CARDS_SUBDIRS:
+            source_subdir = source_path / subdir_name
+            target_subdir = target_dir / subdir_name
+
+            if not source_subdir.exists():
+                continue
+
+            target_subdir.mkdir(parents=True, exist_ok=True)
+
+            for src_file in source_subdir.rglob("*"):
+                if src_file.is_file():
+                    rel_path = src_file.relative_to(source_subdir)
+                    dest_file = target_subdir / rel_path
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    if dest_file.exists() and not force:
+                        continue
+
+                    shutil.copy2(src_file, dest_file)
+                    created.append(f".fast-agent/{subdir_name}/{rel_path}")
+
+    return created

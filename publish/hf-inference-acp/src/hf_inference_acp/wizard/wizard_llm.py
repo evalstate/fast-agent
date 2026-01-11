@@ -9,9 +9,9 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
-from hf_inference_acp.agents import copy_toad_cards_from_resources
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
+    copy_toad_cards_from_resources,
     has_hf_token,
     update_mcp_server_load_on_start,
     update_model_in_config,
