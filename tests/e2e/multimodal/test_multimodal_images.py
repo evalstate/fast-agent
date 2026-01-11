@@ -20,6 +20,7 @@ if TYPE_CHECKING:
         "gemini25",  # Not yet turned on as it runs into token limits.
         "azure.gpt-4.1",
         "gpt-5-mini.low",  # OpenAI model
+        "responses.gpt-5-mini.low",
     ],
 )
 async def test_agent_with_image_prompt(fast_agent, model_name):
@@ -57,6 +58,7 @@ async def test_agent_with_image_prompt(fast_agent, model_name):
         "gemini25",
         "grok-4",
         "gpt-5-mini.low",
+        "responses.gpt-5-mini.low",
         #    "gemini2",
     ],
 )

@@ -1,11 +1,10 @@
 import json
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
-from mcp.types import CallToolRequest, Tool
+from mcp.types import CallToolRequest, CallToolResult, Tool
 
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
@@ -14,11 +13,9 @@ from fast_agent.core import Core
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.request_params import RequestParams
-from fast_agent.mcp.helpers.content_helpers import get_text
+from fast_agent.mcp.helpers.content_helpers import get_text, text_content
+from fast_agent.types import PromptMessageExtended
 from fast_agent.types.llm_stop_reason import LlmStopReason
-
-if TYPE_CHECKING:
-    from fast_agent.mcp.prompt_message_extended import PromptMessageExtended
 
 
 def get_responses_models() -> list[str]:
@@ -139,3 +136,44 @@ async def test_responses_tool_streaming(responses_agent, model_name):
         delta_text = "".join(chunk for chunk in delta_chunks if chunk)
         if delta_text.strip():
             json.loads(delta_text)
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model_name", RESPONSES_MODELS)
+async def test_responses_tool_followup(responses_agent, model_name):
+    agent = responses_agent
+
+    tool_prompt = "Call the weather tool for Paris."
+    first_response: "PromptMessageExtended" = await agent.generate(
+        tool_prompt,
+        tools=[_tool],
+        request_params=RequestParams(maxTokens=200),
+    )
+    assert first_response.stop_reason is LlmStopReason.TOOL_USE
+    assert first_response.tool_calls
+
+    reasoning_mode = ModelDatabase.get_reasoning(agent.llm.default_request_params.model)
+    if reasoning_mode != "openai":
+        pytest.skip("Responses reasoning summary passback is only required for OpenAI reasoning.")
+
+    encrypted_blocks = (first_response.channels or {}).get(OPENAI_REASONING_ENCRYPTED, [])
+    if not encrypted_blocks:
+        pytest.skip("Model did not return encrypted reasoning to pass back.")
+
+    tool_use_id = next(iter(first_response.tool_calls.keys()))
+    tool_result = CallToolResult(content=[text_content("It is sunny.")], isError=False)
+    tool_message = PromptMessageExtended(
+        role="user",
+        content=[],
+        tool_results={tool_use_id: tool_result},
+    )
+
+    followup_prompt = "Use the tool result to answer in one sentence and do not call tools."
+    followup_response: "PromptMessageExtended" = await agent.generate(
+        [tool_prompt, first_response, tool_message, followup_prompt],
+        request_params=RequestParams(maxTokens=200),
+    )
+
+    assert followup_response.stop_reason is LlmStopReason.END_TURN
+    assert followup_response.last_text()
