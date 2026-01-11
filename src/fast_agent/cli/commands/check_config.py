@@ -731,7 +731,9 @@ def show_check_summary() -> None:
 
         for entry in entries:
             error_messages = entry.errors
-            if error_messages:
+            if entry.ignored_reason:
+                status = f"[dim]ignored - {entry.ignored_reason}[/dim]"
+            elif error_messages:
                 error_text = _truncate(error_messages[0], 60)
                 if len(error_messages) > 1:
                     error_text = f"{error_text} (+{len(error_messages) - 1} more)"

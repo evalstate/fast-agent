@@ -144,7 +144,7 @@ class ModelFactory:
         "kimi": "hf.moonshotai/Kimi-K2-Instruct-0905:groq",
         "gpt-oss": "hf.openai/gpt-oss-120b:cerebras",
         "gpt-oss-20b": "hf.openai/gpt-oss-20b",
-        "glm": "hf.zai-org/GLM-4.7:zai-org:novita",
+        "glm": "hf.zai-org/GLM-4.7:zai-org:cerebras",
         "qwen3": "hf.Qwen/Qwen3-Next-80B-A3B-Instruct:together",
         "deepseek31": "hf.deepseek-ai/DeepSeek-V3.1",
         "kimithink": "hf.moonshotai/Kimi-K2-Thinking:together",

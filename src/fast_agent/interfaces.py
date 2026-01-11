@@ -281,6 +281,9 @@ class ToolRunnerHookCapable(Protocol):
     @property
     def tool_runner_hooks(self) -> "ToolRunnerHooks | None": ...
 
+    @tool_runner_hooks.setter
+    def tool_runner_hooks(self, value: "ToolRunnerHooks | None") -> None: ...
+
 
 @runtime_checkable
 class StreamingAgentProtocol(AgentProtocol, Protocol):

@@ -207,6 +207,27 @@ async def _run_agent(
             fast._handle_error(exc)
             raise typer.Exit(1) from exc
 
+        # Check if any loaded agent card has default: true
+        has_explicit_default = False
+        for agent_data in fast.agents.values():
+            config = agent_data.get("config")
+            if config and getattr(config, "default", False):
+                has_explicit_default = True
+                break
+
+        # If no explicit default, create a fallback "agent" as the default
+        if not has_explicit_default:
+
+            @fast.agent(
+                name="agent",
+                instruction=instruction,
+                servers=server_list or [],
+                model=model,
+                default=True,
+            )
+            async def default_fallback_agent():
+                pass
+
         # Add CLI servers (--url, --servers, etc.) to the default agent
         if server_list:
             default_agent_data = None

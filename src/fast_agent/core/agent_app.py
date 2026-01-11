@@ -37,6 +37,8 @@ class AgentApp:
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
         load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        tool_only_agents: set[str] | None = None,
+        card_collision_warnings: list[str] | None = None,
     ) -> None:
         """
         Initialize the DirectAgentApp.
@@ -45,6 +47,8 @@ class AgentApp:
             agents: Dictionary of agent instances keyed by name
             reload_callback: Optional callback for manual AgentCard reloads
             refresh_callback: Optional callback for lazy instance refresh before requests
+            tool_only_agents: Optional set of agent names that are tool-only (hidden from listings)
+            card_collision_warnings: Optional list of warnings from agent card name collisions
         """
         if len(agents) == 0:
             raise ValueError("No agents provided!")
@@ -52,6 +56,8 @@ class AgentApp:
         self._reload_callback = reload_callback
         self._refresh_callback = refresh_callback
         self._load_card_callback = load_card_callback
+        self._tool_only_agents: set[str] = tool_only_agents or set()
+        self._card_collision_warnings: list[str] = card_collision_warnings or []
 
     def __getitem__(self, key: str) -> AgentProtocol:
         """Allow access to agents using dictionary syntax."""
@@ -125,10 +131,17 @@ class AgentApp:
                 raise ValueError(f"Agent '{agent_name}' not found")
             return self._agents[agent_name]
 
+        # Skip tool_only agents when selecting default
         for agent in self._agents.values():
-            if agent.config.default:
+            if agent.config.default and agent.name not in self._tool_only_agents:
                 return agent
 
+        # Fall back to first non-tool_only agent
+        for name, agent in self._agents.items():
+            if name not in self._tool_only_agents:
+                return agent
+
+        # If all agents are tool_only, return the first one anyway
         return next(iter(self._agents.values()))
 
     async def apply_prompt(
@@ -283,11 +296,25 @@ class AgentApp:
             raise RuntimeError("Agent card loading is not available.")
         return await self._load_card_callback(source)
 
-    def set_agents(self, agents: dict[str, AgentProtocol]) -> None:
+    def set_agents(
+        self,
+        agents: dict[str, AgentProtocol],
+        tool_only_agents: set[str] | None = None,
+        card_collision_warnings: list[str] | None = None,
+    ) -> None:
         """Replace the active agent map (used after reload)."""
         if not agents:
             raise ValueError("No agents provided!")
         self._agents = agents
+        if tool_only_agents is not None:
+            self._tool_only_agents = tool_only_agents
+        if card_collision_warnings is not None:
+            self._card_collision_warnings = card_collision_warnings
+
+    @property
+    def card_collision_warnings(self) -> list[str]:
+        """Return warnings from agent card name collisions."""
+        return list(self._card_collision_warnings)
 
     def set_reload_callback(self, callback: Callable[[], Awaitable[bool]] | None) -> None:
         """Update the reload callback for manual AgentCard refresh."""
@@ -304,8 +331,8 @@ class AgentApp:
         self._load_card_callback = callback
 
     def agent_names(self) -> list[str]:
-        """Return available agent names."""
-        return list(self._agents.keys())
+        """Return available agent names (excluding tool_only agents)."""
+        return [name for name in self._agents.keys() if name not in self._tool_only_agents]
 
     def agent_types(self) -> dict[str, AgentType]:
         """Return mapping of agent names to agent types."""
@@ -368,8 +395,13 @@ class AgentApp:
         # Don't delegate to the agent's own prompt method - use our implementation
         # The agent's prompt method doesn't fully support switching between agents
 
-        # Create agent_types dictionary mapping agent names to their types
-        agent_types = {name: agent.agent_type for name, agent in self._agents.items()}
+        # Create agent_types dictionary mapping agent names to their types (excluding tool_only)
+        visible_names = set(self.agent_names())
+        agent_types = {
+            name: agent.agent_type
+            for name, agent in self._agents.items()
+            if name in visible_names
+        }
 
         # Create the interactive prompt
         prompt = InteractivePrompt(agent_types=agent_types)
@@ -408,7 +440,7 @@ class AgentApp:
         return await prompt.prompt_loop(
             send_func=send_wrapper,
             default_agent=target_name,  # Pass the agent name, not the agent object
-            available_agents=list(self._agents.keys()),
+            available_agents=self.agent_names(),  # Excludes tool_only agents
             prompt_provider=self,  # Pass self as the prompt provider
             default=default_prompt,
         )

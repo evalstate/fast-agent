@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
+    copy_toad_cards_from_resources,
     get_default_model,
     get_hf_token_source,
     has_hf_token,
@@ -239,6 +240,10 @@ class SetupAgent(ACPAwareMixin, McpAgent):
                 input_hint="confirm",
                 handler=self._handle_reset,
             ),
+            "quickstart": ACPCommand(
+                description="Install example agent and tool cards to .fast-agent directory",
+                handler=self._handle_quickstart,
+            ),
         }
 
     def acp_mode_info(self) -> ACPModeInfo | None:
@@ -377,6 +382,79 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             "Reset complete.\n\n"
             f"Recreated `{target_dir}` with empty `agent-cards` and `tool-cards` folders."
         )
+
+    async def _handle_quickstart(self, arguments: str) -> str:
+        """Handler for /quickstart command - copy toad-cards to .fast-agent directory."""
+        base_dir = Path(self.config.cwd) if self.config.cwd else Path.cwd()
+        target_dir = (base_dir / ".fast-agent").resolve()
+
+        # Parse arguments for force flag
+        args = arguments.strip().lower()
+        force = args in ("force", "--force", "-f")
+
+        # Check if directory exists with content
+        if target_dir.exists() and not force:
+            existing_items = []
+            if (target_dir / "agent-cards").exists():
+                agent_cards = list((target_dir / "agent-cards").glob("*.md"))
+                if agent_cards:
+                    existing_items.append("agent-cards")
+            if (target_dir / "tool-cards").exists():
+                tool_cards = list((target_dir / "tool-cards").glob("*.md"))
+                if tool_cards:
+                    existing_items.append("tool-cards")
+
+            if existing_items:
+                return (
+                    f"`.fast-agent` directory already exists with: {', '.join(existing_items)}\n\n"
+                    "Use `/quickstart force` to overwrite existing files."
+                )
+
+        # Attempt to copy from fast-agent-mcp package resources
+        try:
+            created = self._copy_toad_cards_from_resources(target_dir, force)
+        except Exception as exc:
+            return f"Error installing examples: {exc}"
+
+        if not created:
+            return "No files were copied. The example resources may not be available."
+
+        # Generate success message
+        lines = [
+            "## Quickstart Examples Installed",
+            "",
+            f"Installed {len(created)} files to `.fast-agent/`",
+            "",
+            "**Directory structure:**",
+            "```",
+            ".fast-agent/",
+            "├── agent-cards/          # Agent definitions (loaded automatically)",
+            "├── tool-cards/           # Tool definitions (loaded automatically)",
+            "├── shared/               # Shared context snippets",
+            "├── skills/           # Tool definitions (loaded on-demand)",
+            "```",
+            "",
+            "The cards are now active. Use `/status` to see loaded agents.",
+            "",
+            "**Available agent cards:**",
+        ]
+
+        # List agent cards
+        agent_cards_dir = target_dir / "agent-cards"
+        if agent_cards_dir.exists():
+            for card_file in sorted(agent_cards_dir.glob("*.md")):
+                lines.append(f"- `{card_file.stem}`")
+
+        return "\n".join(lines)
+
+    def _copy_toad_cards_from_resources(self, target_dir: Path, force: bool) -> list[str]:
+        """Copy toad-cards from fast-agent-mcp package resources."""
+        created = copy_toad_cards_from_resources(target_dir, force)
+        if not created:
+            raise RuntimeError(
+                "Example files not found. Ensure fast-agent-mcp is installed correctly."
+            )
+        return created
 
     async def _get_model_provider_info(self, model: str) -> str | None:
         """Get a brief provider info string for a model.
