@@ -18,14 +18,13 @@ Examples:
     uv run extract_pr_reviews.py huggingface/blog 3029 --diff
 """
 
-import base64
 import json
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field
 from typing import Optional
-from urllib.parse import urlparse, quote
+from urllib.parse import quote, urlparse
 
 
 @dataclass
