@@ -381,12 +381,14 @@ Enter y or n:
         """Render agent examples installation prompt."""
         return """## Step 4 - Agent Examples (Recommended)
 
-Would you like to install example agent and tool cards?
+Would you like to install example Agents and Tools?
 
 These include:
-- **ACP Expert** - Search and explore Agent Client Protocol docs
-- **MCP Expert** - Search and explore Model Context Protocol docs
-- **HF Search** - Tool card for Hugging Face search
+- **ACP Expert** - Concise search and reference for Agent Client Protocol spec and Python SDK
+- **MCP Expert** - Concise search and reference for Model Context Protocol spec and Python SDK
+- **HF Search** - Search and ask questions from the Hugging Face (uses CLI)
+- **Filesystem Search** - Tool for context efficient file searching
+- **Writing PR Review** - Review blog PRs to summarise content changes from original to published
 
 The cards will be installed to `.fast-agent/` in your current directory.
 
@@ -472,7 +474,9 @@ Enter y or n:
                     try:
                         installed_count = self._install_agent_examples()
                         if installed_count > 0:
-                            examples_message = f"\n  - Agent examples: installed ({installed_count} files)"
+                            examples_message = (
+                                f"\n  - Agent examples: installed ({installed_count} files)"
+                            )
                         else:
                             examples_message = "\n  - Agent examples: already present (skipped)"
                     except Exception as e:
@@ -572,6 +576,7 @@ Some tips:
  - You can include content from URLs with `{{{{url:https://gist.github.com/...}}}}` syntax
  - Tool Permissions are set on a per-project basis. use `/status auth` and `/status authreset` to manage.
  - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
+ - **NOTE** You must restart Toad to use the examples if installed
  - Join https://huggingface.co/toad-hf-inference-explorers to claim **$20** in free inference credits!
 
 Transferring to chat mode...

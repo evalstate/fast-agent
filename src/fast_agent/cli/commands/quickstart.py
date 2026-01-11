@@ -659,7 +659,9 @@ def _show_toad_cards_completion_message(created: list[str]) -> None:
         console.print("  .fast-agent/")
         console.print("  ├── agent-cards/          # Agent card definitions")
         console.print("  ├── tool-cards/           # Tool card definitions")
-        console.print("  └── mcp-expert-messages/  # Message templates")
+        console.print("  ├── shared/               # Shared context snippets")
+        console.print("  ├── skills/               # Agent Skills (loaded on-demand)")
+
         console.print("\n[bold]Next Steps:[/bold]")
         console.print("1. The cards are automatically loaded when running hf-inference-acp")
         console.print("2. Customize the cards by editing the markdown files")
