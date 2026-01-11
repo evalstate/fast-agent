@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
-from contextlib import ExitStack
-from importlib.resources import as_file, files
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from fast_agent.core.logging.logger import get_logger
@@ -13,6 +9,7 @@ from fast_agent.core.prompt import Prompt
 from fast_agent.llm.internal.passthrough import PassthroughLLM
 from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
+from hf_inference_acp.agents import copy_toad_cards_from_resources
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
     has_hf_token,
@@ -495,57 +492,7 @@ Enter y or n:
 
         Returns the number of files installed.
         """
-        target_dir = Path.cwd() / ".fast-agent"
-
-        # Try to access fast-agent-mcp package resources
-        use_as_file = False
-        try:
-            source_dir_traversable = (
-                files("fast_agent")
-                .joinpath("resources")
-                .joinpath("examples")
-                .joinpath("hf-toad-cards")
-            )
-            if not source_dir_traversable.is_dir():
-                raise FileNotFoundError("hf-toad-cards not found")
-            source_dir = source_dir_traversable  # type: ignore
-            use_as_file = True
-        except (ImportError, ModuleNotFoundError, FileNotFoundError):
-            return 0  # Resources not available
-
-        target_dir.mkdir(parents=True, exist_ok=True)
-        installed_count = 0
-
-        with ExitStack() as stack:
-            if use_as_file:
-                source_path = stack.enter_context(as_file(source_dir))  # type: ignore
-            else:
-                source_path = source_dir  # type: ignore
-
-            if not source_path.exists():
-                return 0
-
-            for subdir_name in ["agent-cards", "tool-cards", "mcp-expert-messages"]:
-                source_subdir = source_path / subdir_name
-                target_subdir = target_dir / subdir_name
-
-                if not source_subdir.exists():
-                    continue
-
-                target_subdir.mkdir(parents=True, exist_ok=True)
-
-                for src_file in source_subdir.rglob("*"):
-                    if src_file.is_file():
-                        rel_path = src_file.relative_to(source_subdir)
-                        dest_file = target_subdir / rel_path
-                        dest_file.parent.mkdir(parents=True, exist_ok=True)
-
-                        # Don't overwrite existing files
-                        if not dest_file.exists():
-                            shutil.copy2(src_file, dest_file)
-                            installed_count += 1
-
-        return installed_count
+        return len(copy_toad_cards_from_resources())
 
     async def _handle_complete(self, user_input: str, examples_message: str = "") -> str:
         """Handle completion - show success and trigger callback."""

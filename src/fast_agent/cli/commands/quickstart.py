@@ -22,6 +22,9 @@ console = shared_console
 
 BASE_EXAMPLES_DIR = files("fast_agent").joinpath("resources").joinpath("examples")
 
+# Subdirectories to copy for toad-cards quickstart (used by hf-inference-acp too)
+TOAD_CARDS_SUBDIRS = ["agent-cards", "tool-cards", "skills", "shared"]
+
 
 @dataclass
 class ExampleConfig:
@@ -137,7 +140,7 @@ _EXAMPLE_CONFIGS = {
             "Includes ACP expert, MCP expert, and HF search tool cards.\n"
             "Creates a '.fast-agent' directory in the current directory."
         ),
-        files=["agent-cards/", "tool-cards/", "skills", "shared"],
+        files=[f"{d}/" for d in TOAD_CARDS_SUBDIRS],
         create_subdir=False,
         path_in_examples=["hf-toad-cards"],
     ),
@@ -617,8 +620,8 @@ def _copy_toad_cards(target_dir: Path, force: bool = False) -> list[str]:
             console.print(f"[red]Error: Source directory not found: {source_path}[/red]")
             return []
 
-        # Copy each subdirectory (agent-cards, tool-cards, mcp-expert-messages)
-        for subdir_name in ["agent-cards", "tool-cards", "mcp-expert-messages"]:
+        # Copy each subdirectory
+        for subdir_name in TOAD_CARDS_SUBDIRS:
             source_subdir: Path = source_path / subdir_name
             target_subdir = target_dir / subdir_name
 

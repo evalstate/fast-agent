@@ -18,13 +18,13 @@ class CustomBuildHook(BuildHookInterface):
         resources_examples_dir = Path(self.root) / "src/fast_agent/resources/examples"
         if resources_examples_dir.exists():
             shutil.rmtree(resources_examples_dir)
-            print("Fast-agent build: Cleared existing resources/examples directory")
+            print("fast-agent build: Cleared existing resources/examples directory")
 
         # Clear existing fast_agent setup resources for clean build
         resources_setup_dir = Path(self.root) / "src/fast_agent/resources/setup"
         if resources_setup_dir.exists():
             shutil.rmtree(resources_setup_dir)
-            print("Fast-agent build: Cleared existing resources/setup directory")
+            print("fast-agent build: Cleared existing resources/setup directory")
 
         # Define source to target mappings
         # Examples:
@@ -47,7 +47,7 @@ class CustomBuildHook(BuildHookInterface):
             "examples/setup": "src/fast_agent/resources/setup",
         }
 
-        print("Fast-agent build: Copying examples to resources...")
+        print("fast-agent build: Copying examples to resources...")
 
         for source_path, target_path in example_mappings.items():
             source_dir = Path(self.root) / source_path
