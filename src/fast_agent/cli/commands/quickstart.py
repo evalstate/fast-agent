@@ -131,6 +131,20 @@ _EXAMPLE_CONFIGS = {
         create_subdir=True,
         path_in_examples=["elicitations"],
     ),
+    "toad-cards": ExampleConfig(
+        description=(
+            "Example agent and tool cards for HuggingFace Toad.\n"
+            "Includes ACP expert, MCP expert, and HF search tool cards.\n"
+            "Creates a '.fast-agent' directory in the current directory."
+        ),
+        files=[
+            "agent-cards/",
+            "tool-cards/",
+            "mcp-expert-messages/",
+        ],
+        create_subdir=False,
+        path_in_examples=["hf-toad-cards"],
+    ),
 }
 
 
@@ -539,6 +553,125 @@ def tensorzero(
             console.print("\n4. [bold]Run the interactive agent:[/bold]")
             console.print("   [cyan]make agent[/cyan]  (or `uv run agent.py`)")
             console.print("\nEnjoy exploring the TensorZero integration with fast-agent! ✨")
+
+
+@app.command(name="toad-cards")
+def toad_cards(
+    directory: Path = typer.Argument(
+        Path("."),
+        help="Directory where .fast-agent will be created (defaults to current directory)",
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Force overwrite existing files"),
+) -> None:
+    """Create .fast-agent directory with example agent and tool cards for HuggingFace Toad."""
+    console.print("[bold green]Setting up toad-cards example...[/bold green]")
+
+    target_base = directory.resolve()
+    fast_agent_dir = target_base / ".fast-agent"
+
+    # Create .fast-agent directory if it doesn't exist
+    if fast_agent_dir.exists():
+        if not force:
+            console.print(
+                f"[bold yellow]Directory '{fast_agent_dir}' already exists.[/bold yellow] "
+                "Use --force to overwrite."
+            )
+            # Continue anyway, but will skip existing files
+        else:
+            console.print("[yellow]--force specified. Overwriting existing files...[/yellow]")
+    else:
+        fast_agent_dir.mkdir(parents=True, exist_ok=True)
+        console.print(f"Created directory: {fast_agent_dir}")
+
+    created = _copy_toad_cards(fast_agent_dir, force)
+    _show_toad_cards_completion_message(created)
+
+
+def _copy_toad_cards(target_dir: Path, force: bool = False) -> list[str]:
+    """Copy toad-cards files from resources to .fast-agent directory."""
+    created: list[str] = []
+
+    # Determine source directory - try package resources first, then fallback
+    use_as_file = False
+    try:
+        source_dir_traversable = BASE_EXAMPLES_DIR.joinpath("hf-toad-cards")
+        if not source_dir_traversable.is_dir():
+            console.print(
+                "[yellow]Package resources not found. Falling back to development mode.[/yellow]"
+            )
+            source_dir: Path = (
+                Path(__file__).parent.parent.parent.parent.parent
+                / "examples"
+                / "hf-toad-cards"
+            )
+        else:
+            source_dir = source_dir_traversable  # type: ignore
+            use_as_file = True
+    except (ImportError, ModuleNotFoundError, FileNotFoundError):
+        source_dir = (
+            Path(__file__).parent.parent.parent.parent.parent / "examples" / "hf-toad-cards"
+        )
+
+    with ExitStack() as stack:
+        if use_as_file:
+            source_path: Path = stack.enter_context(as_file(source_dir))  # type: ignore
+        else:
+            assert isinstance(source_dir, Path)
+            source_path = source_dir
+
+        if not source_path.exists():
+            console.print(f"[red]Error: Source directory not found: {source_path}[/red]")
+            return []
+
+        # Copy each subdirectory (agent-cards, tool-cards, mcp-expert-messages)
+        for subdir_name in ["agent-cards", "tool-cards", "mcp-expert-messages"]:
+            source_subdir: Path = source_path / subdir_name
+            target_subdir = target_dir / subdir_name
+
+            if not source_subdir.exists():
+                continue
+
+            # Create target subdirectory
+            target_subdir.mkdir(parents=True, exist_ok=True)
+
+            # Copy all files recursively
+            for src_file in source_subdir.rglob("*"):
+                if src_file.is_file():
+                    rel_path = src_file.relative_to(source_subdir)
+                    dest_file = target_subdir / rel_path
+
+                    # Create parent directories if needed
+                    dest_file.parent.mkdir(parents=True, exist_ok=True)
+
+                    if dest_file.exists() and not force:
+                        console.print(
+                            f"[yellow]Skipping[/yellow] {subdir_name}/{rel_path} (already exists)"
+                        )
+                        continue
+
+                    shutil.copy2(src_file, dest_file)
+                    created.append(f".fast-agent/{subdir_name}/{rel_path}")
+                    console.print(f"[green]Created[/green] .fast-agent/{subdir_name}/{rel_path}")
+
+    return created
+
+
+def _show_toad_cards_completion_message(created: list[str]) -> None:
+    """Show completion message for toad-cards command."""
+    if created:
+        console.print("\n[green]Toad cards setup completed successfully![/green]")
+        console.print(f"\nCreated {len(created)} files in .fast-agent/")
+        console.print("\n[bold]Directory structure:[/bold]")
+        console.print("  .fast-agent/")
+        console.print("  ├── agent-cards/          # Agent card definitions")
+        console.print("  ├── tool-cards/           # Tool card definitions")
+        console.print("  └── mcp-expert-messages/  # Message templates")
+        console.print("\n[bold]Next Steps:[/bold]")
+        console.print("1. The cards are automatically loaded when running hf-inference-acp")
+        console.print("2. Customize the cards by editing the markdown files")
+        console.print("3. Add more agent cards to agent-cards/ or tool cards to tool-cards/")
+    else:
+        console.print("\n[yellow]No files were created.[/yellow]")
 
 
 @app.command(name="t0", help="Alias for the TensorZero quickstart.", hidden=True)

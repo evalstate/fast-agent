@@ -1,6 +1,8 @@
 """Custom build hook to copy examples to resources during package build."""
 
 import shutil
+import tomllib
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,7 @@ class CustomBuildHook(BuildHookInterface):
             "examples/mcp/state-transfer": EXAMPLES_DIR / "mcp" / "state-transfer",
             "examples/mcp/elicitations": EXAMPLES_DIR / "mcp" / "elicitations",
             "examples/tensorzero": EXAMPLES_DIR / "tensorzero",
+            "examples/hf-toad-cards": EXAMPLES_DIR / "hf-toad-cards",
         }
 
         # Define setup template mapping (editable templates -> packaged resources)
@@ -75,6 +78,15 @@ class CustomBuildHook(BuildHookInterface):
             else:
                 print(f"  Warning: Setup templates directory not found: {source_path}")
 
+        # Generate manifest.txt with build metadata
+        print("Fast-agent build: Generating manifest.txt...")
+        package_version = self._get_package_version()
+        manifest_content = self._generate_manifest(package_version)
+        manifest_path = Path(self.root) / "src/fast_agent/resources/manifest.txt"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(manifest_content)
+        print(f"  Created manifest.txt (version={package_version})")
+
         # Ensure the copied files are included in the build
         if "artifacts" not in build_data:
             build_data["artifacts"] = []
@@ -90,3 +102,28 @@ class CustomBuildHook(BuildHookInterface):
                         if relative_path not in build_data["artifacts"]:
                             build_data["artifacts"].append(relative_path)
                             print(f"  Added artifact: {relative_path}")
+
+        # Add manifest.txt as an artifact
+        manifest_relative = "src/fast_agent/resources/manifest.txt"
+        if manifest_relative not in build_data["artifacts"]:
+            build_data["artifacts"].append(manifest_relative)
+            print(f"  Added artifact: {manifest_relative}")
+
+    def _get_package_version(self) -> str:
+        """Read the package version from pyproject.toml."""
+        pyproject_path = Path(self.root) / "pyproject.toml"
+        try:
+            with open(pyproject_path, "rb") as f:
+                pyproject = tomllib.load(f)
+            return pyproject.get("project", {}).get("version", "unknown")
+        except Exception:
+            return "unknown"
+
+    def _generate_manifest(self, version: str) -> str:
+        """Generate manifest.txt content with build metadata."""
+        build_timestamp = datetime.now(timezone.utc).isoformat()
+        return f"""# fast-agent-mcp build manifest
+package_name=fast-agent-mcp
+version={version}
+build_timestamp={build_timestamp}
+"""
