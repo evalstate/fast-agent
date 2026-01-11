@@ -133,7 +133,7 @@ _EXAMPLE_CONFIGS = {
     ),
     "toad-cards": ExampleConfig(
         description=(
-            "Example agent and tool cards for HuggingFace Toad.\n"
+            "Example Tool and Agent cards for (also used with Hugging Face Toad integration).\n"
             "Includes ACP expert, MCP expert, and HF search tool cards.\n"
             "Creates a '.fast-agent' directory in the current directory."
         ),
