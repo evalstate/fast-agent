@@ -431,10 +431,10 @@ class SetupAgent(ACPAwareMixin, McpAgent):
             "├── agent-cards/          # Agent definitions (loaded automatically)",
             "├── tool-cards/           # Tool definitions (loaded automatically)",
             "├── shared/               # Shared context snippets",
-            "├── skills/           # Tool definitions (loaded on-demand)",
+            "├── skills/               # Tool definitions (loaded on-demand)",
             "```",
             "",
-            "The cards are now active. Use `/status` to see loaded agents.",
+            "The cards are now installed. Restart Toad and use `ctrl+o` to switch Agents.",
             "",
             "**Available agent cards:**",
         ]
