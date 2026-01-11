@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping
@@ -24,6 +25,8 @@ _CARD_REQUIRED_FIELDS = {
     "maker": ("worker",),
 }
 
+_FILE_PLACEHOLDER_PATTERN = re.compile(r"\{\{file:([^}]+)\}\}")
+
 
 @dataclass(frozen=True)
 class AgentCardScanResult:
@@ -32,6 +35,7 @@ class AgentCardScanResult:
     path: Path
     errors: list[str]
     dependencies: set[str]
+    ignored_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,8 +68,23 @@ def scan_agent_card_directory(
     name_to_paths: dict[str, list[Path]] = {}
     for card_path in card_files:
         errors: list[str] = []
+        if (
+            card_path.suffix.lower() in {".md", ".markdown"}
+            and not _markdown_has_frontmatter(card_path)
+        ):
+            entries.append(
+                AgentCardScanResult(
+                    name=card_path.stem.replace(" ", "_"),
+                    type="ignored",
+                    path=card_path,
+                    errors=[],
+                    dependencies=set(),
+                    ignored_reason="no frontmatter",
+                )
+            )
+            continue
         try:
-            raw, _body = _load_card_raw(card_path)
+            raw, body = _load_card_raw(card_path)
         except Exception as exc:  # noqa: BLE001
             entries.append(
                 AgentCardScanResult(
@@ -74,6 +93,7 @@ def scan_agent_card_directory(
                     path=card_path,
                     errors=[str(exc)],
                     dependencies=set(),
+                    ignored_reason=None,
                 )
             )
             continue
@@ -95,6 +115,29 @@ def scan_agent_card_directory(
         messages = _ensure_str_list(raw.get("messages"), "messages", errors)
         dependencies = _card_dependencies(type_key, raw, errors)
 
+        instruction_texts: list[str] = []
+        raw_instruction = raw.get("instruction")
+        if isinstance(raw_instruction, str) and raw_instruction.strip():
+            instruction_texts.append(raw_instruction)
+        if isinstance(body, str) and body.strip():
+            instruction_texts.append(body)
+
+        for instruction_text in instruction_texts:
+            for file_path_str in _iter_file_placeholders(instruction_text):
+                file_path = Path(file_path_str).expanduser()
+                if file_path.is_absolute():
+                    errors.append(
+                        "Instruction file template paths must be relative "
+                        f"({{{{file:{file_path_str}}}}})"
+                    )
+                    continue
+                resolved_path = (Path.cwd() / file_path).resolve()
+                if not resolved_path.exists():
+                    errors.append(
+                        "Instruction file not found "
+                        f"({{{{file:{file_path_str}}}}} -> {resolved_path})"
+                    )
+
         entries.append(
             AgentCardScanResult(
                 name=name,
@@ -102,6 +145,7 @@ def scan_agent_card_directory(
                 path=card_path,
                 errors=errors,
                 dependencies=dependencies,
+                ignored_reason=None,
             )
         )
 
@@ -133,6 +177,7 @@ def scan_agent_card_directory(
             path=card_path,
             errors=errors,
             dependencies=dependencies,
+            ignored_reason=None,
         )
 
     for name, paths in name_to_paths.items():
@@ -146,9 +191,14 @@ def scan_agent_card_directory(
                     path=entry.path,
                     errors=entry.errors + [f"Duplicate agent name '{name}'"],
                     dependencies=entry.dependencies,
+                    ignored_reason=entry.ignored_reason,
                 )
 
-    available_names = {entry.name for entry in entries if entry.name != "—"}
+    available_names = {
+        entry.name
+        for entry in entries
+        if entry.name != "—" and entry.ignored_reason is None
+    }
     for idx, entry in enumerate(entries):
         missing = sorted(dep for dep in entry.dependencies if dep not in available_names)
         if missing:
@@ -158,9 +208,17 @@ def scan_agent_card_directory(
                 path=entry.path,
                 errors=entry.errors + [f"References missing agents: {', '.join(missing)}"],
                 dependencies=entry.dependencies,
+                ignored_reason=entry.ignored_reason,
             )
 
     return entries
+
+
+def _iter_file_placeholders(text: str) -> Iterable[str]:
+    for match in _FILE_PLACEHOLDER_PATTERN.finditer(text or ""):
+        value = match.group(1).strip()
+        if value:
+            yield value
 
 
 def find_loaded_agent_issues(
@@ -251,6 +309,21 @@ def _load_card_raw(path: Path) -> tuple[dict[str, Any], str | None]:
             raise ValueError("Frontmatter must be a mapping")
         return dict(metadata), post.content or ""
     raise ValueError("Unsupported AgentCard file extension")
+
+
+def _markdown_has_frontmatter(path: Path) -> bool:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if raw_text.startswith("\ufeff"):
+        raw_text = raw_text.lstrip("\ufeff")
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped in ("---", "+++")
+    return False
 
 
 def _normalize_card_name(raw_name: Any, path: Path, errors: list[str]) -> str:

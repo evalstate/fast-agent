@@ -8,6 +8,8 @@ optional/experimental and described in a separate spec.
 AgentCards now support an optional `description` field used for tool descriptions when
 agents are exposed as tools (MCP or agent-as-tool wiring).
 AgentCards may enable local shell execution via `shell: true` with optional `cwd`.
+AgentCards support `tool_only: true` to prevent exposure as first-class agents while
+still allowing use as tools (useful for helper agents in `.fast-agent/tool-cards/`).
 CLI `--card-tool` loads AgentCards and exposes them as tools on the default agent.
 CLI runs also auto-load cards from `.fast-agent/agent-cards/` (agents) and
 `.fast-agent/tool-cards/` (tool cards) when those directories exist and contain
@@ -47,6 +49,9 @@ supported card files.
     filename (no extension).
   - Multi-card files are optional/experimental; in that case `name` is required.
 - `description`: optional. Used as the tool description when exposing agents as tools.
+- `tool_only`: optional boolean (default `false`). When `true`, the agent is hidden from
+  agent listings and cannot be selected as the default agent, but remains usable as a
+  tool by other agents. Mutually exclusive with `default: true`.
 - `instruction`: required, and can be provided **either** in the body **or** as an
   `instruction` attribute (short one-line shortcut). If both are present, it is an error.
 
@@ -107,7 +112,7 @@ Code-only decorator args that are **not** representable in AgentCard:
 
 ### type: `agent` (maps to `@fast.agent`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `agents` (agents-as-tools)
 - `servers`, `tools`, `resources`, `prompts`, `skills`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
@@ -119,24 +124,24 @@ Allowed fields:
 
 ### type: `chain` (maps to `@fast.chain`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `sequence`, `cumulative`
 
 ### type: `parallel` (maps to `@fast.parallel`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `fan_out`, `fan_in`, `include_request`
 
 ### type: `evaluator_optimizer` (maps to `@fast.evaluator_optimizer`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `generator`, `evaluator`
 - `min_rating`, `max_refinements`, `refinement_instruction`
 - `messages` (card-only history file)
 
 ### type: `router` (maps to `@fast.router`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `agents`
 - `servers`, `tools`, `resources`, `prompts`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
@@ -144,7 +149,7 @@ Allowed fields:
 
 ### type: `orchestrator` (maps to `@fast.orchestrator`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `agents`
 - `model`, `use_history`, `request_params`, `human_input`, `api_key`
 - `plan_type`, `plan_iterations`
@@ -152,7 +157,7 @@ Allowed fields:
 
 ### type: `iterative_planner` (maps to `@fast.iterative_planner`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `agents`
 - `model`, `request_params`, `api_key`
 - `plan_iterations`
@@ -160,7 +165,7 @@ Allowed fields:
 
 ### type: `MAKER` (maps to `@fast.maker`)
 Allowed fields:
-- `name`, `instruction`, `description`, `default`
+- `name`, `instruction`, `description`, `default`, `tool_only`
 - `worker`
 - `k`, `max_samples`, `match_strategy`, `red_flag_max_length`
 - `messages` (card-only history file)
@@ -354,6 +359,23 @@ messages: ./history.md
 ---
 You are a concise analyst.
 ```
+
+### Tool-only agent (hidden from agent list)
+```md
+---
+type: agent
+name: code_formatter
+tool_only: true
+description: Formats code according to project style guidelines.
+---
+You are a code formatting helper. Format the provided code according to best practices.
+```
+
+When placed in `.fast-agent/tool-cards/`, this agent:
+- Does **not** appear in `/agents` or `agent_names()`
+- Cannot be selected as the default agent
+- Can be used as a tool by other agents via `agents: [code_formatter]`
+- Can still be accessed directly via `app["code_formatter"]` if needed
 
 ---
 

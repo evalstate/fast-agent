@@ -1598,6 +1598,11 @@ class SlashCommandHandler:
 
     def _get_warning_report(self, agent: AgentProtocol | None, max_entries: int = 5) -> list[str]:
         warnings: list[str] = []
+
+        # Include card collision warnings from AgentApp
+        if hasattr(self.instance, "app") and hasattr(self.instance.app, "card_collision_warnings"):
+            warnings.extend(self.instance.app.card_collision_warnings)
+
         if isinstance(agent, WarningAwareAgent):
             warnings.extend(agent.warnings)
             if agent.skill_registry:
@@ -1614,7 +1619,7 @@ class SlashCommandHandler:
         if not cleaned:
             return []
 
-        lines = ["Warnings:"]
+        lines = ["## Warnings"]
         for message in cleaned[:max_entries]:
             lines.append(f"- {message}")
         if len(cleaned) > max_entries:
