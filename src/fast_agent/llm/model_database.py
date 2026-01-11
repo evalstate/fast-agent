@@ -386,7 +386,7 @@ class ModelDatabase:
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
-        "deepseek-ai/deepseek-v3.2-exp": HF_PROVIDER_DEEPSEEK32,
+        "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
     }
 
     @classmethod
