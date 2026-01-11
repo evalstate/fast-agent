@@ -27,7 +27,7 @@ _TYPE_MAP: dict[str, AgentType] = {
     "maker": AgentType.MAKER,
 }
 
-_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "schema_version"}
+_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "tool_only", "schema_version"}
 
 _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
     "agent": {
@@ -446,6 +446,15 @@ def _build_agent_data(
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default = _ensure_bool(raw.get("default"), "default", path, default=False)
+    tool_only = _ensure_bool(raw.get("tool_only"), "tool_only", path, default=False)
+
+    # Validate mutual exclusivity of default and tool_only
+    if default and tool_only:
+        raise AgentConfigError(
+            f"Agent '{name}' cannot have both 'default' and 'tool_only' set to true in {path}",
+            "A tool-only agent cannot be the default agent.",
+        )
+
     api_key = raw.get("api_key")
 
     # Parse function_tools - can be a string or list of strings
@@ -479,6 +488,7 @@ def _build_agent_data(
         use_history=use_history,
         human_input=human_input,
         default=default,
+        tool_only=tool_only,
         api_key=api_key,
         function_tools=function_tools,
         shell=shell,
@@ -495,6 +505,7 @@ def _build_agent_data(
         "type": agent_type.value,
         "func": None,
         "source_path": str(path),
+        "tool_only": tool_only,
     }
 
     if type_key == "agent":
@@ -762,6 +773,9 @@ def _build_card_dump(
 
     if config.default and "default" in allowed_fields:
         card["default"] = True
+
+    if config.tool_only and "tool_only" in allowed_fields:
+        card["tool_only"] = True
 
     if config.description and "description" in allowed_fields:
         card["description"] = config.description

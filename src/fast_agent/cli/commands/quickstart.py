@@ -137,11 +137,7 @@ _EXAMPLE_CONFIGS = {
             "Includes ACP expert, MCP expert, and HF search tool cards.\n"
             "Creates a '.fast-agent' directory in the current directory."
         ),
-        files=[
-            "agent-cards/",
-            "tool-cards/",
-            "mcp-expert-messages/",
-        ],
+        files=["agent-cards/", "tool-cards/", "skills", "shared"],
         create_subdir=False,
         path_in_examples=["hf-toad-cards"],
     ),
@@ -210,9 +206,7 @@ def copy_example_files(example_type: str, target_dir: Path, force: bool = False)
             console.print(f"[red]Error: Source directory not found: {source_path}[/red]")
             return []
 
-        return _copy_files_from_source(
-            example_type, example_info, source_path, target_dir, force
-        )
+        return _copy_files_from_source(example_type, example_info, source_path, target_dir, force)
 
 
 def _copy_files_from_source(
@@ -521,7 +515,9 @@ def tensorzero(
             source_path = source_dir
 
         if not source_path.exists() or not source_path.is_dir():
-            console.print(f"[red]Error: Source project directory not found at '{source_path}'[/red]")
+            console.print(
+                f"[red]Error: Source project directory not found at '{source_path}'[/red]"
+            )
             raise typer.Exit(1)
 
         console.print(f"Source directory: [dim]{source_path}[/dim]")
@@ -600,9 +596,7 @@ def _copy_toad_cards(target_dir: Path, force: bool = False) -> list[str]:
                 "[yellow]Package resources not found. Falling back to development mode.[/yellow]"
             )
             source_dir: Path = (
-                Path(__file__).parent.parent.parent.parent.parent
-                / "examples"
-                / "hf-toad-cards"
+                Path(__file__).parent.parent.parent.parent.parent / "examples" / "hf-toad-cards"
             )
         else:
             source_dir = source_dir_traversable  # type: ignore

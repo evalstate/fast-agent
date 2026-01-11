@@ -376,6 +376,7 @@ class FastAgent:
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
         self._agent_card_watch_reload: Callable[[], Awaitable[bool]] | None = None
+        self._card_collision_warnings: list[str] = []
 
     @staticmethod
     def _normalize_skill_directories(
@@ -735,10 +736,46 @@ class FastAgent:
             if existing_source is not None and existing_source != card.path:
                 if existing_source in removed_files:
                     continue
-                raise AgentConfigError(
-                    f"Agent '{card.name}' already loaded from {existing_source}",
-                    f"Path: {card.path}",
-                )
+
+                # Check if this is a tool-cards vs agent-cards collision
+                def _is_tool_card_path(path: Path) -> bool:
+                    return path.parent.name == "tool-cards"
+
+                existing_is_tool = _is_tool_card_path(Path(existing_source))
+                new_is_tool = _is_tool_card_path(card.path)
+
+                if existing_is_tool != new_is_tool:
+                    # Cross-directory collision - tool-cards takes priority
+                    if new_is_tool:
+                        # New card is tool-card, existing is agent-card
+                        # Override: clean up existing, let new card load
+                        warning_msg = (
+                            f"Agent '{card.name}' defined in both tool-cards and agent-cards. "
+                            f"Using tool-card version from {card.path}. "
+                            f"Skipping agent-card at {existing_source}."
+                        )
+                        print(f"Warning: {warning_msg}", file=sys.stderr)
+                        self._card_collision_warnings.append(warning_msg)
+                        # Mark existing agent-card for removal so tool-card can replace it
+                        removed_names.add(card.name)
+                        # Continue to let this card be processed normally
+                    else:
+                        # Existing is tool-card, new is agent-card
+                        # Skip: keep existing, don't load new
+                        warning_msg = (
+                            f"Agent '{card.name}' defined in both tool-cards and agent-cards. "
+                            f"Using tool-card version from {existing_source}. "
+                            f"Skipping agent-card at {card.path}."
+                        )
+                        print(f"Warning: {warning_msg}", file=sys.stderr)
+                        self._card_collision_warnings.append(warning_msg)
+                        continue  # Skip loading this agent-card
+                else:
+                    # Same directory type collision - error as before
+                    raise AgentConfigError(
+                        f"Agent '{card.name}' already loaded from {existing_source}",
+                        f"Path: {card.path}",
+                    )
 
             previous_name = self._agent_card_name_by_path.get(card.path)
             if previous_name and previous_name != card.name:
@@ -1135,10 +1172,24 @@ class FastAgent:
                                 model_factory_func,
                             )
                             validate_provider_keys_post_creation(agents_map)
+                            # Collect tool_only agent names
+                            tool_only_agents = {
+                                name
+                                for name, data in self.agents.items()
+                                if data.get("tool_only", False)
+                            }
                             if app_override is None:
-                                app = AgentApp(agents_map)
+                                app = AgentApp(
+                                    agents_map,
+                                    tool_only_agents=tool_only_agents,
+                                    card_collision_warnings=self._card_collision_warnings,
+                                )
                             else:
-                                app_override.set_agents(agents_map)
+                                app_override.set_agents(
+                                    agents_map,
+                                    tool_only_agents=tool_only_agents,
+                                    card_collision_warnings=self._card_collision_warnings,
+                                )
                                 app = app_override
                             instance = AgentInstance(
                                 app,
@@ -1247,6 +1298,9 @@ class FastAgent:
 
                         # Get the default agent to add tools to (reuse AgentApp's default logic)
                         default_agent_name = getattr(self.args, "agent", None)
+                        # Only use explicit agent_name if it actually exists in loaded agents
+                        if default_agent_name and default_agent_name not in active_agents:
+                            default_agent_name = None
                         default_agent = wrapper._agent(default_agent_name)
 
                         if default_agent:

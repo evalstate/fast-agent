@@ -475,8 +475,14 @@ class AgentACPServer(ACPAgent):
 
         resolved_cache = session_state.resolved_instructions if session_state else {}
 
-        # Create a SessionMode for each agent
+        # Get tool_only agents to filter from available modes
+        tool_only_agents = getattr(instance.app, "_tool_only_agents", set())
+
+        # Create a SessionMode for each agent (excluding tool_only agents)
         for agent_name, agent in instance.agents.items():
+            # Skip tool_only agents - they shouldn't appear in mode listings
+            if agent_name in tool_only_agents:
+                continue
             # Get instruction from resolved cache (if available) or agent's instruction
             instruction = resolved_cache.get(agent_name) or agent.instruction
 
