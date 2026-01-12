@@ -128,15 +128,15 @@ async def test_acp_session_modes_included_in_new_session(
 
 
 @pytest.mark.integration
-async def test_acp_overlapping_prompts_are_refused(
+async def test_acp_overlapping_prompts_are_serialized(
     acp_basic: tuple[ClientSideConnection, TestClient, InitializeResponse],
 ) -> None:
     """
-    Test that overlapping prompt requests for the same session are refused.
+    Test that overlapping prompt requests for the same session are serialized.
 
     Per ACP protocol, only one prompt can be active per session at a time.
-    If a second prompt arrives while one is in progress, it should be immediately
-    refused with stopReason="refusal".
+    If a second prompt arrives while one is in progress, it should be queued
+    and processed after the first completes. Both prompts should succeed.
     """
     connection, _client, init_response = acp_basic
 
@@ -163,13 +163,11 @@ async def test_acp_overlapping_prompts_are_refused(
     # Wait for both to complete
     prompt1_response, prompt2_response = await asyncio.gather(prompt1_task, prompt2_task)
 
-    # One should succeed, one should be refused
-    # (We don't know which one arrives first due to async scheduling)
+    # Both should succeed - the second one waits in the queue for the first to complete
     responses = [_get_stop_reason(prompt1_response), _get_stop_reason(prompt2_response)]
-    assert "end_turn" in responses, "One prompt should succeed"
-    assert "refusal" in responses, "One prompt should be refused"
+    assert responses == ["end_turn", "end_turn"], "Both prompts should succeed (serialized)"
 
-    # After both complete, a new prompt should succeed
+    # After both complete, a new prompt should also succeed
     prompt3_response = await connection.prompt(
         session_id=session_id, prompt=[text_block("third prompt")]
     )
