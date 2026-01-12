@@ -69,6 +69,7 @@ class AgentConfig:
     human_input: bool = False
     agent_type: AgentType = AgentType.BASIC
     default: bool = False
+    tool_only: bool = False
     elicitation_handler: ElicitationFnT | None = None
     api_key: str | None = None
     function_tools: FunctionToolsConfig = None

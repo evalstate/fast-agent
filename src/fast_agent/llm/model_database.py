@@ -319,8 +319,7 @@ class ModelDatabase:
         "gpt-5-mini": OPENAI_GPT_5,
         "gpt-5-nano": OPENAI_GPT_5,
         "gpt-5.1": OPENAI_GPT_5,
-        "gpt-5.1-mini": OPENAI_GPT_5,  # pre-emptive
-        "gpt-5.1-nano": OPENAI_GPT_5,  # pre-emptive
+        "gpt-5.1-codex": OPENAI_GPT_5,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -386,7 +385,7 @@ class ModelDatabase:
         "minimaxai/minimax-m2.1": MINIMAX_21,
         "qwen/qwen3-next-80b-a3b-instruct": HF_PROVIDER_QWEN3_NEXT,
         "deepseek-ai/deepseek-v3.1": HF_PROVIDER_DEEPSEEK31,
-        "deepseek-ai/deepseek-v3.2-exp": HF_PROVIDER_DEEPSEEK32,
+        "deepseek-ai/deepseek-v3.2": HF_PROVIDER_DEEPSEEK32,
     }
 
     @classmethod

@@ -10,6 +10,7 @@ import frontmatter
 import yaml
 
 from fast_agent.agents.agent_types import AgentConfig, AgentType
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.direct_decorators import _resolve_instruction
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.skills import SKILLS_DEFAULT
@@ -26,7 +27,7 @@ _TYPE_MAP: dict[str, AgentType] = {
     "maker": AgentType.MAKER,
 }
 
-_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "schema_version"}
+_COMMON_FIELDS = {"type", "name", "instruction", "description", "default", "tool_only", "schema_version"}
 
 _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
     "agent": {
@@ -175,12 +176,21 @@ def load_agent_cards(path: Path) -> list[LoadedAgentCard]:
                 continue
             if entry.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
                 continue
+            if entry.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(
+                entry
+            ):
+                continue
             cards.extend(_load_agent_card_file(entry))
         _ensure_unique_names(cards, path)
         return cards
 
     if path.suffix.lower() not in {".md", ".markdown", ".yaml", ".yml"}:
         raise AgentConfigError(f"Unsupported AgentCard file extension: {path}")
+    if path.suffix.lower() in {".md", ".markdown"} and not _markdown_has_frontmatter(path):
+        raise AgentConfigError(
+            "AgentCard markdown files must include frontmatter",
+            f"Missing frontmatter in {path}",
+        )
 
     cards = _load_agent_card_file(path)
     _ensure_unique_names(cards, path)
@@ -235,6 +245,21 @@ def _load_markdown_card(path: Path) -> tuple[dict[str, Any], str]:
 
     body = post.content or ""
     return dict(metadata), body
+
+
+def _markdown_has_frontmatter(path: Path) -> bool:
+    try:
+        raw_text = path.read_text(encoding="utf-8")
+    except Exception:
+        return False
+    if raw_text.startswith("\ufeff"):
+        raw_text = raw_text.lstrip("\ufeff")
+    for line in raw_text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        return stripped in ("---", "+++")
+    return False
 
 
 def _build_card_from_data(
@@ -312,10 +337,10 @@ def _build_card_from_data(
 
 def _resolve_name(raw_name: Any, path: Path) -> str:
     if raw_name is None:
-        return path.stem
+        return path.stem.replace(" ", "_")
     if not isinstance(raw_name, str) or not raw_name.strip():
         raise AgentConfigError(f"'name' must be a non-empty string in {path}")
-    return raw_name.strip()
+    return raw_name.strip().replace(" ", "_")
 
 
 def _resolve_instruction_field(
@@ -347,7 +372,7 @@ def _resolve_instruction_field(
             raise AgentConfigError(f"Instruction body must not be empty in {path}")
         return resolved
 
-    raise AgentConfigError(f"Instruction is required in {path}")
+    return DEFAULT_AGENT_INSTRUCTION
 
 
 def _extract_body_instruction(body: str, path: Path) -> str:
@@ -424,6 +449,15 @@ def _build_agent_data(
     request_params = _ensure_request_params(raw.get("request_params"), path)
     human_input = _ensure_bool(raw.get("human_input"), "human_input", path, default=False)
     default = _ensure_bool(raw.get("default"), "default", path, default=False)
+    tool_only = _ensure_bool(raw.get("tool_only"), "tool_only", path, default=False)
+
+    # Validate mutual exclusivity of default and tool_only
+    if default and tool_only:
+        raise AgentConfigError(
+            f"Agent '{name}' cannot have both 'default' and 'tool_only' set to true in {path}",
+            "A tool-only agent cannot be the default agent.",
+        )
+
     api_key = raw.get("api_key")
 
     # Parse function_tools - can be a string or list of strings
@@ -457,6 +491,7 @@ def _build_agent_data(
         use_history=use_history,
         human_input=human_input,
         default=default,
+        tool_only=tool_only,
         api_key=api_key,
         function_tools=function_tools,
         shell=shell,
@@ -473,6 +508,7 @@ def _build_agent_data(
         "type": agent_type.value,
         "func": None,
         "source_path": str(path),
+        "tool_only": tool_only,
     }
 
     if type_key == "agent":
@@ -756,6 +792,9 @@ def _build_card_dump(
 
     if config.default and "default" in allowed_fields:
         card["default"] = True
+
+    if config.tool_only and "tool_only" in allowed_fields:
+        card["tool_only"] = True
 
     if config.description and "description" in allowed_fields:
         card["description"] = config.description

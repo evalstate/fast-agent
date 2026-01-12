@@ -47,7 +47,10 @@ from acp.schema import (
 
 from fast_agent.acp.acp_context import ACPContext, ClientInfo
 from fast_agent.acp.acp_context import ClientCapabilities as FAClientCapabilities
-from fast_agent.acp.content_conversion import convert_acp_prompt_to_mcp_content_blocks
+from fast_agent.acp.content_conversion import (
+    convert_acp_prompt_to_mcp_content_blocks,
+    inline_resources_for_slash_command,
+)
 from fast_agent.acp.filesystem_runtime import ACPFilesystemRuntime
 from fast_agent.acp.permission_store import PermissionStore
 from fast_agent.acp.protocols import (
@@ -61,6 +64,7 @@ from fast_agent.acp.slash_commands import SlashCommandHandler
 from fast_agent.acp.terminal_runtime import ACPTerminalRuntime
 from fast_agent.acp.tool_permission_adapter import ACPToolPermissionAdapter
 from fast_agent.acp.tool_progress import ACPToolProgressManager
+from fast_agent.agents.tool_runner import ToolRunnerHooks
 from fast_agent.constants import (
     DEFAULT_TERMINAL_OUTPUT_BYTE_LIMIT,
     MAX_TERMINAL_OUTPUT_BYTE_LIMIT,
@@ -75,7 +79,12 @@ from fast_agent.core.prompt_templates import (
     apply_template_variables,
     enrich_with_environment_context,
 )
-from fast_agent.interfaces import ACPAwareProtocol, AgentProtocol, StreamingAgentProtocol
+from fast_agent.interfaces import (
+    ACPAwareProtocol,
+    AgentProtocol,
+    StreamingAgentProtocol,
+    ToolRunnerHookCapable,
+)
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.stream_types import StreamChunk
 from fast_agent.llm.usage_tracking import last_turn_usage
@@ -259,6 +268,11 @@ class AgentACPServer(ACPAgent):
         # Session management
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
+
+        # Per-session prompt locks to serialize prompt turns.
+        # ACP session/update notifications are correlated only by sessionId, so overlapping
+        # prompts would interleave updates and become ambiguous.
+        self._prompt_locks: dict[str, asyncio.Lock] = {}
 
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
@@ -480,8 +494,14 @@ class AgentACPServer(ACPAgent):
 
         resolved_cache = session_state.resolved_instructions if session_state else {}
 
-        # Create a SessionMode for each agent
+        # Get tool_only agents to filter from available modes
+        tool_only_agents = getattr(instance.app, "_tool_only_agents", set())
+
+        # Create a SessionMode for each agent (excluding tool_only agents)
         for agent_name, agent in instance.agents.items():
+            # Skip tool_only agents - they shouldn't appear in mode listings
+            if agent_name in tool_only_agents:
+                continue
             # Get instruction from resolved cache (if available) or agent's instruction
             instruction = resolved_cache.get(agent_name) or agent.instruction
 
@@ -934,6 +954,56 @@ class AgentACPServer(ACPAgent):
 
         return {"field_meta": {"openhands.dev/metrics": {"status_line": status_line}}}
 
+    @staticmethod
+    def _merge_tool_runner_hooks(
+        base: ToolRunnerHooks | None, extra: ToolRunnerHooks | None
+    ) -> ToolRunnerHooks | None:
+        if base is None:
+            return extra
+        if extra is None:
+            return base
+
+        def merge(one, two):
+            if one is None:
+                return two
+            if two is None:
+                return one
+
+            async def merged(*args, **kwargs):
+                await one(*args, **kwargs)
+                await two(*args, **kwargs)
+
+            return merged
+
+        return ToolRunnerHooks(
+            before_llm_call=merge(base.before_llm_call, extra.before_llm_call),
+            after_llm_call=merge(base.after_llm_call, extra.after_llm_call),
+            before_tool_call=merge(base.before_tool_call, extra.before_tool_call),
+            after_tool_call=merge(base.after_tool_call, extra.after_tool_call),
+        )
+
+    async def _send_status_line_update(
+        self, session_id: str, agent: Any, turn_start_index: int | None
+    ) -> None:
+        if not self._connection:
+            return
+        status_line_meta = self._build_status_line_meta(agent, turn_start_index)
+        if not status_line_meta:
+            return
+        try:
+            message_chunk = update_agent_message_text("")
+            await self._connection.session_update(
+                session_id=session_id,
+                update=message_chunk,
+                **status_line_meta,
+            )
+        except Exception as exc:
+            logger.error(
+                f"Error sending status line update: {exc}",
+                name="acp_status_line_update_error",
+                exc_info=True,
+            )
+
     async def new_session(
         self,
         cwd: str,
@@ -973,6 +1043,9 @@ class AgentACPServer(ACPAgent):
             self.sessions[session_id] = instance
             session_state = ACPSessionState(session_id=session_id, instance=instance)
             self._session_state[session_id] = session_state
+
+            # Serialize prompts per session
+            self._prompt_locks[session_id] = asyncio.Lock()
 
             # Create tool progress manager for this session if connection is available
             tool_handler = None
@@ -1407,6 +1480,33 @@ class AgentACPServer(ACPAgent):
         session_id: str,
         **kwargs: Any,
     ) -> PromptResponse:
+        """Handle prompt request.
+
+        ACP session/update notifications are correlated only by sessionId (no per-turn id).
+        To avoid interleaved updates, we serialize prompt turns per session.
+
+        If a client sends overlapping session/prompt requests for the same sessionId, this
+        method will await a per-session lock (i.e., queue the prompt) rather than refusing.
+        """
+        prompt_lock = await self._get_prompt_lock(session_id)
+        async with prompt_lock:
+            return await self._prompt_locked(prompt=prompt, session_id=session_id, **kwargs)
+
+    async def _get_prompt_lock(self, session_id: str) -> asyncio.Lock:
+        """Get/create the lock used to serialize prompts for a session."""
+        async with self._session_lock:
+            lock = self._prompt_locks.get(session_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._prompt_locks[session_id] = lock
+            return lock
+
+    async def _prompt_locked(
+        self,
+        prompt: list[ACPContentBlock],
+        session_id: str,
+        **kwargs: Any,
+    ) -> PromptResponse:
         """
         Handle prompt request.
 
@@ -1424,24 +1524,21 @@ class AgentACPServer(ACPAgent):
 
         await self._maybe_refresh_shared_instance()
 
-        # Check for overlapping prompt requests (per ACP protocol requirement)
-        async with self._session_lock:
-            if session_id in self._active_prompts:
-                logger.warning(
-                    "Overlapping prompt request detected - refusing",
-                    name="acp_prompt_overlap",
-                    session_id=session_id,
-                )
-                # Return immediate refusal - ACP protocol requires sequential prompts per session
-                return PromptResponse(stop_reason=REFUSAL)
+        # Mark this session as having an active prompt
 
-            # Mark this session as having an active prompt
+        async with self._session_lock:
+
             self._active_prompts.add(session_id)
 
+
             # Track the current task for proper cancellation via asyncio.Task.cancel()
+
             current_task = asyncio.current_task()
+
             if current_task:
+
                 self._session_tasks[session_id] = current_task
+
 
         # Use try/finally to ensure session is always removed from active prompts
         try:
@@ -1458,8 +1555,11 @@ class AgentACPServer(ACPAgent):
                 # Return an error response
                 return PromptResponse(stop_reason=REFUSAL)
 
+            # Inline resource URIs for slash commands (e.g., /card @file.txt)
+            processed_prompt = inline_resources_for_slash_command(prompt)
+
             # Convert ACP content blocks to MCP format
-            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(prompt)
+            mcp_content_blocks = convert_acp_prompt_to_mcp_content_blocks(processed_prompt)
 
             # Create a PromptMessageExtended with the converted content
             prompt_message = PromptMessageExtended(
@@ -1600,10 +1700,42 @@ class AgentACPServer(ACPAgent):
                         turn_start_index = None
                         if isinstance(agent, AgentProtocol) and agent.usage_accumulator is not None:
                             turn_start_index = len(agent.usage_accumulator.turns)
-                        result = await agent.generate(
-                            prompt_message,
-                            request_params=session_request_params,
-                        )
+                        previous_hooks = None
+                        restore_hooks = False
+                        tool_hook_agent: ToolRunnerHookCapable | None = None
+                        if (
+                            self._connection
+                            and isinstance(agent, ToolRunnerHookCapable)
+                            and turn_start_index is not None
+                        ):
+                            tool_hook_agent = agent
+
+                            async def after_llm_call(_runner, message):
+                                if message.stop_reason != LlmStopReason.TOOL_USE:
+                                    return
+                                await self._send_status_line_update(
+                                    session_id, agent, turn_start_index
+                                )
+
+                            status_hook = ToolRunnerHooks(after_llm_call=after_llm_call)
+                            try:
+                                previous_hooks = tool_hook_agent.tool_runner_hooks
+                                tool_hook_agent.tool_runner_hooks = self._merge_tool_runner_hooks(
+                                    previous_hooks, status_hook
+                                )
+                                restore_hooks = True
+                            except AttributeError:
+                                previous_hooks = None
+                                restore_hooks = False
+
+                        try:
+                            result = await agent.generate(
+                                prompt_message,
+                                request_params=session_request_params,
+                            )
+                        finally:
+                            if restore_hooks and tool_hook_agent is not None:
+                                tool_hook_agent.tool_runner_hooks = previous_hooks
                         response_text = result.last_text() or "No content generated"
                         status_line_meta = self._build_status_line_meta(agent, turn_start_index)
 
@@ -1926,6 +2058,7 @@ class AgentACPServer(ACPAgent):
             self._session_state.clear()
             self._session_tasks.clear()
             self._active_prompts.clear()
+            self._prompt_locks.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:

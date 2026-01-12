@@ -11,6 +11,7 @@ from fast_agent.llm.provider_types import Provider
 from fast_agent.llm.usage_tracking import create_turn_usage_from_messages
 from hf_inference_acp.hf_config import (
     CONFIG_FILE,
+    copy_toad_cards_from_resources,
     has_hf_token,
     update_mcp_server_load_on_start,
     update_model_in_config,
@@ -151,6 +152,7 @@ class WizardSetupLLM(PassthroughLLM):
             WizardStage.TOKEN_VERIFY: self._handle_token_verify,
             WizardStage.MODEL_SELECT: self._handle_model_select,
             WizardStage.MCP_CONNECT: self._handle_mcp_connect,
+            WizardStage.AGENT_EXAMPLES: self._handle_agent_examples,
             WizardStage.CONFIRM: self._handle_confirm,
             WizardStage.COMPLETE: self._handle_complete,
         }
@@ -361,9 +363,49 @@ Enter y or n:
 
         if cmd in ("y", "yes"):
             self._state.mcp_load_on_start = True
+            self._state.stage = WizardStage.AGENT_EXAMPLES
+            return self._render_agent_examples()
+        elif cmd in ("n", "no"):
+            self._state.mcp_load_on_start = False
+            self._state.stage = WizardStage.AGENT_EXAMPLES
+            return self._render_agent_examples()
+        elif cmd in ("quit", "exit", "q"):
+            return "Setup cancelled. Your configuration was not changed."
+        else:
+            return self._render_mcp_connect()
+
+    def _render_agent_examples(self) -> str:
+        """Render agent examples installation prompt."""
+        return """## Step 4 - Agent Examples (Recommended)
+
+Would you like to install example Agents and Tools?
+
+These include:
+- **ACP Expert** - Concise search and reference for Agent Client Protocol spec and Python SDK
+- **MCP Expert** - Concise search and reference for Model Context Protocol spec and Python SDK
+- **HF Search** - Search and ask questions from the Hugging Face (uses CLI)
+- **Filesystem Search** - Tool for context efficient file searching
+- **Writing PR Review** - Review blog PRs to summarise content changes from original to published
+
+The cards will be installed to `.fast-agent/` in your current directory.
+
+- [y] Yes - install examples (recommended)
+- [n] No - skip examples
+
+Enter y or n:
+"""
+
+    async def _handle_agent_examples(self, user_input: str) -> str:
+        """Handle agent examples step input."""
+        cmd = user_input.lower().strip()
+
+        if cmd in ("y", "yes"):
+            self._state.install_agent_examples = True
             self._state.stage = WizardStage.CONFIRM
             return "\n".join(
                 [
+                    "Agent examples will be installed.",
+                    "",
                     "## Skills (Optional)",
                     "",
                     "Skills are available. Use `/skills add` to install.",
@@ -372,10 +414,12 @@ Enter y or n:
                 ]
             )
         elif cmd in ("n", "no"):
-            self._state.mcp_load_on_start = False
+            self._state.install_agent_examples = False
             self._state.stage = WizardStage.CONFIRM
             return "\n".join(
                 [
+                    "Skipping agent examples.",
+                    "",
                     "## Skills (Optional)",
                     "",
                     "Skills are available. Use `/skills add` to install.",
@@ -386,16 +430,18 @@ Enter y or n:
         elif cmd in ("quit", "exit", "q"):
             return "Setup cancelled. Your configuration was not changed."
         else:
-            return self._render_mcp_connect()
+            return self._render_agent_examples()
 
     def _render_confirmation(self) -> str:
         """Render confirmation prompt."""
         mcp_status = "Yes" if self._state.mcp_load_on_start else "No"
+        examples_status = "Yes" if self._state.install_agent_examples else "No"
         return f"""## Confirm Settings
 
 - **Model**: {self._state.selected_model_display}
   `{self._state.selected_model}`
 - **MCP server on startup**: {mcp_status}
+- **Install agent examples**: {examples_status}
 
 - [y] Confirm and save
 - [c] Change model selection
@@ -418,14 +464,37 @@ Enter y or n:
                     return "No model selected. Please select a model first."
                 update_model_in_config(self._state.selected_model)
                 update_mcp_server_load_on_start("huggingface", self._state.mcp_load_on_start)
+
+                # Install agent examples if requested
+                examples_message = ""
+                if self._state.install_agent_examples:
+                    try:
+                        installed_count = self._install_agent_examples()
+                        if installed_count > 0:
+                            examples_message = (
+                                f"\n  - Agent examples: installed ({installed_count} files)"
+                            )
+                        else:
+                            examples_message = "\n  - Agent examples: already present (skipped)"
+                    except Exception as e:
+                        examples_message = f"\n  - Agent examples: failed to install ({e})"
+                        self.logger.warning(f"Failed to install agent examples: {e}")
+
                 self._state.stage = WizardStage.COMPLETE
-                return await self._handle_complete(user_input)
+                return await self._handle_complete(user_input, examples_message)
             except Exception as e:
                 return f"Error saving configuration: {e}\n\nTry again or type 'q' to quit."
         else:
             return self._render_confirmation()
 
-    async def _handle_complete(self, user_input: str) -> str:
+    def _install_agent_examples(self) -> int:
+        """Install agent examples from fast-agent-mcp package to .fast-agent directory.
+
+        Returns the number of files installed.
+        """
+        return len(copy_toad_cards_from_resources())
+
+    async def _handle_complete(self, user_input: str, examples_message: str = "") -> str:
         """Handle completion - show success and trigger callback."""
         if self._state.stage == WizardStage.COMPLETE and self._completion_callback_fired:
             return "Setup is already complete. Type `restart` to run the wizard again."
@@ -445,16 +514,17 @@ Enter y or n:
 Your configuration has been saved:
   - Token: verified (connected as `{self._state.hf_username or "unknown"}`)
   - Model: `{self._state.selected_model}`
-  - MCP server on startup: {mcp_status}
+  - MCP server on startup: {mcp_status}{examples_message}
 
 You're now ready to use the Hugging Face assistant!
 
 Some tips:
  - `AGENTS.md` and `huggingface.md` are automatically loaded in the System Prompt
  - You can include content from URLs with `{{{{url:https://gist.github.com/...}}}}` syntax
- - Tool Permissions are set on a per-project basis. use `/status auth` and `/status authreset` to manage. 
+ - Tool Permissions are set on a per-project basis. use `/status auth` and `/status authreset` to manage.
  - Customise the Hugging Face MCP Server at `https://huggingface.co/settings/mcp`
- - Join https://huggingface.co/toad-hf-inference-explorers to claim **$10** in free inference credits!
+ - **NOTE** You must restart Toad to use the examples if installed
+ - Join https://huggingface.co/toad-hf-inference-explorers to claim **$20** in free inference credits!
 
 Transferring to chat mode...
 
