@@ -1,4 +1,3 @@
-
 from fast_agent.agents.agent_types import AgentConfig
 from fast_agent.agents.llm_agent import LlmAgent
 from fast_agent.config import HuggingFaceSettings, Settings
@@ -9,6 +8,7 @@ from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.model_factory import ModelFactory
 from fast_agent.llm.provider.openai.llm_huggingface import HuggingFaceLLM
 from fast_agent.llm.provider.openai.llm_openai import OpenAILLM
+from fast_agent.llm.provider.openai.responses import ResponsesLLM
 
 
 def test_model_database_context_windows():
@@ -189,7 +189,7 @@ def test_openai_llm_uses_model_database_reasoning_flag():
     agent = LlmAgent(AgentConfig(name="Test Agent"))
 
     reasoning_llm = ModelFactory.create_factory("o1")(agent=agent)
-    assert isinstance(reasoning_llm, OpenAILLM)
+    assert isinstance(reasoning_llm, ResponsesLLM)
     assert reasoning_llm._reasoning
     assert getattr(reasoning_llm, "_reasoning_mode", None) == "openai"
 

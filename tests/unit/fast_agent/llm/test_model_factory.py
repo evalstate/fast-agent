@@ -26,7 +26,7 @@ TEST_ALIASES = {
 def test_simple_model_names():
     """Test parsing of simple model names"""
     cases = [
-        ("o1-mini", Provider.OPENAI),
+        ("o1-mini", Provider.RESPONSES),
         ("claude-3-haiku-20240307", Provider.ANTHROPIC),
         ("claude-3-5-sonnet-20240620", Provider.ANTHROPIC),
     ]
@@ -159,7 +159,9 @@ def test_huggingface_display_info_with_provider():
 def test_huggingface_display_info_auto_routing():
     """Test HuggingFaceLLM displays auto-routing when no provider specified"""
     # Create HuggingFace LLM without provider suffix
-    factory = ModelFactory.create_factory("minimax", aliases=TEST_ALIASES)  # minimax has no default provider
+    factory = ModelFactory.create_factory(
+        "minimax", aliases=TEST_ALIASES
+    )  # minimax has no default provider
     agent = LlmAgent(AgentConfig(name="test"))
     llm = factory(agent)
 
