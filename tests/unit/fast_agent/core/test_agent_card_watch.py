@@ -158,47 +158,6 @@ async def test_reload_agents_detects_new_card(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_reload_agents_warns_on_empty_card(monkeypatch, tmp_path: Path) -> None:
-    config_path = tmp_path / "fastagent.config.yaml"
-    config_path.write_text("", encoding="utf-8")
-
-    agents_dir = tmp_path / "agents"
-    agents_dir.mkdir()
-
-    card_path = agents_dir / "watcher.md"
-    _write_agent_card(card_path)
-
-    fast = FastAgent(
-        "watch-test",
-        config_path=str(config_path),
-        parse_cli_args=False,
-        quiet=True,
-    )
-    fast.load_agents(agents_dir)
-
-    warnings: list[tuple[str, dict[str, object]]] = []
-
-    def fake_warning(message: str, *_args: object, **data: object) -> None:
-        warnings.append((message, data))
-
-    import fast_agent.core.fastagent as fastagent_module
-
-    monkeypatch.setattr(fastagent_module.logger, "warning", fake_warning)
-
-    empty_path = agents_dir / "sizer.md"
-    empty_path.write_text("", encoding="utf-8")
-
-    await fast.reload_agents()
-
-    assert any(
-        "Skipping empty AgentCard during reload" in message for message, _data in warnings
-    )
-    assert any(
-        entry.get("path") == str(empty_path) for _message, entry in warnings
-    )
-
-
-@pytest.mark.asyncio
 async def test_reload_agents_prunes_removed_child_agents(tmp_path: Path) -> None:
     config_path = tmp_path / "fastagent.config.yaml"
     config_path.write_text("", encoding="utf-8")

@@ -357,6 +357,15 @@ class AgentsAsToolsAgent(McpAgent):
             except Exception as e:
                 logger.warning(f"Error shutting down child agent {agent.name}: {e}")
 
+    def _clone_constructor_kwargs(self) -> dict[str, Any]:
+        """Provide kwargs needed to clone this AgentsAsToolsAgent."""
+        kwargs = super()._clone_constructor_kwargs()
+        kwargs["agents"] = list(self._child_agents.values())
+        kwargs["options"] = self._options
+        if self._child_message_files:
+            kwargs["child_message_files"] = self._child_message_files
+        return kwargs
+
     async def list_tools(self) -> ListToolsResult:
         """List MCP tools plus child agents exposed as tools."""
 

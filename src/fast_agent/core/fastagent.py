@@ -611,17 +611,6 @@ class FastAgent:
             changed_card_files = set(current_card_stats.keys())
 
         def _load_cards(path_entry: Path) -> list[Any]:
-            if incremental:
-                try:
-                    stat = path_entry.stat()
-                except FileNotFoundError:
-                    return []
-                if stat.st_size == 0:
-                    logger.warning(
-                        "Skipping empty AgentCard during reload; waiting for write to complete",
-                        path=str(path_entry),
-                    )
-                    return []
             try:
                 return load_agent_cards(path_entry)
             except AgentConfigError as exc:
