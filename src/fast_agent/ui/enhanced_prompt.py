@@ -666,6 +666,23 @@ class AgentCompleter(Completer):
             yield from self._complete_agent_card_files(partial)
             return
 
+        # Sub-completion for /agent - show available agent names
+        if text_lower.startswith("/agent "):
+            partial = text[len("/agent ") :].lstrip()
+            # Strip leading @ if present
+            if partial.startswith("@"):
+                partial = partial[1:]
+            for agent in self.agents:
+                if agent.lower().startswith(partial.lower()):
+                    agent_type = self.agent_types.get(agent, AgentType.BASIC).value
+                    yield Completion(
+                        agent,
+                        start_position=-len(partial),
+                        display=agent,
+                        display_meta=agent_type,
+                    )
+            return
+
         # Complete commands
         if text_lower.startswith("/"):
             cmd = text_lower[1:]
