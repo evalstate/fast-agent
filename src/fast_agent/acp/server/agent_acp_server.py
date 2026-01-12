@@ -637,6 +637,60 @@ class AgentACPServer(ACPAgent):
                         error=str(exc),
                     )
 
+        # Register ACP handlers for agents (including newly loaded ones)
+        tool_handler = session_state.progress_manager
+        permission_handler = session_state.permission_handler
+
+        if tool_handler:
+            workflow_telemetry = ToolHandlerWorkflowTelemetry(
+                tool_handler, server_name=self.server_name
+            )
+
+            for agent_name, agent in instance.agents.items():
+                if isinstance(agent, McpAgentProtocol):
+                    aggregator = agent.aggregator
+                    # Only set if not already set (avoid duplicate registration)
+                    if aggregator._tool_handler is None:
+                        aggregator._tool_handler = tool_handler
+                        logger.debug(
+                            "ACP tool handler registered (refresh)",
+                            name="acp_tool_handler_refresh",
+                            session_id=session_state.session_id,
+                            agent_name=agent_name,
+                        )
+
+                if isinstance(agent, WorkflowTelemetryCapable):
+                    if agent.workflow_telemetry is None:
+                        agent.workflow_telemetry = workflow_telemetry
+
+                if isinstance(agent, PlanTelemetryCapable):
+                    if agent.plan_telemetry is None and self._connection:
+                        plan_telemetry = ACPPlanTelemetryProvider(
+                            self._connection, session_state.session_id
+                        )
+                        agent.plan_telemetry = plan_telemetry
+
+                # Register stream listener (set handles duplicates)
+                llm = getattr(agent, "_llm", None)
+                if llm and hasattr(llm, "add_tool_stream_listener"):
+                    try:
+                        llm.add_tool_stream_listener(tool_handler.handle_tool_stream_event)
+                    except Exception:
+                        pass
+
+        if permission_handler:
+            for agent_name, agent in instance.agents.items():
+                if isinstance(agent, McpAgentProtocol):
+                    aggregator = agent.aggregator
+                    if aggregator._permission_handler is None:
+                        aggregator._permission_handler = permission_handler
+                        logger.debug(
+                            "ACP permission handler registered (refresh)",
+                            name="acp_permission_handler_refresh",
+                            session_id=session_state.session_id,
+                            agent_name=agent_name,
+                        )
+
         if session_state.terminal_runtime:
             for agent_name, agent in instance.agents.items():
                 if (

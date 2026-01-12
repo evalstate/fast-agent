@@ -35,6 +35,7 @@ from opentelemetry import trace
 from fast_agent import config
 from fast_agent.core import Core
 from fast_agent.core.agent_app import AgentApp
+from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.direct_decorators import (
     agent as agent_decorator,
 )
