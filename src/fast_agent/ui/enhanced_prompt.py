@@ -500,8 +500,10 @@ class AgentCompleter(Completer):
         agents: list[str],
         agent_types: dict[str, AgentType] | None = None,
         is_human_input: bool = False,
+        current_agent: str | None = None,
     ) -> None:
         self.agents = agents
+        self.current_agent = current_agent
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
@@ -666,13 +668,16 @@ class AgentCompleter(Completer):
             yield from self._complete_agent_card_files(partial)
             return
 
-        # Sub-completion for /agent - show available agent names
+        # Sub-completion for /agent - show available agent names (excluding current agent)
         if text_lower.startswith("/agent "):
             partial = text[len("/agent ") :].lstrip()
             # Strip leading @ if present
             if partial.startswith("@"):
                 partial = partial[1:]
             for agent in self.agents:
+                # Don't suggest attaching current agent to itself
+                if agent == self.current_agent:
+                    continue
                 if agent.lower().startswith(partial.lower()):
                     agent_type = self.agent_types.get(agent, AgentType.BASIC).value
                     yield Completion(
@@ -1363,6 +1368,7 @@ async def get_enhanced_input(
             agents=list(available_agents) if available_agents else [],
             agent_types=agent_types or {},
             is_human_input=is_human_input,
+            current_agent=agent_name,
         ),
         complete_while_typing=True,
         multiline=Condition(lambda: in_multiline_mode),

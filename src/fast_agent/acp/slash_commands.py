@@ -1512,6 +1512,9 @@ class SlashCommandHandler:
         if not parent_agent:
             return "No active agent available for tool attachment."
 
+        if agent_name == parent_agent:
+            return "Can't attach agent to itself."
+
         try:
             instance, attached_names = await self._attach_agent_callback(
                 parent_agent, [agent_name]

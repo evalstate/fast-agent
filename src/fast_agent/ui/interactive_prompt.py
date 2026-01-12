@@ -558,6 +558,11 @@ class InteractivePrompt:
                                     )
                                 continue
                             if add_tool:
+                                if target_agent == agent:
+                                    rich_print(
+                                        "[yellow]Can't attach agent to itself.[/yellow]"
+                                    )
+                                    continue
                                 if target_agent not in available_agents_set:
                                     rich_print(
                                         f"[red]Agent '{target_agent}' not found[/red]"

@@ -203,6 +203,28 @@ async def _run_agent(
                     else:
                         fast.load_agents(card_source)
 
+            # Check if any loaded agent card has default: true
+            has_explicit_default = False
+            for agent_data in fast.agents.values():
+                config = agent_data.get("config")
+                if config and getattr(config, "default", False):
+                    has_explicit_default = True
+                    break
+
+            # If no explicit default, create a fallback "agent" as the default
+            # This must happen BEFORE loading card_tools so "agent" exists for attachment
+            if not has_explicit_default:
+
+                @fast.agent(
+                    name="agent",
+                    instruction=instruction,
+                    servers=server_list or [],
+                    model=model,
+                    default=True,
+                )
+                async def default_fallback_agent():
+                    pass
+
             tool_loaded_names: list[str] = []
             if card_tools:
                 for card_source in card_tools:
@@ -220,27 +242,6 @@ async def _run_agent(
         except AgentConfigError as exc:
             fast._handle_error(exc)
             raise typer.Exit(1) from exc
-
-        # Check if any loaded agent card has default: true
-        has_explicit_default = False
-        for agent_data in fast.agents.values():
-            config = agent_data.get("config")
-            if config and getattr(config, "default", False):
-                has_explicit_default = True
-                break
-
-        # If no explicit default, create a fallback "agent" as the default
-        if not has_explicit_default:
-
-            @fast.agent(
-                name="agent",
-                instruction=instruction,
-                servers=server_list or [],
-                model=model,
-                default=True,
-            )
-            async def default_fallback_agent():
-                pass
 
         # Add CLI servers (--url, --servers, etc.) to the default agent
         if server_list:

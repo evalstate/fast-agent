@@ -243,6 +243,12 @@ class FastAgent:
                 action="store_true",
                 help="Watch AgentCard paths and reload when files change",
             )
+            parser.add_argument(
+                "--card-tool",
+                action="append",
+                dest="card_tools",
+                help="Path or URL to an AgentCard file to load as a tool (repeatable)",
+            )
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
                 self.args = known_args
@@ -481,7 +487,7 @@ class FastAgent:
         if not parent_data:
             raise AgentConfigError(f"Agent '{parent_name}' not found")
 
-        if parent_data.get("type") != "basic":
+        if parent_data.get("type") not in ("basic", "custom"):
             raise AgentConfigError(
                 f"Agent '{parent_name}' does not support agents-as-tools"
             )
@@ -517,7 +523,7 @@ class FastAgent:
         if not parent_data:
             raise AgentConfigError(f"Agent '{parent_name}' not found")
 
-        if parent_data.get("type") != "basic":
+        if parent_data.get("type") not in ("basic", "custom"):
             raise AgentConfigError(
                 f"Agent '{parent_name}' does not support agents-as-tools"
             )
