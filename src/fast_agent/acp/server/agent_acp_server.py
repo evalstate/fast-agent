@@ -255,6 +255,11 @@ class AgentACPServer(ACPAgent):
         self.sessions: dict[str, AgentInstance] = {}
         self._session_lock = asyncio.Lock()
 
+        # Per-session prompt locks to serialize prompt turns.
+        # ACP session/update notifications are correlated only by sessionId, so overlapping
+        # prompts would interleave updates and become ambiguous.
+        self._prompt_locks: dict[str, asyncio.Lock] = {}
+
         # Track sessions with active prompts to prevent overlapping requests (per ACP protocol)
         self._active_prompts: set[str] = set()
 
@@ -888,6 +893,9 @@ class AgentACPServer(ACPAgent):
             session_state = ACPSessionState(session_id=session_id, instance=instance)
             self._session_state[session_id] = session_state
 
+            # Serialize prompts per session
+            self._prompt_locks[session_id] = asyncio.Lock()
+
             # Create tool progress manager for this session if connection is available
             tool_handler = None
             if self._connection:
@@ -1299,6 +1307,33 @@ class AgentACPServer(ACPAgent):
         session_id: str,
         **kwargs: Any,
     ) -> PromptResponse:
+        """Handle prompt request.
+
+        ACP session/update notifications are correlated only by sessionId (no per-turn id).
+        To avoid interleaved updates, we serialize prompt turns per session.
+
+        If a client sends overlapping session/prompt requests for the same sessionId, this
+        method will await a per-session lock (i.e., queue the prompt) rather than refusing.
+        """
+        prompt_lock = await self._get_prompt_lock(session_id)
+        async with prompt_lock:
+            return await self._prompt_locked(prompt=prompt, session_id=session_id, **kwargs)
+
+    async def _get_prompt_lock(self, session_id: str) -> asyncio.Lock:
+        """Get/create the lock used to serialize prompts for a session."""
+        async with self._session_lock:
+            lock = self._prompt_locks.get(session_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._prompt_locks[session_id] = lock
+            return lock
+
+    async def _prompt_locked(
+        self,
+        prompt: list[ACPContentBlock],
+        session_id: str,
+        **kwargs: Any,
+    ) -> PromptResponse:
         """
         Handle prompt request.
 
@@ -1316,24 +1351,21 @@ class AgentACPServer(ACPAgent):
 
         await self._maybe_refresh_shared_instance()
 
-        # Check for overlapping prompt requests (per ACP protocol requirement)
-        async with self._session_lock:
-            if session_id in self._active_prompts:
-                logger.warning(
-                    "Overlapping prompt request detected - refusing",
-                    name="acp_prompt_overlap",
-                    session_id=session_id,
-                )
-                # Return immediate refusal - ACP protocol requires sequential prompts per session
-                return PromptResponse(stop_reason=REFUSAL)
+        # Mark this session as having an active prompt
 
-            # Mark this session as having an active prompt
+        async with self._session_lock:
+
             self._active_prompts.add(session_id)
 
+
             # Track the current task for proper cancellation via asyncio.Task.cancel()
+
             current_task = asyncio.current_task()
+
             if current_task:
+
                 self._session_tasks[session_id] = current_task
+
 
         # Use try/finally to ensure session is always removed from active prompts
         try:
@@ -1853,6 +1885,7 @@ class AgentACPServer(ACPAgent):
             self._session_state.clear()
             self._session_tasks.clear()
             self._active_prompts.clear()
+            self._prompt_locks.clear()
 
             # Dispose of non-shared instances
             if self._instance_scope in ["connection", "request"]:
