@@ -1,0 +1,9 @@
+# FastAgent Configuration File for agents-as-tools integration tests
+
+default_model: passthrough
+
+logger:
+  progress_display: false
+  show_chat: false
+  show_tools: false
+  truncate_tools: true

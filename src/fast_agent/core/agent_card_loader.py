@@ -43,7 +43,8 @@ _ALLOWED_FIELDS_BY_TYPE: dict[str, set[str]] = {
         "request_params",
         "human_input",
         "api_key",
-        "history_mode",
+        "history_source",
+        "history_merge_target",
         "max_parallel",
         "child_timeout_sec",
         "max_display_instances",
@@ -323,6 +324,8 @@ def _build_card_from_data(
         path=path,
     )
     agent_data["schema_version"] = schema_version
+    if message_files:
+        agent_data["message_files"] = message_files
 
     return LoadedAgentCard(
         name=name,
@@ -656,13 +659,20 @@ def _ensure_request_params(value: Any, path: Path) -> RequestParams | None:
 
 def _agents_as_tools_options(raw: dict[str, Any], path: Path) -> dict[str, Any]:
     options: dict[str, Any] = {}
-    history_mode = raw.get("history_mode")
+    history_source = raw.get("history_source")
+    history_merge_target = raw.get("history_merge_target")
     max_parallel = raw.get("max_parallel")
     child_timeout_sec = raw.get("child_timeout_sec")
     max_display_instances = raw.get("max_display_instances")
 
-    if history_mode is not None:
-        options["history_mode"] = history_mode
+    if history_source is not None:
+        options["history_source"] = _ensure_optional_str(
+            history_source, "history_source", path
+        )
+    if history_merge_target is not None:
+        options["history_merge_target"] = _ensure_optional_str(
+            history_merge_target, "history_merge_target", path
+        )
     if max_parallel is not None:
         options["max_parallel"] = _ensure_int(max_parallel, "max_parallel", path)
     if child_timeout_sec is not None:
@@ -718,10 +728,23 @@ def dump_agent_to_path(
     as_yaml: bool = False,
     message_paths: list[Path] | None = None,
 ) -> None:
-    card_dict, instruction = _build_card_dump(name, agent_data, message_paths)
+    payload = dump_agent_to_string(
+        name, agent_data, as_yaml=as_yaml, message_paths=message_paths
+    )
     output_path = output_path.expanduser().resolve()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(payload, encoding="utf-8")
 
+
+def dump_agent_to_string(
+    name: str,
+    agent_data: dict[str, Any],
+    *,
+    as_yaml: bool = False,
+    message_paths: list[Path] | None = None,
+) -> str:
+    """Render an AgentCard to a string."""
+    card_dict, instruction = _build_card_dump(name, agent_data, message_paths)
     if as_yaml:
         card_dict = dict(card_dict)
         card_dict["instruction"] = instruction
@@ -730,18 +753,14 @@ def dump_agent_to_path(
             sort_keys=False,
             allow_unicode=False,
         ).rstrip()
-        output_path.write_text(f"{payload}\n", encoding="utf-8")
-        return
+        return f"{payload}\n"
 
     frontmatter = yaml.safe_dump(
         card_dict,
         sort_keys=False,
         allow_unicode=False,
     ).rstrip()
-    output_path.write_text(
-        f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n",
-        encoding="utf-8",
-    )
+    return f"---\n{frontmatter}\n---\n{instruction.rstrip()}\n"
 
 
 def _build_card_dump(
@@ -822,10 +841,19 @@ def _build_card_dump(
         if child_agents:
             card["agents"] = list(child_agents)
         opts = agent_data.get("agents_as_tools_options") or {}
-        if "history_mode" in opts and opts["history_mode"] is not None:
-            history_mode = opts["history_mode"]
-            card["history_mode"] = (
-                history_mode.value if hasattr(history_mode, "value") else history_mode
+        if "history_source" in opts and opts["history_source"] is not None:
+            history_source = opts["history_source"]
+            card["history_source"] = (
+                history_source.value
+                if hasattr(history_source, "value")
+                else history_source
+            )
+        if "history_merge_target" in opts and opts["history_merge_target"] is not None:
+            history_merge_target = opts["history_merge_target"]
+            card["history_merge_target"] = (
+                history_merge_target.value
+                if hasattr(history_merge_target, "value")
+                else history_merge_target
             )
         if "max_parallel" in opts and opts["max_parallel"] is not None:
             card["max_parallel"] = opts["max_parallel"]

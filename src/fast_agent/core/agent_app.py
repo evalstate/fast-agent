@@ -2,7 +2,7 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
-from typing import Awaitable, Callable, Mapping, Union
+from typing import Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
 from mcp.types import GetPromptResult, PromptMessage
@@ -36,7 +36,19 @@ class AgentApp:
         *,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
         refresh_callback: Callable[[], Awaitable[bool]] | None = None,
-        load_card_callback: Callable[[str], Awaitable[list[str]]] | None = None,
+        load_card_callback: Callable[
+            [str, str | None], Awaitable[tuple[list[str], list[str]]]
+        ]
+        | None = None,
+        attach_agent_tools_callback: Callable[
+            [str, Sequence[str]], Awaitable[list[str]]
+        ]
+        | None = None,
+        detach_agent_tools_callback: Callable[
+            [str, Sequence[str]], Awaitable[list[str]]
+        ]
+        | None = None,
+        dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         tool_only_agents: set[str] | None = None,
         card_collision_warnings: list[str] | None = None,
     ) -> None:
@@ -47,6 +59,10 @@ class AgentApp:
             agents: Dictionary of agent instances keyed by name
             reload_callback: Optional callback for manual AgentCard reloads
             refresh_callback: Optional callback for lazy instance refresh before requests
+            load_card_callback: Optional callback for loading AgentCards at runtime
+            attach_agent_tools_callback: Optional callback for attaching agent tools
+            detach_agent_tools_callback: Optional callback for detaching agent tools
+            dump_agent_callback: Optional callback for dumping AgentCards
             tool_only_agents: Optional set of agent names that are tool-only (hidden from listings)
             card_collision_warnings: Optional list of warnings from agent card name collisions
         """
@@ -56,6 +72,9 @@ class AgentApp:
         self._reload_callback = reload_callback
         self._refresh_callback = refresh_callback
         self._load_card_callback = load_card_callback
+        self._attach_agent_tools_callback = attach_agent_tools_callback
+        self._detach_agent_tools_callback = detach_agent_tools_callback
+        self._dump_agent_callback = dump_agent_callback
         self._tool_only_agents: set[str] = tool_only_agents or set()
         self._card_collision_warnings: list[str] = card_collision_warnings or []
 
@@ -290,11 +309,43 @@ class AgentApp:
         """Return True if agent card loading is available."""
         return self._load_card_callback is not None
 
-    async def load_agent_card(self, source: str) -> list[str]:
+    def can_attach_agent_tools(self) -> bool:
+        """Return True if agent tool attachment is available."""
+        return self._attach_agent_tools_callback is not None
+
+    def can_dump_agent_cards(self) -> bool:
+        """Return True if agent card dumping is available."""
+        return self._dump_agent_callback is not None
+
+    async def load_agent_card(
+        self, source: str, parent_agent: str | None = None
+    ) -> tuple[list[str], list[str]]:
         """Load an AgentCard source and refresh active instances when available."""
         if not self._load_card_callback:
             raise RuntimeError("Agent card loading is not available.")
-        return await self._load_card_callback(source)
+        return await self._load_card_callback(source, parent_agent)
+
+    async def attach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]:
+        """Attach agents as tools to a parent agent."""
+        if not self._attach_agent_tools_callback:
+            raise RuntimeError("Agent tool attachment is not available.")
+        return await self._attach_agent_tools_callback(parent_agent, child_agents)
+
+    async def detach_agent_tools(
+        self, parent_agent: str, child_agents: Sequence[str]
+    ) -> list[str]:
+        """Detach agents-as-tools from a parent agent."""
+        if not self._detach_agent_tools_callback:
+            raise RuntimeError("Agent tool detachment is not available.")
+        return await self._detach_agent_tools_callback(parent_agent, child_agents)
+
+    async def dump_agent_card(self, agent_name: str) -> str:
+        """Dump an AgentCard for the requested agent."""
+        if not self._dump_agent_callback:
+            raise RuntimeError("Agent card dumping is not available.")
+        return await self._dump_agent_callback(agent_name)
 
     def set_agents(
         self,
@@ -325,22 +376,51 @@ class AgentApp:
         self._refresh_callback = callback
 
     def set_load_card_callback(
-        self, callback: Callable[[str], Awaitable[list[str]]] | None
+        self,
+        callback: Callable[[str, str | None], Awaitable[tuple[list[str], list[str]]]]
+        | None,
     ) -> None:
         """Update the callback for loading agent cards at runtime."""
         self._load_card_callback = callback
+
+    def set_attach_agent_tools_callback(
+        self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for attaching agent tools."""
+        self._attach_agent_tools_callback = callback
+
+    def set_detach_agent_tools_callback(
+        self, callback: Callable[[str, Sequence[str]], Awaitable[list[str]]] | None
+    ) -> None:
+        """Update the callback for detaching agent tools."""
+        self._detach_agent_tools_callback = callback
+
+    def set_dump_agent_callback(
+        self, callback: Callable[[str], Awaitable[str]] | None
+    ) -> None:
+        """Update the callback for dumping agent cards."""
+        self._dump_agent_callback = callback
 
     def agent_names(self) -> list[str]:
         """Return available agent names (excluding tool_only agents)."""
         return [name for name in self._agents.keys() if name not in self._tool_only_agents]
 
+    def can_detach_agent_tools(self) -> bool:
+        """Return True if agent tool detachment is available."""
+        return self._detach_agent_tools_callback is not None
+
     def agent_types(self) -> dict[str, AgentType]:
         """Return mapping of agent names to agent types."""
         return {name: agent.agent_type for name, agent in self._agents.items()}
 
-    async def _refresh_if_needed(self) -> None:
+    async def refresh_if_needed(self) -> bool:
+        """Refresh agent instances if the registry has changed."""
+        return await self._refresh_if_needed()
+
+    async def _refresh_if_needed(self) -> bool:
         if self._refresh_callback:
-            await self._refresh_callback()
+            return await self._refresh_callback()
+        return False
 
     @deprecated
     async def prompt(

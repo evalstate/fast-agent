@@ -515,7 +515,6 @@ agent["greeter"].send("Good Evening!")          # Dictionary access is supported
   name="orchestrator",                    # orchestrator agent name
   instruction="instruction",              # orchestrator instruction (routing/decomposition/aggregation)
   agents=["agent1", "agent2"],            # exposed as tools: agent__agent1, agent__agent2
-  history_mode="fork",                    # scratch|fork|fork_and_merge
   max_parallel=128,                       # cap parallel child tool calls (OpenAI limit is 128)
   child_timeout_sec=600,                  # per-child timeout (seconds)
   max_display_instances=20,               # collapse progress display after top-N instances

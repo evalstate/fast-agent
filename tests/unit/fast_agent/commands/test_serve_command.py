@@ -61,6 +61,7 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
         config_path=None,
         servers=None,
         agent_cards=["./agents"],
+        card_tools=["./tool-cards"],
         urls=None,
         auth=None,
         model=None,
@@ -86,5 +87,6 @@ def test_serve_command_invokes_run_async_agent(monkeypatch):
     assert captured["tool_description"] == "Chat with {agent}"
     assert captured["instance_scope"] == "connection"
     assert captured["agent_cards"] == ["./agents"]
+    assert captured["card_tools"] == ["./tool-cards"]
     assert captured["reload"] is True
     assert captured["watch"] is True

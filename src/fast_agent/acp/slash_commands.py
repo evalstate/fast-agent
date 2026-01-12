@@ -17,7 +17,15 @@ import time
 import uuid
 from importlib.metadata import version as get_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Protocol,
+    Sequence,
+    runtime_checkable,
+)
 
 from acp.helpers import text_block, tool_content
 from acp.schema import (
@@ -31,7 +39,6 @@ from acp.schema import (
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
-from fast_agent.core.agent_tools import add_tools_for_agents
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
@@ -119,7 +126,19 @@ class SlashCommandHandler:
         client_capabilities: dict | None = None,
         protocol_version: int | None = None,
         session_instructions: dict[str, str] | None = None,
-        card_loader: Callable[[str], Awaitable[tuple["AgentInstance", list[str]]]] | None = None,
+        card_loader: Callable[
+            [str, str | None], Awaitable[tuple["AgentInstance", list[str], list[str]]]
+        ]
+        | None = None,
+        attach_agent_callback: Callable[
+            [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
+        ]
+        | None = None,
+        detach_agent_callback: Callable[
+            [str, Sequence[str]], Awaitable[tuple["AgentInstance", list[str]]]
+        ]
+        | None = None,
+        dump_agent_callback: Callable[[str], Awaitable[str]] | None = None,
         reload_callback: Callable[[], Awaitable[bool]] | None = None,
     ):
         """
@@ -151,6 +170,9 @@ class SlashCommandHandler:
         self.protocol_version = protocol_version
         self._session_instructions = session_instructions or {}
         self._card_loader = card_loader
+        self._attach_agent_callback = attach_agent_callback
+        self._detach_agent_callback = detach_agent_callback
+        self._dump_agent_callback = dump_agent_callback
         self._reload_callback = reload_callback
 
         # Session-level commands (always available, operate on current agent)
@@ -193,7 +215,18 @@ class SlashCommandHandler:
                 name="card",
                 description="Load an AgentCard from file or URL",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(hint="<filename|url> [--tool]")
+                    root=UnstructuredCommandInput(
+                        hint="<filename|url> [--tool [remove]]"
+                    )
+                ),
+            ),
+            "agent": AvailableCommand(
+                name="agent",
+                description="Attach an agent as a tool or dump its AgentCard",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint="<@name> [--tool [remove]|--dump]"
+                    )
                 ),
             ),
         }
@@ -357,6 +390,8 @@ class SlashCommandHandler:
                 return await self._handle_load(arguments)
             if command_name == "card":
                 return await self._handle_card(arguments)
+            if command_name == "agent":
+                return await self._handle_agent(arguments)
             if command_name == "reload":
                 return await self._handle_reload()
 
@@ -1340,19 +1375,29 @@ class SlashCommandHandler:
             return f"Invalid arguments: {exc}"
 
         add_tool = False
+        remove_tool = False
         filename = None
         for token in tokens:
             if token in {"tool", "--tool", "--as-tool", "-t"}:
                 add_tool = True
                 continue
+            if token in {"remove", "--remove"}:
+                add_tool = True
+                remove_tool = True
+                continue
             if filename is None:
                 filename = token
 
         if not filename:
-            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool]"
+            return (
+                "Filename required for /card command.\nUsage: /card <filename|url> [--tool [remove]]"
+            )
 
         try:
-            instance, loaded_names = await self._card_loader(filename)
+            attach_to = self.current_agent_name if add_tool and not remove_tool else None
+            instance, loaded_names, attached_names = await self._card_loader(
+                filename, attach_to
+            )
         except Exception as exc:
             return f"AgentCard load failed: {exc}"
 
@@ -1366,24 +1411,123 @@ class SlashCommandHandler:
         if not add_tool:
             return summary
 
-        parent_name = self.current_agent_name
-        if not parent_name or parent_name not in instance.agents:
-            parent_name = next(iter(instance.agents.keys()), None)
-            self.current_agent_name = parent_name or self.current_agent_name
-        if not parent_name:
+        if remove_tool:
+            if not self._detach_agent_callback:
+                return "Agent tool detachment is not available in this session."
+            parent_agent = self.current_agent_name or self.primary_agent_name
+            if not parent_agent:
+                return "No active agent available for tool detachment."
+            try:
+                instance, detached_names = await self._detach_agent_callback(
+                    parent_agent, loaded_names
+                )
+            except Exception as exc:
+                return f"Agent tool detach failed: {exc}"
+            self.instance = instance
+            if not detached_names:
+                return f"{summary}\nNo agent tools detached."
+            return f"{summary}\nDetached agent tool(s): {', '.join(detached_names)}"
+
+        if not attached_names:
             return summary
 
-        parent = instance.agents.get(parent_name)
-        add_tool_fn = getattr(parent, "add_agent_tool", None)
-        if not callable(add_tool_fn):
-            return f"{summary}\nCurrent agent does not support tool injection."
+        return f"{summary}\nAttached agent tool(s): {', '.join(attached_names)}"
 
-        tool_agents = [instance.agents.get(child_name) for child_name in loaded_names]
-        added_tools = add_tools_for_agents(add_tool_fn, tool_agents)
+    async def _handle_agent(self, arguments: str | None = None) -> str:
+        """Handle the /agent command for attach or dump actions."""
+        args = (arguments or "").strip()
+        if not args:
+            return "Usage: /agent <name> --tool | /agent [name] --dump"
 
-        if not added_tools:
-            return summary
-        return f"{summary}\nAdded tool(s): {', '.join(added_tools)}"
+        try:
+            tokens = shlex.split(args)
+        except ValueError as exc:
+            return f"Invalid arguments: {exc}"
+
+        add_tool = False
+        remove_tool = False
+        dump = False
+        agent_name = None
+        unknown: list[str] = []
+        for token in tokens:
+            if token in {"tool", "--tool", "--as-tool", "-t"}:
+                add_tool = True
+                continue
+            if token in {"remove", "--remove"}:
+                add_tool = True
+                remove_tool = True
+                continue
+            if token in {"dump", "--dump", "-d"}:
+                dump = True
+                continue
+            if agent_name is None:
+                agent_name = token[1:] if token.startswith("@") else token
+                continue
+            unknown.append(token)
+
+        if unknown:
+            return f"Unexpected arguments: {', '.join(unknown)}"
+        if add_tool and dump:
+            return "Use either --tool or --dump, not both."
+        if not add_tool and not dump:
+            return "Usage: /agent <name> --tool [remove] | /agent [name] --dump"
+
+        target_agent = agent_name or self.current_agent_name or self.primary_agent_name
+        if not target_agent:
+            return "No agent available for this session."
+
+        if dump:
+            if not self._dump_agent_callback:
+                return "AgentCard dumping is not available in this session."
+            try:
+                return await self._dump_agent_callback(target_agent)
+            except Exception as exc:
+                return f"AgentCard dump failed: {exc}"
+
+        if remove_tool:
+            if not self._detach_agent_callback:
+                return "Agent tool detachment is not available in this session."
+            if not agent_name:
+                return "Agent name is required for /agent --tool remove."
+            parent_agent = self.current_agent_name or self.primary_agent_name
+            if not parent_agent:
+                return "No active agent available for tool detachment."
+            try:
+                instance, removed_names = await self._detach_agent_callback(
+                    parent_agent, [agent_name]
+                )
+            except Exception as exc:
+                return f"Agent tool detach failed: {exc}"
+            self.instance = instance
+            if not removed_names:
+                return "No agent tools detached."
+            return "Detached agent tool(s): " + ", ".join(removed_names)
+
+        if not self._attach_agent_callback:
+            return "Agent tool attachment is not available in this session."
+        if not agent_name:
+            return "Agent name is required for /agent --tool."
+
+        parent_agent = self.current_agent_name or self.primary_agent_name
+        if not parent_agent:
+            return "No active agent available for tool attachment."
+
+        if agent_name == parent_agent:
+            return "Can't attach agent to itself."
+
+        try:
+            instance, attached_names = await self._attach_agent_callback(
+                parent_agent, [agent_name]
+            )
+        except Exception as exc:
+            return f"Agent tool attach failed: {exc}"
+
+        self.instance = instance
+
+        if not attached_names:
+            return "No agent tools attached."
+
+        return "Attached agent tool(s): " + ", ".join(attached_names)
 
     async def _handle_reload(self) -> str:
         if not self._reload_callback:

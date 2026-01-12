@@ -30,6 +30,7 @@ from fast_agent.core.exceptions import PromptExitError
 from fast_agent.llm.model_info import ModelInfo
 from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
+    AgentCommand,
     ClearCommand,
     CommandPayload,
     HashAgentCommand,
@@ -119,9 +120,23 @@ def _load_history_cmd(filename: str | None, error: str | None) -> LoadHistoryCom
 
 
 def _load_agent_card_cmd(
-    filename: str | None, add_tool: bool, error: str | None
+    filename: str | None, add_tool: bool, remove_tool: bool, error: str | None
 ) -> LoadAgentCardCommand:
-    return LoadAgentCardCommand(filename=filename, add_tool=add_tool, error=error)
+    return LoadAgentCardCommand(
+        filename=filename, add_tool=add_tool, remove_tool=remove_tool, error=error
+    )
+
+
+def _agent_cmd(
+    agent_name: str | None, add_tool: bool, remove_tool: bool, dump: bool, error: str | None
+) -> AgentCommand:
+    return AgentCommand(
+        agent_name=agent_name,
+        add_tool=add_tool,
+        remove_tool=remove_tool,
+        dump=dump,
+        error=error,
+    )
 
 
 def _reload_agents_cmd() -> ReloadAgentsCommand:
@@ -485,8 +500,10 @@ class AgentCompleter(Completer):
         agents: list[str],
         agent_types: dict[str, AgentType] | None = None,
         is_human_input: bool = False,
+        current_agent: str | None = None,
     ) -> None:
         self.agents = agents
+        self.current_agent = current_agent
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
@@ -502,7 +519,8 @@ class AgentCompleter(Completer):
             "markdown": "Show last assistant message without markdown formatting",
             "save_history": "Save history; .json = MCP JSON, others = Markdown",
             "load_history": "Load history from a file",
-            "card": "Load an AgentCard (add --tool to expose as tool)",
+            "card": "Load an AgentCard (add --tool to attach/remove as tool)",
+            "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
             "help": "Show commands and shortcuts",
             "EXIT": "Exit fast-agent, terminating any running workflows",
@@ -648,6 +666,26 @@ class AgentCompleter(Completer):
         if text_lower.startswith("/card "):
             partial = text[len("/card ") :]
             yield from self._complete_agent_card_files(partial)
+            return
+
+        # Sub-completion for /agent - show available agent names (excluding current agent)
+        if text_lower.startswith("/agent "):
+            partial = text[len("/agent ") :].lstrip()
+            # Strip leading @ if present
+            if partial.startswith("@"):
+                partial = partial[1:]
+            for agent in self.agents:
+                # Don't suggest attaching current agent to itself
+                if agent == self.current_agent:
+                    continue
+                if agent.lower().startswith(partial.lower()):
+                    agent_type = self.agent_types.get(agent, AgentType.BASIC).value
+                    yield Completion(
+                        agent,
+                        start_position=-len(partial),
+                        display=agent,
+                        display_meta=agent_type,
+                    )
             return
 
         # Complete commands
@@ -946,22 +984,98 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "card":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
-                return _load_agent_card_cmd(None, False, "Filename required for /card")
+                return _load_agent_card_cmd(
+                    None, False, False, "Filename required for /card"
+                )
             try:
                 tokens = shlex.split(remainder)
             except ValueError as exc:
-                return _load_agent_card_cmd(None, False, f"Invalid arguments: {exc}")
+                return _load_agent_card_cmd(None, False, False, f"Invalid arguments: {exc}")
             add_tool = False
+            remove_tool = False
             filename = None
             for token in tokens:
                 if token in {"tool", "--tool", "--as-tool", "-t"}:
                     add_tool = True
                     continue
+                if token in {"remove", "--remove", "--rm"}:
+                    remove_tool = True
+                    add_tool = True
+                    continue
                 if filename is None:
                     filename = token
             if not filename:
-                return _load_agent_card_cmd(None, add_tool, "Filename required for /card")
-            return _load_agent_card_cmd(filename, add_tool, None)
+                return _load_agent_card_cmd(
+                    None, add_tool, remove_tool, "Filename required for /card"
+                )
+            return _load_agent_card_cmd(filename, add_tool, remove_tool, None)
+        if cmd == "agent":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _agent_cmd(
+                    None,
+                    False,
+                    False,
+                    False,
+                    "Usage: /agent <name> --tool | /agent [name] --dump",
+                )
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError as exc:
+                return _agent_cmd(None, False, False, False, f"Invalid arguments: {exc}")
+            add_tool = False
+            remove_tool = False
+            dump = False
+            agent_name = None
+            unknown: list[str] = []
+            for token in tokens:
+                if token in {"tool", "--tool", "--as-tool", "-t"}:
+                    add_tool = True
+                    continue
+                if token in {"remove", "--remove", "--rm"}:
+                    remove_tool = True
+                    add_tool = True
+                    continue
+                if token in {"dump", "--dump", "-d"}:
+                    dump = True
+                    continue
+                if agent_name is None:
+                    agent_name = token[1:] if token.startswith("@") else token
+                    continue
+                unknown.append(token)
+            if unknown:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    f"Unexpected arguments: {', '.join(unknown)}",
+                )
+            if add_tool and dump:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    "Use either --tool or --dump, not both",
+                )
+            if not add_tool and not dump:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    "Usage: /agent <name> --tool | /agent [name] --dump",
+                )
+            if add_tool and not agent_name:
+                return _agent_cmd(
+                    agent_name,
+                    add_tool,
+                    remove_tool,
+                    dump,
+                    "Agent name is required for /agent --tool",
+                )
+            return _agent_cmd(agent_name, add_tool, remove_tool, dump, None)
         if cmd == "reload":
             return _reload_agents_cmd()
         if cmd in ("mcpstatus", "mcp"):
@@ -1043,6 +1157,11 @@ async def get_enhanced_input(
     in_multiline_mode = multiline
     if available_agent_names:
         available_agents = set(available_agent_names)
+    if agent_provider:
+        try:
+            available_agents = set(agent_provider.agent_names())
+        except Exception:
+            pass
 
     # Get or create history object for this agent
     if agent_name not in agent_histories:
@@ -1081,8 +1200,8 @@ async def get_enhanced_input(
         if agent_provider:
             try:
                 agent = agent_provider._agent(agent_name)
-            except Exception as exc:
-                print(f"[toolbar debug] unable to resolve agent '{agent_name}': {exc}")
+            except Exception:
+                agent = None
 
         if agent:
             for message in agent.message_history:
@@ -1249,6 +1368,7 @@ async def get_enhanced_input(
             agents=list(available_agents) if available_agents else [],
             agent_types=agent_types or {},
             is_human_input=is_human_input,
+            current_agent=agent_name,
         ),
         complete_while_typing=True,
         multiline=Condition(lambda: in_multiline_mode),
@@ -1585,7 +1705,7 @@ async def handle_special_commands(
     if is_command_payload(command):
         return cast("CommandPayload", command)
 
-    global agent_histories
+    global agent_histories, available_agents
 
     # Check for special string commands
     if command == "HELP":
@@ -1611,7 +1731,11 @@ async def handle_special_commands(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
         rich_print("  /load_history <filename> - Load chat history from a file")
-        rich_print("  /card <filename> [--tool] - Load an AgentCard")
+        rich_print(
+            "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
+        )
+        rich_print("  /agent <name> --tool [remove] - Attach/remove an agent as a tool")
+        rich_print("  /agent [name] --dump - Print an AgentCard to screen")
         rich_print("  /reload        - Reload AgentCards from disk")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  #agent_name <msg> - Send message to agent, return result to input buffer")
@@ -1632,6 +1756,12 @@ async def handle_special_commands(
         raise PromptExitError("User requested to exit fast-agent session")
 
     elif command == "LIST_AGENTS":
+        if agent_app and agent_app is not True:
+            try:
+                await agent_app.refresh_if_needed()
+                available_agents = set(agent_app.agent_names())
+            except Exception:
+                pass
         if available_agents:
             rich_print("\n[bold]Available Agents:[/bold]")
             for agent in sorted(available_agents):

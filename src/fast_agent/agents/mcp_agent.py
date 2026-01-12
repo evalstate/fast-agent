@@ -1406,6 +1406,22 @@ class McpAgent(ABC, ToolAgent):
         if shell_label:
             server_names = [shell_label, *(name for name in server_names if name != shell_label)]
 
+        # Add agent-as-tool names to the bottom bar (they aren't MCP servers but should be shown)
+        for tool_name in self._agent_tools:
+            # Extract the agent name from tool_name (e.g., "agent__foo" -> "foo")
+            agent_label = tool_name[7:] if tool_name.startswith("agent__") else tool_name
+            if agent_label not in server_names:
+                server_names.append(agent_label)
+
+        # Also check _child_agents (used by AgentsAsToolsAgent)
+        # Import at runtime to avoid circular import
+        from fast_agent.agents.workflow.agents_as_tools_agent import AgentsAsToolsAgent
+
+        if isinstance(self, AgentsAsToolsAgent):
+            for agent_name in self._child_agents:
+                if agent_name not in server_names:
+                    server_names.append(agent_name)
+
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:
             highlight_servers = self._extract_servers_from_message(message)

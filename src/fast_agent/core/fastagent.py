@@ -250,7 +250,6 @@ class FastAgent:
                 dest="card_tools",
                 help="Path or URL to an AgentCard file to load as a tool (repeatable)",
             )
-
             if ignore_unknown_args:
                 known_args, _ = parser.parse_known_args()
                 self.args = known_args
@@ -372,6 +371,9 @@ class FastAgent:
         self._agent_card_name_by_path: dict[Path, str] = {}
         self._agent_card_histories: dict[str, list[Path]] = {}
         self._agent_card_tool_files: dict[Path, set[Path]] = {}
+        self._agent_card_last_changed: set[str] = set()
+        self._agent_card_last_removed: set[str] = set()
+        self._agent_card_last_dependents: set[str] = set()
         self._agent_registry_version: int = 0
         self._agent_card_watch_task: asyncio.Task[None] | None = None
         self._agent_card_reload_lock: asyncio.Lock | None = None
@@ -474,10 +476,91 @@ class FastAgent:
             # Apply skills
             if cards:
                 self._apply_skills_to_agent_configs(self._default_skill_manifests)
+                self._agent_card_last_changed.update(loaded_names)
                 self._agent_registry_version += 1
             return loaded_names
         finally:
             temp_path.unlink(missing_ok=True)
+
+    def attach_agent_tools(self, parent_name: str, child_names: Sequence[str]) -> list[str]:
+        """Attach loaded agents to a parent agent via Agents-as-Tools."""
+        parent_data = self.agents.get(parent_name)
+        if not parent_data:
+            raise AgentConfigError(f"Agent '{parent_name}' not found")
+
+        if parent_data.get("type") not in ("basic", "custom"):
+            raise AgentConfigError(
+                f"Agent '{parent_name}' does not support agents-as-tools"
+            )
+
+        missing = [
+            name
+            for name in child_names
+            if name and name != parent_name and name not in self.agents
+        ]
+        if missing:
+            missing_list = ", ".join(missing)
+            raise AgentConfigError(f"Agent(s) not found: {missing_list}")
+
+        existing = list(parent_data.get("child_agents") or [])
+        added: list[str] = []
+        for name in child_names:
+            if not name or name == parent_name:
+                continue
+            if name in existing or name in added:
+                continue
+            added.append(name)
+
+        if added:
+            parent_data["child_agents"] = existing + added
+            self._agent_card_last_changed.add(parent_name)
+            self._agent_registry_version += 1
+
+        return added
+
+    def detach_agent_tools(self, parent_name: str, child_names: Sequence[str]) -> list[str]:
+        """Detach agents-as-tools from a parent agent."""
+        parent_data = self.agents.get(parent_name)
+        if not parent_data:
+            raise AgentConfigError(f"Agent '{parent_name}' not found")
+
+        if parent_data.get("type") not in ("basic", "custom"):
+            raise AgentConfigError(
+                f"Agent '{parent_name}' does not support agents-as-tools"
+            )
+
+        existing = list(parent_data.get("child_agents") or [])
+        removed: list[str] = []
+        for name in child_names:
+            if not name or name == parent_name:
+                continue
+            if name not in existing or name in removed:
+                continue
+            removed.append(name)
+
+        if removed:
+            pruned = [name for name in existing if name not in set(removed)]
+            if pruned:
+                parent_data["child_agents"] = pruned
+            else:
+                parent_data.pop("child_agents", None)
+            self._agent_card_last_changed.add(parent_name)
+            self._agent_registry_version += 1
+
+        return removed
+
+    def dump_agent_card_text(self, name: str, *, as_yaml: bool = False) -> str:
+        """Render an AgentCard as text."""
+        from fast_agent.core.agent_card_loader import dump_agent_to_string
+
+        agent_data = self.agents.get(name)
+        if not agent_data:
+            raise AgentConfigError(f"Agent '{name}' not found for dump")
+
+        message_paths = self._agent_card_histories.get(name)
+        return dump_agent_to_string(
+            name, agent_data, as_yaml=as_yaml, message_paths=message_paths
+        )
 
     async def reload_agents(self) -> bool:
         """Reload all previously registered AgentCard roots."""
@@ -488,6 +571,9 @@ class FastAgent:
             self._agent_card_reload_lock = asyncio.Lock()
 
         async with self._agent_card_reload_lock:
+            self._agent_card_last_changed = set()
+            self._agent_card_last_removed = set()
+            self._agent_card_last_dependents = set()
             changed = False
             for root in sorted(self._agent_card_roots.keys()):
                 if self._load_agent_cards_from_root(root, incremental=True):
@@ -534,6 +620,21 @@ class FastAgent:
         def _load_cards(path_entry: Path) -> list[Any]:
             try:
                 return load_agent_cards(path_entry)
+            except AgentConfigError as exc:
+                if not incremental:
+                    raise
+                if "Instruction is required" in exc.message:
+                    logger.warning(
+                        "Skipping incomplete AgentCard during reload; waiting for write to complete",
+                        path=str(path_entry),
+                    )
+                    return []
+                logger.warning(
+                    "Skipping invalid AgentCard during reload",
+                    path=str(path_entry),
+                    error=str(exc),
+                )
+                return []
             except Exception as exc:
                 if not incremental:
                     raise
@@ -713,12 +814,22 @@ class FastAgent:
             for path in removed_files
             if path in self._agent_card_name_by_path
         }
+        removed_dependents: set[str] = set()
+        if removed_names:
+            from fast_agent.core.validation import get_agent_dependencies
+
+            removed_set = set(removed_names)
+            for name, agent_data in self.agents.items():
+                if get_agent_dependencies(agent_data) & removed_set:
+                    removed_dependents.add(name)
 
         new_names_by_path: dict[Path, str] = {}
         seen_names: dict[str, Path] = {}
+        changed_names: set[str] = set()
         for card in changed_cards:
             if not hasattr(card, "name") or not hasattr(card, "path"):
                 raise AgentConfigError("Invalid AgentCard payload during reload")
+            changed_names.add(card.name)
             if card.name in seen_names:
                 raise AgentConfigError(
                     f"Duplicate agent name '{card.name}' during reload",
@@ -801,6 +912,16 @@ class FastAgent:
             else:
                 self._agent_card_histories.pop(card.name, None)
 
+        if removed_names:
+            removed_set = set(removed_names)
+            for agent_data in self.agents.values():
+                child_agents = agent_data.get("child_agents")
+                if not child_agents:
+                    continue
+                pruned = [name for name in child_agents if name not in removed_set]
+                if pruned != child_agents:
+                    agent_data["child_agents"] = pruned
+
         for path_entry, signature in current_stats.items():
             self._agent_card_file_cache[path_entry] = signature
 
@@ -813,6 +934,20 @@ class FastAgent:
 
         if changed_cards or removed_files:
             self._apply_skills_to_agent_configs(self._default_skill_manifests)
+            from fast_agent.core.validation import get_agent_dependencies
+
+            if changed_names:
+                changed_dependents: set[str] = set()
+                for name, agent_data in self.agents.items():
+                    if name in changed_names:
+                        continue
+                    if get_agent_dependencies(agent_data) & changed_names:
+                        changed_dependents.add(name)
+                self._agent_card_last_dependents.update(changed_dependents)
+
+            self._agent_card_last_changed.update(changed_names)
+            self._agent_card_last_removed.update(removed_names)
+            self._agent_card_last_dependents.update(removed_dependents)
 
     def _get_registry_version(self) -> int:
         return self._agent_registry_version
@@ -879,7 +1014,8 @@ class FastAgent:
             default: bool = False,
             elicitation_handler: ElicitationFnT | None = None,
             api_key: str | None = None,
-            history_mode: Any | None = None,
+            history_source: Any | None = None,
+            history_merge_target: Any | None = None,
             max_parallel: int | None = None,
             child_timeout_sec: int | None = None,
             max_display_instances: int | None = None,
@@ -1216,13 +1352,116 @@ class FastAgent:
                         nonlocal primary_instance, active_agents
                         if self._agent_registry_version <= primary_instance.registry_version:
                             return False
+                        changed_names = set(self._agent_card_last_changed)
+                        removed_names = set(self._agent_card_last_removed)
+                        dependent_names = set(self._agent_card_last_dependents)
+                        active_agents_local = active_agents
 
-                        new_instance = await instantiate_agent_instance(app_override=wrapper)
-                        old_instance = primary_instance
-                        primary_instance = new_instance
-                        active_agents = new_instance.agents
-                        await dispose_agent_instance(old_instance)
-                        return True
+                        if not (changed_names or removed_names or dependent_names):
+                            new_instance = await instantiate_agent_instance(app_override=wrapper)
+                            old_instance = primary_instance
+                            primary_instance = new_instance
+                            active_agents = new_instance.agents
+                            await dispose_agent_instance(old_instance)
+                            return True
+
+                        async with instance_lock:
+                            impacted = set(changed_names)
+                            impacted.update(dependent_names)
+                            impacted.difference_update(removed_names)
+
+                            if impacted:
+                                from fast_agent.core.validation import (
+                                    get_agent_dependencies,
+                                )
+
+                                reverse_deps: dict[str, set[str]] = {}
+                                for name, agent_data in self.agents.items():
+                                    for dep in get_agent_dependencies(agent_data):
+                                        reverse_deps.setdefault(dep, set()).add(name)
+
+                                queue = list(impacted)
+                                while queue:
+                                    current = queue.pop()
+                                    for parent in reverse_deps.get(current, set()):
+                                        if parent in removed_names or parent in impacted:
+                                            continue
+                                        impacted.add(parent)
+                                        queue.append(parent)
+
+                            removed_instances = [
+                                active_agents_local.pop(name, None)
+                                for name in removed_names
+                            ]
+                            for agent in removed_instances:
+                                if agent is None:
+                                    continue
+                                await agent.shutdown()
+
+                            old_agents = {
+                                name: active_agents_local.get(name)
+                                for name in impacted
+                                if name in active_agents_local
+                            }
+
+                            if impacted:
+                                from fast_agent.core.direct_factory import (
+                                    active_agents_in_dependency_group,
+                                )
+                                from fast_agent.core.validation import (
+                                    get_dependencies_groups,
+                                )
+
+                                dependencies = get_dependencies_groups(self.agents)
+                                for group in dependencies:
+                                    group_targets = [
+                                        name for name in group if name in impacted
+                                    ]
+                                    if not group_targets:
+                                        continue
+                                    await active_agents_in_dependency_group(
+                                        self.app,
+                                        self.agents,
+                                        model_factory_func,
+                                        group_targets,
+                                        active_agents_local,
+                                    )
+
+                            for name, old_agent in old_agents.items():
+                                new_agent = active_agents_local.get(name)
+                                if old_agent is None or new_agent is None:
+                                    continue
+                                if old_agent is new_agent:
+                                    continue
+                                await old_agent.shutdown()
+
+                            if impacted:
+                                updated_agents = {
+                                    name: active_agents_local[name]
+                                    for name in impacted
+                                    if name in active_agents_local
+                                }
+                                if updated_agents:
+                                    self._apply_agent_card_histories(updated_agents)
+                                    validate_provider_keys_post_creation(updated_agents)
+
+                                    if global_prompt_context:
+                                        for agent in updated_agents.values():
+                                            template = getattr(agent, "instruction", None)
+                                            if not template:
+                                                continue
+                                            resolved = apply_template_variables(
+                                                template, global_prompt_context
+                                            )
+                                            if resolved is None or resolved == template:
+                                                continue
+                                            agent.set_instruction(resolved)
+
+                            primary_instance.registry_version = self._agent_registry_version
+                            self._agent_card_last_changed.clear()
+                            self._agent_card_last_removed.clear()
+                            self._agent_card_last_dependents.clear()
+                            return True
 
                     async def reload_and_refresh() -> bool:
                         changed = await self.reload_agents()
@@ -1230,18 +1469,70 @@ class FastAgent:
                             return False
                         return await refresh_shared_instance()
 
-                    async def load_card_and_refresh(source: str) -> list[str]:
+                    async def load_card_and_refresh(
+                        source: str, parent_name: str | None
+                    ) -> tuple[list[str], list[str]]:
                         if source.startswith(("http://", "https://")):
                             loaded_names = self.load_agents_from_url(source)
                         else:
                             loaded_names = self.load_agents(source)
-                        await refresh_shared_instance()
-                        return loaded_names
 
-                    async def load_card_source(source: str) -> list[str]:
+                        added_names: list[str] = []
+                        if parent_name:
+                            target_name = parent_name
+                            if target_name not in self.agents:
+                                target_name = next(iter(self.agents.keys()), None)
+                            if target_name and loaded_names:
+                                added_names = self.attach_agent_tools(
+                                    target_name, loaded_names
+                                )
+
+                        await refresh_shared_instance()
+                        return loaded_names, added_names
+
+                    async def load_card_source(
+                        source: str, parent_name: str | None
+                    ) -> tuple[list[str], list[str]]:
                         if source.startswith(("http://", "https://")):
-                            return self.load_agents_from_url(source)
-                        return self.load_agents(source)
+                            loaded_names = self.load_agents_from_url(source)
+                        else:
+                            loaded_names = self.load_agents(source)
+
+                        added_names: list[str] = []
+                        if parent_name:
+                            target_name = parent_name
+                            if target_name not in self.agents:
+                                target_name = next(iter(self.agents.keys()), None)
+                            if target_name and loaded_names:
+                                added_names = self.attach_agent_tools(
+                                    target_name, loaded_names
+                                )
+
+                        return loaded_names, added_names
+
+                    async def attach_agent_tools_and_refresh(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        added = self.attach_agent_tools(parent_name, child_names)
+                        if added:
+                            await refresh_shared_instance()
+                        return added
+
+                    async def detach_agent_tools_and_refresh(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        removed = self.detach_agent_tools(parent_name, child_names)
+                        if removed:
+                            await refresh_shared_instance()
+                        return removed
+
+                    async def attach_agent_tools_source(
+                        parent_name: str, child_names: Sequence[str]
+                    ) -> list[str]:
+                        return self.attach_agent_tools(parent_name, child_names)
+
+                    async def dump_agent_card(name: str) -> str:
+                        return self.dump_agent_card_text(name)
 
                     reload_enabled = bool(
                         getattr(self.args, "reload", False)
@@ -1253,6 +1544,9 @@ class FastAgent:
                         refresh_shared_instance if reload_enabled else None
                     )
                     wrapper.set_load_card_callback(load_card_and_refresh)
+                    wrapper.set_attach_agent_tools_callback(attach_agent_tools_and_refresh)
+                    wrapper.set_detach_agent_tools_callback(detach_agent_tools_and_refresh)
+                    wrapper.set_dump_agent_callback(dump_agent_card)
                     self._agent_card_watch_reload = reload_and_refresh if reload_enabled else None
 
                     if getattr(self.args, "watch", False) and self._agent_card_roots:
@@ -1361,6 +1655,8 @@ class FastAgent:
                                     skills_directory_override=skills_override,
                                     permissions_enabled=permissions_enabled,
                                     load_card_callback=load_card_source,
+                                    attach_agent_tools_callback=attach_agent_tools_source,
+                                    dump_agent_card_callback=dump_agent_card,
                                     reload_callback=reload_callback,
                                 )
 
@@ -1833,8 +2129,6 @@ class FastAgent:
         self.args.model = None
         if original_args is not None and hasattr(original_args, "model"):
             self.args.model = original_args.model
-        if original_args is not None and hasattr(original_args, "card_tools"):
-            self.args.card_tools = original_args.card_tools
         if original_args is not None and hasattr(original_args, "agent"):
             self.args.agent = original_args.agent
         if original_args is not None and hasattr(original_args, "reload"):
