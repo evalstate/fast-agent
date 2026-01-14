@@ -71,6 +71,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
         except Exception:  # pragma: no cover - hook errors must not break transport
             logger.exception("Channel hook raised an exception")
 
+    def _reset_ping_failures(self) -> None:
+        self._ping_tracker.reset()
+
     async def _handle_json_response(  # type: ignore[override]
         self,
         response: httpx.Response,

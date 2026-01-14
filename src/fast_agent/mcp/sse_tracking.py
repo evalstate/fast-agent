@@ -195,17 +195,19 @@ async def tracking_sse_client(
                             detail = ping_tracker.format_detail()
                             if should_reset:
                                 logger.warning("SSE ping timeout on %s", url)
+                            error = ConnectionError(detail)
                         else:
                             ping_tracker.reset()
                             detail = str(exc)
                             logger.exception("Error in sse_reader")
+                            error = exc
                         _emit_channel_event(
                             channel_hook,
                             "get",
                             "error",
                             detail=detail,
                         )
-                        await read_stream_writer.send(exc)
+                        await read_stream_writer.send(error)
                     finally:
                         await read_stream_writer.aclose()
 
