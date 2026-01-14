@@ -21,16 +21,15 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCError, JSONRPCMessage, JSONRPCRequest, JSONRPCResponse
 
+from fast_agent.mcp.ping_tracker import PingFailureTracker
 from fast_agent.mcp.transport_tracking import ChannelEvent, ChannelName
 
 if TYPE_CHECKING:
-
     from anyio.abc import ObjectReceiveStream, ObjectSendStream
 
 logger = logging.getLogger(__name__)
 
 ChannelHook = Callable[[ChannelEvent], None]
-PING_FAILURE_RESET_THRESHOLD = 3
 
 
 class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
@@ -44,21 +43,7 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
     ) -> None:
         super().__init__(url)
         self._channel_hook = channel_hook
-        self._ping_failure_count = 0
-
-    def _reset_ping_failures(self) -> None:
-        self._ping_failure_count = 0
-
-    def _record_ping_failure(self) -> None:
-        self._ping_failure_count += 1
-        logger.warning(
-            "Ping timeout waiting for keepalive on %s (%s/%s)",
-            self.url,
-            self._ping_failure_count,
-            PING_FAILURE_RESET_THRESHOLD,
-        )
-        if self._ping_failure_count >= PING_FAILURE_RESET_THRESHOLD:
-            logger.warning("Multiple ping timeouts on %s; resetting connection", self.url)
+        self._ping_tracker = PingFailureTracker(url)
 
     def _emit_channel_event(
         self,
@@ -199,14 +184,21 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
 
             except Exception as exc:  # pragma: no cover - non fatal stream errors
                 is_ping_timeout = isinstance(exc, (httpx.ReadTimeout, httpx.TimeoutException))
+                reset_connection = False
                 if is_ping_timeout:
-                    self._record_ping_failure()
+                    _, reset_connection = self._ping_tracker.record_failure()
+                    if reset_connection:
+                        last_event_id = None
+                        retry_interval_ms = None
                 else:
-                    self._reset_ping_failures()
+                    self._ping_tracker.reset()
                 logger.debug("GET stream error: %s", exc)
                 attempt += 1
                 status_code = None
-                detail = "Ping timeout waiting for keepalive" if is_ping_timeout else str(exc)
+                if is_ping_timeout:
+                    detail = self._ping_tracker.format_detail()
+                else:
+                    detail = str(exc)
                 if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
                     status_code = exc.response.status_code
                     reason = exc.response.reason_phrase or ""
@@ -225,7 +217,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
                 return
 
             delay_ms = (
-                retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+                retry_interval_ms
+                if retry_interval_ms is not None
+                else DEFAULT_RECONNECTION_DELAY_MS
             )
             logger.info("GET stream disconnected, reconnecting in %sms...", delay_ms)
             await anyio.sleep(delay_ms / 1000.0)
@@ -314,7 +308,9 @@ class ChannelTrackingStreamableHTTPTransport(StreamableHTTPTransport):
             )  # pragma: no cover
             return
 
-        delay_ms = retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        delay_ms = (
+            retry_interval_ms if retry_interval_ms is not None else DEFAULT_RECONNECTION_DELAY_MS
+        )
         await anyio.sleep(delay_ms / 1000.0)
 
         headers = self._prepare_headers()
