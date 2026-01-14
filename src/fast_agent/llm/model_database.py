@@ -34,6 +34,9 @@ class ModelParameters(BaseModel):
     system_role: None | str = "system"
     """Role to use for the System Prompt"""
 
+    cache_ttl_minutes: int | None = None
+    """Cache time-to-live in minutes. None if provider doesn't support caching."""
+
 
 class ModelDatabase:
     """Centralized model configuration database"""
@@ -92,16 +95,25 @@ class ModelDatabase:
     )
 
     ANTHROPIC_LEGACY = ModelParameters(
-        context_window=200000, max_output_tokens=4096, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=4096,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        cache_ttl_minutes=5,
     )
 
     ANTHROPIC_35_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=8192, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=8192,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        cache_ttl_minutes=5,
     )
 
     # TODO--- TO USE 64,000 NEED TO SUPPORT STREAMING
     ANTHROPIC_37_SERIES = ModelParameters(
-        context_window=200000, max_output_tokens=16384, tokenizes=ANTHROPIC_MULTIMODAL
+        context_window=200000,
+        max_output_tokens=16384,
+        tokenizes=ANTHROPIC_MULTIMODAL,
+        cache_ttl_minutes=5,
     )
 
     QWEN_STANDARD = ModelParameters(
@@ -162,12 +174,14 @@ class ModelDatabase:
         max_output_tokens=32000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        cache_ttl_minutes=5,
     )
     ANTHROPIC_SONNET_4_VERSIONED = ModelParameters(
         context_window=200000,
         max_output_tokens=64000,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        cache_ttl_minutes=5,
     )
     # Claude 3.7 Sonnet supports extended thinking (deprecated but still available)
     ANTHROPIC_37_SERIES_THINKING = ModelParameters(
@@ -175,6 +189,7 @@ class ModelDatabase:
         max_output_tokens=16384,
         tokenizes=ANTHROPIC_MULTIMODAL,
         reasoning="anthropic_thinking",
+        cache_ttl_minutes=5,
     )
 
     DEEPSEEK_CHAT_STANDARD = ModelParameters(
@@ -320,6 +335,7 @@ class ModelDatabase:
         "gpt-5-nano": OPENAI_GPT_5,
         "gpt-5.1": OPENAI_GPT_5,
         "gpt-5.1-codex": OPENAI_GPT_5,
+        "gpt-5.2-codex": OPENAI_GPT_5,
         "gpt-5.2": OPENAI_GPT_5,
         # Anthropic Models
         "claude-3-haiku": ANTHROPIC_35_SERIES,
@@ -529,6 +545,12 @@ class ModelDatabase:
         if params:
             return params.max_output_tokens
         return 2048  # Fallback for unknown models
+
+    @classmethod
+    def get_cache_ttl(cls, model: str) -> int | None:
+        """Get cache TTL in minutes for a model, or None if not supported"""
+        params = cls.get_model_params(model)
+        return params.cache_ttl_minutes if params else None
 
     @classmethod
     def list_models(cls) -> list[str]:

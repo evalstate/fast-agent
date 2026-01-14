@@ -66,6 +66,7 @@ class ModelFactory:
         "gpt-5-nano": Provider.RESPONSES,
         "gpt-5.2": Provider.RESPONSES,
         "gpt-5.1-codex": Provider.RESPONSES,
+        "gpt-5.2-codex": Provider.RESPONSES,
         "o1-mini": Provider.RESPONSES,
         "o1": Provider.RESPONSES,
         "o1-preview": Provider.RESPONSES,
@@ -112,8 +113,9 @@ class ModelFactory:
     }
 
     MODEL_ALIASES = {
-        "gpt51": "openai.gpt-5.1",
-        "gpt52": "openai.gpt-5.2",
+        "gpt51": "responses.gpt-5.1",
+        "gpt52": "responses.gpt-5.2",
+        "codex": "responses.gpt-5.2-codex",
         "sonnet": "claude-sonnet-4-5",
         "sonnet4": "claude-sonnet-4-0",
         "sonnet45": "claude-sonnet-4-5",
