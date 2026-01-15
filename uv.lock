@@ -489,7 +489,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.4.30"
+version = "0.4.31"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -572,7 +572,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.52.0" },
     { name = "keyring", specifier = ">=24.3.1" },
     { name = "mcp", specifier = "==1.25.0" },
-    { name = "openai", extras = ["aiohttp"], specifier = ">=2.9" },
+    { name = "openai", extras = ["aiohttp"], specifier = ">=2.15.0" },
     { name = "opentelemetry-distro", specifier = ">=0.55b0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.7.0" },
     { name = "opentelemetry-instrumentation-anthropic", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.49.5" },
@@ -1268,7 +1268,7 @@ wheels = [
 
 [[package]]
 name = "openai"
-version = "2.11.0"
+version = "2.15.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -1280,9 +1280,9 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f4/8c/aa6aea6072f985ace9d6515046b9088ff00c157f9654da0c7b1e129d9506/openai-2.11.0.tar.gz", hash = "sha256:b3da01d92eda31524930b6ec9d7167c535e843918d7ba8a76b1c38f1104f321e", size = 624540, upload-time = "2025-12-11T19:11:58.539Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/94/f4/4690ecb5d70023ce6bfcfeabfe717020f654bde59a775058ec6ac4692463/openai-2.15.0.tar.gz", hash = "sha256:42eb8cbb407d84770633f31bf727d4ffb4138711c670565a41663d9439174fba", size = 627383, upload-time = "2026-01-09T22:10:08.603Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e5/f1/d9251b565fce9f8daeb45611e3e0d2f7f248429e40908dcee3b6fe1b5944/openai-2.11.0-py3-none-any.whl", hash = "sha256:21189da44d2e3d027b08c7a920ba4454b8b7d6d30ae7e64d9de11dbe946d4faa", size = 1064131, upload-time = "2025-12-11T19:11:56.816Z" },
+    { url = "https://files.pythonhosted.org/packages/b5/df/c306f7375d42bafb379934c2df4c2fa3964656c8c782bac75ee10c102818/openai-2.15.0-py3-none-any.whl", hash = "sha256:6ae23b932cd7230f7244e52954daa6602716d6b9bf235401a107af731baea6c3", size = 1067879, upload-time = "2026-01-09T22:10:06.446Z" },
 ]
 
 [package.optional-dependencies]
