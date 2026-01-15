@@ -339,6 +339,13 @@ class AnthropicSettings(BaseModel):
     - "auto": Currently same as "prompt" - caches tools+system prompt (1 block) and template content.
     """
 
+    cache_ttl_minutes: int = 5
+    """
+    Cache time-to-live in minutes for display purposes.
+    Default is 5 minutes (standard Anthropic ephemeral cache).
+    Set to 60 for extended 1-hour cache TTL.
+    """
+
     thinking_enabled: bool = False
     """
     Enable extended thinking for supported Claude models (Sonnet 4+, Opus 4+).
@@ -368,6 +375,24 @@ class OpenAISettings(BaseModel):
 
     default_headers: dict[str, str] | None = None
     """Custom headers to include in all requests to the OpenAI API."""
+
+    model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
+
+
+
+
+class OpenResponsesSettings(BaseModel):
+    """
+    Settings for using Open Responses models in the fast-agent application.
+    """
+
+    api_key: str | None = None
+    reasoning_effort: Literal["minimal", "low", "medium", "high"] = "medium"
+
+    base_url: str | None = None
+
+    default_headers: dict[str, str] | None = None
+    """Custom headers to include in all requests to the Open Responses API."""
 
     model_config = ConfigDict(extra="allow", arbitrary_types_allowed=True)
 
@@ -677,6 +702,9 @@ class Settings(BaseSettings):
 
     openai: OpenAISettings | None = None
     """Settings for using OpenAI models in the fast-agent application"""
+
+    openresponses: OpenResponsesSettings | None = None
+    """Settings for using Open Responses models in the fast-agent application"""
 
     deepseek: DeepSeekSettings | None = None
     """Settings for using DeepSeek models in the fast-agent application"""
