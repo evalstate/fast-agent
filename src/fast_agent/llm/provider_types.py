@@ -37,3 +37,4 @@ class Provider(Enum):
     BEDROCK = ("bedrock", "Bedrock")
     GROQ = ("groq", "Groq")
     RESPONSES = ("responses", "responses")
+    OPENRESPONSES = ("openresponses", "OpenResponses")
