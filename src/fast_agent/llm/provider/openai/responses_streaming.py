@@ -49,7 +49,7 @@ def _save_stream_chunk(filename_base: Path | None, chunk: Any) -> None:
     try:
         chunk_file = filename_base.with_name(f"{filename_base.name}.jsonl")
         try:
-            payload: Any = chunk.model_dump()
+            payload: Any = chunk.model_dump(warnings="none")
         except Exception:
             payload = str(chunk)
 

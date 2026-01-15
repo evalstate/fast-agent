@@ -385,6 +385,10 @@ class ModelFactory:
                 from fast_agent.llm.provider.openai.responses import ResponsesLLM
 
                 return ResponsesLLM
+            if provider == Provider.OPENRESPONSES:
+                from fast_agent.llm.provider.openai.openresponses import OpenResponsesLLM
+
+                return OpenResponsesLLM
 
         except Exception as e:
             raise ModelConfigError(
