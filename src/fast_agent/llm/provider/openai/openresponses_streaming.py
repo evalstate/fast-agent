@@ -11,7 +11,9 @@ from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
 
 if TYPE_CHECKING:
-    from openai.types.responses import ResponseReasoningDeltaStreamingEvent
+    from openai.types.responses import (
+        ResponseReasoningDeltaStreamingEvent,  # ty: ignore[unresolved-import]
+    )
 else:
     try:  # OpenAI SDK versions may not include reasoning delta events yet.
         from openai.types.responses import ResponseReasoningDeltaStreamingEvent
