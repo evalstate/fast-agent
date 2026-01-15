@@ -10,8 +10,6 @@ from openai.types.responses import ResponseReasoningSummaryTextDeltaEvent, Respo
 from fast_agent.event_progress import ProgressAction
 from fast_agent.llm.stream_types import StreamChunk
 
-from typing import TYPE_CHECKING
-
 if TYPE_CHECKING:
     from openai.types.responses import ResponseReasoningDeltaStreamingEvent
 else:
