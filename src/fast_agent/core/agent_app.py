@@ -670,9 +670,10 @@ class AgentApp:
                 # Override with config setting for Anthropic models
                 context = getattr(agent, "context", None)
                 if context and context.config and context.config.anthropic:
-                    cache_ttl = context.config.anthropic.cache_ttl_minutes
+                    cache_ttl = context.config.anthropic.cache_ttl
+                ttl_minutes = 60 if cache_ttl == "1h" else 5
                 expiry_timestamp = (
-                    agent.usage_accumulator.last_cache_activity_time + (cache_ttl * 60)
+                    agent.usage_accumulator.last_cache_activity_time + (ttl_minutes * 60)
                 )
                 if expiry_timestamp > time.time():
                     expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
