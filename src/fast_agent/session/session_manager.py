@@ -1,0 +1,646 @@
+"""
+Session management for fast-agent.
+
+Provides automatic saving and loading of conversation sessions in .fast-agent/sessions/.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import os
+import pathlib
+import re
+import secrets
+import shutil
+import socket
+import string
+import tempfile
+import time
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Mapping
+
+from fast_agent.core.logging.logger import get_logger
+
+if TYPE_CHECKING:
+    from fast_agent.interfaces import AgentProtocol
+    from fast_agent.types import PromptMessageExtended
+
+logger = get_logger(__name__)
+
+SESSION_ID_LENGTH = 6
+SESSION_ID_ALPHABET = string.ascii_letters + string.digits
+SESSION_ID_PATTERN = re.compile(rf"^[A-Za-z0-9]{{{SESSION_ID_LENGTH}}}$")
+SESSION_LOCK_FILENAME = ".session.lock"
+SESSION_LOCK_STALE_SECONDS = 300
+
+
+def _sanitize_component(name: str, limit: int = 100) -> str:
+    """Sanitize a name for filesystem safety."""
+    name = name.replace(" ", "_").replace("/", "_").replace("\\", "_")
+    name = "".join(c for c in name if c.isalnum() or c in "_-.")
+    return name[:limit] or "agent"
+
+
+def _first_user_preview(
+    messages: list["PromptMessageExtended"], limit: int = 30
+) -> str | None:
+    for message in messages:
+        if message.role != "user":
+            continue
+        if getattr(message, "is_template", False):
+            continue
+        text = message.all_text() or message.first_text() or ""
+        text = " ".join(text.split())
+        if not text:
+            return None
+        return text[:limit]
+    return None
+
+
+def get_session_history_window() -> int:
+    """Return the configured session history window size."""
+    try:
+        from fast_agent.config import get_settings
+
+        settings = get_settings()
+        value = getattr(settings, "session_history_window", 20)
+        if isinstance(value, int):
+            return value
+        return int(value)
+    except Exception:
+        return 20
+
+
+@dataclass
+class SessionInfo:
+    """Metadata about a session."""
+
+    name: str
+    created_at: datetime
+    last_activity: datetime
+    history_files: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SessionInfo:
+        """Create SessionInfo from dictionary."""
+        return cls(
+            name=data["name"],
+            created_at=datetime.fromisoformat(data["created_at"]),
+            last_activity=datetime.fromisoformat(data["last_activity"]),
+            history_files=data.get("history_files", []),
+            metadata=data.get("metadata", {}),
+        )
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary."""
+        return {
+            "name": self.name,
+            "created_at": self.created_at.isoformat(),
+            "last_activity": self.last_activity.isoformat(),
+            "history_files": self.history_files,
+            "metadata": self.metadata,
+        }
+
+
+class Session:
+    """Represents a single conversation session."""
+
+    def __init__(self, info: SessionInfo, directory: pathlib.Path) -> None:
+        """Initialize session."""
+        self.info = info
+        self.directory = directory
+        self._dirty = False
+
+    async def save_history(self, agent: AgentProtocol, filename: str | None = None) -> str:
+        """Save agent history to this session."""
+        from fast_agent.history.history_exporter import HistoryExporter
+
+        self.info.last_activity = datetime.now()
+        self._dirty = True
+
+        # Generate filename if not provided
+        if filename is None:
+            timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
+            agent_name = getattr(agent, "name", None)
+            agent_label = _sanitize_component(agent_name or "agent")
+            filename = f"history_{timestamp}_{agent_label}.json"
+
+        filepath = self.directory / filename
+        result = await HistoryExporter.save(agent, str(filepath))
+
+        # Update session info
+        if filename not in self.info.history_files:
+            self.info.history_files.append(filename)
+
+        agent_name = getattr(agent, "name", None)
+        if agent_name:
+            history_map = self.info.metadata.get("last_history_by_agent")
+            if not isinstance(history_map, dict):
+                history_map = {}
+            history_map[agent_name] = filename
+            self.info.metadata["last_history_by_agent"] = history_map
+
+        if "first_user_preview" not in self.info.metadata:
+            preview = _first_user_preview(agent.message_history)
+            if preview:
+                self.info.metadata["first_user_preview"] = preview
+
+        self._save_metadata()
+        return result
+
+    def _save_metadata(self) -> None:
+        """Save session metadata."""
+        metadata_file = self.directory / "session.json"
+        with self._metadata_lock():
+            self._atomic_write_json(metadata_file, self.info.to_dict())
+        self._dirty = False
+
+    def _atomic_write_json(self, path: pathlib.Path, payload: dict[str, Any]) -> None:
+        temp_path: pathlib.Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                delete=False,
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+            ) as handle:
+                json.dump(payload, handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+                temp_path = pathlib.Path(handle.name)
+            os.replace(temp_path, path)
+        finally:
+            if temp_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    logger.warning(
+                        "Failed to clean up session metadata temp file",
+                        data={"path": str(temp_path)},
+                    )
+
+    @contextlib.contextmanager
+    def _metadata_lock(self):
+        lock_path = self.directory / SESSION_LOCK_FILENAME
+        acquired = False
+        existing_info: dict[str, Any] | None = None
+        lock_payload = {
+            "pid": os.getpid(),
+            "host": socket.gethostname(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        try:
+            acquired = self._try_acquire_lock(lock_path, lock_payload)
+        except Exception as exc:
+            logger.warning(
+                "Failed to acquire session metadata lock",
+                data={"session": self.info.name, "error": str(exc)},
+            )
+
+        if not acquired:
+            existing_info = self._read_lock_info(lock_path)
+            logger.warning(
+                "Session metadata lock already held; proceeding without exclusive lock",
+                data={
+                    "session": self.info.name,
+                    "lock_path": str(lock_path),
+                    "locked_by": existing_info,
+                },
+            )
+
+        try:
+            yield
+        finally:
+            if acquired:
+                try:
+                    lock_path.unlink()
+                except FileNotFoundError:
+                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to release session metadata lock",
+                        data={"session": self.info.name, "error": str(exc)},
+                    )
+
+    def _try_acquire_lock(self, lock_path: pathlib.Path, payload: dict[str, Any]) -> bool:
+        try:
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            return self._try_replace_stale_lock(lock_path, payload)
+        except FileNotFoundError:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+
+        with os.fdopen(fd, "w") as handle:
+            json.dump(payload, handle)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return True
+
+    def _try_replace_stale_lock(self, lock_path: pathlib.Path, payload: dict[str, Any]) -> bool:
+        try:
+            mtime = lock_path.stat().st_mtime
+        except FileNotFoundError:
+            return self._try_acquire_lock(lock_path, payload)
+        except Exception:
+            return False
+
+        if (time.time() - mtime) < SESSION_LOCK_STALE_SECONDS:
+            return False
+
+        try:
+            lock_path.unlink()
+        except Exception:
+            return False
+        return self._try_acquire_lock(lock_path, payload)
+
+    def _read_lock_info(self, lock_path: pathlib.Path) -> dict[str, Any] | None:
+        try:
+            with open(lock_path, encoding="utf-8") as handle:
+                data = json.load(handle)
+                return data if isinstance(data, dict) else None
+        except Exception:
+            return None
+
+    def get_history_file(self, filename: str) -> pathlib.Path:
+        """Get path to a history file."""
+        return self.directory / filename
+
+    def delete(self) -> None:
+        """Delete this session."""
+        if self.directory.exists():
+            shutil.rmtree(self.directory)
+
+    def set_title(self, title: str) -> None:
+        """Set a user-friendly title for this session."""
+        self.info.metadata["title"] = title
+        self.info.last_activity = datetime.now()
+        self._save_metadata()
+
+    def latest_history_path(self, agent_name: str | None = None) -> pathlib.Path | None:
+        """Return the most recent history file for this session, if any."""
+        if agent_name:
+            history_map = self.info.metadata.get("last_history_by_agent")
+            if isinstance(history_map, dict):
+                filename = history_map.get(agent_name)
+                if filename:
+                    path = self.directory / filename
+                    if path.exists():
+                        return path
+
+        for filename in reversed(self.info.history_files):
+            path = self.directory / filename
+            if path.exists():
+                return path
+        candidates = sorted(
+            self.directory.glob("history_*.json"),
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        return candidates[0] if candidates else None
+
+
+class SessionManager:
+    """Manages conversation sessions stored in .fast-agent/sessions/."""
+
+    SESSIONS_DIR = ".fast-agent/sessions"
+
+    def __init__(self) -> None:
+        """Initialize session manager."""
+        self.base_dir = pathlib.Path.cwd() / self.SESSIONS_DIR
+        self.base_dir.mkdir(parents=True, exist_ok=True)
+        self._current_session: Session | None = None
+
+    @property
+    def current_session(self) -> Session | None:
+        """Get the currently active session."""
+        return self._current_session
+
+    def create_session(self, name: str | None = None, metadata: dict | None = None) -> Session:
+        """Create a new session."""
+        session_metadata = dict(metadata or {})
+        session_id = None
+        if name and SESSION_ID_PATTERN.match(name):
+            session_id = name
+        elif name:
+            session_metadata.setdefault("title", name)
+
+        if session_id is None:
+            session_id = self._generate_session_id()
+
+        # Create session directory
+        session_dir = self.base_dir / session_id
+        while session_dir.exists():
+            session_id = self._generate_session_id()
+            session_dir = self.base_dir / session_id
+
+        session_dir.mkdir(parents=True)
+
+        # Create session info
+        now = datetime.now()
+        info = SessionInfo(
+            name=session_id,
+            created_at=now,
+            last_activity=now,
+            history_files=[],
+            metadata=session_metadata,
+        )
+
+        session = Session(info, session_dir)
+        session._save_metadata()
+        self._current_session = session
+        self._prune_sessions()
+        logger.info(f"Created new session: {session_id}")
+        return session
+
+    def list_sessions(self) -> list[SessionInfo]:
+        """List all available sessions."""
+        sessions = []
+        if not self.base_dir.exists():
+            return sessions
+
+        for session_dir in self.base_dir.iterdir():
+            if not session_dir.is_dir():
+                continue
+
+            metadata_file = session_dir / "session.json"
+            if metadata_file.exists():
+                try:
+                    with open(metadata_file) as f:
+                        data = json.load(f)
+                        info = SessionInfo.from_dict(data)
+                        sessions.append(info)
+                except Exception as e:
+                    logger.warning(f"Failed to load session metadata from {metadata_file}: {e}")
+
+        sessions.sort(key=lambda info: info.last_activity, reverse=True)
+        return sessions
+
+    def load_session(self, name: str) -> Session | None:
+        """Load an existing session."""
+        session_dir = self.base_dir / name
+        metadata_file = session_dir / "session.json"
+
+        if not session_dir.is_dir() or not metadata_file.exists():
+            return None
+
+        try:
+            with open(metadata_file) as f:
+                data = json.load(f)
+                info = SessionInfo.from_dict(data)
+
+            session = Session(info, session_dir)
+            session.info.last_activity = datetime.now()
+            session._save_metadata()
+            self._current_session = session
+            logger.info(f"Loaded session: {name}")
+            return session
+        except Exception as e:
+            logger.error(f"Failed to load session {name}: {e}")
+            return None
+
+    def delete_session(self, name: str) -> bool:
+        """Delete a session."""
+        session_dir = self.base_dir / name
+
+        if not session_dir.is_dir():
+            return False
+
+        try:
+            shutil.rmtree(session_dir)
+            logger.info(f"Deleted session: {name}")
+            if self._current_session and self._current_session.info.name == name:
+                self._current_session = None
+            return True
+        except Exception as e:
+            logger.error(f"Failed to delete session {name}: {e}")
+            return False
+
+    async def save_current_session(
+        self, agent: AgentProtocol, filename: str | None = None
+    ) -> str | None:
+        """Save history to the current session."""
+        if not self._current_session:
+            # Auto-create a session if none exists
+            self.create_session()
+
+        assert self._current_session is not None
+        return await self._current_session.save_history(agent, filename)
+
+    def load_latest_session(self) -> Session | None:
+        """Load the most recently used session."""
+        sessions = self.list_sessions()
+        if not sessions:
+            return None
+        return self.load_session(sessions[0].name)
+
+    def resume_session(
+        self, agent: AgentProtocol, name: str | None = None
+    ) -> tuple[Session, pathlib.Path | None] | None:
+        """Resume a session and load its latest history into the agent."""
+        session_name = self._resolve_session_name(name)
+        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
+        if not session:
+            return None
+
+        history_path = session.latest_history_path(getattr(agent, "name", None))
+        if history_path and history_path.exists():
+            from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+
+            load_history_into_agent(agent, history_path)
+
+        return session, history_path
+
+    def resume_session_agents(
+        self,
+        agents: Mapping[str, AgentProtocol],
+        name: str | None = None,
+        default_agent_name: str | None = None,
+    ) -> tuple[Session, dict[str, pathlib.Path], list[str]] | None:
+        """Resume a session and load histories for all known agents."""
+        session_name = self._resolve_session_name(name)
+        session = self.load_latest_session() if session_name is None else self.load_session(session_name)
+        if not session:
+            return None
+
+        history_map = session.info.metadata.get("last_history_by_agent")
+        loaded: dict[str, pathlib.Path] = {}
+        missing_agents: list[str] = []
+
+        if isinstance(history_map, dict) and history_map:
+            for agent_name, filename in history_map.items():
+                if agent_name not in agents:
+                    missing_agents.append(agent_name)
+                    continue
+                if not filename:
+                    continue
+                history_path = session.directory / filename
+                if history_path.exists():
+                    from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+
+                    load_history_into_agent(agents[agent_name], history_path)
+                    loaded[agent_name] = history_path
+                else:
+                    logger.warning(
+                        "Session history file missing",
+                        data={"session": session.info.name, "agent": agent_name, "file": filename},
+                    )
+        else:
+            fallback_agent = None
+            if default_agent_name and default_agent_name in agents:
+                fallback_agent = agents[default_agent_name]
+            elif agents:
+                fallback_agent = next(iter(agents.values()))
+            if fallback_agent:
+                history_path = session.latest_history_path(getattr(fallback_agent, "name", None))
+                if history_path and history_path.exists():
+                    from fast_agent.mcp.prompts.prompt_load import load_history_into_agent
+
+                    load_history_into_agent(fallback_agent, history_path)
+                    loaded[fallback_agent.name] = history_path
+
+        if missing_agents:
+            logger.warning(
+                "Session metadata references missing agents",
+                data={"session": session.info.name, "agents": missing_agents},
+            )
+
+        return session, loaded, missing_agents
+
+    def fork_current_session(self, title: str | None = None) -> Session | None:
+        """Fork the current or latest session into a new session."""
+        source = self._current_session or self.load_latest_session()
+        if not source:
+            return None
+
+        source_metadata = source.info.metadata or {}
+        new_metadata: dict[str, Any] = {"forked_from": source.info.name}
+        if title:
+            new_metadata["title"] = title
+        elif isinstance(source_metadata.get("title"), str):
+            new_metadata["title"] = source_metadata["title"]
+        if isinstance(source_metadata.get("first_user_preview"), str):
+            new_metadata["first_user_preview"] = source_metadata["first_user_preview"]
+
+        new_session = self.create_session(metadata=new_metadata)
+        history_map = source_metadata.get("last_history_by_agent")
+        new_history_map: dict[str, str] = {}
+
+        if isinstance(history_map, dict) and history_map:
+            for agent_name, filename in history_map.items():
+                if not filename:
+                    continue
+                src_path = source.directory / filename
+                if not src_path.exists():
+                    logger.warning(
+                        "Session history file missing",
+                        data={"session": source.info.name, "agent": agent_name, "file": filename},
+                    )
+                    continue
+                dest_name = self._copy_history_file(src_path, new_session.directory)
+                new_session.info.history_files.append(dest_name)
+                new_history_map[agent_name] = dest_name
+        else:
+            for filename in source.info.history_files:
+                src_path = source.directory / filename
+                if not src_path.exists():
+                    continue
+                dest_name = self._copy_history_file(src_path, new_session.directory)
+                new_session.info.history_files.append(dest_name)
+
+        if new_history_map:
+            new_session.info.metadata["last_history_by_agent"] = new_history_map
+
+        new_session._save_metadata()
+        return new_session
+
+    def get_session(self, name: str) -> Session | None:
+        """Get a session without making it current."""
+        session_dir = self.base_dir / name
+        metadata_file = session_dir / "session.json"
+
+        if not session_dir.is_dir() or not metadata_file.exists():
+            return None
+
+        try:
+            with open(metadata_file) as f:
+                data = json.load(f)
+                info = SessionInfo.from_dict(data)
+            return Session(info, session_dir)
+        except Exception as e:
+            logger.error(f"Failed to get session {name}: {e}")
+            return None
+
+    def _sanitize_name(self, name: str) -> str:
+        """Sanitize session name for filesystem safety."""
+        return _sanitize_component(name)
+
+    def _prune_sessions(self, max_sessions: int | None = None) -> None:
+        """Remove older sessions beyond the rolling window."""
+        if max_sessions is None:
+            max_sessions = get_session_history_window()
+        if max_sessions <= 0:
+            return
+        sessions = self.list_sessions()
+        if len(sessions) <= max_sessions:
+            return
+        current_name = self._current_session.info.name if self._current_session else None
+        for session_info in sessions[max_sessions:]:
+            if current_name and session_info.name == current_name:
+                continue
+            self.delete_session(session_info.name)
+
+    def _resolve_session_name(self, name: str | None) -> str | None:
+        """Resolve a session name or ordinal index into a session id."""
+        session_name = None if name in (None, "") else name
+        if session_name is None:
+            return None
+        if session_name.isdigit():
+            ordinal = int(session_name)
+            if ordinal > 0:
+                sessions = self.list_sessions()
+                limit = get_session_history_window()
+                if limit > 0:
+                    sessions = sessions[:limit]
+                if ordinal <= len(sessions):
+                    return sessions[ordinal - 1].name
+        return session_name
+
+    def _generate_session_id(self) -> str:
+        """Generate a secure session identifier."""
+        return "".join(secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH))
+
+    def _copy_history_file(self, src_path: pathlib.Path, dest_dir: pathlib.Path) -> str:
+        dest_name = src_path.name
+        dest_path = dest_dir / dest_name
+        if dest_path.exists():
+            stem = src_path.stem
+            suffix = src_path.suffix
+            counter = 1
+            while dest_path.exists():
+                dest_name = f"{stem}_{counter}{suffix}"
+                dest_path = dest_dir / dest_name
+                counter += 1
+        shutil.copy2(src_path, dest_path)
+        return dest_name
+
+    def set_current_session(self, session: Session) -> None:
+        """Set the current session."""
+        self._current_session = session
+
+
+_session_manager: SessionManager | None = None
+
+
+def get_session_manager() -> SessionManager:
+    """Get or create the global session manager."""
+    global _session_manager
+    if _session_manager is None:
+        _session_manager = SessionManager()
+    return _session_manager

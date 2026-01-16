@@ -2,7 +2,11 @@ import asyncio
 import json
 import sys
 
-from fast_agent.cli.constants import GO_SPECIFIC_OPTIONS, KNOWN_SUBCOMMANDS
+from fast_agent.cli.constants import (
+    GO_SPECIFIC_OPTIONS,
+    KNOWN_SUBCOMMANDS,
+    normalize_resume_flag_args,
+)
 from fast_agent.cli.main import app
 from fast_agent.utils.async_utils import configure_uvloop, ensure_event_loop
 
@@ -50,6 +54,8 @@ def main():
     except RuntimeError:
         # No running loop yet (rare for sync entry), safe to ignore
         pass
+    normalize_resume_flag_args(sys.argv, start_index=1)
+
     # Check if we should auto-route to 'go'
     if len(sys.argv) > 1:
         # Check if first arg is not already a subcommand

@@ -2,6 +2,8 @@
 Direct AgentApp implementation for interacting with agents without proxies.
 """
 
+import time
+from datetime import datetime
 from typing import Awaitable, Callable, Mapping, Sequence, Union
 
 from deprecated import deprecated
@@ -12,6 +14,7 @@ from fast_agent.agents.agent_types import AgentType
 from fast_agent.agents.workflow.parallel_agent import ParallelAgent
 from fast_agent.core.exceptions import AgentConfigError, ServerConfigError
 from fast_agent.interfaces import AgentProtocol
+from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.usage_tracking import last_turn_usage
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.ui.interactive_prompt import InteractivePrompt
@@ -657,6 +660,24 @@ class AgentApp:
         ):
             cache_indicators += "[bright_green]*[/bright_green]"
 
+        # Build cache expiry time if cache is active
+        cache_expiry_text = ""
+        if cache_indicators and agent.usage_accumulator.last_cache_activity_time:
+            model = agent.usage_accumulator.model
+            # Get cache TTL: prefer config setting, fall back to model database
+            cache_ttl = ModelDatabase.get_cache_ttl(model) if model else None
+            if cache_ttl:
+                # Override with config setting for Anthropic models
+                context = getattr(agent, "context", None)
+                if context and context.config and context.config.anthropic:
+                    cache_ttl = context.config.anthropic.cache_ttl_minutes
+                expiry_timestamp = (
+                    agent.usage_accumulator.last_cache_activity_time + (cache_ttl * 60)
+                )
+                if expiry_timestamp > time.time():
+                    expiry_time = datetime.fromtimestamp(expiry_timestamp).strftime("%H:%M")
+                    cache_expiry_text = f" [dim]({expiry_time})[/dim]"
+
         # Build context percentage - get from accumulator, not individual turn
         context_info = ""
         context_percentage = agent.usage_accumulator.context_usage_percentage
@@ -668,7 +689,7 @@ class AgentApp:
 
         # Build display text
         display_text = f"{input_tokens:,} Input, {output_tokens:,} Output{tool_info}{context_info}"
-        cache_suffix = f" {cache_indicators}" if cache_indicators else ""
+        cache_suffix = f" {cache_indicators}{cache_expiry_text}" if cache_indicators else ""
 
         return {
             "input_tokens": input_tokens,

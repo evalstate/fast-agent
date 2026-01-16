@@ -12,6 +12,7 @@ from typing import (
 from mcp.types import ListToolsResult, TextContent
 
 from fast_agent.constants import DEFAULT_MAX_ITERATIONS, FAST_AGENT_ERROR_CHANNEL
+from fast_agent.interfaces import MessageHistoryAgentProtocol
 from fast_agent.types import PromptMessageExtended, RequestParams
 from fast_agent.types.llm_stop_reason import LlmStopReason
 
@@ -23,7 +24,7 @@ class _AgentConfig(Protocol):
     use_history: bool
 
 
-class _ToolLoopAgent(Protocol):
+class _ToolLoopAgent(MessageHistoryAgentProtocol, Protocol):
     config: _AgentConfig
 
     async def _tool_runner_llm_step(
@@ -50,6 +51,13 @@ class ToolRunnerHooks:
     These hooks are intentionally low-level and mutation-friendly: they can
     inspect and modify the agent history (via agent.load_message_history),
     tweak request params, or append extra messages via the runner.
+
+    Hook points:
+    - before_llm_call: Called before each LLM call with the messages to send
+    - after_llm_call: Called after each LLM response is received
+    - before_tool_call: Called before tools are executed
+    - after_tool_call: Called after tool results are received
+    - after_turn_complete: Called once after the entire turn completes (when stop_reason != TOOL_USE)
     """
 
     before_llm_call: (
@@ -58,6 +66,9 @@ class ToolRunnerHooks:
     after_llm_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     before_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
     after_tool_call: Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None = None
+    after_turn_complete: (
+        Callable[["ToolRunner", PromptMessageExtended], Awaitable[None]] | None
+    ) = None
 
 
 class ToolRunner:
@@ -130,6 +141,11 @@ class ToolRunner:
             last = message
         if last is None:
             raise RuntimeError("ToolRunner produced no messages")
+
+        # Fire after_turn_complete hook once the entire turn is done
+        if self._hooks.after_turn_complete is not None:
+            await self._hooks.after_turn_complete(self, last)
+
         return last
 
     async def generate_tool_call_response(self) -> PromptMessageExtended | None:

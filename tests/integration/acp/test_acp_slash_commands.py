@@ -110,8 +110,9 @@ async def test_slash_command_available_commands() -> None:
     # Should include primary commands
     command_names = {cmd.name for cmd in commands}
     assert "status" in command_names
-    assert "save" in command_names
     assert "clear" in command_names
+    assert "history" in command_names
+    assert "session" in command_names
 
     # Check status command structure
     status_cmd = next(cmd for cmd in commands if cmd.name == "status")
@@ -241,8 +242,8 @@ async def test_slash_command_status_system_without_instruction() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_save_conversation() -> None:
-    """Test that /save saves history and reports the filename."""
+async def test_slash_command_history_save_conversation() -> None:
+    """Test that /history save saves history and reports the filename."""
 
     class RecordingHistoryExporter:
         def __init__(self, default_name: str = "24_01_01_12_00-conversation.json") -> None:
@@ -259,24 +260,24 @@ async def test_slash_command_save_conversation() -> None:
 
     handler = _handler(instance, history_exporter=exporter)
 
-    response = await handler.execute_command("save", "")
+    response = await handler.execute_command("history", "save")
 
     assert "save conversation" in response.lower()
     assert "24_01_01_12_00-conversation.json" in response
     assert exporter.calls == [(stub_agent, None)]
 
-    response_with_filename = await handler.execute_command("save", "custom.md")
+    response_with_filename = await handler.execute_command("history", "save custom.md")
     assert "custom.md" in response_with_filename
     assert exporter.calls[-1] == (stub_agent, "custom.md")
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_save_without_agent() -> None:
-    """Test /save error handling when the agent is missing."""
+async def test_slash_command_history_save_without_agent() -> None:
+    """Test /history save error handling when the agent is missing."""
     handler = _handler(StubAgentInstance(), agent_name="missing-agent")
 
-    response = await handler.execute_command("save", "")
+    response = await handler.execute_command("history", "save")
 
     assert "save conversation" in response.lower()
     assert "Unable to locate agent" in response
@@ -356,8 +357,8 @@ async def test_slash_command_not_detected_for_comments() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_load_history() -> None:
-    """Test that /load loads history from a file."""
+async def test_slash_command_history_load() -> None:
+    """Test that /history load loads history from a file."""
     stub_agent = StubAgent(message_history=[])
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
@@ -375,7 +376,7 @@ async def test_slash_command_load_history() -> None:
         temp_path = f.name
 
     try:
-        response = await handler.execute_command("load", temp_path)
+        response = await handler.execute_command("history", f"load {temp_path}")
 
         assert "load conversation" in response.lower()
         assert "loaded successfully" in response.lower()
@@ -389,14 +390,14 @@ async def test_slash_command_load_history() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_load_without_filename() -> None:
-    """Test /load error handling when no filename is provided."""
+async def test_slash_command_history_load_without_filename() -> None:
+    """Test /history load error handling when no filename is provided."""
     stub_agent = StubAgent(message_history=[])
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
 
-    response = await handler.execute_command("load", "")
+    response = await handler.execute_command("history", "load")
 
     assert "load conversation" in response.lower()
     assert "filename required" in response.lower()
@@ -404,14 +405,14 @@ async def test_slash_command_load_without_filename() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_load_file_not_found() -> None:
-    """Test /load error handling when file does not exist."""
+async def test_slash_command_history_load_file_not_found() -> None:
+    """Test /history load error handling when file does not exist."""
     stub_agent = StubAgent(message_history=[])
     instance = StubAgentInstance(agents={"test-agent": stub_agent})
 
     handler = _handler(instance)
 
-    response = await handler.execute_command("load", "nonexistent_file.json")
+    response = await handler.execute_command("history", "load nonexistent_file.json")
 
     assert "load conversation" in response.lower()
     assert "file not found" in response.lower()
@@ -419,11 +420,11 @@ async def test_slash_command_load_file_not_found() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_load_without_agent() -> None:
-    """Test /load error handling when the agent is missing."""
+async def test_slash_command_history_load_without_agent() -> None:
+    """Test /history load error handling when the agent is missing."""
     handler = _handler(StubAgentInstance(), agent_name="missing-agent")
 
-    response = await handler.execute_command("load", "somefile.json")
+    response = await handler.execute_command("history", "load somefile.json")
 
     assert "load conversation" in response.lower()
     assert "Unable to locate agent" in response
@@ -431,15 +432,31 @@ async def test_slash_command_load_without_agent() -> None:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_slash_command_load_available_in_commands() -> None:
-    """Test that /load is in the available commands list."""
+async def test_slash_command_history_available_in_commands() -> None:
+    """Test that /history is in the available commands list."""
     handler = _handler(StubAgentInstance())
 
     commands = handler.get_available_commands()
     command_names = {cmd.name for cmd in commands}
 
-    assert "load" in command_names
+    assert "history" in command_names
 
-    load_cmd = next(cmd for cmd in commands if cmd.name == "load")
-    assert load_cmd.description
-    assert load_cmd.input is not None  # Should have input hint
+    history_cmd = next(cmd for cmd in commands if cmd.name == "history")
+    assert history_cmd.description
+    assert history_cmd.input is not None  # Should have input hint
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_slash_command_session_list_no_sessions(tmp_path, monkeypatch) -> None:
+    """Test /session list output when no sessions exist."""
+    monkeypatch.chdir(tmp_path)
+
+    import fast_agent.session.session_manager as session_module
+
+    monkeypatch.setattr(session_module, "_session_manager", None)
+
+    handler = _handler(StubAgentInstance())
+    response = await handler.execute_command("session", "list")
+
+    assert "no sessions" in response.lower()

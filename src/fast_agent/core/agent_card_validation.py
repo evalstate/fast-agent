@@ -12,6 +12,7 @@ import yaml
 from frontmatter import loads as load_frontmatter
 
 from fast_agent.agents.agent_types import AgentType
+from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 
 CARD_EXTENSIONS = {".md", ".markdown", ".yaml", ".yml"}
 
@@ -164,12 +165,7 @@ def scan_agent_card_directory(
                     errors.append(error)
 
         if messages:
-            for message_path_str in messages:
-                message_path = Path(message_path_str).expanduser()
-                if not message_path.is_absolute():
-                    message_path = (card_path.parent / message_path).resolve()
-                if not message_path.exists():
-                    errors.append(f"History file not found ({message_path})")
+            _validate_message_files(messages, card_path.parent, errors)
 
         entries[-1] = AgentCardScanResult(
             name=name,
@@ -380,6 +376,47 @@ def _ensure_str(value: Any, field: str, errors: list[str]) -> str | None:
         errors.append(f"'{field}' must be a non-empty string")
         return None
     return value.strip()
+
+
+def _resolve_message_path(message_path_str: str, base_path: Path) -> Path:
+    message_path = Path(message_path_str).expanduser()
+    if not message_path.is_absolute():
+        message_path = (base_path / message_path).resolve()
+    return message_path
+
+
+def _validate_message_files(
+    messages: list[str],
+    base_path: Path,
+    errors: list[str],
+) -> None:
+    message_paths: list[Path] = []
+    for message_path_str in messages:
+        message_path = _resolve_message_path(message_path_str, base_path)
+        if not message_path.exists():
+            errors.append(f"History file not found ({message_path})")
+            continue
+        message_paths.append(message_path)
+
+    if not message_paths:
+        return
+
+    from fast_agent.mcp.prompts.prompt_load import load_prompt
+
+    for message_path in message_paths:
+        try:
+            load_prompt(message_path)
+        except AgentConfigError as exc:
+            errors.append(
+                " ".join(
+                    [
+                        f"History file failed to load ({message_path}):",
+                        format_fast_agent_error(exc),
+                    ]
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"History file failed to load ({message_path}): {exc}")
 
 
 def _check_function_tool_spec(spec: str, base_path: Path) -> str | None:

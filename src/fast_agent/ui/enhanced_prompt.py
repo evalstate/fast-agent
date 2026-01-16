@@ -32,12 +32,16 @@ from fast_agent.mcp.types import McpAgentProtocol
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
+    ClearSessionsCommand,
     CommandPayload,
+    ForkSessionCommand,
     HashAgentCommand,
+    ListSessionsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
     ReloadAgentsCommand,
+    ResumeSessionCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
     ShowHistoryCommand,
@@ -47,6 +51,7 @@ from fast_agent.ui.command_payloads import (
     ShowUsageCommand,
     SkillsCommand,
     SwitchAgentCommand,
+    TitleSessionCommand,
     is_command_payload,
 )
 from fast_agent.ui.mcp_display import render_mcp_status
@@ -179,6 +184,14 @@ help_message_shown = False
 
 # Track which agents have shown their info
 _agent_info_shown = set()
+
+# One-off notices to render at the top of the prompt UI
+_startup_notices: list[str] = []
+
+
+def queue_startup_notice(notice: str) -> None:
+    if notice:
+        _startup_notices.append(notice)
 
 
 async def show_mcp_status(agent_name: str, agent_provider: "AgentApp | None") -> None:
@@ -507,7 +520,7 @@ class AgentCompleter(Completer):
         # Map commands to their descriptions for better completion hints
         self.commands = {
             "mcp": "Show MCP server status",
-            "history": "Show conversation history overview (optionally another agent)",
+            "history": "Show conversation history overview (or /history save|load)",
             "tools": "List available MCP Tools",
             "skills": "Manage skills (/skills, /skills add, /skills remove, /skills registry)",
             "prompt": "List and choose MCP prompts, or apply specific prompt (/prompt <name>)",
@@ -517,8 +530,8 @@ class AgentCompleter(Completer):
             "system": "Show the current system prompt",
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
-            "save_history": "Save history; .json = MCP JSON, others = Markdown",
-            "load_history": "Load history from a file",
+            "resume": "Resume the last session or specified session id",
+            "session": "Manage sessions (/session list|resume|title|fork|clear)",
             "card": "Load an AgentCard (add --tool to attach/remove as tool)",
             "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
@@ -595,6 +608,40 @@ class AgentCompleter(Completer):
         except PermissionError:
             pass  # Skip directories we can't read
 
+    def _complete_session_ids(self, partial: str):
+        """Generate completions for recent session ids."""
+        from fast_agent.session import get_session_history_window, get_session_manager
+
+        manager = get_session_manager()
+        sessions = manager.list_sessions()
+        limit = get_session_history_window()
+        if limit > 0:
+            sessions = sessions[:limit]
+        for session_info in sessions:
+            session_id = session_info.name
+            if partial and not session_id.lower().startswith(partial.lower()):
+                continue
+            display_time = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
+            metadata = session_info.metadata or {}
+            summary = (
+                metadata.get("title")
+                or metadata.get("label")
+                or metadata.get("first_user_preview")
+                or ""
+            )
+            summary = " ".join(str(summary).split())
+            if summary:
+                summary = summary[:30]
+                display_meta = f"{display_time} • {summary}"
+            else:
+                display_meta = display_time
+            yield Completion(
+                session_id,
+                start_position=-len(partial),
+                display=session_id,
+                display_meta=display_meta,
+            )
+
     def _complete_agent_card_files(self, partial: str):
         """Generate completions for AgentCard files (.md/.markdown/.yaml/.yml)."""
         from pathlib import Path
@@ -647,20 +694,174 @@ class AgentCompleter(Completer):
         except PermissionError:
             pass  # Skip directories we can't read
 
+    def _complete_local_skill_names(self, partial: str):
+        """Generate completions for local skill names and indices."""
+        from fast_agent.skills.manager import get_manager_directory
+        from fast_agent.skills.registry import SkillRegistry
+
+        manager_dir = get_manager_directory()
+        manifests = SkillRegistry.load_directory(manager_dir)
+        if not manifests:
+            return
+
+        partial_lower = partial.lower()
+        include_numbers = not partial or partial.isdigit()
+        for index, manifest in enumerate(manifests, 1):
+            name = manifest.name
+            if name and (not partial or name.lower().startswith(partial_lower)):
+                yield Completion(
+                    name,
+                    start_position=-len(partial),
+                    display=name,
+                    display_meta="local skill",
+                )
+            if include_numbers:
+                index_text = str(index)
+                if not partial or index_text.startswith(partial):
+                    yield Completion(
+                        index_text,
+                        start_position=-len(partial),
+                        display=index_text,
+                        display_meta=name or "local skill",
+                    )
+
+    def _complete_skill_registries(self, partial: str):
+        """Generate completions for configured skills registries."""
+        from fast_agent.config import get_settings
+        from fast_agent.skills.manager import (
+            DEFAULT_SKILL_REGISTRIES,
+            format_marketplace_display_url,
+        )
+
+        settings = get_settings()
+        skills_settings = getattr(settings, "skills", None)
+        configured_urls = (
+            getattr(skills_settings, "marketplace_urls", None) if skills_settings else None
+        ) or list(DEFAULT_SKILL_REGISTRIES)
+        active_url = getattr(skills_settings, "marketplace_url", None) if skills_settings else None
+        if active_url and active_url not in configured_urls:
+            configured_urls.append(active_url)
+
+        partial_lower = partial.lower()
+        for index, url in enumerate(configured_urls, 1):
+            display = format_marketplace_display_url(url)
+            index_text = str(index)
+            if not partial or index_text.startswith(partial):
+                yield Completion(
+                    index_text,
+                    start_position=-len(partial),
+                    display=index_text,
+                    display_meta=display,
+                )
+            if not partial or url.lower().startswith(partial_lower):
+                yield Completion(
+                    url,
+                    start_position=-len(partial),
+                    display=url,
+                    display_meta=display,
+                )
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
         text_lower = text.lower()
 
-        # Sub-completion for /load_history - show .json and .md files
-        if text_lower.startswith("/load_history ") or text_lower.startswith("/load "):
-            # Extract the partial path after the command
-            if text_lower.startswith("/load_history "):
-                partial = text[len("/load_history ") :]
-            else:
-                partial = text[len("/load ") :]
-
+        # Sub-completion for /history load - show .json and .md files
+        if text_lower.startswith("/history load "):
+            partial = text[len("/history load ") :]
             yield from self._complete_history_files(partial)
+            return
+
+        if text_lower.startswith("/resume "):
+            partial = text[len("/resume ") :]
+            yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session resume "):
+            partial = text[len("/session resume ") :]
+            yield from self._complete_session_ids(partial)
+            return
+
+        if text_lower.startswith("/session clear "):
+            partial = text[len("/session clear ") :]
+            if "all".startswith(partial.lower()):
+                yield Completion(
+                    "all",
+                    start_position=-len(partial),
+                    display="all",
+                    display_meta="Delete all sessions",
+                )
+            yield from self._complete_session_ids(partial)
+            return
+
+
+        if text_lower.startswith("/skills "):
+            remainder = text[len("/skills ") :]
+            if not remainder:
+                remainder = ""
+            parts = remainder.split(maxsplit=1)
+            subcommands = {
+                "list": "List local skills",
+                "add": "Install a skill",
+                "remove": "Remove a local skill",
+                "registry": "Set skills registry",
+            }
+            if not parts or (len(parts) == 1 and not remainder.endswith(" ")):
+                partial = parts[0] if parts else ""
+                for subcmd, description in subcommands.items():
+                    if subcmd.startswith(partial.lower()):
+                        yield Completion(
+                            subcmd,
+                            start_position=-len(partial),
+                            display=subcmd,
+                            display_meta=description,
+                        )
+                return
+
+            subcmd = parts[0].lower()
+            argument = parts[1] if len(parts) > 1 else ""
+            if subcmd in {"remove", "rm", "delete", "uninstall"}:
+                yield from self._complete_local_skill_names(argument)
+                return
+            if subcmd in {"registry", "marketplace", "source"}:
+                yield from self._complete_skill_registries(argument)
+                return
+            return
+
+        if text_lower.startswith("/history "):
+            partial = text[len("/history ") :]
+            subcommands = {
+                "show": "Show history overview",
+                "save": "Save history to a file",
+                "load": "Load history from a file",
+            }
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
+            return
+
+        if text_lower.startswith("/session "):
+            partial = text[len("/session ") :]
+            subcommands = {
+                "clear": "Delete a session (or all)",
+                "list": "List recent sessions",
+                "resume": "Resume a session",
+                "title": "Set session title",
+                "fork": "Fork current session",
+            }
+            for subcmd, description in subcommands.items():
+                if subcmd.startswith(partial.lower()):
+                    yield Completion(
+                        subcmd,
+                        start_position=-len(partial),
+                        display=subcmd,
+                        display_meta=description,
+                    )
             return
 
         if text_lower.startswith("/card "):
@@ -951,12 +1152,27 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd == "usage":
             return _show_usage_cmd()
         if cmd == "history":
-            target_agent = None
-            if len(cmd_parts) > 1:
-                candidate = cmd_parts[1].strip()
-                if candidate:
-                    target_agent = candidate
-            return _show_history_cmd(target_agent)
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return _show_history_cmd(None)
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                candidate = remainder.strip()
+                return _show_history_cmd(candidate or None)
+            if not tokens:
+                return _show_history_cmd(None)
+            subcmd = tokens[0].lower()
+            argument = " ".join(tokens[1:]).strip()
+            if subcmd == "show":
+                return _show_history_cmd(argument or None)
+            if subcmd == "save":
+                return _save_history_cmd(argument or None)
+            if subcmd == "load":
+                if not argument:
+                    return _load_history_cmd(None, "Filename required for /history load")
+                return _load_history_cmd(argument, None)
+            return _show_history_cmd(remainder)
         if cmd == "clear":
             target_agent = None
             if len(cmd_parts) > 1:
@@ -979,14 +1195,42 @@ def parse_special_input(text: str) -> str | CommandPayload:
         if cmd in ("load_history", "load"):
             filename = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
             if not filename:
-                return _load_history_cmd(None, "Filename required for load_history")
+                return _load_history_cmd(None, "Filename required for /history load")
             return _load_history_cmd(filename, None)
+        if cmd == "resume":
+            session_id = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+            return ResumeSessionCommand(session_id=session_id)
+        if cmd == "session":
+            remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
+            if not remainder:
+                return "SESSION_HELP"
+            try:
+                tokens = shlex.split(remainder)
+            except ValueError:
+                return "SESSION_HELP"
+            if not tokens:
+                return "SESSION_HELP"
+            subcmd = tokens[0].lower()
+            argument = remainder[len(tokens[0]) :].strip()
+            if subcmd == "resume":
+                session_id = argument if argument else None
+                return ResumeSessionCommand(session_id=session_id)
+            if subcmd == "list":
+                return ListSessionsCommand()
+            if subcmd == "clear":
+                return ClearSessionsCommand(target=argument or None)
+            if subcmd == "title":
+                if not argument:
+                    return TitleSessionCommand(title="")
+                return TitleSessionCommand(title=argument)
+            if subcmd == "fork":
+                title = argument if argument else None
+                return ForkSessionCommand(title=title)
+            return "SESSION_HELP"
         if cmd == "card":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
             if not remainder:
-                return _load_agent_card_cmd(
-                    None, False, False, "Filename required for /card"
-                )
+                return _load_agent_card_cmd(None, False, False, "Filename required for /card")
             try:
                 tokens = shlex.split(remainder)
             except ValueError as exc:
@@ -1456,6 +1700,11 @@ async def get_enhanced_input(
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
+                if _startup_notices:
+                    for notice in _startup_notices:
+                        rich_print(notice)
+                    _startup_notices.clear()
+
                 # Display info for all available agents with tree structure for workflows
                 await _display_all_agents_with_hierarchy(available_agents, agent_provider)
 
@@ -1723,20 +1972,26 @@ async def handle_special_commands(
         rich_print("  /clear last [agent_name] - Remove the most recent message from history")
         rich_print("  /markdown      - Show last assistant message without markdown formatting")
         rich_print("  /mcpstatus     - Show MCP server status summary for the active agent")
-        rich_print("  /save_history [filename] - Save current chat history to a file")
+        rich_print("  /history save [filename] - Save current chat history to a file")
         rich_print(
             "      [dim]Tip: Use a .json extension for MCP-compatible JSON; any other extension saves Markdown.[/dim]"
         )
         rich_print(
             "      [dim]Default: Timestamped filename (e.g., 25_01_15_14_30-conversation.json)[/dim]"
         )
-        rich_print("  /load_history <filename> - Load chat history from a file")
+        rich_print("  /history load <filename> - Load chat history from a file")
+        rich_print("  /resume [id|number] - Resume the last or specified session")
+        rich_print("  /session list - List recent sessions")
+        rich_print("  /session resume [id|number] - Resume the last or specified session")
+        rich_print("  /session title <text> - Set the current session title")
+        rich_print("  /session fork [title] - Fork the current session")
+        rich_print("  /session clear <id|number|all> - Delete a session or all sessions")
         rich_print(
             "  /card <filename> [--tool [remove]] - Load an AgentCard (attach/remove as tool)"
         )
         rich_print("  /agent <name> --tool [remove] - Attach/remove an agent as a tool")
         rich_print("  /agent [name] --dump - Print an AgentCard to screen")
-        rich_print("  /reload        - Reload AgentCards from disk")
+        rich_print("  /reload        - Reload AgentCards")
         rich_print("  @agent_name    - Switch to agent")
         rich_print("  #agent_name <msg> - Send message to agent, return result to input buffer")
         rich_print("  STOP           - Return control back to the workflow")
@@ -1750,6 +2005,13 @@ async def handle_special_commands(
         rich_print("  Ctrl+L         - Redraw the screen")
         rich_print("  Ctrl+U         - Clear input")
         rich_print("  Up/Down        - Navigate history")
+        return True
+
+    elif command == "SESSION_HELP":
+        rich_print(
+            "[yellow]Usage: /session list | /session resume [id|number] | /session title <text> "
+            "| /session fork [title] | /session clear <id|number|all>[/yellow]"
+        )
         return True
 
     elif isinstance(command, str) and command.upper() == "EXIT":

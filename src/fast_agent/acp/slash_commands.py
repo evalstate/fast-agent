@@ -4,7 +4,7 @@ Slash Commands for ACP
 Provides slash command support for the ACP server, allowing clients to
 discover and invoke special commands with the /command syntax.
 
-Session commands (status, tools, save, clear, load) are always available.
+Session commands (status, tools, skills, history, clear, session) are always available.
 Agent-specific commands are queried from the current agent if it implements
 ACPAwareProtocol.
 """
@@ -24,6 +24,7 @@ from typing import (
     Callable,
     Protocol,
     Sequence,
+    cast,
     runtime_checkable,
 )
 
@@ -39,6 +40,7 @@ from acp.schema import (
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
 from fast_agent.constants import FAST_AGENT_ERROR_CHANNEL
+from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.core.logging.logger import get_logger
 from fast_agent.history.history_exporter import HistoryExporter
@@ -68,7 +70,7 @@ from fast_agent.types.conversation_summary import ConversationSummary
 from fast_agent.utils.time import format_duration
 
 if TYPE_CHECKING:
-    from mcp.types import ListToolsResult, Tool
+    from mcp.types import ContentBlock, ListToolsResult, Tool
 
     from fast_agent.core.fastagent import AgentInstance
     from fast_agent.skills.registry import SkillRegistry
@@ -196,44 +198,46 @@ class SlashCommandHandler:
                     root=UnstructuredCommandInput(hint="[add|remove|registry] [name|number|url]")
                 ),
             ),
-            "save": AvailableCommand(
-                name="save",
-                description="Save conversation history",
-                input=None,
+            "history": AvailableCommand(
+                name="history",
+                description="Show or manage conversation history",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(hint="[show|save|load] [args]")
+                ),
             ),
             "clear": AvailableCommand(
                 name="clear",
                 description="Clear history (`last` for prev. turn)",
                 input=AvailableCommandInput(root=UnstructuredCommandInput(hint="[last]")),
             ),
-            "load": AvailableCommand(
-                name="load",
-                description="Load conversation history from file",
-                input=AvailableCommandInput(root=UnstructuredCommandInput(hint="<filename>")),
+            "session": AvailableCommand(
+                name="session",
+                description="List or manage sessions",
+                input=AvailableCommandInput(
+                    root=UnstructuredCommandInput(
+                        hint="[list|resume|title|fork|clear] [args]"
+                    )
+                ),
             ),
             "card": AvailableCommand(
                 name="card",
                 description="Load an AgentCard from file or URL",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint="<filename|url> [--tool [remove]]"
-                    )
+                    root=UnstructuredCommandInput(hint="<filename|url> [--tool [remove]]")
                 ),
             ),
             "agent": AvailableCommand(
                 name="agent",
                 description="Attach an agent as a tool or dump its AgentCard",
                 input=AvailableCommandInput(
-                    root=UnstructuredCommandInput(
-                        hint="<@name> [--tool [remove]|--dump]"
-                    )
+                    root=UnstructuredCommandInput(hint="<@name> [--tool [remove]|--dump]")
                 ),
             ),
         }
         if self._reload_callback is not None:
             self._session_commands["reload"] = AvailableCommand(
                 name="reload",
-                description="Reload AgentCards from disk",
+                description="Reload AgentCards",
                 input=None,
             )
 
@@ -382,12 +386,12 @@ class SlashCommandHandler:
                 return await self._handle_tools()
             if command_name == "skills":
                 return await self._handle_skills(arguments)
-            if command_name == "save":
-                return await self._handle_save(arguments)
+            if command_name == "history":
+                return await self._handle_history(arguments)
             if command_name == "clear":
                 return await self._handle_clear(arguments)
-            if command_name == "load":
-                return await self._handle_load(arguments)
+            if command_name == "session":
+                return await self._handle_session(arguments)
             if command_name == "card":
                 return await self._handle_card(arguments)
             if command_name == "agent":
@@ -406,6 +410,76 @@ class SlashCommandHandler:
         available = self.get_available_commands()
         return f"Unknown command: /{command_name}\n\nAvailable commands:\n" + "\n".join(
             f"  /{cmd.name} - {cmd.description}" for cmd in available
+        )
+
+    async def _handle_history(self, arguments: str | None = None) -> str:
+        """Handle the /history command."""
+        remainder = (arguments or "").strip()
+        if not remainder:
+            return self._render_history_overview()
+
+        try:
+            tokens = shlex.split(remainder)
+        except ValueError:
+            tokens = remainder.split(maxsplit=1)
+
+        if not tokens:
+            return self._render_history_overview()
+
+        subcmd = tokens[0].lower()
+        argument = remainder[len(tokens[0]) :].strip()
+
+        if subcmd in {"show", "list"}:
+            return self._render_history_overview()
+        if subcmd == "save":
+            return await self._handle_save(argument)
+        if subcmd == "load":
+            return await self._handle_load(argument)
+
+        return "\n".join(
+            [
+                "# history",
+                "",
+                f"Unknown /history action: {subcmd}",
+                "Usage: /history [show|save|load] [args]",
+            ]
+        )
+
+    async def _handle_session(self, arguments: str | None = None) -> str:
+        """Handle the /session command."""
+        remainder = (arguments or "").strip()
+        if not remainder:
+            return self._render_session_list()
+
+        try:
+            tokens = shlex.split(remainder)
+        except ValueError:
+            tokens = remainder.split(maxsplit=1)
+
+        if not tokens:
+            return self._render_session_list()
+
+        subcmd = tokens[0].lower()
+        argument = remainder[len(tokens[0]) :].strip()
+
+        if subcmd == "list":
+            return self._render_session_list()
+        if subcmd == "resume":
+            return self._handle_session_resume(argument)
+        if subcmd == "title":
+            return self._handle_session_title(argument)
+        if subcmd == "fork":
+            return self._handle_session_fork(argument)
+        if subcmd == "clear":
+            return self._handle_session_clear(argument)
+
+        return "\n".join(
+            [
+                "# session",
+                "",
+                f"Unknown /session action: {subcmd}",
+                "Usage: /session [list|resume|title|fork|clear] [args]",
+            ]
         )
 
     async def _handle_status(self, arguments: str | None = None) -> str:
@@ -643,6 +717,188 @@ class SlashCommandHandler:
         ]
 
         return "\n".join(lines)
+
+    def _render_history_overview(self) -> str:
+        """Render a lightweight conversation history overview."""
+        heading = "# conversation history"
+        agent, error = self._get_current_agent_or_error(heading)
+        if error:
+            return error
+        assert agent is not None
+
+        summary = ConversationSummary(messages=agent.message_history)
+        lines = [
+            heading,
+            "",
+            f"Messages: {summary.message_count} (user: {summary.user_message_count}, assistant: {summary.assistant_message_count})",
+            f"Tool Calls: {summary.tool_calls} (successes: {summary.tool_successes}, errors: {summary.tool_errors})",
+        ]
+
+        recent_count = 5
+        recent_messages = agent.message_history[-recent_count:]
+        if recent_messages:
+            lines.append("")
+            lines.append(f"Recent {len(recent_messages)} messages:")
+            for message in recent_messages:
+                role = getattr(message, "role", "message")
+                if hasattr(role, "value"):
+                    role = role.value
+                if hasattr(message, "all_text"):
+                    text = message.all_text() or message.first_text() or ""
+                else:
+                    content = getattr(message, "content", None)
+                    text = (
+                        get_text(cast("ContentBlock", content)) if content is not None else ""
+                    ) or ""
+                snippet = " ".join(text.split())
+                if not snippet:
+                    snippet = "(no text content)"
+                if len(snippet) > 60:
+                    snippet = f"{snippet[:57]}..."
+                lines.append(f"- {role}: {snippet}")
+        else:
+            lines.append("")
+            lines.append("No messages yet.")
+
+        return "\n".join(lines)
+
+    def _render_session_list(self) -> str:
+        """Render a list of recent sessions."""
+        heading = "# sessions"
+        from fast_agent.session import get_session_history_window, get_session_manager
+
+        manager = get_session_manager()
+        sessions = manager.list_sessions()
+        limit = get_session_history_window()
+        if limit > 0:
+            sessions = sessions[:limit]
+        if not sessions:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "No sessions found.",
+                    "",
+                    "Usage: /session resume <id|number>",
+                ]
+            )
+
+        current = manager.current_session
+        lines = [heading, ""]
+        for index, session_info in enumerate(sessions, 1):
+            is_current = current and current.info.name == session_info.name
+            separator = " ▶ " if is_current else " - "
+            timestamp = session_info.last_activity.strftime("%b %d %H:%M")
+            metadata = session_info.metadata or {}
+            summary = (
+                metadata.get("title")
+                or metadata.get("label")
+                or metadata.get("first_user_preview")
+                or ""
+            )
+            summary = " ".join(str(summary).split())
+            line = f"{index}. {session_info.name}{separator}{timestamp}"
+            history_map = metadata.get("last_history_by_agent")
+            if isinstance(history_map, dict) and history_map:
+                agent_names = sorted(history_map.keys())
+                if len(agent_names) > 1:
+                    display_names = agent_names
+                    if len(agent_names) > 3:
+                        display_names = agent_names[:3] + [f"+{len(agent_names) - 3}"]
+                    agent_label = ", ".join(display_names)
+                    line = f"{line} - {len(agent_names)} agents: {agent_label}"
+            if summary:
+                summary = summary[:30]
+                line = f"{line} - {summary}"
+            lines.append(line)
+
+        lines.extend(["", "Usage: /session resume <id|number>"])
+        return "\n".join(lines)
+
+    def _handle_session_resume(self, argument: str) -> str:
+        from fast_agent.session import get_session_manager
+
+        session_id = argument or None
+        manager = get_session_manager()
+        default_agent_name = self.current_agent_name or self.primary_agent_name
+        result = manager.resume_session_agents(
+            self.instance.agents,
+            session_id,
+            default_agent_name=default_agent_name,
+        )
+        if not result:
+            if session_id:
+                return f"# session resume\n\nSession not found: {session_id}"
+            return "# session resume\n\nNo sessions found."
+
+        session, loaded, missing_agents = result
+        lines = ["# session resume", "", f"Resumed session: {session.info.name}"]
+        if loaded:
+            loaded_list = ", ".join(sorted(loaded.keys()))
+            lines.append(f"Loaded agents: {loaded_list}")
+        else:
+            lines.append("Loaded agents: (no history yet)")
+        if missing_agents:
+            missing_list = ", ".join(sorted(missing_agents))
+            lines.append(f"Missing agents: {missing_list}")
+        return "\n".join(lines)
+
+    def _handle_session_title(self, argument: str) -> str:
+        title = argument.strip()
+        if not title:
+            return "# session title\n\nUsage: /session title <text>"
+
+        from fast_agent.session import get_session_manager
+
+        manager = get_session_manager()
+        session = manager.current_session or manager.create_session()
+        session.set_title(title)
+        return f"# session title\n\nSession title set: {title}"
+
+    def _handle_session_fork(self, argument: str) -> str:
+        title = argument.strip() or None
+        from fast_agent.session import get_session_manager
+
+        manager = get_session_manager()
+        forked = manager.fork_current_session(title=title)
+        if not forked:
+            return "# session fork\n\nNo session available to fork."
+        label = forked.info.metadata.get("title") or forked.info.name
+        return f"# session fork\n\nForked session: {label}"
+
+    def _handle_session_clear(self, argument: str) -> str:
+        from fast_agent.session import get_session_history_window, get_session_manager
+
+        target = argument.strip()
+        if not target:
+            return "# session clear\n\nUsage: /session clear <id|number|all>"
+
+        manager = get_session_manager()
+        if target.lower() == "all":
+            sessions = manager.list_sessions()
+            if not sessions:
+                return "# session clear\n\nNo sessions found."
+            deleted = 0
+            for session_info in sessions:
+                if manager.delete_session(session_info.name):
+                    deleted += 1
+            return f"# session clear\n\nDeleted {deleted} session(s)."
+
+        sessions = manager.list_sessions()
+        limit = get_session_history_window()
+        if limit > 0:
+            sessions = sessions[:limit]
+
+        target_name = target
+        if target.isdigit():
+            ordinal = int(target)
+            if ordinal <= 0 or ordinal > len(sessions):
+                return f"# session clear\n\nSession not found: {target}"
+            target_name = sessions[ordinal - 1].name
+
+        if manager.delete_session(target_name):
+            return f"# session clear\n\nDeleted session: {target_name}"
+        return f"# session clear\n\nSession not found: {target}"
 
     def _handle_status_auth(self) -> str:
         """Handle the /status auth command to show permissions from auths.md."""
@@ -1268,7 +1524,7 @@ class SlashCommandHandler:
         return ", ".join(args) if args else None
 
     async def _handle_save(self, arguments: str | None = None) -> str:
-        """Handle the /save command by persisting conversation history."""
+        """Handle the /history save command by persisting conversation history."""
         heading = "# save conversation"
 
         agent, error = self._get_current_agent_or_error(
@@ -1303,7 +1559,7 @@ class SlashCommandHandler:
         )
 
     async def _handle_load(self, arguments: str | None = None) -> str:
-        """Handle the /load command by loading conversation history from a file."""
+        """Handle the /history load command by loading conversation history from a file."""
         heading = "# load conversation"
 
         agent, error = self._get_current_agent_or_error(
@@ -1321,8 +1577,8 @@ class SlashCommandHandler:
                 [
                     heading,
                     "",
-                    "Filename required for /load command.",
-                    "Usage: /load <filename>",
+                    "Filename required for /history load.",
+                    "Usage: /history load <filename>",
                 ]
             )
 
@@ -1338,6 +1594,15 @@ class SlashCommandHandler:
 
         try:
             load_history_into_agent(agent, file_path)
+        except AgentConfigError as exc:
+            return "\n".join(
+                [
+                    heading,
+                    "",
+                    "Failed to load conversation history.",
+                    f"Details: {format_fast_agent_error(exc)}",
+                ]
+            )
         except Exception as exc:
             return "\n".join(
                 [
@@ -1389,15 +1654,11 @@ class SlashCommandHandler:
                 filename = token
 
         if not filename:
-            return (
-                "Filename required for /card command.\nUsage: /card <filename|url> [--tool [remove]]"
-            )
+            return "Filename required for /card command.\nUsage: /card <filename|url> [--tool [remove]]"
 
         try:
             attach_to = self.current_agent_name if add_tool and not remove_tool else None
-            instance, loaded_names, attached_names = await self._card_loader(
-                filename, attach_to
-            )
+            instance, loaded_names, attached_names = await self._card_loader(filename, attach_to)
         except Exception as exc:
             return f"AgentCard load failed: {exc}"
 
@@ -1516,9 +1777,7 @@ class SlashCommandHandler:
             return "Can't attach agent to itself."
 
         try:
-            instance, attached_names = await self._attach_agent_callback(
-                parent_agent, [agent_name]
-            )
+            instance, attached_names = await self._attach_agent_callback(parent_agent, [agent_name])
         except Exception as exc:
             return f"Agent tool attach failed: {exc}"
 

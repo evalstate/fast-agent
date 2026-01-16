@@ -27,6 +27,7 @@ from mcp.types import (
     TextResourceContents,
 )
 
+from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.mcp.prompts.prompt_constants import (
     ASSISTANT_DELIMITER,
     RESOURCE_DELIMITER,
@@ -206,7 +207,13 @@ def load_json(file_path: str) -> list[PromptMessageExtended]:
     with open(file_path, "r", encoding="utf-8") as f:
         json_str = f.read()
 
-    return from_json(json_str)
+    try:
+        return from_json(json_str)
+    except json.JSONDecodeError as exc:
+        raise AgentConfigError(
+            f"Failed to parse JSON prompt file: {file_path}",
+            str(exc),
+        ) from exc
 
 
 def save_messages(messages: list[PromptMessageExtended], file_path: str) -> None:

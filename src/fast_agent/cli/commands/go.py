@@ -11,6 +11,7 @@ import typer
 
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
+from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
@@ -140,6 +141,7 @@ async def _run_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    resume: str | None = None,
     url_servers: dict[str, dict[str, Any]] | None = None,
     stdio_servers: dict[str, dict[str, Any]] | None = None,
     agent_name: str | None = "agent",
@@ -165,6 +167,56 @@ async def _run_agent(
     from fast_agent.agents.llm_agent import LlmAgent
     from fast_agent.mcp.prompts.prompt_load import load_prompt
     from fast_agent.ui.console_display import ConsoleDisplay
+
+    def _resume_session_if_requested(agent_app) -> None:
+        if not resume:
+            return
+        from fast_agent.session import get_session_manager
+        from fast_agent.ui.enhanced_prompt import queue_startup_notice
+
+        manager = get_session_manager()
+        session_id = None if resume in ("", RESUME_LATEST_SENTINEL) else resume
+        default_agent = agent_app._agent(None)
+        result = manager.resume_session_agents(
+            agent_app._agents,
+            session_id,
+            default_agent_name=getattr(default_agent, "name", None),
+        )
+        interactive_notice = message is None and prompt_file is None
+        if not result:
+            if session_id:
+                notice = f"[yellow]Session not found:[/yellow] {session_id}"
+            else:
+                notice = "[yellow]No sessions found to resume.[/yellow]"
+            if interactive_notice:
+                queue_startup_notice(notice)
+            else:
+                typer.echo(
+                    notice.replace("[yellow]", "").replace("[/yellow]", ""),
+                    err=True,
+                )
+            return
+
+        session, loaded, missing_agents = result
+        session_time = session.info.last_activity.strftime("%y-%m-%d %H:%M")
+        resume_notice = (
+            f"[dim]Resumed session[/dim] [cyan]{session.info.name}[/cyan] [dim]({session_time})[/dim]"
+        )
+        if interactive_notice:
+            queue_startup_notice(resume_notice)
+        else:
+            typer.echo(
+                f"Resumed session {session.info.name} ({session_time})", err=True
+            )
+        if missing_agents:
+            missing_list = ", ".join(sorted(missing_agents))
+            missing_notice = f"[yellow]Missing agents from session:[/yellow] {missing_list}"
+            if interactive_notice:
+                queue_startup_notice(missing_notice)
+            else:
+                typer.echo(
+                    f"Missing agents from session: {missing_list}", err=True
+                )
 
     # Create the FastAgent instance
 
@@ -234,9 +286,10 @@ async def _run_agent(
                         tool_loaded_names.extend(fast.load_agents(card_source))
 
             if tool_loaded_names:
-                target_name = agent_name or "agent"
-                if target_name not in fast.agents:
-                    target_name = next(iter(fast.agents.keys()), None)
+                # Use explicit agent_name if provided and exists, otherwise find the default
+                target_name = agent_name if agent_name and agent_name in fast.agents else None
+                if not target_name:
+                    target_name = fast.get_default_agent_name()
                 if target_name:
                     fast.attach_agent_tools(target_name, tool_loaded_names)
         except AgentConfigError as exc:
@@ -262,6 +315,7 @@ async def _run_agent(
 
         async def cli_agent():
             async with fast.run() as agent:
+                _resume_session_if_requested(agent)
                 if message:
                     response = await agent.send(message)
                     print(response)
@@ -322,6 +376,7 @@ async def _run_agent(
         )
         async def cli_agent():
             async with fast.run() as agent:
+                _resume_session_if_requested(agent)
                 if message:
                     await agent.parallel.send(message)
                     display = ConsoleDisplay(config=None)
@@ -345,6 +400,7 @@ async def _run_agent(
         )
         async def cli_agent():
             async with fast.run() as agent:
+                _resume_session_if_requested(agent)
                 if message:
                     response = await agent.send(message)
                     # Print the response and exit
@@ -383,6 +439,7 @@ def run_async_agent(
     model: str | None = None,
     message: str | None = None,
     prompt_file: str | None = None,
+    resume: str | None = None,
     stdio_commands: list[str] | None = None,
     agent_name: str | None = None,
     skills_directory: Path | None = None,
@@ -495,6 +552,7 @@ def run_async_agent(
                 model=model,
                 message=message,
                 prompt_file=prompt_file,
+                resume=resume,
                 url_servers=url_servers,
                 stdio_servers=stdio_servers,
                 agent_name=agent_name,
@@ -569,6 +627,12 @@ def go(
     prompt_file: str | None = typer.Option(
         None, "--prompt-file", "-p", help="Path to a prompt file to use (either text or JSON)"
     ),
+    resume: str | None = typer.Option(
+        None,
+        "--resume",
+        flag_value=RESUME_LATEST_SENTINEL,
+        help="Resume the last session or the specified session id",
+    ),
     skills_dir: Path | None = typer.Option(
         None,
         "--skills-dir",
@@ -622,6 +686,7 @@ def go(
         --auth                Bearer token for authorization with URL-based servers
         --message, -m         Send a single message and exit
         --prompt-file, -p     Use a prompt file instead of interactive mode
+        --resume [session_id] Resume the last or specified session
         --agent-cards         Load AgentCards from a file or directory
         --card-tool           Load AgentCards and attach them as tools to the default agent
         --skills              Override the default skills folder
@@ -653,6 +718,7 @@ def go(
         model=model,
         message=message,
         prompt_file=prompt_file,
+        resume=resume,
         stdio_commands=stdio_commands,
         agent_name=agent_name,
         skills_directory=skills_dir,

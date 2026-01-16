@@ -124,14 +124,22 @@ def check_api_keys(secrets_summary: dict, config_summary: dict) -> dict:
                 results[provider_name]["config"] = "DefaultAzureCredential"
                 continue
 
-        # Check secrets file if it was parsed successfully
+        # Check secrets file first, then fall back to main config file
+        config_key = None
         if secrets_status == "parsed":
             config_key = ProviderKeyManager.get_config_file_key(provider_name, secrets)
-            if config_key and config_key != API_KEY_HINT_TEXT:
-                if len(config_key) > 5:
-                    results[provider_name]["config"] = f"...{config_key[-5:]}"
-                else:
-                    results[provider_name]["config"] = "...***"
+
+        # Fall back to main config file if not found in secrets
+        if not config_key or config_key == API_KEY_HINT_TEXT:
+            main_config = config.get("config", {})
+            if main_config:
+                config_key = ProviderKeyManager.get_config_file_key(provider_name, main_config)
+
+        if config_key and config_key != API_KEY_HINT_TEXT:
+            if len(config_key) > 5:
+                results[provider_name]["config"] = f"...{config_key[-5:]}"
+            else:
+                results[provider_name]["config"] = "...***"
 
     return results
 
@@ -188,6 +196,7 @@ def get_config_summary(config_path: Path | None) -> dict:
 
         # Mark as successfully parsed
         result["status"] = "parsed"
+        result["config"] = config  # Store raw config for API key checking
 
         if not config:
             return result

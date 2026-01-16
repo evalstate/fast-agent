@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from rich.text import Text
 
     from fast_agent.agents.llm_agent import LlmAgent
+    from fast_agent.agents.tool_runner import ToolRunnerHooks
 
 from a2a.types import AgentCard
 from mcp import ListToolsResult, Tool
@@ -54,6 +55,7 @@ from fast_agent.interfaces import (
     FastAgentLLMProtocol,
     LLMFactoryProtocol,
     StreamingAgentProtocol,
+    ToolRunnerHookCapable,
 )
 from fast_agent.llm.model_database import ModelDatabase
 from fast_agent.llm.provider_types import Provider
@@ -296,6 +298,13 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
         constructor_kwargs = self._clone_constructor_kwargs()
         clone = type(self)(config=new_config, context=self.context, **constructor_kwargs)
         await clone.initialize()
+
+        # Copy tool_runner_hooks if present
+        hooks: ToolRunnerHooks | None = None
+        if isinstance(self, ToolRunnerHookCapable):
+            hooks = self.tool_runner_hooks
+        if hooks is not None and isinstance(clone, ToolRunnerHookCapable):
+            clone.tool_runner_hooks = hooks
 
         if self._llm_factory_ref is not None:
             if self._llm_attach_kwargs is None:

@@ -313,7 +313,7 @@ class AgentMCPServer:
     def _register_reload_tool(self) -> None:
         @self.mcp_server.tool(
             name="reload_agent_cards",
-            description="Reload AgentCards from disk",
+            description="Reload AgentCards",
             structured_output=False,
         )
         async def reload_agent_cards(ctx: MCPContext) -> str:

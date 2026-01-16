@@ -7,6 +7,7 @@ import typer
 import typer.main
 from typer.core import TyperGroup
 
+from fast_agent.cli.constants import normalize_resume_flag_args
 from fast_agent.cli.terminal import Application
 from fast_agent.ui.console import console as shared_console
 
@@ -25,6 +26,10 @@ LAZY_SUBCOMMANDS: dict[str, str] = {
 
 class LazyGroup(TyperGroup):
     lazy_subcommands: dict[str, str] = {}
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        normalize_resume_flag_args(args)
+        return super().parse_args(ctx, args)
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         return sorted(self.lazy_subcommands)

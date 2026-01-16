@@ -694,6 +694,12 @@ class Settings(BaseSettings):
     auto_sampling: bool = True
     """Enable automatic sampling model selection if not explicitly configured"""
 
+    session_history: bool = True
+    """Persist session history in .fast-agent/sessions (default: True)."""
+
+    session_history_window: int = 20
+    """Maximum number of sessions to keep in the rolling window (default: 20)."""
+
     anthropic: AnthropicSettings | None = None
     """Settings for using Anthropic models in the fast-agent application"""
 

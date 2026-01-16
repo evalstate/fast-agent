@@ -15,6 +15,7 @@ PROVIDER_ENVIRONMENT_MAP: dict[str, str] = {
     # provider name and suffix "_API_KEY" - so no specific mapping needed unless overriding
     "hf": "HF_TOKEN",
     "responses": "OPENAI_API_KEY",  # Temporary workaround
+    "openresponses": "OPENRESPONSES_API_KEY",
 }
 PROVIDER_CONFIG_KEY_ALIASES: dict[str, tuple[str, ...]] = {
     # HuggingFace historically used "huggingface" (full name) in config files,

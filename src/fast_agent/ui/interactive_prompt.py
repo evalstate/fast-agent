@@ -18,15 +18,16 @@ import textwrap
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Awaitable, Callable, Union, cast
 
-from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
-
-if TYPE_CHECKING:
-    from fast_agent.core.agent_app import AgentApp
 from mcp.types import Prompt, PromptMessage
 from rich import print as rich_print
 
+if TYPE_CHECKING:
+    from fast_agent.core.agent_app import AgentApp
+
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
+from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
+from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
 from fast_agent.mcp.mcp_aggregator import SEP
@@ -52,14 +53,18 @@ from fast_agent.ui import enhanced_prompt
 from fast_agent.ui.command_payloads import (
     AgentCommand,
     ClearCommand,
+    ClearSessionsCommand,
     CommandPayload,
+    ForkSessionCommand,
     HashAgentCommand,
     ListPromptsCommand,
+    ListSessionsCommand,
     ListSkillsCommand,
     ListToolsCommand,
     LoadAgentCardCommand,
     LoadHistoryCommand,
     ReloadAgentsCommand,
+    ResumeSessionCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
     ShowHistoryCommand,
@@ -69,6 +74,7 @@ from fast_agent.ui.command_payloads import (
     ShowUsageCommand,
     SkillsCommand,
     SwitchAgentCommand,
+    TitleSessionCommand,
     is_command_payload,
 )
 from fast_agent.ui.enhanced_prompt import (
@@ -372,6 +378,184 @@ class InteractivePrompt:
                             rich_print()
                             await show_mcp_status(agent, prompt_provider)
                             continue
+                        case ListSessionsCommand():
+                            from fast_agent.session import (
+                                get_session_history_window,
+                                get_session_manager,
+                            )
+
+                            manager = get_session_manager()
+                            sessions = manager.list_sessions()
+                            limit = get_session_history_window()
+                            if limit > 0:
+                                sessions = sessions[:limit]
+                            if not sessions:
+                                rich_print("[yellow]No sessions found.[/yellow]")
+                                continue
+
+                            current = manager.current_session
+                            rich_print("Sessions:")
+                            for index, session_info in enumerate(sessions, 1):
+                                is_current = (
+                                    current and current.info.name == session_info.name
+                                )
+                                separator = " ▶ " if is_current else " - "
+                                timestamp = session_info.last_activity.strftime("%b %d %H:%M")
+                                metadata = session_info.metadata or {}
+                                summary = (
+                                    metadata.get("title")
+                                    or metadata.get("label")
+                                    or metadata.get("first_user_preview")
+                                    or ""
+                                )
+                                summary = " ".join(str(summary).split())
+                                agent_summary = ""
+                                history_map = metadata.get("last_history_by_agent")
+                                if isinstance(history_map, dict) and history_map:
+                                    agent_names = sorted(history_map.keys())
+                                    if len(agent_names) > 1:
+                                        display_names = agent_names
+                                        if len(agent_names) > 3:
+                                            display_names = agent_names[:3] + [
+                                                f"+{len(agent_names) - 3}"
+                                            ]
+                                        agent_label = ", ".join(display_names)
+                                        agent_summary = (
+                                            f"{len(agent_names)} agents: {agent_label}"
+                                        )
+                                line = (
+                                    f"  {index}. {session_info.name}"
+                                    f"{separator}{timestamp}"
+                                )
+                                if summary:
+                                    summary = summary[:30]
+                                    if agent_summary:
+                                        line = f"{line} - {agent_summary} - {summary}"
+                                    else:
+                                        line = f"{line} - {summary}"
+                                else:
+                                    if agent_summary:
+                                        line = f"{line} - {agent_summary}"
+                                rich_print(line)
+                            rich_print("[dim]Usage: /session resume <id|number>[/dim]")
+                            continue
+                        case ClearSessionsCommand(target=target):
+                            from fast_agent.session import (
+                                get_session_history_window,
+                                get_session_manager,
+                            )
+
+                            if not target:
+                                rich_print(
+                                    "[yellow]Usage: /session clear <id|number|all>[/yellow]"
+                                )
+                                continue
+
+                            manager = get_session_manager()
+                            if target.lower() == "all":
+                                all_sessions = manager.list_sessions()
+                                if not all_sessions:
+                                    rich_print("[yellow]No sessions found.[/yellow]")
+                                    continue
+                                deleted = 0
+                                for session_info in all_sessions:
+                                    if manager.delete_session(session_info.name):
+                                        deleted += 1
+                                rich_print(f"[green]Deleted {deleted} session(s).[/green]")
+                                continue
+
+                            sessions = manager.list_sessions()
+                            limit = get_session_history_window()
+                            if limit > 0:
+                                sessions = sessions[:limit]
+                            target_name = target
+                            if target.isdigit():
+                                ordinal = int(target)
+                                if ordinal <= 0 or ordinal > len(sessions):
+                                    rich_print(f"[red]Session not found: {target}[/red]")
+                                    continue
+                                target_name = sessions[ordinal - 1].name
+
+                            if manager.delete_session(target_name):
+                                rich_print(f"[green]Deleted session: {target_name}[/green]")
+                            else:
+                                rich_print(f"[red]Session not found: {target}[/red]")
+                            continue
+                        case ResumeSessionCommand(session_id=session_id):
+                            try:
+                                agent_obj = prompt_provider._agent(agent)
+                            except Exception:
+                                rich_print(f"[red]Unable to load agent '{agent}'[/red]")
+                                continue
+
+                            from fast_agent.session import get_session_manager
+
+                            manager = get_session_manager()
+                            result = manager.resume_session_agents(
+                                prompt_provider._agents,
+                                session_id,
+                                default_agent_name=getattr(agent_obj, "name", None),
+                            )
+                            if not result:
+                                if session_id:
+                                    rich_print(f"[red]Session not found: {session_id}[/red]")
+                                else:
+                                    rich_print("[yellow]No sessions found.[/yellow]")
+                                continue
+
+                            session, loaded, missing_agents = result
+                            if loaded:
+                                loaded_list = ", ".join(sorted(loaded.keys()))
+                                rich_print(
+                                    f"[green]Resumed session: {session.info.name} ({loaded_list})[/green]"
+                                )
+                            else:
+                                rich_print(
+                                    f"[yellow]Resumed session: {session.info.name} (no history yet)[/yellow]"
+                                )
+                            if missing_agents:
+                                missing_list = ", ".join(sorted(missing_agents))
+                                rich_print(
+                                    f"[yellow]Missing agents from session: {missing_list}[/yellow]"
+                                )
+                            usage = getattr(agent_obj, "usage_accumulator", None)
+                            if usage and usage.model is None:
+                                llm = getattr(agent_obj, "llm", None)
+                                model_name = getattr(llm, "model_name", None)
+                                if not model_name:
+                                    model_name = getattr(
+                                        getattr(agent_obj, "config", None), "model", None
+                                    )
+                                if model_name:
+                                    usage.model = model_name
+                            history = getattr(agent_obj, "message_history", [])
+                            display_history_overview(agent_obj.name, history, usage)
+                            continue
+                        case TitleSessionCommand(title=title):
+                            if not title:
+                                rich_print("[red]Usage: /session title <text>[/red]")
+                                continue
+
+                            from fast_agent.session import get_session_manager
+
+                            manager = get_session_manager()
+                            session = manager.current_session
+                            if session is None:
+                                session = manager.create_session()
+                            session.set_title(title)
+                            rich_print(f"[green]Session title set: {title}[/green]")
+                            continue
+                        case ForkSessionCommand(title=title):
+                            from fast_agent.session import get_session_manager
+
+                            manager = get_session_manager()
+                            forked = manager.fork_current_session(title=title)
+                            if forked is None:
+                                rich_print("[yellow]No session available to fork.[/yellow]")
+                                continue
+                            label = forked.info.metadata.get("title") or forked.info.name
+                            rich_print(f"[green]Forked session: {label}[/green]")
+                            continue
                         case SaveHistoryCommand(filename=filename):
                             # Save history for the current agent
                             try:
@@ -396,7 +580,7 @@ class InteractivePrompt:
                                 continue
 
                             if filename is None:
-                                rich_print("[red]Filename required for load_history[/red]")
+                                rich_print("[red]Filename required for /history load[/red]")
                                 continue
 
                             try:
@@ -416,6 +600,9 @@ class InteractivePrompt:
                                 )
                             except FileNotFoundError:
                                 rich_print(f"[red]File not found: {filename}[/red]")
+                            except AgentConfigError as exc:
+                                error_text = format_fast_agent_error(exc)
+                                rich_print(f"[red]Error loading history: {error_text}[/red]")
                             except Exception as e:
                                 rich_print(f"[red]Error loading history: {e}[/red]")
                             continue
@@ -657,8 +844,11 @@ class InteractivePrompt:
             # Handle hash command OUTSIDE paused context so progress display works correctly
             if hash_send_target and hash_send_message:
                 rich_print(f"[dim]Asking {hash_send_target}...[/dim]")
+
                 try:
-                    await send_func(hash_send_message, hash_send_target)
+                    # Use the return value from send_func directly - this works even
+                    # when use_history=False (e.g., for agents loaded as tools)
+                    response_text = await send_func(hash_send_message, hash_send_target)
                 except Exception as exc:
                     with progress_display.paused():
                         rich_print(f"[red]Error asking {hash_send_target}: {exc}[/red]")
@@ -666,14 +856,6 @@ class InteractivePrompt:
 
                 # Pause progress display for status messages after send completes
                 with progress_display.paused():
-                    # Get the last assistant message from the target agent
-                    target_agent_obj = prompt_provider._agent(hash_send_target)
-                    response_text = ""
-                    for msg in reversed(target_agent_obj.message_history):
-                        if msg.role == "assistant":
-                            response_text = msg.last_text()
-                            break
-
                     if response_text:
                         buffer_prefill = response_text
                         rich_print(

@@ -217,6 +217,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                 before_tool_call = existing_hooks.before_tool_call if existing_hooks else None
                 after_llm_call = existing_hooks.after_llm_call if existing_hooks else None
                 after_tool_call = existing_hooks.after_tool_call if existing_hooks else None
+                after_turn_complete = existing_hooks.after_turn_complete if existing_hooks else None
 
                 async def handle_before_llm_call(runner, messages):
                     if before_llm_call:
@@ -233,6 +234,7 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
                     after_llm_call=after_llm_call,
                     before_tool_call=handle_before_tool_call,
                     after_tool_call=after_tool_call,
+                    after_turn_complete=after_turn_complete,
                 )
                 hooks_set = True
 
