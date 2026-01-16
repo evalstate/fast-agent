@@ -160,6 +160,14 @@ class ClearSessionsCommand(CommandBase):
     kind: Literal["clear_sessions"] = "clear_sessions"
 
 
+@dataclass(frozen=True, slots=True)
+class ShellCommand(CommandBase):
+    """Execute a shell command directly."""
+
+    command: str
+    kind: Literal["shell_command"] = "shell_command"
+
+
 CommandPayload = (
     ShowUsageCommand
     | ShowSystemCommand
@@ -186,6 +194,7 @@ CommandPayload = (
     | TitleSessionCommand
     | ForkSessionCommand
     | ClearSessionsCommand
+    | ShellCommand
 )
 
 

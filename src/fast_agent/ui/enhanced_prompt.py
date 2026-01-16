@@ -19,6 +19,7 @@ from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
 from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.styles import Style
 from rich import print as rich_print
 
@@ -34,6 +35,7 @@ from fast_agent.ui.command_payloads import (
     ClearCommand,
     ClearSessionsCommand,
     CommandPayload,
+    CreateSessionCommand,
     ForkSessionCommand,
     HashAgentCommand,
     ListSessionsCommand,
@@ -44,6 +46,7 @@ from fast_agent.ui.command_payloads import (
     ResumeSessionCommand,
     SaveHistoryCommand,
     SelectPromptCommand,
+    ShellCommand,
     ShowHistoryCommand,
     ShowMarkdownCommand,
     ShowMcpStatusCommand,
@@ -74,6 +77,15 @@ available_agents = set()
 
 # Keep track of multi-line mode state
 in_multiline_mode = False
+
+# Track last copyable output (shell output or assistant response)
+_last_copyable_output: str | None = None
+
+
+def set_last_copyable_output(output: str) -> None:
+    """Set the last copyable output for Ctrl+Y clipboard functionality."""
+    global _last_copyable_output
+    _last_copyable_output = output
 
 
 def _show_system_cmd() -> ShowSystemCommand:
@@ -531,7 +543,7 @@ class AgentCompleter(Completer):
             "usage": "Show current usage statistics",
             "markdown": "Show last assistant message without markdown formatting",
             "resume": "Resume the last session or specified session id",
-            "session": "Manage sessions (/session list|resume|title|fork|clear)",
+            "session": "Manage sessions (/session list|new|resume|title|fork|clear)",
             "card": "Load an AgentCard (add --tool to attach/remove as tool)",
             "agent": "Attach/remove an agent as a tool or dump an AgentCard",
             "reload": "Reload AgentCards from disk",
@@ -761,10 +773,89 @@ class AgentCompleter(Completer):
                     display_meta=display,
                 )
 
+    def _complete_executables(self, partial: str):
+        """Complete executable names from PATH."""
+        seen = set()
+        for path_dir in os.environ.get("PATH", "").split(os.pathsep):
+            try:
+                for entry in Path(path_dir).iterdir():
+                    if entry.is_file() and os.access(entry, os.X_OK):
+                        name = entry.name
+                        if name.startswith(partial) and name not in seen:
+                            seen.add(name)
+                            yield Completion(
+                                name,
+                                start_position=-len(partial),
+                                display=name,
+                                display_meta="executable",
+                            )
+            except (PermissionError, FileNotFoundError):
+                pass
+
+    def _complete_shell_paths(self, partial: str, delete_len: int):
+        """Complete file/directory paths for shell commands."""
+        if partial:
+            partial_path = Path(partial)
+            if partial.endswith("/") or partial.endswith(os.sep):
+                search_dir = partial_path
+                prefix = ""
+            else:
+                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                prefix = partial_path.name
+        else:
+            search_dir = Path(".")
+            prefix = ""
+
+        if not search_dir.exists():
+            return
+
+        try:
+            for entry in sorted(search_dir.iterdir()):
+                name = entry.name
+                if name.startswith(".") and not prefix.startswith("."):
+                    continue
+                if not name.lower().startswith(prefix.lower()):
+                    continue
+
+                completion_text = str(search_dir / name) if search_dir != Path(".") else name
+
+                if entry.is_dir():
+                    yield Completion(
+                        completion_text + "/",
+                        start_position=-delete_len,
+                        display=name + "/",
+                        display_meta="directory",
+                    )
+                else:
+                    yield Completion(
+                        completion_text,
+                        start_position=-delete_len,
+                        display=name,
+                        display_meta="file",
+                    )
+        except PermissionError:
+            pass
+
     def get_completions(self, document, complete_event):
         """Synchronous completions method - this is what prompt_toolkit expects by default"""
         text = document.text_before_cursor
         text_lower = text.lower()
+
+        # Shell completion mode - detect ! prefix
+        if text.lstrip().startswith("!"):
+            if not complete_event.completion_requested:
+                return
+            # Text after "!" with leading/trailing whitespace stripped
+            shell_text = text.lstrip()[1:].lstrip()
+
+            if " " not in shell_text:
+                # First token: complete executables
+                yield from self._complete_executables(shell_text)
+            else:
+                # After first token: complete paths
+                _, path_part = shell_text.rsplit(" ", 1)
+                yield from self._complete_shell_paths(path_part, len(path_part))
+            return
 
         # Sub-completion for /history load - show .json and .md files
         if text_lower.startswith("/history load "):
@@ -850,6 +941,7 @@ class AgentCompleter(Completer):
             subcommands = {
                 "clear": "Delete a session (or all)",
                 "list": "List recent sessions",
+                "new": "Create a new session",
                 "resume": "Resume a session",
                 "title": "Set session title",
                 "fork": "Fork current session",
@@ -1014,6 +1106,19 @@ def get_text_from_editor(initial_text: str = "") -> str:
     return edited_text.strip()  # Added strip() to remove trailing newlines often added by editors
 
 
+class ShellPrefixLexer(Lexer):
+    """Lexer that highlights shell commands (starting with !) in red."""
+
+    def lex_document(self, document):
+        def get_line_tokens(line_number):
+            line = document.lines[line_number]
+            if line.lstrip().startswith("!"):
+                return [("class:shell-command", line)]
+            return [("", line)]
+
+        return get_line_tokens
+
+
 class AgentKeyBindings(KeyBindings):
     agent_provider: "AgentApp | None" = None
     current_agent_name: str | None = None
@@ -1108,7 +1213,21 @@ def create_keybindings(
 
     @kb.add("c-y")
     async def _(event) -> None:
-        """Ctrl+Y: Copy last assistant response to clipboard."""
+        """Ctrl+Y: Copy last output (shell or assistant) to clipboard."""
+        global _last_copyable_output
+
+        # Priority 1: Last shell/copyable output if set
+        if _last_copyable_output:
+            try:
+                import pyperclip
+
+                pyperclip.copy(_last_copyable_output)
+                rich_print("\n[green]✓ Copied to clipboard[/green]")
+                return
+            except Exception:
+                pass
+
+        # Priority 2: Fall back to last assistant message
         if kb.agent_provider and kb.current_agent_name:
             try:
                 # Get the agent from AgentApp
@@ -1217,6 +1336,8 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return ResumeSessionCommand(session_id=session_id)
             if subcmd == "list":
                 return ListSessionsCommand()
+            if subcmd == "new":
+                return CreateSessionCommand(session_name=argument or None)
             if subcmd == "clear":
                 return ClearSessionsCommand(target=argument or None)
             if subcmd == "title":
@@ -1359,6 +1480,13 @@ def parse_special_input(text: str) -> str | CommandPayload:
         elif rest:
             # Just agent name, no message - return empty hash command (user will be prompted)
             return _hash_agent_cmd(rest.strip(), "")
+
+    # Shell command: ! command - execute directly in shell
+    if cmd_line and cmd_line.startswith("!"):
+        command = cmd_line[1:].strip()
+        if command:
+            return ShellCommand(command=command)
+        return ""  # Just "!" with nothing else
 
     return text
 
@@ -1603,6 +1731,7 @@ async def get_enhanced_input(
             "completion-menu.meta.completion": "bg:#ansiblack #ansiblue",
             "completion-menu.meta.completion.current": "bg:#ansibrightblack #ansiblue",
             "bottom-toolbar": "#ansiblack bg:#ansigray",
+            "shell-command": "#ansired",
         }
     )
     # Create session with history and completions
@@ -1614,6 +1743,7 @@ async def get_enhanced_input(
             is_human_input=is_human_input,
             current_agent=agent_name,
         ),
+        lexer=ShellPrefixLexer(),
         complete_while_typing=True,
         multiline=Condition(lambda: in_multiline_mode),
         complete_in_thread=True,
@@ -1674,13 +1804,25 @@ async def get_enhanced_input(
             runtime_info = shell_runtime.runtime_info()
             shell_name = runtime_info.get("name")
 
-    # Create formatted prompt text
-    arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
-    prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
+    def _resolve_prompt_text() -> HTML:
+        buffer_text = ""
+        try:
+            buffer_text = session.default_buffer.text
+        except Exception:
+            buffer_text = ""
 
-    # Add default value display if requested
-    if show_default and default and default != "STOP":
-        prompt_text = f"{prompt_text} [<ansigreen>{default}</ansigreen>] "
+        if buffer_text.lstrip().startswith("!"):
+            arrow_segment = "<ansired>❯</ansired>"
+        else:
+            arrow_segment = "<ansibrightyellow>❯</ansibrightyellow>" if shell_enabled else "❯"
+
+        prompt_text = f"<ansibrightblue>{agent_name}</ansibrightblue> {arrow_segment} "
+
+        # Add default value display if requested
+        if show_default and default and default != "STOP":
+            prompt_text = f"{prompt_text} [<ansigreen>{default}</ansigreen>] "
+
+        return HTML(prompt_text)
 
     # Only show hints at startup if requested
     if show_stop_hint:
@@ -1813,7 +1955,7 @@ async def get_enhanced_input(
 
     # Get the input - using async version
     try:
-        result = await session.prompt_async(HTML(prompt_text), default=buffer_default)
+        result = await session.prompt_async(_resolve_prompt_text, default=buffer_default)
         # Echo slash command input since erase_when_done clears it
         stripped = result.lstrip()
         if stripped.startswith("/"):
@@ -1982,6 +2124,7 @@ async def handle_special_commands(
         rich_print("  /history load <filename> - Load chat history from a file")
         rich_print("  /resume [id|number] - Resume the last or specified session")
         rich_print("  /session list - List recent sessions")
+        rich_print("  /session new [title] - Create a new session")
         rich_print("  /session resume [id|number] - Resume the last or specified session")
         rich_print("  /session title <text> - Set the current session title")
         rich_print("  /session fork [title] - Fork the current session")
@@ -2009,8 +2152,8 @@ async def handle_special_commands(
 
     elif command == "SESSION_HELP":
         rich_print(
-            "[yellow]Usage: /session list | /session resume [id|number] | /session title <text> "
-            "| /session fork [title] | /session clear <id|number|all>[/yellow]"
+            "[yellow]Usage: /session list | /session new [title] | /session resume [id|number] "
+            "| /session title <text> | /session fork [title] | /session clear <id|number|all>[/yellow]"
         )
         return True
 

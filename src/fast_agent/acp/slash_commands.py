@@ -215,7 +215,7 @@ class SlashCommandHandler:
                 description="List or manage sessions",
                 input=AvailableCommandInput(
                     root=UnstructuredCommandInput(
-                        hint="[list|resume|title|fork|clear] [args]"
+                        hint="[list|new|resume|title|fork|clear] [args]"
                     )
                 ),
             ),
@@ -464,6 +464,8 @@ class SlashCommandHandler:
 
         if subcmd == "list":
             return self._render_session_list()
+        if subcmd == "new":
+            return self._handle_session_new(argument)
         if subcmd == "resume":
             return self._handle_session_resume(argument)
         if subcmd == "title":
@@ -478,7 +480,7 @@ class SlashCommandHandler:
                 "# session",
                 "",
                 f"Unknown /session action: {subcmd}",
-                "Usage: /session [list|resume|title|fork|clear] [args]",
+                "Usage: /session [list|new|resume|title|fork|clear] [args]",
             ]
         )
 
@@ -865,6 +867,15 @@ class SlashCommandHandler:
             return "# session fork\n\nNo session available to fork."
         label = forked.info.metadata.get("title") or forked.info.name
         return f"# session fork\n\nForked session: {label}"
+
+    def _handle_session_new(self, argument: str) -> str:
+        from fast_agent.session import get_session_manager
+
+        title = argument.strip() or None
+        manager = get_session_manager()
+        session = manager.create_session(title)
+        label = session.info.metadata.get("title") or session.info.name
+        return f"# session new\n\nCreated session: {label}"
 
     def _handle_session_clear(self, argument: str) -> str:
         from fast_agent.session import get_session_history_window, get_session_manager
