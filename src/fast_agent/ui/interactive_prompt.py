@@ -890,15 +890,38 @@ class InteractivePrompt:
 
             # Handle shell command after input handling
             if shell_execute_cmd:
+                import os
+                import signal
                 import subprocess
 
                 print(f"$ {shell_execute_cmd}", flush=True)
                 try:
                     # Inherit stdio directly for real-time output (no Python buffering)
-                    result_proc = subprocess.run(shell_execute_cmd, shell=True)
+                    # Run in its own process group so Ctrl+C can interrupt the child.
+                    proc = subprocess.Popen(
+                        shell_execute_cmd,
+                        shell=True,
+                        start_new_session=True,
+                    )
+                    try:
+                        return_code = proc.wait()
+                    except KeyboardInterrupt:
+                        try:
+                            os.killpg(proc.pid, signal.SIGINT)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            return_code = proc.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            try:
+                                os.killpg(proc.pid, signal.SIGKILL)
+                            except ProcessLookupError:
+                                pass
+                            return_code = proc.wait()
+                        rich_print("[yellow]Shell command interrupted[/yellow]")
 
-                    if result_proc.returncode != 0:
-                        rich_print(f"[yellow]Exit code: {result_proc.returncode}[/yellow]")
+                    if return_code != 0:
+                        rich_print(f"[yellow]Exit code: {return_code}[/yellow]")
                 except Exception as e:
                     rich_print(f"[red]Shell error: {e}[/red]")
 
