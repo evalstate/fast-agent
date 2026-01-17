@@ -28,7 +28,6 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 from urllib.parse import quote, urlparse
 
-
 # -----------------
 # Data structures
 # -----------------

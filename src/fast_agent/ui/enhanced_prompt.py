@@ -805,7 +805,9 @@ class AgentCompleter(Completer):
                 search_dir = partial_path
                 prefix = ""
             else:
-                search_dir = partial_path.parent if partial_path.parent != partial_path else Path(".")
+                search_dir = (
+                    partial_path.parent if partial_path.parent != partial_path else Path(".")
+                )
                 prefix = partial_path.name
         else:
             search_dir = Path(".")
@@ -889,7 +891,6 @@ class AgentCompleter(Completer):
                 )
             yield from self._complete_session_ids(partial)
             return
-
 
         if text_lower.startswith("/skills "):
             remainder = text[len("/skills ") :]
@@ -1331,7 +1332,9 @@ def parse_special_input(text: str) -> str | CommandPayload:
                 return _load_history_cmd(None, "Filename required for /history load")
             return _load_history_cmd(filename, None)
         if cmd == "resume":
-            session_id = cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+            session_id = (
+                cmd_parts[1].strip() if len(cmd_parts) > 1 and cmd_parts[1].strip() else None
+            )
             return ResumeSessionCommand(session_id=session_id)
         if cmd == "session":
             remainder = cmd_parts[1].strip() if len(cmd_parts) > 1 else ""
@@ -1728,9 +1731,7 @@ async def get_enhanced_input(
         copy_notice = ""
         if _copy_notice:
             if time.monotonic() < _copy_notice_until:
-                copy_notice = (
-                    f" | <style fg='{mode_style}' bg='ansiblack'> {_copy_notice} </style>"
-                )
+                copy_notice = f" | <style fg='{mode_style}' bg='ansiblack'> {_copy_notice} </style>"
             else:
                 # Expire the notice once the timer elapses.
                 _copy_notice = None
@@ -1862,7 +1863,7 @@ async def get_enhanced_input(
             rich_print("[dim]Type /help for commands. Ctrl+T toggles multiline mode.[/dim]")
         else:
             rich_print(
-                "[dim]Type '/' for commands, '@' to switch agent, '#' to query agent. \nCtrl+T multiline, CTRL+Y copy last assistant message, CTRL+E external editor.[/dim]\n"
+                "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]\n"
             )
 
             # Display agent info right after help text if agent_provider is available

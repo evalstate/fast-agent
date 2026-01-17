@@ -946,6 +946,7 @@ class InteractivePrompt:
 
                     if return_code != 0:
                         rich_print(f"[yellow]Exit code: {return_code}[/yellow]")
+                    print()
                 except Exception as e:
                     rich_print(f"[red]Shell error: {e}[/red]")
 
