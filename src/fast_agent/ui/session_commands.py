@@ -30,14 +30,20 @@ async def handle_list_sessions_cmd(agent_app: "AgentApp | None" = None) -> bool:
     rich_print("\n[bold]Available Sessions:[/bold]")
     current = manager.current_session
     
+    # Calculate max width needed for index numbers
+    max_index_width = len(str(len(sessions)))
+    
     for i, session_info in enumerate(sessions, 1):
         current_marker = " 🟢" if current and current.info.name == session_info.name else ""
         created = session_info.created_at.strftime("%Y-%m-%d %H:%M")
         last_activity = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
         history_count = len(session_info.history_files)
         
+        # Right-align index with proper width
+        index_str = f"{i}.".rjust(max_index_width + 1)
+        
         rich_print(
-            f"  {i}. {session_info.name}{current_marker}\n"
+            f"  {index_str} {session_info.name}{current_marker}\n"
             f"     Created: {created} | Last: {last_activity} | Histories: {history_count}"
         )
     

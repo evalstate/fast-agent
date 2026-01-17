@@ -787,6 +787,10 @@ class SlashCommandHandler:
 
         current = manager.current_session
         lines = [heading, ""]
+        
+        # Calculate max width needed for index numbers
+        max_index_width = len(str(len(sessions)))
+        
         for index, session_info in enumerate(sessions, 1):
             is_current = current and current.info.name == session_info.name
             separator = " ▶ " if is_current else " - "
@@ -799,7 +803,11 @@ class SlashCommandHandler:
                 or ""
             )
             summary = " ".join(str(summary).split())
-            line = f"{index}. {session_info.name}{separator}{timestamp}"
+            
+            # Right-align index with proper width
+            index_str = f"{index}.".rjust(max_index_width + 1)
+            
+            line = f"{index_str} {session_info.name}{separator}{timestamp}"
             history_map = metadata.get("last_history_by_agent")
             if isinstance(history_map, dict) and history_map:
                 agent_names = sorted(history_map.keys())
