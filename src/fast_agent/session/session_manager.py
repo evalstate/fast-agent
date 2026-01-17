@@ -31,7 +31,10 @@ logger = get_logger(__name__)
 
 SESSION_ID_LENGTH = 6
 SESSION_ID_ALPHABET = string.ascii_letters + string.digits
-SESSION_ID_PATTERN = re.compile(rf"^[A-Za-z0-9]{{{SESSION_ID_LENGTH}}}$")
+SESSION_TIMESTAMP_FORMAT = "%y%m%d%H%M"
+SESSION_ID_PATTERN = re.compile(
+    rf"^(?:[A-Za-z0-9]{{{SESSION_ID_LENGTH}}}|\d{{10}}-[A-Za-z0-9]{{{SESSION_ID_LENGTH}}})$"
+)
 SESSION_LOCK_FILENAME = ".session.lock"
 SESSION_LOCK_STALE_SECONDS = 300
 
@@ -681,7 +684,9 @@ class SessionManager:
 
     def _generate_session_id(self) -> str:
         """Generate a secure session identifier."""
-        return "".join(secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH))
+        timestamp = datetime.now().strftime(SESSION_TIMESTAMP_FORMAT)
+        random_suffix = "".join(secrets.choice(SESSION_ID_ALPHABET) for _ in range(SESSION_ID_LENGTH))
+        return f"{timestamp}-{random_suffix}"
 
     def _copy_history_file(self, src_path: pathlib.Path, dest_dir: pathlib.Path) -> str:
         dest_name = src_path.name

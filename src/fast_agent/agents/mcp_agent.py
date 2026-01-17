@@ -1419,6 +1419,10 @@ class McpAgent(ABC, ToolAgent):
                 if agent_name not in server_names:
                     server_names.append(agent_name)
 
+        card_tools_label = self._card_tools_label()
+        if card_tools_label and card_tools_label not in server_names:
+            server_names.append(card_tools_label)
+
         # Extract servers from tool calls in the message for highlighting
         if highlight_items is None:
             highlight_servers = self._extract_servers_from_message(message)
@@ -1427,7 +1431,11 @@ class McpAgent(ABC, ToolAgent):
             if isinstance(highlight_items, str):
                 highlight_servers = [highlight_items]
             else:
-                highlight_servers = highlight_items
+                highlight_servers = list(highlight_items)
+
+        if card_tools_label and self._card_tools_used(message):
+            if card_tools_label not in highlight_servers:
+                highlight_servers.append(card_tools_label)
 
         # Call parent's implementation with server information
         await super().show_assistant_message(
