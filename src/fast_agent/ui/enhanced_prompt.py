@@ -1915,7 +1915,9 @@ async def get_enhanced_input(
                     working_dir_display = str(working_dir)
                 shell_display = f"{shell_display} | cwd: {working_dir_display}"
 
-            rich_print(f"[yellow]Agents have shell[/yellow][dim] ({shell_display})[/dim]")
+            rich_print(
+                f"[yellow][bold]Agents have shell[/bold][/yellow][dim] ({shell_display})[/dim]"
+            )
 
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:

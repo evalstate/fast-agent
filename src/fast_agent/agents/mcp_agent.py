@@ -375,10 +375,7 @@ class McpAgent(ABC, ToolAgent):
 
         # Warn if skills configured but placeholder missing
         if self._skill_manifests and "{{agentSkills}}" not in self._instruction_template:
-            warning_message = (
-                f"Agent '{self._name}' skills are configured but the system prompt does not include "
-                "{{agentSkills}}. Skill descriptions will not be added to the system prompt."
-            )
+            warning_message = f"[dim]Agent '{self._name}' skills are configured but no {{{{agentSkills}}}} in system prompt.[/dim]"
             self._record_warning(warning_message)
 
         self.logger.debug(f"Applied instruction templates for agent {self._name}")
