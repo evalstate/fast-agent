@@ -935,28 +935,63 @@ class InteractivePrompt:
                             import fcntl
                             import pty
                             import select
+                            import shutil
+                            import struct
                             import termios
                             import tty
 
                             termios_module = termios
                             master_fd, slave_fd = pty.openpty()
-                            if tty_fd is not None:
+
+                            def _get_winsize() -> bytes:
+                                if tty_fd is not None:
+                                    try:
+                                        packed = fcntl.ioctl(
+                                            tty_fd, termios.TIOCGWINSZ, b"\0" * 8
+                                        )
+                                        rows, cols, xpix, ypix = struct.unpack(
+                                            "HHHH", packed
+                                        )
+                                        if rows and cols:
+                                            return struct.pack(
+                                                "HHHH", rows, cols, xpix, ypix
+                                            )
+                                    except Exception:
+                                        pass
+                                size = shutil.get_terminal_size(fallback=(80, 24))
+                                return struct.pack("HHHH", size.lines, size.columns, 0, 0)
+
+                            def _apply_winsize(target_fd: int, winsize: bytes) -> None:
                                 try:
-                                    winsize = fcntl.ioctl(
-                                        tty_fd, termios.TIOCGWINSZ, b"\0" * 8
-                                    )
-                                    fcntl.ioctl(slave_fd, termios.TIOCSWINSZ, winsize)
-                                    fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
+                                    fcntl.ioctl(target_fd, termios.TIOCSWINSZ, winsize)
                                 except Exception:
                                     pass
+
+                            winsize = _get_winsize()
+                            _apply_winsize(slave_fd, winsize)
+                            _apply_winsize(master_fd, winsize)
+                            rows, cols, _, _ = struct.unpack("HHHH", winsize)
+                            env = os.environ.copy()
+                            if rows and cols:
+                                env["COLUMNS"] = str(cols)
+                                env["LINES"] = str(rows)
+
+                            def _preexec() -> None:
+                                if hasattr(termios, "TIOCSCTTY"):
+                                    try:
+                                        fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+                                    except Exception:
+                                        pass
                             proc = subprocess.Popen(
                                 shell_execute_cmd,
                                 shell=True,
                                 start_new_session=True,
+                                preexec_fn=_preexec,
                                 stdin=slave_fd,
                                 stdout=slave_fd,
                                 stderr=slave_fd,
                                 close_fds=True,
+                                env=env,
                             )
                             os.close(slave_fd)
 
@@ -964,13 +999,7 @@ class InteractivePrompt:
                                 def _handle_winch(_signum, _frame) -> None:
                                     if tty_fd is None or master_fd is None:
                                         return
-                                    try:
-                                        winsize = fcntl.ioctl(
-                                            tty_fd, termios.TIOCGWINSZ, b"\0" * 8
-                                        )
-                                        fcntl.ioctl(master_fd, termios.TIOCSWINSZ, winsize)
-                                    except Exception:
-                                        pass
+                                    _apply_winsize(master_fd, _get_winsize())
 
                                 old_winch_handler = signal.getsignal(signal.SIGWINCH)
                                 signal.signal(signal.SIGWINCH, _handle_winch)
