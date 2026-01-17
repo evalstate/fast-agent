@@ -891,10 +891,8 @@ class InteractivePrompt:
             # Handle shell command after input handling
             if shell_execute_cmd:
                 import errno
-                import fcntl
                 import os
                 import signal
-                import struct
                 import subprocess
                 import sys
 
@@ -950,8 +948,10 @@ class InteractivePrompt:
                             use_pty = True
 
                     if use_pty:
+                        import fcntl
                         import pty
                         import select
+                        import struct
                         import termios
                         import tty
 
