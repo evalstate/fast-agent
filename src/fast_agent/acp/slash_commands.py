@@ -767,7 +767,11 @@ class SlashCommandHandler:
     def _render_session_list(self) -> str:
         """Render a list of recent sessions."""
         heading = "# sessions"
-        from fast_agent.session import get_session_history_window, get_session_manager
+        from fast_agent.session import (
+            format_session_entries,
+            get_session_history_window,
+            get_session_manager,
+        )
 
         manager = get_session_manager()
         sessions = manager.list_sessions()
@@ -786,43 +790,12 @@ class SlashCommandHandler:
             )
 
         current = manager.current_session
-        lines = [heading, ""]
-        
-        # Calculate max width needed for index numbers
-        max_index_width = len(str(len(sessions)))
-        
-        for index, session_info in enumerate(sessions, 1):
-            is_current = current and current.info.name == session_info.name
-            separator = " ▶ " if is_current else " - "
-            timestamp = session_info.last_activity.strftime("%b %d %H:%M")
-            metadata = session_info.metadata or {}
-            summary = (
-                metadata.get("title")
-                or metadata.get("label")
-                or metadata.get("first_user_preview")
-                or ""
-            )
-            summary = " ".join(str(summary).split())
-            
-            # Right-align index with proper width
-            index_str = f"{index}.".rjust(max_index_width + 1)
-            
-            line = f"{index_str} {session_info.name}{separator}{timestamp}"
-            history_map = metadata.get("last_history_by_agent")
-            if isinstance(history_map, dict) and history_map:
-                agent_names = sorted(history_map.keys())
-                if len(agent_names) > 1:
-                    display_names = agent_names
-                    if len(agent_names) > 3:
-                        display_names = agent_names[:3] + [f"+{len(agent_names) - 3}"]
-                    agent_label = ", ".join(display_names)
-                    line = f"{line} - {len(agent_names)} agents: {agent_label}"
-            if summary:
-                summary = summary[:30]
-                line = f"{line} - {summary}"
-            lines.append(line)
-
-        lines.extend(["", "Usage: /session resume <id|number>"])
+        entries = format_session_entries(
+            sessions,
+            current.info.name if current else None,
+            mode="compact",
+        )
+        lines = [heading, "", *entries, "", "Usage: /session resume <id|number>"]
         return "\n".join(lines)
 
     def _handle_session_resume(self, argument: str) -> str:
@@ -886,7 +859,10 @@ class SlashCommandHandler:
         return f"# session new\n\nCreated session: {label}"
 
     def _handle_session_clear(self, argument: str) -> str:
-        from fast_agent.session import get_session_history_window, get_session_manager
+        from fast_agent.session import (
+            get_session_history_window,
+            get_session_manager,
+        )
 
         target = argument.strip()
         if not target:

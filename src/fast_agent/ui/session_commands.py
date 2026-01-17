@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fast_agent.session import get_session_manager
+from fast_agent.session import format_session_entries, get_session_manager
 from fast_agent.ui.command_payloads import (
     CreateSessionCommand,
     ForkSessionCommand,
@@ -29,24 +29,14 @@ async def handle_list_sessions_cmd(agent_app: "AgentApp | None" = None) -> bool:
     
     rich_print("\n[bold]Available Sessions:[/bold]")
     current = manager.current_session
-    
-    # Calculate max width needed for index numbers
-    max_index_width = len(str(len(sessions)))
-    
-    for i, session_info in enumerate(sessions, 1):
-        current_marker = " 🟢" if current and current.info.name == session_info.name else ""
-        created = session_info.created_at.strftime("%Y-%m-%d %H:%M")
-        last_activity = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
-        history_count = len(session_info.history_files)
-        
-        # Right-align index with proper width
-        index_str = f"{i}.".rjust(max_index_width + 1)
-        
-        rich_print(
-            f"  {index_str} {session_info.name}{current_marker}\n"
-            f"     Created: {created} | Last: {last_activity} | Histories: {history_count}"
-        )
-    
+    entries = format_session_entries(
+        sessions,
+        current.info.name if current else None,
+        mode="verbose",
+    )
+    for line in entries:
+        rich_print(line)
+
     rich_print("\n[dim]Use /create_session <name> to create a new session[/dim]")
     rich_print("[dim]Use /switch_session <name> to switch to a session[/dim]")
     return True

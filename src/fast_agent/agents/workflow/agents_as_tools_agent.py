@@ -59,7 +59,7 @@ Algorithm
    - Partition them into **child-agent tools** and **regular MCP/local tools**.
    - Child-agent tools are executed in parallel:
      - For each child tool call, spawn a detached clone with its own LLM + MCP aggregator and suffixed name.
-     - Emit `ProgressAction.CHATTING` / `ProgressAction.FINISHED` events for each instance and keep parent status untouched.
+     - Emit `ProgressAction.CHATTING` / `ProgressAction.READY` events for each instance and keep parent status untouched.
      - Merge each clone's usage back into the template child after shutdown.
    - Remaining MCP/local tools are delegated to `McpAgent.run_tools()`.
    - Child and MCP results (and their error text from `FAST_AGENT_ERROR_CHANNEL`) are merged into a single `PromptMessageExtended` that is returned to the parent LLM.
@@ -88,14 +88,14 @@ table) undergoes dynamic updates:
 - Parent status lines remain visible for context while children run.
 
 **As each instance completes:**
-- We emit `ProgressAction.FINISHED` with elapsed time, keeping the line in the panel for auditability.
+- We emit `ProgressAction.READY` to mark completion, keeping the line in the panel for auditability.
 - Other instances continue showing their independent progress until they also finish.
 
 **After all parallel executions complete:**
-- Finished instance lines remain until the parent agent moves on, giving a full record of what ran.
+- Ready instance lines remain until the parent agent moves on, giving a full record of what ran.
 - Parent and child template names stay untouched because clones carry the suffixed identity.
 
-- **Instance line visibility**: We now leave finished instance lines visible (marked `FINISHED`)
+- **Instance line visibility**: We now leave finished instance lines visible (marked `READY`)
   instead of hiding them immediately, preserving a full audit trail of parallel runs.
 - **Chat log separation**: Each parallel instance gets its own tool request/result headers
   with instance numbers [1], [2], etc. for traceability.
@@ -869,9 +869,9 @@ class AgentsAsToolsAgent(McpAgent):
                 if progress_started and instance_name:
                     outer_progress_display.update(
                         ProgressEvent(
-                            action=ProgressAction.FINISHED,
+                            action=ProgressAction.READY,
                             target=instance_name,
-                            details="Completed",
+                            details=None,
                             agent_name=instance_name,
                             correlation_id=correlation_id,
                             instance_name=instance_name,

@@ -401,6 +401,7 @@ class InteractivePrompt:
                         continue
                     case ListSessionsCommand():
                         from fast_agent.session import (
+                            format_session_entries,
                             get_session_history_window,
                             get_session_manager,
                         )
@@ -415,48 +416,13 @@ class InteractivePrompt:
                             continue
 
                         current = manager.current_session
+                        entries = format_session_entries(
+                            sessions,
+                            current.info.name if current else None,
+                            mode="compact",
+                        )
                         rich_print("Sessions:")
-                        for index, session_info in enumerate(sessions, 1):
-                            is_current = (
-                                current and current.info.name == session_info.name
-                            )
-                            separator = " ▶ " if is_current else " - "
-                            timestamp = session_info.last_activity.strftime("%b %d %H:%M")
-                            metadata = session_info.metadata or {}
-                            summary = (
-                                metadata.get("title")
-                                or metadata.get("label")
-                                or metadata.get("first_user_preview")
-                                or ""
-                            )
-                            summary = " ".join(str(summary).split())
-                            agent_summary = ""
-                            history_map = metadata.get("last_history_by_agent")
-                            if isinstance(history_map, dict) and history_map:
-                                agent_names = sorted(history_map.keys())
-                                if len(agent_names) > 1:
-                                    display_names = agent_names
-                                    if len(agent_names) > 3:
-                                        display_names = agent_names[:3] + [
-                                            f"+{len(agent_names) - 3}"
-                                        ]
-                                    agent_label = ", ".join(display_names)
-                                    agent_summary = (
-                                        f"{len(agent_names)} agents: {agent_label}"
-                                    )
-                            line = (
-                                f"  {index}. {session_info.name}"
-                                f"{separator}{timestamp}"
-                            )
-                            if summary:
-                                summary = summary[:30]
-                                if agent_summary:
-                                    line = f"{line} - {agent_summary} - {summary}"
-                                else:
-                                    line = f"{line} - {summary}"
-                            else:
-                                if agent_summary:
-                                    line = f"{line} - {agent_summary}"
+                        for line in entries:
                             rich_print(line)
                         rich_print("[dim]Usage: /session resume <id|number>[/dim]")
                         continue

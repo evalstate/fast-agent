@@ -40,15 +40,14 @@ def _merge_card_sources(
             if entry not in seen:
                 merged.append(entry)
                 seen.add(entry)
+        return merged
     if default_dir.is_dir():
         has_cards = any(
             entry.is_file() and entry.suffix.lower() in CARD_EXTENSIONS
             for entry in default_dir.iterdir()
         )
         if has_cards:
-            default_entry = str(default_dir)
-            if default_entry not in seen:
-                merged.append(default_entry)
+            merged.append(str(default_dir))
     return merged or None
 
 

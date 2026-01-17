@@ -114,6 +114,7 @@ class Session:
         self.directory = directory
         self._dirty = False
 
+
     async def save_history(self, agent: AgentProtocol, filename: str | None = None) -> str:
         """Save agent history to this session."""
         from fast_agent.history.history_exporter import HistoryExporter
@@ -121,19 +122,42 @@ class Session:
         self.info.last_activity = datetime.now()
         self._dirty = True
 
+        rotating = filename is None
+        current_filename: str | None = None
+        previous_filename: str | None = None
+
         # Generate filename if not provided
         if filename is None:
-            timestamp = datetime.now().strftime("%y%m%d_%H%M%S")
             agent_name = getattr(agent, "name", None)
             agent_label = _sanitize_component(agent_name or "agent")
-            filename = f"history_{timestamp}_{agent_label}.json"
-
-        filepath = self.directory / filename
-        result = await HistoryExporter.save(agent, str(filepath))
+            current_filename = f"history_{agent_label}.json"
+            previous_filename = f"history_{agent_label}_previous.json"
+            result = await self._save_rotating_history(
+                agent,
+                current_filename=current_filename,
+                previous_filename=previous_filename,
+            )
+            filename = current_filename
+        else:
+            filepath = self.directory / filename
+            result = await HistoryExporter.save(agent, str(filepath))
 
         # Update session info
-        if filename not in self.info.history_files:
-            self.info.history_files.append(filename)
+        if rotating and current_filename:
+            history_files = [
+                name
+                for name in self.info.history_files
+                if name not in {current_filename, previous_filename}
+            ]
+            if previous_filename:
+                previous_path = self.directory / previous_filename
+                if previous_path.exists():
+                    history_files.append(previous_filename)
+            history_files.append(current_filename)
+            self.info.history_files = history_files
+        else:
+            if filename not in self.info.history_files:
+                self.info.history_files.append(filename)
 
         agent_name = getattr(agent, "name", None)
         if agent_name:
@@ -150,6 +174,48 @@ class Session:
 
         self._save_metadata()
         return result
+
+    async def _save_rotating_history(
+        self,
+        agent: AgentProtocol,
+        *,
+        current_filename: str,
+        previous_filename: str,
+    ) -> str:
+        """Save history using a current/previous rotation scheme."""
+        from fast_agent.history.history_exporter import HistoryExporter
+
+        current_path = self.directory / current_filename
+        previous_path = self.directory / previous_filename
+        temp_path: pathlib.Path | None = None
+
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                delete=False,
+                dir=self.directory,
+                prefix=f".{current_filename}.",
+                suffix=".tmp",
+            ) as handle:
+                temp_path = pathlib.Path(handle.name)
+
+            await HistoryExporter.save(agent, str(temp_path))
+
+            if current_path.exists():
+                os.replace(current_path, previous_path)
+            os.replace(temp_path, current_path)
+        finally:
+            if temp_path and temp_path.exists():
+                try:
+                    temp_path.unlink()
+                except Exception:
+                    logger.warning(
+                        "Failed to clean up history temp file",
+                        data={"path": str(temp_path)},
+                    )
+
+        return str(current_path)
 
     def _save_metadata(self) -> None:
         """Save session metadata."""
