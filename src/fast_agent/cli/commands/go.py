@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import os
 import shlex
 import sys
 from pathlib import Path
@@ -12,7 +13,7 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
-from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION
+from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.utils.async_utils import configure_uvloop, create_event_loop, ensure_event_loop
 
@@ -697,6 +698,14 @@ def go(
         --reload              Enable manual AgentCard reloads (/reload)
         --watch               Watch AgentCard paths and reload
     """
+    if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
+        typer.echo(
+            "fast-agent is already running inside a fast-agent shell command. "
+            "Exit the shell or unset FAST_AGENT_SHELL_CHILD to continue.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     # Collect all stdio commands from convenience options
     stdio_commands = collect_stdio_commands(npx, uvx, stdio)
     shell_enabled = shell

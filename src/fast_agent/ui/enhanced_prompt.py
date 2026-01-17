@@ -5,7 +5,9 @@ Enhanced prompt functionality with advanced prompt_toolkit features.
 import asyncio
 import json
 import os
+import platform
 import shlex
+import shutil
 import subprocess
 import tempfile
 import time
@@ -119,6 +121,27 @@ def _switch_agent_cmd(agent_name: str) -> SwitchAgentCommand:
 
 def _hash_agent_cmd(agent_name: str, message: str) -> HashAgentCommand:
     return HashAgentCommand(agent_name=agent_name, message=message)
+
+
+def _default_shell_command() -> str:
+    """Best-effort shell choice for interactive prompt commands."""
+    if platform.system() == "Windows":
+        for shell_name in ["pwsh", "powershell", "cmd"]:
+            shell_path = shutil.which(shell_name)
+            if shell_path:
+                return shell_path
+        return os.environ.get("COMSPEC", "cmd.exe")
+
+    shell_env = os.environ.get("SHELL")
+    if shell_env and Path(shell_env).exists():
+        return shell_env
+
+    for shell_name in ["bash", "zsh", "sh"]:
+        shell_path = shutil.which(shell_name)
+        if shell_path:
+            return shell_path
+
+    return "sh"
 
 
 def _show_history_cmd(target_agent: str | None) -> ShowHistoryCommand:
@@ -1503,7 +1526,7 @@ def parse_special_input(text: str) -> str | CommandPayload:
         command = cmd_line[1:].strip()
         if command:
             return ShellCommand(command=command)
-        return ""  # Just "!" with nothing else
+        return ShellCommand(command=_default_shell_command())
 
     return text
 
@@ -1760,6 +1783,8 @@ async def get_enhanced_input(
             "shell-command": "#ansired",
         }
     )
+    erase_when_done = True
+
     # Create session with history and completions
     session = PromptSession(
         history=agent_histories[agent_name],
@@ -1776,7 +1801,7 @@ async def get_enhanced_input(
         mouse_support=False,
         bottom_toolbar=get_toolbar,
         style=custom_style,
-        erase_when_done=True,
+        erase_when_done=erase_when_done,
     )
 
     # Create key bindings with a reference to the app
@@ -1981,11 +2006,17 @@ async def get_enhanced_input(
 
     # Get the input - using async version
     try:
-        result = await session.prompt_async(_resolve_prompt_text, default=buffer_default)
-        # Echo slash command input since erase_when_done clears it
-        stripped = result.lstrip()
-        if stripped.startswith("/"):
-            rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
+        result = await session.prompt_async(
+            _resolve_prompt_text,
+            default=buffer_default,
+        )
+        # Echo slash command input if the prompt was erased.
+        if erase_when_done:
+            stripped = result.lstrip()
+            if stripped.startswith("/"):
+                rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
+            elif stripped.startswith("!"):
+                rich_print(f"[dim]{agent_name} ❯ {stripped.splitlines()[0]}[/dim]")
         return parse_special_input(result)
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully

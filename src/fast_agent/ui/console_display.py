@@ -188,6 +188,10 @@ class ConsoleDisplay:
             pre_content: Optional Rich Text shown before the main content
             render_markdown: Force markdown rendering (True) or plain rendering (False)
         """
+        # Ensure Rich writes to a blocking TTY when stdout/stderr was
+        # flipped to non-blocking by the event loop (e.g. uvloop).
+        console.ensure_blocking_console()
+
         # Get configuration for this message type
         config = MESSAGE_CONFIGS[message_type]
 

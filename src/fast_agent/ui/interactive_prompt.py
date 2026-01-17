@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 from fast_agent.agents.agent_types import AgentType
 from fast_agent.config import get_settings
-from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY
+from fast_agent.constants import CONTROL_MESSAGE_SAVE_HISTORY, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.exceptions import AgentConfigError, format_fast_agent_error
 from fast_agent.core.instruction_refresh import rebuild_agent_instruction
 from fast_agent.history.history_exporter import HistoryExporter
@@ -890,15 +890,41 @@ class InteractivePrompt:
 
             # Handle shell command after input handling
             if shell_execute_cmd:
+                import errno
+                import fcntl
                 import os
                 import signal
+                import struct
                 import subprocess
                 import sys
 
+                output_buffer = ""
+                max_output_chars = 50000
+                return_code = 0
+                proc: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None
+                master_fd: int | None = None
+                tty_fd: int | None = None
+                tty_in_fd: int | None = None
+                tty_out_fd: int | None = None
+                opened_tty = False
+                old_tty: list[int] | None = None
+                termios_module = None
+                needs_scroll_reset = False
+                scan_tail = b""
+                alt_screen_modes: set[str] = set()
+
+                def _append_output(chunk: str) -> None:
+                    nonlocal output_buffer
+                    output_buffer += chunk
+                    if len(output_buffer) > max_output_chars:
+                        output_buffer = output_buffer[-max_output_chars:]
+
                 print(f"$ {shell_execute_cmd}", flush=True)
+
+                shell_env = os.environ.copy()
+                shell_env[FAST_AGENT_SHELL_CHILD_ENV] = "1"
+
                 try:
-                    output_buffer = ""
-                    max_output_chars = 50000
                     settings = get_settings()
                     shell_settings = getattr(settings, "shell_execution", None)
                     use_pty_setting = True
@@ -907,219 +933,210 @@ class InteractivePrompt:
                             getattr(shell_settings, "interactive_use_pty", True)
                         )
 
-                    def _append_output(chunk: str) -> None:
-                        nonlocal output_buffer
-                        output_buffer += chunk
-                        if len(output_buffer) > max_output_chars:
-                            output_buffer = output_buffer[-max_output_chars:]
+                    use_pty = False
+                    if use_pty_setting and os.name != "nt":
+                        try:
+                            tty_fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+                        except OSError:
+                            tty_fd = None
+                        if tty_fd is not None and os.isatty(tty_fd):
+                            tty_in_fd = tty_fd
+                            tty_out_fd = tty_fd
+                            opened_tty = True
+                            use_pty = True
+                        elif sys.stdin.isatty() and sys.stdout.isatty():
+                            tty_in_fd = sys.stdin.fileno()
+                            tty_out_fd = sys.stdout.fileno()
+                            use_pty = True
 
-                    proc: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None
-                    master_fd: int | None = None
-                    tty_fd: int | None = None
-                    old_tty: list[int] | None = None
-                    termios_module = None
-                    old_winch_handler = None
-                    try:
-                        # Prefer a PTY so colors render (many tools disable color on pipes).
-                        use_pty = False
-                        if use_pty_setting and os.name != "nt":
+                    if use_pty:
+                        import pty
+                        import select
+                        import termios
+                        import tty
+
+                        termios_module = termios
+                        master_fd, slave_fd = pty.openpty()
+                        if tty_in_fd is not None and os.isatty(tty_in_fd):
                             try:
-                                tty_fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
+                                packed = fcntl.ioctl(
+                                    tty_in_fd,
+                                    termios.TIOCGWINSZ,
+                                    struct.pack("HHHH", 0, 0, 0, 0),
+                                )
+                                rows, cols, xpixels, ypixels = struct.unpack("HHHH", packed)
+                                if rows and cols:
+                                    fcntl.ioctl(
+                                        slave_fd,
+                                        termios.TIOCSWINSZ,
+                                        struct.pack("HHHH", rows, cols, xpixels, ypixels),
+                                    )
                             except OSError:
-                                tty_fd = None
-                            if tty_fd is not None and os.isatty(tty_fd) and sys.stdout.isatty():
-                                use_pty = True
+                                pass
 
-                        if use_pty:
-                            import errno
-                            import fcntl
-                            import pty
-                            import select
-                            import shutil
-                            import struct
-                            import termios
-                            import tty
-
-                            termios_module = termios
-                            master_fd, slave_fd = pty.openpty()
-
-                            def _get_winsize() -> bytes:
-                                if tty_fd is not None:
-                                    try:
-                                        packed = fcntl.ioctl(
-                                            tty_fd, termios.TIOCGWINSZ, b"\0" * 8
-                                        )
-                                        rows, cols, xpix, ypix = struct.unpack(
-                                            "HHHH", packed
-                                        )
-                                        if rows and cols:
-                                            return struct.pack(
-                                                "HHHH", rows, cols, xpix, ypix
-                                            )
-                                    except Exception:
-                                        pass
-                                size = shutil.get_terminal_size(fallback=(80, 24))
-                                return struct.pack("HHHH", size.lines, size.columns, 0, 0)
-
-                            def _apply_winsize(target_fd: int, winsize: bytes) -> None:
-                                try:
-                                    fcntl.ioctl(target_fd, termios.TIOCSWINSZ, winsize)
-                                except Exception:
-                                    pass
-
-                            winsize = _get_winsize()
-                            _apply_winsize(slave_fd, winsize)
-                            _apply_winsize(master_fd, winsize)
-                            rows, cols, _, _ = struct.unpack("HHHH", winsize)
-                            env = os.environ.copy()
-                            if rows and cols:
-                                env["COLUMNS"] = str(cols)
-                                env["LINES"] = str(rows)
-
-                            def _preexec() -> None:
-                                if hasattr(termios, "TIOCSCTTY"):
-                                    try:
-                                        fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
-                                    except Exception:
-                                        pass
-                            proc = subprocess.Popen(
-                                shell_execute_cmd,
-                                shell=True,
-                                start_new_session=True,
-                                preexec_fn=_preexec,
-                                stdin=slave_fd,
-                                stdout=slave_fd,
-                                stderr=slave_fd,
-                                close_fds=True,
-                                env=env,
-                            )
-                            os.close(slave_fd)
-
-                            if tty_fd is not None:
-                                def _handle_winch(_signum, _frame) -> None:
-                                    if tty_fd is None or master_fd is None:
-                                        return
-                                    _apply_winsize(master_fd, _get_winsize())
-
-                                old_winch_handler = signal.getsignal(signal.SIGWINCH)
-                                signal.signal(signal.SIGWINCH, _handle_winch)
-
-                            def _write_bytes(data: bytes) -> None:
-                                if hasattr(sys.stdout, "buffer"):
-                                    sys.stdout.buffer.write(data)
-                                else:
-                                    sys.stdout.write(data.decode(errors="replace"))
-                                sys.stdout.flush()
-
-                            if tty_fd is not None and os.isatty(tty_fd):
-                                old_tty = termios.tcgetattr(tty_fd)
-                                tty.setraw(tty_fd)
-
-                            while True:
-                                read_fds = [master_fd]
-                                if tty_fd is not None and os.isatty(tty_fd):
-                                    read_fds.append(tty_fd)
-                                ready, _, _ = select.select(read_fds, [], [], 0.1)
-                                if master_fd in ready:
-                                    try:
-                                        data = os.read(master_fd, 1024)
-                                    except OSError as read_error:
-                                        if read_error.errno == errno.EIO:
-                                            break
-                                        raise
-                                    if not data:
-                                        break
-                                    _write_bytes(data)
-                                    _append_output(data.decode(errors="replace"))
-
-                                if (
-                                    tty_fd is not None
-                                    and os.isatty(tty_fd)
-                                    and tty_fd in ready
-                                ):
-                                    try:
-                                        input_data = os.read(tty_fd, 1024)
-                                    except OSError:
-                                        input_data = b""
-                                    if input_data:
-                                        if b"\x03" in input_data and proc is not None:
-                                            os.killpg(proc.pid, signal.SIGINT)
-                                            input_data = input_data.replace(b"\x03", b"")
-                                        if input_data:
-                                            os.write(master_fd, input_data)
-
-                            return_code = proc.wait()
-                        else:
-                            proc = subprocess.Popen(
-                                shell_execute_cmd,
-                                shell=True,
-                                start_new_session=True,
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.STDOUT,
-                                text=True,
-                                bufsize=1,
-                                errors="replace",
-                            )
-                            if proc.stdout is not None:
-                                for line in iter(proc.stdout.readline, ""):
-                                    sys.stdout.write(line)
-                                    sys.stdout.flush()
-                                    _append_output(line)
-                                    if proc.poll() is not None:
-                                        break
-                            return_code = proc.wait()
-                    except KeyboardInterrupt:
-                        if proc is not None:
+                        def _configure_pty_child() -> None:
                             try:
-                                os.killpg(proc.pid, signal.SIGINT)
+                                os.setsid()
+                            except OSError:
+                                pass
+                            try:
+                                fcntl.ioctl(slave_fd, termios.TIOCSCTTY, 0)
+                            except OSError:
+                                pass
+
+                        proc = subprocess.Popen(
+                            shell_execute_cmd,
+                            shell=True,
+                            stdin=slave_fd,
+                            stdout=slave_fd,
+                            stderr=slave_fd,
+                            close_fds=True,
+                            preexec_fn=_configure_pty_child,
+                            env=shell_env,
+                        )
+                        os.close(slave_fd)
+
+                        if tty_in_fd is not None and os.isatty(tty_in_fd):
+                            old_tty = termios.tcgetattr(tty_in_fd)
+                            tty.setraw(tty_in_fd)
+
+                        while True:
+                            read_fds = [master_fd]
+                            if tty_in_fd is not None and os.isatty(tty_in_fd):
+                                read_fds.append(tty_in_fd)
+                            ready, _, _ = select.select(read_fds, [], [], 0.1)
+                            if master_fd in ready:
+                                try:
+                                    data = os.read(master_fd, 1024)
+                                except OSError as exc:
+                                    if exc.errno == errno.EIO:
+                                        break
+                                    raise
+                                if not data:
+                                    break
+                                scan_data = scan_tail + data
+                                if b"\x1b[?1049h" in scan_data:
+                                    alt_screen_modes.add("1049")
+                                    needs_scroll_reset = True
+                                if b"\x1b[?1047h" in scan_data:
+                                    alt_screen_modes.add("1047")
+                                    needs_scroll_reset = True
+                                if b"\x1b[?47h" in scan_data:
+                                    alt_screen_modes.add("47")
+                                    needs_scroll_reset = True
+                                if b"\x1b[?1049l" in scan_data:
+                                    alt_screen_modes.discard("1049")
+                                    needs_scroll_reset = True
+                                if b"\x1b[?1047l" in scan_data:
+                                    alt_screen_modes.discard("1047")
+                                    needs_scroll_reset = True
+                                if b"\x1b[?47l" in scan_data:
+                                    alt_screen_modes.discard("47")
+                                    needs_scroll_reset = True
+                                scan_tail = scan_data[-16:]
+                                if tty_out_fd is not None and os.isatty(tty_out_fd):
+                                    os.write(tty_out_fd, data)
+                                else:
+                                    sys.stdout.buffer.write(data)
+                                    sys.stdout.flush()
+                                _append_output(data.decode(errors="replace"))
+
+                            if (
+                                tty_in_fd is not None
+                                and os.isatty(tty_in_fd)
+                                and tty_in_fd in ready
+                            ):
+                                try:
+                                    input_data = os.read(tty_in_fd, 1024)
+                                except OSError:
+                                    input_data = b""
+                                if b"\x03" in input_data and proc is not None:
+                                    os.killpg(proc.pid, signal.SIGINT)
+                                    input_data = input_data.replace(b"\x03", b"")
+                                if input_data:
+                                    os.write(master_fd, input_data)
+
+                        return_code = proc.wait()
+                    else:
+                        proc = subprocess.Popen(
+                            shell_execute_cmd,
+                            shell=True,
+                            start_new_session=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1,
+                            errors="replace",
+                            env=shell_env,
+                        )
+                        if proc.stdout is not None:
+                            for line in iter(proc.stdout.readline, ""):
+                                sys.stdout.write(line)
+                                sys.stdout.flush()
+                                _append_output(line)
+                                if proc.poll() is not None:
+                                    break
+                        return_code = proc.wait()
+                except KeyboardInterrupt:
+                    if proc is not None:
+                        try:
+                            os.killpg(proc.pid, signal.SIGINT)
+                        except ProcessLookupError:
+                            pass
+                        try:
+                            return_code = proc.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            try:
+                                os.killpg(proc.pid, signal.SIGKILL)
                             except ProcessLookupError:
                                 pass
-                            try:
-                                return_code = proc.wait(timeout=2)
-                            except subprocess.TimeoutExpired:
-                                try:
-                                    os.killpg(proc.pid, signal.SIGKILL)
-                                except ProcessLookupError:
-                                    pass
-                                return_code = proc.wait()
-                            rich_print("[yellow]Shell command interrupted[/yellow]")
-                        else:
-                            return_code = 1
-                    finally:
-                        if old_tty is not None and tty_fd is not None and termios_module:
-                            try:
-                                termios_module.tcsetattr(
-                                    tty_fd, termios_module.TCSADRAIN, old_tty
-                                )
-                            except Exception:
-                                pass
-                        if old_winch_handler is not None:
-                            try:
-                                signal.signal(signal.SIGWINCH, old_winch_handler)
-                            except Exception:
-                                pass
-                        if master_fd is not None:
-                            try:
-                                os.close(master_fd)
-                            except OSError:
-                                pass
-                        if tty_fd is not None:
-                            try:
-                                os.close(tty_fd)
-                            except OSError:
-                                pass
-                        if use_pty:
-                            sys.stdout.write("\x1b[r\x1b[?1049l")
-                            sys.stdout.flush()
+                            return_code = proc.wait()
+                        rich_print("[yellow]Shell command interrupted[/yellow]")
+                    else:
+                        return_code = 1
+                finally:
+                    if old_tty is not None and tty_in_fd is not None and termios_module:
+                        try:
+                            termios_module.tcsetattr(
+                                tty_in_fd, termios_module.TCSADRAIN, old_tty
+                            )
+                        except Exception:
+                            pass
+                    if alt_screen_modes and tty_out_fd is not None and os.isatty(tty_out_fd):
+                        try:
+                            seq = b""
+                            if "1049" in alt_screen_modes:
+                                seq += b"\x1b[?1049l"
+                            if "1047" in alt_screen_modes:
+                                seq += b"\x1b[?1047l"
+                            if "47" in alt_screen_modes:
+                                seq += b"\x1b[?47l"
+                            if seq:
+                                os.write(tty_out_fd, seq)
+                        except OSError:
+                            pass
+                    if needs_scroll_reset and tty_out_fd is not None and os.isatty(tty_out_fd):
+                        try:
+                            os.write(tty_out_fd, b"\x1b[r")
+                        except OSError:
+                            pass
+                    if master_fd is not None:
+                        try:
+                            os.close(master_fd)
+                        except OSError:
+                            pass
+                    if opened_tty and tty_fd is not None:
+                        try:
+                            os.close(tty_fd)
+                        except OSError:
+                            pass
 
-                    if output_buffer.strip():
-                        set_last_copyable_output(output_buffer.rstrip())
+                if output_buffer.strip():
+                    set_last_copyable_output(output_buffer.rstrip())
 
-                    if return_code != 0:
-                        rich_print(f"[yellow]Exit code: {return_code}[/yellow]")
-                    print()
-                except Exception as e:
-                    rich_print(f"[red]Shell error: {e}[/red]")
+                if return_code != 0:
+                    rich_print(f"[yellow]Exit code: {return_code}[/yellow]")
+                print()
 
                 shell_execute_cmd = None
                 continue

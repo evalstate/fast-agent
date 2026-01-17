@@ -1,6 +1,7 @@
 """Main CLI entry point for MCP Agent."""
 
 import importlib
+import os
 
 import click
 import typer
@@ -9,6 +10,7 @@ from typer.core import TyperGroup
 
 from fast_agent.cli.constants import normalize_resume_flag_args
 from fast_agent.cli.terminal import Application
+from fast_agent.constants import FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.ui.console import console as shared_console
 
 LAZY_SUBCOMMANDS: dict[str, str] = {
@@ -123,6 +125,14 @@ def main(
 
     Use --help with any command for detailed usage information.
     """
+    if os.getenv(FAST_AGENT_SHELL_CHILD_ENV):
+        typer.echo(
+            "fast-agent is already running inside a fast-agent shell command. "
+            "Exit the shell or unset FAST_AGENT_SHELL_CHILD to continue.",
+            err=True,
+        )
+        raise typer.Exit(1)
+
     application.verbosity = 1 if verbose else 0 if not quiet else -1
     if not color:
         # Recreate consoles without color when --no-color is provided
