@@ -148,6 +148,9 @@ class ShellSettings(BaseModel):
     warning_interval_seconds: int = 30
     """Show timeout warnings every N seconds (default: 30s)"""
 
+    interactive_use_pty: bool = True
+    """Use a PTY for interactive prompt shell commands to preserve colors and interactivity."""
+
     model_config = ConfigDict(extra="ignore")
 
     @field_validator("timeout_seconds", mode="before")

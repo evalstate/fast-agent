@@ -36,7 +36,9 @@ anthropic:
 # length of time before terminating subprocess
 #  timeout_seconds: 20
 # warning interval if no output seen
-#  warning_seconds: 5
+#  warning_interval_seconds: 5
+# use a PTY for interactive prompt shell commands (colors, full-screen tools)
+#  interactive_use_pty: true
 
 # Logging and Console Configuration:
 logger:
