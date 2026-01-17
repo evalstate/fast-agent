@@ -3,21 +3,23 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""
-Extract PR review comments and file evolution from a GitHub Pull Request.
+"""Extract PR review comments and file evolution from a GitHub Pull Request.
 
 Outputs structured data for LLM analysis of writing style improvements.
 
 Usage:
-    uv run extract_pr_reviews.py <pr_url>
-    uv run extract_pr_reviews.py <pr_url> --diff      # Show first→final for LLM comparison
-    uv run extract_pr_reviews.py <pr_url> --json      # Raw JSON output
-    
+    uv run scripts/extract_pr_reviews.py <pr_url>
+    uv run scripts/extract_pr_reviews.py <pr_url> --diff      # Show first→final for LLM comparison
+    uv run scripts/extract_pr_reviews.py <pr_url> --json      # Raw JSON output
+
 Examples:
-    uv run extract_pr_reviews.py https://github.com/huggingface/blog/pull/3029
-    uv run extract_pr_reviews.py huggingface/blog 3029 --diff
+    uv run scripts/extract_pr_reviews.py https://github.com/huggingface/blog/pull/3029
+    uv run scripts/extract_pr_reviews.py huggingface/blog 3029 --diff
 """
 
+from __future__ import annotations
+
+import argparse
 import json
 import re
 import subprocess
@@ -27,26 +29,33 @@ from typing import Optional
 from urllib.parse import quote, urlparse
 
 
+# -----------------
+# Data structures
+# -----------------
+
+
 @dataclass
 class ReviewComment:
     """A single review comment or suggestion."""
+
     id: int
     reviewer: str
     path: str
     original_line: Optional[int]
     original_text: str
     comment_type: str  # "suggestion", "feedback", or "reply"
-    suggestion_text: Optional[str]
-    comment_text: str
-    commit_id: str
-    created_at: str
-    html_url: str
+    suggestion_texts: list[str] = field(default_factory=list)  # supports multiple suggestion blocks
+    comment_text: str = ""
+    commit_id: str = ""
+    created_at: str = ""
+    html_url: str = ""
     in_reply_to_id: Optional[int] = None
 
 
 @dataclass
 class FileEvolution:
     """Track a file's content from first to final version."""
+
     final_path: str
     all_paths: list[str]  # All names this file had during the PR
     first_content: Optional[str] = None
@@ -58,6 +67,7 @@ class FileEvolution:
 @dataclass
 class PRReviewData:
     """Complete review data for a PR."""
+
     owner: str
     repo: str
     pr_number: int
@@ -68,7 +78,12 @@ class PRReviewData:
     files: list[dict]
     comments: list[ReviewComment]
     commit_history: list[dict]
-    file_evolutions: dict = field(default_factory=dict)
+    file_evolutions: dict[str, FileEvolution] = field(default_factory=dict)
+
+
+# -----------------
+# gh helpers
+# -----------------
 
 
 def run_gh(args: list[str], check: bool = True) -> dict | list | str:
@@ -85,6 +100,29 @@ def run_gh(args: list[str], check: bool = True) -> dict | list | str:
         return result.stdout
 
 
+def run_gh_jsonlines(args: list[str], check: bool = True) -> list[dict]:
+    """Run gh command that prints one JSON object per line; return list of objects."""
+    cmd = ["gh"] + args
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        if check:
+            raise subprocess.CalledProcessError(result.returncode, cmd, result.stdout, result.stderr)
+        return []
+
+    out: list[dict] = []
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        out.append(json.loads(line))
+    return out
+
+
+# -----------------
+# Parsing helpers
+# -----------------
+
+
 def parse_pr_url(url_or_args: list[str]) -> tuple[str, str, int]:
     """Parse PR URL or owner/repo + number into components."""
     if len(url_or_args) == 1:
@@ -94,82 +132,139 @@ def parse_pr_url(url_or_args: list[str]) -> tuple[str, str, int]:
         if len(parts) >= 4 and parts[2] in ("pull", "pulls"):
             return parts[0], parts[1], int(parts[3])
         raise ValueError(f"Invalid PR URL: {url}")
-    elif len(url_or_args) == 2:
+
+    if len(url_or_args) == 2:
         owner_repo, pr_num = url_or_args
         if "/" in owner_repo:
             owner, repo = owner_repo.split("/", 1)
             return owner, repo, int(pr_num)
         raise ValueError(f"Expected owner/repo format: {owner_repo}")
-    else:
-        raise ValueError("Expected PR URL or 'owner/repo pr_number'")
+
+    if len(url_or_args) == 3:
+        owner, repo, pr_num = url_or_args
+        return owner, repo, int(pr_num)
+
+    raise ValueError("Expected PR URL or 'owner/repo pr_number'")
+
+
+def normalize_newlines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def extract_original_from_diff_hunk(diff_hunk: str, num_lines: int = 1) -> str:
-    """Extract the original text that a comment targets from a diff hunk."""
+    """Extract the original text a comment targets from a diff hunk.
+
+    For PR review comments, GitHub provides the diff hunk. Inline comments are
+    typically anchored to the added lines, so we extract the last N added lines.
+    """
+
     if not diff_hunk:
         return ""
-    lines = diff_hunk.split("\n")
-    added_lines = []
+
+    lines = normalize_newlines(diff_hunk).split("\n")
+    added_lines: list[str] = []
     for line in lines:
         if line.startswith("+") and not line.startswith("+++"):
             added_lines.append(line[1:])
-    if added_lines:
-        return "\n".join(added_lines[-num_lines:]) if num_lines > 1 else added_lines[-1]
-    return ""
+
+    if not added_lines:
+        return ""
+
+    num_lines = max(1, num_lines)
+    if num_lines == 1:
+        return added_lines[-1]
+    return "\n".join(added_lines[-num_lines:])
 
 
-def parse_suggestion(body: str) -> Optional[str]:
-    """Parse suggestion text from a ```suggestion code block."""
-    pattern = r"```suggestion\s*\n(.*?)```"
-    match = re.search(pattern, body, re.DOTALL)
-    if match:
-        return match.group(1).rstrip("\n")
-    return None
+_SUGGESTION_BLOCK_RE = re.compile(
+    r"```suggestion(?:[^\n`]*)?\s*\n(.*?)```", re.DOTALL
+)
 
 
-def count_suggestion_lines(body: str) -> int:
+def parse_suggestions(body: str) -> list[str]:
+    """Extract all ```suggestion blocks from a comment body.
+
+    Supports GitHub variants like:
+    - ```suggestion
+    - ```suggestion:-0+1
+    and returns *all* suggestion blocks found.
+    """
+
+    if not body:
+        return []
+
+    body = normalize_newlines(body)
+
+    suggestions: list[str] = []
+    for m in _SUGGESTION_BLOCK_RE.finditer(body):
+        s = m.group(1)
+        # Keep internal newlines but strip trailing whitespace/newlines
+        s = normalize_newlines(s).rstrip()
+        suggestions.append(s)
+
+    return suggestions
+
+
+def count_suggestion_lines(suggestion_text: str) -> int:
     """Count how many lines a suggestion replaces."""
-    suggestion = parse_suggestion(body)
-    if suggestion:
-        return len(suggestion.split("\n"))
-    return 1
+
+    if not suggestion_text:
+        return 1
+    return len(normalize_newlines(suggestion_text).split("\n"))
+
+
+# -----------------
+# Content helpers
+# -----------------
 
 
 def get_file_content_at_ref(owner: str, repo: str, path: str, ref: str) -> Optional[str]:
     """Get file content at a specific ref using the contents API."""
-    encoded_path = quote(path, safe='')
-    
+
+    encoded_path = quote(path, safe="")
     result = subprocess.run(
-        ["gh", "api", f"repos/{owner}/{repo}/contents/{encoded_path}?ref={ref}",
-         "-H", "Accept: application/vnd.github.raw"],
-        capture_output=True, text=True, check=False
+        [
+            "gh",
+            "api",
+            f"repos/{owner}/{repo}/contents/{encoded_path}?ref={ref}",
+            "-H",
+            "Accept: application/vnd.github.raw",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
-    
+
     if result.returncode == 0 and result.stdout:
         return result.stdout
     return None
 
 
 def trace_file_through_commits(owner: str, repo: str, commits: list[dict], final_path: str) -> list[str]:
+    """Trace a file backwards through commits to find all names it had.
+
+    Returns a list of paths from oldest name to newest.
     """
-    Trace a file backwards through commits to find all names it had.
-    Returns list of paths from oldest name to newest.
-    """
+
     paths = [final_path]
     current_path = final_path
-    
-    # Check each commit in reverse order for renames
+
+    # Check each commit in reverse order for renames.
     for commit in reversed(commits):
         sha = commit["sha"]
-        # Get files changed in this commit
-        files = run_gh([
-            "api", f"repos/{owner}/{repo}/commits/{sha}",
-            "--jq", "[.files[] | {filename, previous_filename, status}]"
-        ], check=False)
-        
+        files = run_gh(
+            [
+                "api",
+                f"repos/{owner}/{repo}/commits/{sha}",
+                "--jq",
+                "[.files[] | {filename, previous_filename, status}]",
+            ],
+            check=False,
+        )
+
         if not files or not isinstance(files, list):
             continue
-            
+
         for f in files:
             if f.get("filename") == current_path and f.get("previous_filename"):
                 prev = f["previous_filename"]
@@ -177,191 +272,250 @@ def trace_file_through_commits(owner: str, repo: str, commits: list[dict], final
                     paths.insert(0, prev)
                 current_path = prev
                 break
-    
+
     return paths
 
 
-def find_first_content(owner: str, repo: str, commits: list[dict], paths: list[str]) -> tuple[Optional[str], Optional[str]]:
+def find_first_content(
+    owner: str, repo: str, commits: list[dict], paths: list[str]
+) -> tuple[Optional[str], Optional[str]]:
     """Find the first version of a file, trying all known paths at each commit."""
+
     if not commits:
         return None, None
-    
-    # Try each commit from first onwards until we find the file
+
     for commit in commits:
         sha = commit["sha"]
         for path in paths:
             content = get_file_content_at_ref(owner, repo, path, sha)
             if content:
                 return content, sha[:7]
-    
+
     return None, None
+
+
+# -----------------
+# Main fetch
+# -----------------
 
 
 def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool = False) -> PRReviewData:
     """Fetch all review data for a PR."""
+
     repo_ref = f"{owner}/{repo}"
-    
-    # Get PR metadata
-    pr_info = run_gh([
-        "pr", "view", str(pr_number),
-        "--repo", repo_ref,
-        "--json", "title,state,headRefOid,files"
-    ])
-    
-    # Get commits in order
-    commits = run_gh([
-        "api", f"repos/{repo_ref}/pulls/{pr_number}/commits",
-        "--jq", "[.[] | {sha: .sha, message: .commit.message, date: .commit.author.date}]"
-    ])
-    
-    # Get all review comments
-    raw_comments = run_gh([
-        "api", f"repos/{repo_ref}/pulls/{pr_number}/comments"
-    ])
-    
-    # Process comments
-    comments = []
+
+    pr_info = run_gh(
+        [
+            "pr",
+            "view",
+            str(pr_number),
+            "--repo",
+            repo_ref,
+            "--json",
+            "title,state,headRefOid,files",
+        ]
+    )
+
+    # Paginated commits in order (JSON-lines).
+    commits = run_gh_jsonlines(
+        [
+            "api",
+            f"repos/{repo_ref}/pulls/{pr_number}/commits",
+            "--paginate",
+            "--jq",
+            ".[] | {sha: .sha, message: .commit.message, date: .commit.author.date}",
+        ]
+    )
+
+    # Paginated review comments.
+    raw_comments = run_gh_jsonlines(
+        [
+            "api",
+            f"repos/{repo_ref}/pulls/{pr_number}/comments",
+            "--paginate",
+            "--jq",
+            ".[]",
+        ]
+    )
+
+    comments: list[ReviewComment] = []
     for c in raw_comments:
-        body = c.get("body", "")
-        suggestion = parse_suggestion(body)
-        num_lines = count_suggestion_lines(body) if suggestion else 1
-        original_text = extract_original_from_diff_hunk(c.get("diff_hunk", ""), num_lines)
-        
-        if suggestion:
+        body = c.get("body", "") or ""
+        suggestion_texts = parse_suggestions(body)
+        clean_body = normalize_newlines(body).strip()
+
+        if suggestion_texts:
             comment_type = "suggestion"
+            # Remove suggestion fences from reviewer note output.
+            clean_body = normalize_newlines(_SUGGESTION_BLOCK_RE.sub("", body)).strip()
+            # For extracting original text, use the *largest* suggestion block length.
+            num_lines = max(count_suggestion_lines(s) for s in suggestion_texts)
         elif c.get("in_reply_to_id"):
             comment_type = "reply"
+            num_lines = 1
         else:
             comment_type = "feedback"
-        
-        comment = ReviewComment(
-            id=c["id"],
-            reviewer=c["user"]["login"],
-            path=c["path"],
-            original_line=c.get("original_line"),
-            original_text=original_text,
-            comment_type=comment_type,
-            suggestion_text=suggestion,
-            comment_text=body,
-            commit_id=c["commit_id"][:7],
-            created_at=c["created_at"],
-            html_url=c["html_url"],
-            in_reply_to_id=c.get("in_reply_to_id")
+            num_lines = 1
+
+        original_text = extract_original_from_diff_hunk(c.get("diff_hunk", "") or "", num_lines)
+
+        comments.append(
+            ReviewComment(
+                id=c["id"],
+                reviewer=c["user"]["login"],
+                path=c.get("path") or "",
+                original_line=c.get("original_line"),
+                original_text=original_text,
+                comment_type=comment_type,
+                suggestion_texts=suggestion_texts,
+                comment_text=clean_body,
+                commit_id=(c.get("commit_id") or "")[:7],
+                created_at=c.get("created_at") or "",
+                html_url=c.get("html_url") or "",
+                in_reply_to_id=c.get("in_reply_to_id"),
+            )
         )
-        comments.append(comment)
-    
+
     comments.sort(key=lambda x: x.created_at)
-    
-    # Get files changed (final state)
-    files = run_gh([
-        "api", f"repos/{repo_ref}/pulls/{pr_number}/files",
-        "--jq", "[.[] | {filename: .filename, previous_filename: .previous_filename, status: .status}]"
-    ])
-    
+
+    # Paginated PR files.
+    files = run_gh_jsonlines(
+        [
+            "api",
+            f"repos/{repo_ref}/pulls/{pr_number}/files",
+            "--paginate",
+            "--jq",
+            ".[] | {filename: .filename, previous_filename: .previous_filename, status: .status}",
+        ]
+    )
+
     first_commit_sha = commits[0]["sha"] if commits else ""
     head_sha = pr_info.get("headRefOid", commits[-1]["sha"] if commits else "")
-    
-    file_evolutions = {}
-    
+
+    file_evolutions: dict[str, FileEvolution] = {}
     if track_evolution:
-        # Track text files through their evolution
         for f in files:
             final_path = f["filename"]
-            
-            # Only track text files
-            if not any(final_path.endswith(ext) for ext in ('.md', '.txt', '.rst', '.mdx')):
+
+            # Only track text files.
+            if not any(final_path.endswith(ext) for ext in (".md", ".txt", ".rst", ".mdx")):
                 continue
-            
-            # Trace file through commits to find all historical names
+
             all_paths = trace_file_through_commits(owner, repo, commits, final_path)
-            
-            # Also add previous_filename from PR files endpoint if present
+
+            # Also include previous_filename from PR files endpoint if present.
             if f.get("previous_filename") and f["previous_filename"] not in all_paths:
                 all_paths.insert(0, f["previous_filename"])
-            
-            # Add paths from comments that reference this file
+
+            # Add paths from comments that reference this file (best-effort).
             for c in comments:
-                if c.path not in all_paths:
-                    # Check if comment path shares basename with any known path
+                if c.path and c.path not in all_paths:
                     c_base = c.path.split("/")[-1]
-                    for p in all_paths:
-                        if c_base == p.split("/")[-1]:
-                            all_paths.append(c.path)
-                            break
-            
-            # Dedupe while preserving order
+                    if any(c_base == p.split("/")[-1] for p in all_paths):
+                        all_paths.append(c.path)
+
+            # Dedupe while preserving order.
             all_paths = list(dict.fromkeys(all_paths))
-            
+
             evo = FileEvolution(final_path=final_path, all_paths=all_paths)
-            
-            # Get first version (try all paths)
             evo.first_content, evo.first_commit = find_first_content(owner, repo, commits, all_paths)
-            
-            # Get final version
             evo.final_content = get_file_content_at_ref(owner, repo, final_path, head_sha)
-            evo.final_commit = head_sha[:7]
-            
+            evo.final_commit = head_sha[:7] if head_sha else None
+
             file_evolutions[final_path] = evo
-    
+
     return PRReviewData(
         owner=owner,
         repo=repo,
         pr_number=pr_number,
         title=pr_info["title"],
         state=pr_info["state"],
-        first_commit_sha=first_commit_sha[:7],
-        head_sha=head_sha[:7],
+        first_commit_sha=first_commit_sha[:7] if first_commit_sha else "",
+        head_sha=head_sha[:7] if head_sha else "",
         files=files,
         comments=comments,
         commit_history=commits,
-        file_evolutions=file_evolutions
+        file_evolutions=file_evolutions,
     )
+
+
+# -----------------
+# Output formatting
+# -----------------
+
+
+def fenced_block(text: str, lang: str = "text") -> str:
+    text = text or ""
+    text = normalize_newlines(text).rstrip("\n")
+    return f"```{lang}\n{text}\n```"
+
+
+
+
+def maybe_truncate_text(text: str, limit: int | None) -> str:
+    if not limit or limit <= 0 or len(text) <= limit:
+        return text
+    truncated = text[: max(0, limit - 1)].rstrip()
+    return f"{truncated}\n\n...[truncated {len(text) - len(truncated)} chars]"
 
 
 def format_suggestions_and_feedback(data: PRReviewData) -> str:
     """Format just the suggestions and feedback (no file content)."""
-    lines = []
+
+    lines: list[str] = []
     lines.append(f"# PR Review Analysis: {data.title}")
     lines.append(f"**PR:** {data.owner}/{data.repo}#{data.pr_number}")
     lines.append(f"**State:** {data.state}")
     lines.append(f"**Commits:** {len(data.commit_history)} total")
     lines.append("")
-    
+
     # Files
     lines.append("## Files Changed")
     for f in data.files:
         prev = f.get("previous_filename")
+        status = f.get("status", "modified")
         if prev:
-            lines.append(f"- {f['filename']} ← *renamed from {prev}*")
+            lines.append(f"- {f['filename']} ({status}) ← *renamed from {prev}*")
         else:
-            lines.append(f"- {f['filename']} ({f['status']})")
+            lines.append(f"- {f['filename']} ({status})")
     lines.append("")
-    
+
     # Suggestions
     suggestions = [c for c in data.comments if c.comment_type == "suggestion"]
     if suggestions:
-        lines.append(f"## Writing Suggestions ({len(suggestions)})")
+        total_suggestions = sum(len(c.suggestion_texts) for c in suggestions)
+        lines.append(f"## Writing Suggestions ({total_suggestions})")
         lines.append("")
-        
-        reviewers = {}
+
+        reviewers: dict[str, list[ReviewComment]] = {}
         for s in suggestions:
             reviewers.setdefault(s.reviewer, []).append(s)
-        
+
         for reviewer, items in reviewers.items():
-            lines.append(f"### @{reviewer} ({len(items)} suggestions)")
+            reviewer_total = sum(len(c.suggestion_texts) for c in items)
+            lines.append(f"### @{reviewer} ({reviewer_total} suggestions)")
             lines.append("")
-            for i, s in enumerate(items, 1):
-                lines.append(f"**{i}. Line {s.original_line or '?'}** (`{s.path}`)")
-                lines.append("")
-                lines.append("Original:")
-                for line in s.original_text.split("\n"):
-                    lines.append(f"> {line}")
-                lines.append("")
-                lines.append("Suggested:")
-                for line in (s.suggestion_text or "").split("\n"):
-                    lines.append(f"> {line}")
-                lines.append("")
-    
+
+            idx = 1
+            for c in items:
+                for s_text in c.suggestion_texts:
+                    lines.append(f"**{idx}. Line {c.original_line or '?'}** (`{c.path}`)")
+                    lines.append("")
+                    lines.append("Original:")
+                    lines.append(fenced_block(c.original_text, "text"))
+                    lines.append("")
+                    lines.append("Suggested:")
+                    lines.append(fenced_block(s_text, "text"))
+                    lines.append("")
+                    if c.comment_text and c.comment_type == "suggestion":
+                        lines.append("Reviewer note:")
+                        lines.append(c.comment_text.strip())
+                        lines.append("")
+                    if c.html_url:
+                        lines.append(f"[View on GitHub]({c.html_url})")
+                        lines.append("")
+                    idx += 1
+
     # Feedback
     feedback = [c for c in data.comments if c.comment_type == "feedback"]
     if feedback:
@@ -372,40 +526,61 @@ def format_suggestions_and_feedback(data: PRReviewData) -> str:
             lines.append("")
             lines.append(c.comment_text)
             lines.append("")
-            lines.append(f"[View on GitHub]({c.html_url})")
-            lines.append("")
-    
+            if c.html_url:
+                lines.append(f"[View on GitHub]({c.html_url})")
+                lines.append("")
+
     return "\n".join(lines)
 
 
-def format_diff_comparison(data: PRReviewData) -> str:
+def format_diff_comparison(data: PRReviewData, max_file_chars: int | None = None) -> str:
     """Format for LLM paragraph-by-paragraph comparison."""
-    lines = []
+
+    lines: list[str] = []
     lines.append(f"# PR Style Analysis: {data.title}")
     lines.append(f"**PR:** {data.owner}/{data.repo}#{data.pr_number}")
     lines.append("")
-    
-    # First: the explicit suggestions (these are precise before/after)
+
+    # Explicit suggestions
     suggestions = [c for c in data.comments if c.comment_type == "suggestion"]
     if suggestions:
         lines.append("## Explicit Suggestions (exact before → after)")
         lines.append("")
-        for i, s in enumerate(suggestions, 1):
-            lines.append(f"### {i}. @{s.reviewer}")
-            lines.append(f"**Before:** {s.original_text}")
-            lines.append(f"**After:** {s.suggestion_text}")
-            lines.append("")
-    
-    # Second: the feedback comments (context for what reviewers asked for)
+
+        k = 1
+        for c in suggestions:
+            for s_text in c.suggestion_texts:
+                lines.append(f"### {k}. @{c.reviewer}")
+                lines.append(f"**Path:** `{c.path}`  ")
+                lines.append(f"**Line:** {c.original_line or '?'}")
+                lines.append("")
+                lines.append("**Before:**")
+                lines.append(fenced_block(c.original_text, "text"))
+                lines.append("")
+                lines.append("**After:**")
+                lines.append(fenced_block(s_text, "text"))
+                lines.append("")
+                if c.comment_text:
+                    lines.append("**Reviewer note:**")
+                    lines.append(c.comment_text.strip())
+                    lines.append("")
+                if c.html_url:
+                    lines.append(f"[View on GitHub]({c.html_url})")
+                    lines.append("")
+                k += 1
+
+    # Feedback
     feedback = [c for c in data.comments if c.comment_type == "feedback"]
     if feedback:
         lines.append("## Reviewer Feedback (requests without explicit replacement)")
         lines.append("")
         for i, c in enumerate(feedback, 1):
-            lines.append(f"{i}. **@{c.reviewer}**: {c.comment_text}")
+            lines.append(f"{i}. **@{c.reviewer}** ({c.path}:{c.original_line or '?'})")
             lines.append("")
-    
-    # Third: full file comparison for each text file
+            lines.append(c.comment_text)
+            lines.append("")
+
+    # File evolution
     if data.file_evolutions:
         lines.append("---")
         lines.append("")
@@ -413,58 +588,81 @@ def format_diff_comparison(data: PRReviewData) -> str:
         lines.append("")
         lines.append("*Compare paragraph-by-paragraph to see how the author responded to feedback.*")
         lines.append("")
-        
+
         for path, evo in data.file_evolutions.items():
             if not evo.first_content and not evo.final_content:
                 continue
-            
+
             lines.append(f"### {path}")
             if len(evo.all_paths) > 1:
-                lines.append(f"*File was renamed: {" → ".join(evo.all_paths)}*")
+                lines.append(f"*File was renamed: {' → '.join(evo.all_paths)}*")
             lines.append("")
-            
+
             if evo.first_content:
                 lines.append(f"#### FIRST DRAFT ({evo.first_commit})")
-                lines.append("```markdown")
-                lines.append(evo.first_content)
-                lines.append("```")
+                lines.append(
+                    fenced_block(
+                        maybe_truncate_text(evo.first_content, max_file_chars),
+                        "markdown",
+                    )
+                )
                 lines.append("")
-            
+
             if evo.final_content:
                 lines.append(f"#### FINAL VERSION ({evo.final_commit})")
-                lines.append("```markdown")
-                lines.append(evo.final_content)
-                lines.append("```")
+                lines.append(
+                    fenced_block(
+                        maybe_truncate_text(evo.final_content, max_file_chars),
+                        "markdown",
+                    )
+                )
                 lines.append("")
-    
+
     return "\n".join(lines)
 
 
-def main():
+# -----------------
+# CLI
+# -----------------
+
+
+def parse_cli_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Extract GitHub PR review data")
+    parser.add_argument("target", nargs="+", help="PR URL or 'owner/repo pr_number'")
+    parser.add_argument("--diff", action="store_true", help="Include file evolution output")
+    parser.add_argument("--json", action="store_true", help="Emit raw JSON instead of Markdown")
+    parser.add_argument("--max-file-chars", type=int, default=None, help="Trim FIRST/FINAL dumps to this many characters per file")
+    parser.add_argument("--no-files", action="store_true", help="Skip file evolution even when --diff is set")
+    return parser.parse_args(argv)
+
+
+
+def main() -> None:
     if len(sys.argv) < 2:
         print(__doc__)
         sys.exit(1)
-    
-    args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    output_json = "--json" in sys.argv
-    show_diff = "--diff" in sys.argv
-    
+
+    args = parse_cli_args(sys.argv[1:])
+
+    if len(args.target) > 3:
+        print("Error: Expected PR URL or 'owner/repo pr_number'", file=sys.stderr)
+        sys.exit(1)
+
     try:
-        owner, repo, pr_number = parse_pr_url(args)
+        owner, repo, pr_number = parse_pr_url(args.target)
     except ValueError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
-    
-    # --diff implies we need evolution tracking
-    track_evolution = show_diff
-    
+
+    track_evolution = args.diff and not args.no_files
+
     try:
         data = fetch_pr_data(owner, repo, pr_number, track_evolution=track_evolution)
     except subprocess.CalledProcessError as e:
         print(f"Error fetching PR data: {e.stderr}", file=sys.stderr)
         sys.exit(1)
-    
-    if output_json:
+
+    if args.json:
         output = {
             "owner": data.owner,
             "repo": data.repo,
@@ -488,11 +686,15 @@ def main():
                 }
                 for path, evo in data.file_evolutions.items()
             }
+
         print(json.dumps(output, indent=2))
-    elif show_diff:
-        print(format_diff_comparison(data))
-    else:
-        print(format_suggestions_and_feedback(data))
+        return
+
+    if args.diff:
+        print(format_diff_comparison(data, max_file_chars=args.max_file_chars))
+        return
+
+    print(format_suggestions_and_feedback(data))
 
 
 if __name__ == "__main__":

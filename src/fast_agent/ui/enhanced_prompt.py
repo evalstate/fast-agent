@@ -8,6 +8,7 @@ import os
 import shlex
 import subprocess
 import tempfile
+import time
 from collections.abc import Callable, Iterable
 from importlib.metadata import version
 from pathlib import Path
@@ -80,6 +81,10 @@ in_multiline_mode = False
 
 # Track last copyable output (shell output or assistant response)
 _last_copyable_output: str | None = None
+
+# Track transient copy notice for the toolbar.
+_copy_notice: str | None = None
+_copy_notice_until: float = 0.0
 
 
 def set_last_copyable_output(output: str) -> None:
@@ -1216,13 +1221,22 @@ def create_keybindings(
         """Ctrl+Y: Copy last output (shell or assistant) to clipboard."""
         global _last_copyable_output
 
+        def _show_copy_notice() -> None:
+            global _copy_notice, _copy_notice_until
+            _copy_notice = "COPIED"
+            _copy_notice_until = time.monotonic() + 2.0
+            if event.app:
+                event.app.invalidate()
+            else:
+                rich_print("\n[green]✓ Copied to clipboard[/green]")
+
         # Priority 1: Last shell/copyable output if set
         if _last_copyable_output:
             try:
                 import pyperclip
 
                 pyperclip.copy(_last_copyable_output)
-                rich_print("\n[green]✓ Copied to clipboard[/green]")
+                _show_copy_notice()
                 return
             except Exception:
                 pass
@@ -1240,7 +1254,7 @@ def create_keybindings(
                         import pyperclip
 
                         pyperclip.copy(content)
-                        rich_print("\n[green]✓ Copied to clipboard[/green]")
+                        _show_copy_notice()
                         return
             except Exception:
                 pass
@@ -1547,6 +1561,7 @@ async def get_enhanced_input(
 
     # Define toolbar function that will update dynamically
     def get_toolbar():
+        global _copy_notice
         if in_multiline_mode:
             mode_style = "ansired"  # More noticeable for multiline mode
             mode_text = "MULTILINE"
@@ -1710,17 +1725,27 @@ async def get_enhanced_input(
                 heading = "event" if total_events == 1 else "events"
                 notification_segment = f" | ◀ {total_events} {heading} ({summary})"
 
+        copy_notice = ""
+        if _copy_notice:
+            if time.monotonic() < _copy_notice_until:
+                copy_notice = (
+                    f" | <style fg='{mode_style}' bg='ansiblack'> {_copy_notice} </style>"
+                )
+            else:
+                # Expire the notice once the timer elapses.
+                _copy_notice = None
+
         if middle:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f" {middle} | <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}{notification_segment}"
+                f"{version_segment}{notification_segment}{copy_notice}"
             )
         else:
             return HTML(
                 f" <style fg='{toolbar_color}' bg='ansiblack'> {agent_name} </style> "
                 f"Mode: <style fg='{mode_style}' bg='ansiblack'> {mode_text} </style> | "
-                f"{version_segment}{notification_segment}"
+                f"{version_segment}{notification_segment}{copy_notice}"
             )
 
     # A more terminal-agnostic style that should work across themes

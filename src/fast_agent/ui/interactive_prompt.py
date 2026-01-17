@@ -893,17 +893,38 @@ class InteractivePrompt:
                 import os
                 import signal
                 import subprocess
+                import sys
 
                 print(f"$ {shell_execute_cmd}", flush=True)
                 try:
                     # Inherit stdio directly for real-time output (no Python buffering)
                     # Run in its own process group so Ctrl+C can interrupt the child.
+                    output_buffer = ""
+                    max_output_chars = 50000
                     proc = subprocess.Popen(
                         shell_execute_cmd,
                         shell=True,
                         start_new_session=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True,
+                        bufsize=1,
+                        errors="replace",
                     )
+                    def _append_output(chunk: str) -> None:
+                        nonlocal output_buffer
+                        output_buffer += chunk
+                        if len(output_buffer) > max_output_chars:
+                            output_buffer = output_buffer[-max_output_chars:]
+
                     try:
+                        if proc.stdout is not None:
+                            for line in iter(proc.stdout.readline, ""):
+                                sys.stdout.write(line)
+                                sys.stdout.flush()
+                                _append_output(line)
+                                if proc.poll() is not None:
+                                    break
                         return_code = proc.wait()
                     except KeyboardInterrupt:
                         try:
@@ -919,6 +940,9 @@ class InteractivePrompt:
                                 pass
                             return_code = proc.wait()
                         rich_print("[yellow]Shell command interrupted[/yellow]")
+
+                    if output_buffer.strip():
+                        set_last_copyable_output(output_buffer.rstrip())
 
                     if return_code != 0:
                         rich_print(f"[yellow]Exit code: {return_code}[/yellow]")
