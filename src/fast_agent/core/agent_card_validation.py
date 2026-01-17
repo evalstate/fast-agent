@@ -60,6 +60,7 @@ def scan_agent_card_directory(
     directory: Path,
     *,
     server_names: set[str] | None = None,
+    extra_agent_names: set[str] | None = None,
 ) -> list[AgentCardScanResult]:
     entries: list[AgentCardScanResult] = []
     card_files = collect_agent_card_files(directory)
@@ -195,6 +196,8 @@ def scan_agent_card_directory(
         for entry in entries
         if entry.name != "—" and entry.ignored_reason is None
     }
+    if extra_agent_names:
+        available_names |= extra_agent_names
     for idx, entry in enumerate(entries):
         missing = sorted(dep for dep in entry.dependencies if dep not in available_names)
         if missing:

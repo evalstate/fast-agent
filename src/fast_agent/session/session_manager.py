@@ -190,13 +190,14 @@ class Session:
         temp_path: pathlib.Path | None = None
 
         try:
+            suffix = current_path.suffix or ".json"
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
                 delete=False,
                 dir=self.directory,
-                prefix=f".{current_filename}.",
-                suffix=".tmp",
+                prefix=f".{current_filename}.tmp.",
+                suffix=suffix,
             ) as handle:
                 temp_path = pathlib.Path(handle.name)
 

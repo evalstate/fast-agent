@@ -721,13 +721,26 @@ def show_check_summary() -> None:
         ("Tool Cards", DEFAULT_TOOL_CARDS_DIR),
     ]
     found_card_dir = False
-    for label, directory in card_directories:
+    all_card_names: set[str] = set()
+    for _, directory in card_directories:
         if not directory.is_dir():
             continue
         found_card_dir = True
+        entries = scan_agent_card_directory(directory, server_names=server_names)
+        for entry in entries:
+            if entry.name != "—" and entry.ignored_reason is None:
+                all_card_names.add(entry.name)
+
+    for label, directory in card_directories:
+        if not directory.is_dir():
+            continue
         console.print(f"{label} Directory: [green]{_relative_path(directory)}[/green]")
 
-        entries = scan_agent_card_directory(directory, server_names=server_names)
+        entries = scan_agent_card_directory(
+            directory,
+            server_names=server_names,
+            extra_agent_names=all_card_names,
+        )
         if not entries:
             console.print("[yellow]No AgentCards found in this directory[/yellow]")
             continue
