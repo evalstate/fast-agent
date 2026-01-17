@@ -220,7 +220,7 @@ async def test_agent_skills_missing_placeholder_warns(tmp_path: Path) -> None:
         await agent._apply_instruction_templates()
 
     mock_warning.assert_called_once()
-    assert "system prompt does not include {{agentSkills}}" in mock_warning.call_args[0][0]
+    assert "Agent 'test' skills are configured" in mock_warning.call_args[0][0]
 
 
 def test_skills_absolute_dir_outside_cwd(tmp_path: Path) -> None:

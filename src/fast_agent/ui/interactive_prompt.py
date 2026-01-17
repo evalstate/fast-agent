@@ -1058,25 +1058,68 @@ class InteractivePrompt:
 
                         return_code = proc.wait()
                     else:
-                        proc = subprocess.Popen(
-                            shell_execute_cmd,
-                            shell=True,
-                            start_new_session=True,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT,
-                            text=True,
-                            bufsize=1,
-                            errors="replace",
-                            env=shell_env,
-                        )
-                        if proc.stdout is not None:
-                            for line in iter(proc.stdout.readline, ""):
-                                sys.stdout.write(line)
-                                sys.stdout.flush()
-                                _append_output(line)
-                                if proc.poll() is not None:
-                                    break
-                        return_code = proc.wait()
+                        force_console = False
+                        if os.name == "nt" and sys.stdin.isatty() and sys.stdout.isatty():
+                            raw_cmd = shell_execute_cmd.strip()
+                            exe_name = ""
+                            if raw_cmd:
+                                if os.path.exists(raw_cmd):
+                                    exe_name = os.path.basename(raw_cmd).lower()
+                                else:
+                                    if raw_cmd[0] in {"'", '"'}:
+                                        quote = raw_cmd[0]
+                                        end = raw_cmd.find(quote, 1)
+                                        if end != -1:
+                                            exe_name = os.path.basename(raw_cmd[1:end]).lower()
+                                    if not exe_name:
+                                        exe_name = os.path.basename(raw_cmd.split()[0]).lower()
+                            if exe_name in {
+                                "nano",
+                                "vim",
+                                "vi",
+                                "htop",
+                                "top",
+                                "less",
+                                "more",
+                                "pwsh",
+                                "pwsh.exe",
+                                "powershell",
+                                "powershell.exe",
+                                "cmd",
+                                "cmd.exe",
+                                "bash",
+                                "zsh",
+                                "sh",
+                            }:
+                                force_console = True
+
+                        if force_console:
+                            proc = subprocess.Popen(
+                                shell_execute_cmd,
+                                shell=True,
+                                env=shell_env,
+                            )
+                            return_code = proc.wait()
+                        else:
+                            proc = subprocess.Popen(
+                                shell_execute_cmd,
+                                shell=True,
+                                start_new_session=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True,
+                                bufsize=1,
+                                errors="replace",
+                                env=shell_env,
+                            )
+                            if proc.stdout is not None:
+                                for line in iter(proc.stdout.readline, ""):
+                                    sys.stdout.write(line)
+                                    sys.stdout.flush()
+                                    _append_output(line)
+                                    if proc.poll() is not None:
+                                        break
+                            return_code = proc.wait()
                 except KeyboardInterrupt:
                     if proc is not None:
                         try:
