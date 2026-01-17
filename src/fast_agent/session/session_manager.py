@@ -39,6 +39,14 @@ SESSION_LOCK_FILENAME = ".session.lock"
 SESSION_LOCK_STALE_SECONDS = 300
 
 
+def display_session_name(name: str) -> str:
+    """Return a display-friendly session name without timestamp prefixes."""
+    if SESSION_ID_PATTERN.match(name) and "-" in name:
+        return name.split("-", 1)[1]
+    return name
+
+
+
 def _sanitize_component(name: str, limit: int = 100) -> str:
     """Sanitize a name for filesystem safety."""
     name = name.replace(" ", "_").replace("/", "_").replace("\\", "_")
@@ -680,6 +688,17 @@ class SessionManager:
                     sessions = sessions[:limit]
                 if ordinal <= len(sessions):
                     return sessions[ordinal - 1].name
+        sessions = self.list_sessions()
+        if any(session.name == session_name for session in sessions):
+            return session_name
+        matches = [
+            session.name
+            for session in sessions
+            if session.name.endswith(f"-{session_name}")
+            and SESSION_ID_PATTERN.match(session.name)
+        ]
+        if len(matches) == 1:
+            return matches[0]
         return session_name
 
     def _generate_session_id(self) -> str:

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from fast_agent.session.session_manager import display_session_name
+
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
@@ -30,10 +32,12 @@ def format_session_entries(
         is_current = current_session_name == session_info.name if current_session_name else False
         index_str = f"{index}.".rjust(max_index_width + 1)
 
+        display_name = display_session_name(session_info.name)
+
         if mode == "compact":
             separator = " \u25b6 " if is_current else " - "
             timestamp = session_info.last_activity.strftime("%b %d %H:%M")
-            line = f"{index_str} {session_info.name}{separator}{timestamp}"
+            line = f"{index_str} {display_name}{separator}{timestamp}"
             metadata = session_info.metadata or {}
             summary = (
                 metadata.get("title")
@@ -63,7 +67,7 @@ def format_session_entries(
         created = session_info.created_at.strftime("%Y-%m-%d %H:%M")
         last_activity = session_info.last_activity.strftime("%Y-%m-%d %H:%M")
         history_count = len(session_info.history_files)
-        lines.append(f"  {index_str} {session_info.name}{current_marker}")
+        lines.append(f"  {index_str} {display_name}{current_marker}")
         lines.append(
             f"     Created: {created} | Last: {last_activity} | Histories: {history_count}"
         )
