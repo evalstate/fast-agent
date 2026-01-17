@@ -186,7 +186,7 @@ class McpAgent(ABC, ToolAgent):
         self._shell_runtime_enabled = self._shell_runtime.enabled
         self._shell_access_modes: tuple[str, ...] = ()
         if self._shell_runtime_enabled:
-            modes: list[str] = ["[red]direct[/red]"]
+            modes: list[str] = []
             if skills_configured:
                 modes.append("skills")
             if shell_flag_requested:

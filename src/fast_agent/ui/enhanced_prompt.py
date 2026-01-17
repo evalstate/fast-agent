@@ -1891,6 +1891,32 @@ async def get_enhanced_input(
                 "[dim]Use '/' for commands, '!' for shell. '#' to query, '@' to switch agents\nCTRL+T multiline, CTRL+Y copy last message, CTRL+E external editor.[/dim]\n"
             )
 
+        if shell_enabled:
+            modes_display = ", ".join(shell_access_modes or ("direct",))
+            shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
+
+            # Add working directory info
+            if shell_runtime:
+                working_dir = shell_runtime.working_directory()
+                try:
+                    # Try to show relative to cwd for cleaner display
+                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
+                    if working_dir_display == ".":
+                        # Show last 2 parts of the path (e.g., "source/fast-agent")
+                        parts = Path.cwd().parts
+                        if len(parts) >= 2:
+                            working_dir_display = "/".join(parts[-2:])
+                        elif len(parts) == 1:
+                            working_dir_display = parts[0]
+                        else:
+                            working_dir_display = str(Path.cwd())
+                except ValueError:
+                    # If not relative to cwd, show absolute path
+                    working_dir_display = str(working_dir)
+                shell_display = f"{shell_display} | cwd: {working_dir_display}"
+
+            rich_print(f"[yellow]Agents have shell[/yellow][dim] ({shell_display})[/dim]")
+
             # Display agent info right after help text if agent_provider is available
             if agent_provider and not is_human_input:
                 if _startup_notices:
@@ -1967,32 +1993,6 @@ async def get_enhanced_input(
                                     rich_print(f"[dim]HuggingFace: {model} via {provider}[/dim]")
                         except Exception:
                             pass
-
-        if shell_enabled:
-            modes_display = ", ".join(shell_access_modes or ("direct",))
-            shell_display = f"{modes_display}, {shell_name}" if shell_name else modes_display
-
-            # Add working directory info
-            if shell_runtime:
-                working_dir = shell_runtime.working_directory()
-                try:
-                    # Try to show relative to cwd for cleaner display
-                    working_dir_display = str(working_dir.relative_to(Path.cwd()))
-                    if working_dir_display == ".":
-                        # Show last 2 parts of the path (e.g., "source/fast-agent")
-                        parts = Path.cwd().parts
-                        if len(parts) >= 2:
-                            working_dir_display = "/".join(parts[-2:])
-                        elif len(parts) == 1:
-                            working_dir_display = parts[0]
-                        else:
-                            working_dir_display = str(Path.cwd())
-                except ValueError:
-                    # If not relative to cwd, show absolute path
-                    working_dir_display = str(working_dir)
-                shell_display = f"{shell_display} | cwd: {working_dir_display}"
-
-            rich_print(f"[yellow]Shell Access ({shell_display})[/yellow]")
 
         rich_print()
         help_message_shown = True
