@@ -28,6 +28,8 @@ from dataclasses import asdict, dataclass, field
 from typing import Optional
 from urllib.parse import quote, urlparse
 
+JsonDict = dict[str, object]
+
 # -----------------
 # Data structures
 # -----------------
@@ -115,6 +117,28 @@ def run_gh_jsonlines(args: list[str], check: bool = True) -> list[dict]:
             continue
         out.append(json.loads(line))
     return out
+
+
+def _ensure_json_dict(value: object, label: str) -> JsonDict:
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected object for {label}")
+    if not all(isinstance(key, str) for key in value.keys()):
+        raise ValueError(f"Expected string keys for {label}")
+    return {str(key): val for key, val in value.items()}
+
+
+def _get_required_str(data: JsonDict, key: str) -> str:
+    value = data.get(key)
+    if isinstance(value, str):
+        return value
+    raise ValueError(f"Missing or invalid '{key}'")
+
+
+def _get_optional_str(data: JsonDict, key: str) -> Optional[str]:
+    value = data.get(key)
+    if isinstance(value, str):
+        return value
+    return None
 
 
 # -----------------
@@ -303,16 +327,19 @@ def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool =
 
     repo_ref = f"{owner}/{repo}"
 
-    pr_info = run_gh(
-        [
-            "pr",
-            "view",
-            str(pr_number),
-            "--repo",
-            repo_ref,
-            "--json",
-            "title,state,headRefOid,files",
-        ]
+    pr_info = _ensure_json_dict(
+        run_gh(
+            [
+                "pr",
+                "view",
+                str(pr_number),
+                "--repo",
+                repo_ref,
+                "--json",
+                "title,state,headRefOid,files",
+            ]
+        ),
+        "pr_info",
     )
 
     # Paginated commits in order (JSON-lines).
@@ -388,8 +415,13 @@ def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool =
         ]
     )
 
-    first_commit_sha = commits[0]["sha"] if commits else ""
-    head_sha = pr_info.get("headRefOid", commits[-1]["sha"] if commits else "")
+    first_commit_sha = commits[0].get("sha") if commits else ""
+    if not isinstance(first_commit_sha, str):
+        first_commit_sha = ""
+    head_sha = _get_optional_str(pr_info, "headRefOid")
+    if not head_sha and commits:
+        last_sha = commits[-1].get("sha")
+        head_sha = last_sha if isinstance(last_sha, str) else ""
 
     file_evolutions: dict[str, FileEvolution] = {}
     if track_evolution:
@@ -427,8 +459,8 @@ def fetch_pr_data(owner: str, repo: str, pr_number: int, track_evolution: bool =
         owner=owner,
         repo=repo,
         pr_number=pr_number,
-        title=pr_info["title"],
-        state=pr_info["state"],
+        title=_get_required_str(pr_info, "title"),
+        state=_get_required_str(pr_info, "state"),
         first_commit_sha=first_commit_sha[:7] if first_commit_sha else "",
         head_sha=head_sha[:7] if head_sha else "",
         files=files,

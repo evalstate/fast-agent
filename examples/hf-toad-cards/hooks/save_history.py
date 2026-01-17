@@ -1,5 +1,6 @@
 """Hook to save message history at the end of each turn."""
 
+from collections.abc import Iterable
 from datetime import datetime
 
 from fast_agent.hooks import HookContext
@@ -23,7 +24,11 @@ async def save_history_to_file(ctx: HookContext) -> None:
     messages = ctx.message_history
     if not messages:
         # Fall back to runner's turn messages + final response
-        messages = list(ctx.runner.delta_messages)
+        runner_messages = getattr(ctx.runner, "delta_messages", None)
+        if isinstance(runner_messages, Iterable):
+            messages = list(runner_messages)
+        else:
+            messages = []
         if ctx.message and ctx.message not in messages:
             messages.append(ctx.message)
 
