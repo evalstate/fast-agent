@@ -23,7 +23,7 @@ console = shared_console
 BASE_EXAMPLES_DIR = files("fast_agent").joinpath("resources").joinpath("examples")
 
 # Subdirectories to copy for toad-cards quickstart (used by hf-inference-acp too)
-TOAD_CARDS_SUBDIRS = ["agent-cards", "tool-cards", "skills", "shared"]
+TOAD_CARDS_SUBDIRS = ["agent-cards", "tool-cards", "skills", "shared", "hooks"]
 
 
 @dataclass
@@ -664,6 +664,7 @@ def _show_toad_cards_completion_message(created: list[str]) -> None:
         console.print("  ├── tool-cards/           # Tool card definitions")
         console.print("  ├── shared/               # Shared context snippets")
         console.print("  ├── skills/               # Agent Skills (loaded on-demand)")
+        console.print("  ├── hooks/                # Hook scripts for agent workflows")
 
         console.print("\n[bold]Next Steps:[/bold]")
         console.print("1. The cards are automatically loaded when running hf-inference-acp")
