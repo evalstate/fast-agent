@@ -515,7 +515,7 @@ requires-dist = [{ name = "fast-agent-mcp", editable = "." }]
 
 [[package]]
 name = "fast-agent-mcp"
-version = "0.4.33"
+version = "0.4.34"
 source = { editable = "." }
 dependencies = [
     { name = "a2a-sdk" },
@@ -528,6 +528,7 @@ dependencies = [
     { name = "google-genai" },
     { name = "keyring" },
     { name = "mcp" },
+    { name = "multilspy" },
     { name = "openai", extra = ["aiohttp"] },
     { name = "opentelemetry-distro" },
     { name = "opentelemetry-exporter-otlp-proto-http" },
@@ -599,6 +600,7 @@ requires-dist = [
     { name = "google-genai", specifier = ">=1.52.0" },
     { name = "keyring", specifier = ">=24.3.1" },
     { name = "mcp", specifier = "==1.25.0" },
+    { name = "multilspy", specifier = ">=0.0.15" },
     { name = "openai", extras = ["aiohttp"], specifier = ">=2.15.0" },
     { name = "opentelemetry-distro", specifier = ">=0.55b0" },
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.7.0" },
