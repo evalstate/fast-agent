@@ -629,24 +629,6 @@ class LlmDecorator(StreamingAgentMixin, AgentProtocol):
             call_params.use_history = True
 
         base_history = self._message_history if use_history else self._template_prefix_messages()
-
-        # Check for pending tool calls in history that were never answered
-        if base_history:
-            last_msg = base_history[-1]
-            if (
-                last_msg.role == "assistant"
-                and last_msg.tool_calls
-                and last_msg.stop_reason == LlmStopReason.TOOL_USE
-            ):
-                logger.error(
-                    "History ends with unanswered tool call - session may have been "
-                    "interrupted mid-turn. The LLM will likely reject this request.",
-                    data={
-                        "tool_calls": list(last_msg.tool_calls.keys()),
-                        "history_length": len(base_history),
-                    },
-                )
-
         full_history = [msg.model_copy(deep=True) for msg in base_history]
         full_history.extend(sanitized_messages)
 
