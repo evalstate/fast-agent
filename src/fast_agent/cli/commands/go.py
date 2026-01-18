@@ -13,6 +13,7 @@ import typer
 from fast_agent.cli.commands.server_helpers import add_servers_to_config, generate_server_name
 from fast_agent.cli.commands.url_parser import generate_server_configs, parse_server_urls
 from fast_agent.cli.constants import RESUME_LATEST_SENTINEL
+from fast_agent.cli.shared_options import CommonAgentOptions
 from fast_agent.constants import DEFAULT_AGENT_INSTRUCTION, FAST_AGENT_SHELL_CHILD_ENV
 from fast_agent.core.exceptions import AgentConfigError
 from fast_agent.paths import resolve_environment_paths
@@ -645,30 +646,13 @@ def go(
     instruction: str | None = typer.Option(
         None, "--instruction", "-i", help="Path to file or URL containing instruction for the agent"
     ),
-    config_path: str | None = typer.Option(None, "--config-path", "-c", help="Path to config file"),
-    servers: str | None = typer.Option(
-        None, "--servers", help="Comma-separated list of server names to enable from config"
-    ),
-    agent_cards: list[str] | None = typer.Option(
-        None,
-        "--agent-cards",
-        "--card",
-        help="Path or URL to an AgentCard file or directory (repeatable)",
-    ),
-    card_tools: list[str] | None = typer.Option(
-        None,
-        "--card-tool",
-        help="Path or URL to an AgentCard file or directory to load as tools (repeatable)",
-    ),
-    urls: str | None = typer.Option(
-        None, "--url", help="Comma-separated list of HTTP/SSE URLs to connect to"
-    ),
-    auth: str | None = typer.Option(
-        None, "--auth", help="Bearer token for authorization with URL-based servers"
-    ),
-    model: str | None = typer.Option(
-        None, "--model", "--models", help="Override the default model (e.g., haiku, sonnet, gpt-4)"
-    ),
+    config_path: str | None = CommonAgentOptions.config_path(),
+    servers: str | None = CommonAgentOptions.servers(),
+    agent_cards: list[str] | None = CommonAgentOptions.agent_cards(),
+    card_tools: list[str] | None = CommonAgentOptions.card_tools(),
+    urls: str | None = CommonAgentOptions.urls(),
+    auth: str | None = CommonAgentOptions.auth(),
+    model: str | None = CommonAgentOptions.model(),
     message: str | None = typer.Option(
         None, "--message", "-m", help="Message to send to the agent (skips interactive mode)"
     ),
@@ -681,34 +665,14 @@ def go(
         flag_value=RESUME_LATEST_SENTINEL,
         help="Resume the last session or the specified session id",
     ),
-    env_dir: Path | None = typer.Option(
-        None,
-        "--env",
-        help="Override the base fast-agent environment directory",
-    ),
-    skills_dir: Path | None = typer.Option(
-        None,
-        "--skills-dir",
-        "--skills",
-        help="Override the default skills directory",
-    ),
-    npx: str | None = typer.Option(
-        None, "--npx", help="NPX package and args to run as MCP server (quoted)"
-    ),
-    uvx: str | None = typer.Option(
-        None, "--uvx", help="UVX package and args to run as MCP server (quoted)"
-    ),
-    stdio: str | None = typer.Option(
-        None, "--stdio", help="Command to run as STDIO MCP server (quoted)"
-    ),
-    shell: bool = typer.Option(
-        False,
-        "--shell",
-        "-x",
-        help="Enable a local shell runtime and expose the execute tool (bash or pwsh).",
-    ),
+    env_dir: Path | None = CommonAgentOptions.env_dir(),
+    skills_dir: Path | None = CommonAgentOptions.skills_dir(),
+    npx: str | None = CommonAgentOptions.npx(),
+    uvx: str | None = CommonAgentOptions.uvx(),
+    stdio: str | None = CommonAgentOptions.stdio(),
+    shell: bool = CommonAgentOptions.shell(),
     reload: bool = typer.Option(False, "--reload", help="Enable manual AgentCard reloads (/reload)"),
-    watch: bool = typer.Option(False, "--watch", help="Watch AgentCard paths and reload"),
+    watch: bool = CommonAgentOptions.watch(),
 ) -> None:
     """
     Run an interactive agent directly from the command line.
