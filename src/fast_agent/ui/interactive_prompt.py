@@ -79,6 +79,7 @@ from fast_agent.ui.command_payloads import (
     SkillsCommand,
     SwitchAgentCommand,
     TitleSessionCommand,
+    UnknownCommand,
     is_command_payload,
 )
 from fast_agent.ui.enhanced_prompt import (
@@ -902,6 +903,9 @@ class InteractivePrompt:
                                 return result
 
                         rich_print("[green]AgentCards reloaded.[/green]")
+                        continue
+                    case UnknownCommand(command=command):
+                        rich_print(f"[red]Command not found: {command}[/red]")
                         continue
                     case _:
                         pass

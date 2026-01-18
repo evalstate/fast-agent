@@ -289,6 +289,26 @@ class ToolAgent(LlmAgent, _ToolLoopAgent):
         Generate a response using the LLM, and handle tool calls if necessary.
         Messages are already normalized to List[PromptMessageExtended].
         """
+        use_history = request_params.use_history if request_params is not None else True
+        has_tool_results = any(message.tool_results for message in messages)
+        if use_history and not has_tool_results:
+            history = self.message_history
+            if history:
+                last_msg = history[-1]
+                if (
+                    last_msg.role == "assistant"
+                    and last_msg.tool_calls
+                    and last_msg.stop_reason == LlmStopReason.TOOL_USE
+                ):
+                    logger.error(
+                        "History ends with unanswered tool call - session may have been "
+                        "interrupted mid-turn. The LLM will likely reject this request.",
+                        data={
+                            "tool_calls": list(last_msg.tool_calls.keys()),
+                            "history_length": len(history),
+                        },
+                    )
+
         if tools is None:
             tools = (await self.list_tools()).tools
 
